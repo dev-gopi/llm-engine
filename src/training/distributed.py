@@ -1,0 +1,2 @@
+class DistributedTrainer:
+    pass

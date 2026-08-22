@@ -1,0 +1,5 @@
+vocab_size: 50000
+hidden_size: 768
+layers: 12
+heads: 12
+max_position: 2048

@@ -1,0 +1,66 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Datasets and generated caches
+data/raw/*
+data/processed/*
+data/cache/*
+data/tokenizer/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/cache/.gitkeep
+!data/tokenizer/.gitkeep
+
+# Training checkpoints and generated model exports
+checkpoints/*
+exports/gguf/*
+exports/onnx/*
+exports/safetensors/*
+!checkpoints/.gitkeep
+!exports/gguf/.gitkeep
+!exports/onnx/.gitkeep
+!exports/safetensors/.gitkeep
+
+# Logs and local experiment tracking
+*.log
+runs/
+wandb/
+mlruns/
+
+# Model and tensor artifacts
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.gguf
+*.npz

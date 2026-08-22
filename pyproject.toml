@@ -1,0 +1,4 @@
+[project]
+name = "llm-engine"
+version = "0.1.0"
+dependencies = ["torch","pyyaml","fastapi","uvicorn","safetensors"]
