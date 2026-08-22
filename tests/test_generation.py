@@ -34,7 +34,11 @@ class PredictBThenEos(nn.Module):
         logits = torch.full((*token_ids.shape, self.vocab_size), -100.0, device=token_ids.device)
         next_id = self.b_id if past_key_values is None else self.eos_id
         logits[:, -1, next_id] = 100.0
-        return (logits, ("cache",)) if use_cache else logits
+        if use_cache:
+            length = token_ids.shape[1] + (past_key_values[0][0].shape[2] if past_key_values else 0)
+            cache = torch.zeros((1, 1, length, 1), device=token_ids.device)
+            return logits, ((cache, cache.clone()),)
+        return logits
 
 
 def test_generator_connects_tokenizer_model_sampler_and_decoder() -> None:
@@ -51,6 +55,15 @@ def test_generator_connects_tokenizer_model_sampler_and_decoder() -> None:
     assert result.prompt_tokens == 2
     assert result.finish_reason == "stop"
     assert len(result.token_ids) == 1
+
+
+def test_generator_stream_yields_before_final_event() -> None:
+    tokenizer = make_tokenizer()
+    model = PredictBThenEos(tokenizer.vocab_size, tokenizer.token_to_id(BYTE_ENCODER[ord("b")]), tokenizer.token_to_id("<|eos|>"))
+    events = list(Generator(model, tokenizer, device="cpu").stream("a", max_tokens=4, temperature=0))
+    assert events[0].token == "b"
+    assert events[0].finish_reason is None
+    assert events[-1].finish_reason == "stop"
 
 
 def test_sampler_supports_greedy_and_seeded_sampling() -> None:

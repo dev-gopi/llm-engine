@@ -24,6 +24,7 @@ class FinishReason(str, Enum):
 
 class GenerateRequest(StrictSchema):
     prompt: NonEmptyText = Field(max_length=131_072)
+    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
     max_tokens: int = Field(default=512, ge=1, le=8_192)
     temperature: float = Field(default=0.8, ge=0.0, le=2.0, allow_inf_nan=False)
     top_k: int = Field(default=40, ge=0, le=100_000)

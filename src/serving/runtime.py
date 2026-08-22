@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -87,6 +88,9 @@ class ServingRuntime:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self.active_requests = 0
         self.total_requests = 0
+        self.completed_requests = 0
+        self.failed_requests = 0
+        self.total_generation_seconds = 0.0
 
     @property
     def ready(self) -> bool:
@@ -105,26 +109,50 @@ class ServingRuntime:
         if not self.ready:
             raise BackendUnavailableError("generation backend is not ready")
         await self._acquire()
+        started = time.monotonic()
         try:
             async with asyncio.timeout(self.generation_timeout_seconds):
-                return await self.backend.generate(request)
+                result = await self.backend.generate(request)
+                self.completed_requests += 1
+                return result
         except TimeoutError as error:
+            self.failed_requests += 1
             raise GenerationTimeoutError("generation exceeded its deadline") from error
+        except Exception:
+            self.failed_requests += 1
+            raise
         finally:
+            self.total_generation_seconds += time.monotonic() - started
             self._release()
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
         if not self.ready:
             raise BackendUnavailableError("generation backend is not ready")
         await self._acquire()
+        started = time.monotonic()
         try:
             async with asyncio.timeout(self.generation_timeout_seconds):
                 async for event in self.backend.stream(request):
                     yield event
+            self.completed_requests += 1
         except TimeoutError as error:
+            self.failed_requests += 1
             raise GenerationTimeoutError("streaming generation exceeded its deadline") from error
+        except Exception:
+            self.failed_requests += 1
+            raise
         finally:
+            self.total_generation_seconds += time.monotonic() - started
             self._release()
+
+    def metrics(self) -> dict[str, int | float]:
+        return {
+            "active_requests": self.active_requests,
+            "total_requests": self.total_requests,
+            "completed_requests": self.completed_requests,
+            "failed_requests": self.failed_requests,
+            "total_generation_seconds": self.total_generation_seconds,
+        }
 
     async def _acquire(self) -> None:
         try:

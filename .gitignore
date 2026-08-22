@@ -47,10 +47,12 @@ checkpoints/*
 exports/gguf/*
 exports/onnx/*
 exports/safetensors/*
+exports/torch_export/*
 !checkpoints/.gitkeep
 !exports/gguf/.gitkeep
 !exports/onnx/.gitkeep
 !exports/safetensors/.gitkeep
+!exports/torch_export/.gitkeep
 
 # Logs and local experiment tracking
 *.log

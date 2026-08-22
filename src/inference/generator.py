@@ -12,6 +12,8 @@ from utils.device import resolve_device
 from utils.logger import get_logger
 
 from .sampler import TopKSampler
+from .context import ConversationMemory
+from .kv_cache import KVCache
 
 logger = get_logger(__name__)
 
@@ -22,6 +24,15 @@ class GenerationResult:
     token_ids: tuple[int, ...]
     prompt_tokens: int
     finish_reason: str
+
+
+@dataclass(frozen=True)
+class GenerationStep:
+    token: str
+    token_id: int | None
+    prompt_tokens: int
+    completion_tokens: int
+    finish_reason: str | None = None
 
 
 class Generator:
@@ -60,7 +71,7 @@ class Generator:
             raise ValueError("max_tokens must be positive")
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
-        prompt_ids = self.tokenizer.encode(prompt, add_bos=True)
+        prompt_ids = self.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
         if not prompt_ids:
             raise ValueError("prompt encoded to no tokens")
         if len(prompt_ids) >= self.max_positions:
@@ -81,7 +92,8 @@ class Generator:
         model_output = self.model(input_ids, use_cache=True)
         if not isinstance(model_output, tuple):
             raise RuntimeError("model did not return a requested KV cache")
-        logits, cache = model_output
+        logits, raw_cache = model_output
+        cache = KVCache(raw_cache)
         for _ in range(limit):
             next_logits = logits[:, -1, :]
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
@@ -102,14 +114,82 @@ class Generator:
                 text = self._trim_stop(text, stop_sequences)
                 return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
             step_input = torch.tensor([[next_id]], dtype=torch.long, device=self.device)
-            model_output = self.model(step_input, past_key_values=cache, use_cache=True)
+            model_output = self.model(step_input, past_key_values=cache.values, use_cache=True)
             if not isinstance(model_output, tuple):
                 raise RuntimeError("model did not return a requested KV cache")
-            logits, cache = model_output
+            logits, raw_cache = model_output
+            cache.update(raw_cache)
 
         text = self.tokenizer.decode(generated, skip_special_tokens=True)
         logger.debug("Generated %d tokens from a %d-token prompt", len(generated), len(prompt_ids))
         return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
+
+    def generate_chat(
+        self,
+        memory: ConversationMemory,
+        user_message: str,
+        **generation_options,
+    ) -> GenerationResult:
+        """Add a user turn, generate from bounded history, then remember the reply."""
+        memory.add("user", user_message)
+        reserve = int(generation_options.get("max_tokens", 128))
+        prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
+        result = self.generate(prompt, **generation_options)
+        if result.text:
+            memory.add("assistant", result.text)
+        return result
+
+    @torch.inference_mode()
+    def stream(
+        self,
+        prompt: str,
+        **options,
+    ):
+        """Yield tokens as each decoding step completes, followed by a final event."""
+        max_tokens = int(options.get("max_tokens", 128))
+        temperature = float(options.get("temperature", 0.8))
+        top_k = int(options.get("top_k", 40))
+        top_p = float(options.get("top_p", 1.0))
+        repetition_penalty = float(options.get("repetition_penalty", 1.0))
+        stop_sequences = options.get("stop") or []
+        prompt_ids = self.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
+        if not prompt_ids or len(prompt_ids) >= self.max_positions:
+            raise ValueError("prompt is empty or exceeds the model context")
+        random = torch.Generator(device=self.device)
+        if options.get("seed") is not None:
+            random.manual_seed(int(options["seed"]))
+        all_ids, generated = list(prompt_ids), []
+        output = self.model(torch.tensor([all_ids], device=self.device), use_cache=True)
+        if not isinstance(output, tuple):
+            raise RuntimeError("model did not return a requested KV cache")
+        logits, raw_cache = output
+        cache = KVCache(raw_cache)
+        finish_reason = "length"
+        for _ in range(min(max_tokens, self.max_positions - len(prompt_ids))):
+            next_logits = logits[:, -1, :]
+            self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
+            token_id = int(self.sampler(next_logits, temperature=temperature, top_k=top_k, top_p=top_p, generator=random).item())
+            if self.eos_token_id is not None and token_id == self.eos_token_id:
+                finish_reason = "stop"
+                break
+            generated.append(token_id)
+            all_ids.append(token_id)
+            token = self.tokenizer.decode([token_id], skip_special_tokens=True)
+            yield GenerationStep(token, token_id, len(prompt_ids), len(generated))
+            text = self.tokenizer.decode(generated, skip_special_tokens=True)
+            if any(sequence in text for sequence in stop_sequences):
+                finish_reason = "stop"
+                break
+            output = self.model(
+                torch.tensor([[token_id]], device=self.device),
+                past_key_values=cache.values,
+                use_cache=True,
+            )
+            if not isinstance(output, tuple):
+                raise RuntimeError("model did not return a requested KV cache")
+            logits, raw_cache = output
+            cache.update(raw_cache)
+        yield GenerationStep("", None, len(prompt_ids), len(generated), finish_reason)
 
     @staticmethod
     def _apply_repetition_penalty(logits: torch.Tensor, used: set[int], penalty: float) -> None:

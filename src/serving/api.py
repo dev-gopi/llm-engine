@@ -6,6 +6,8 @@ import os
 import re
 import time
 import uuid
+import secrets
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +53,8 @@ class ServingSettings:
     queue_timeout_seconds: float = 1.0
     generation_timeout_seconds: float = 120.0
     cors_origins: tuple[str, ...] = ()
+    api_key: str | None = None
+    requests_per_minute: int = 0
 
     @classmethod
     def from_environment(cls) -> "ServingSettings":
@@ -87,6 +91,8 @@ class ServingSettings:
                 )
             ),
             cors_origins=origins,
+            api_key=os.getenv("GOPI_API_KEY") or None,
+            requests_per_minute=int(os.getenv("GOPI_REQUESTS_PER_MINUTE", str(serving.get("requests_per_minute", 0)))),
         )
 
 
@@ -118,6 +124,7 @@ def create_app(
     )
     application.state.runtime = runtime
     application.state.settings = settings
+    request_times: dict[str, deque[float]] = defaultdict(deque)
 
     if settings.cors_origins:
         application.add_middleware(
@@ -134,6 +141,24 @@ def create_app(
         supplied = request.headers.get("X-Request-ID", "")
         request_id = supplied if REQUEST_ID_PATTERN.fullmatch(supplied) else uuid.uuid4().hex
         request.state.request_id = request_id
+        if request.url.path.startswith("/v1/"):
+            if settings.api_key:
+                supplied_key = request.headers.get("Authorization", "").removeprefix("Bearer ")
+                if not secrets.compare_digest(supplied_key, settings.api_key):
+                    response = _error_response(request, "unauthorized", "valid bearer token required", 401)
+                    response.headers["X-Request-ID"] = request_id
+                    return response
+            if settings.requests_per_minute > 0:
+                identity = request.client.host if request.client else "unknown"
+                now = time.monotonic()
+                window = request_times[identity]
+                while window and window[0] <= now - 60:
+                    window.popleft()
+                if len(window) >= settings.requests_per_minute:
+                    response = _error_response(request, "rate_limit_exceeded", "request rate limit exceeded", 429)
+                    response.headers["X-Request-ID"] = request_id
+                    return response
+                window.append(now)
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
@@ -177,6 +202,10 @@ def create_app(
         if runtime.ready:
             return payload
         return JSONResponse(status_code=503, content=payload.model_dump(mode="json"))
+
+    @application.get("/metrics", tags=["operations"])
+    async def metrics():
+        return {"service": SERVICE_NAME, "ready": runtime.ready, **runtime.metrics()}
 
     @application.post(
         "/v1/generate",

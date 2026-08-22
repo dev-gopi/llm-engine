@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+import secrets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from pydantic import ValidationError
@@ -28,6 +29,11 @@ router = APIRouter()
 @router.websocket("/v1/generate/stream")
 async def generate_stream(websocket: WebSocket) -> None:
     settings = websocket.app.state.settings
+    if settings.api_key:
+        supplied = websocket.headers.get("authorization", "").removeprefix("Bearer ")
+        if not secrets.compare_digest(supplied, settings.api_key):
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
     origin = websocket.headers.get("origin")
     if origin and settings.cors_origins and "*" not in settings.cors_origins:
         if origin not in settings.cors_origins:

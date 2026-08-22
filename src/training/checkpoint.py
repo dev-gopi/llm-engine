@@ -17,6 +17,8 @@ def save_checkpoint(
     *,
     optimizer: torch.optim.Optimizer | None = None,
     scheduler: Any = None,
+    ema: Any = None,
+    scaler: Any = None,
     step: int = 0,
     metadata: dict[str, Any] | None = None,
 ) -> Path:
@@ -27,6 +29,9 @@ def save_checkpoint(
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict() if optimizer is not None else None,
         "scheduler": scheduler.state_dict() if scheduler is not None else None,
+        "ema": ema.state_dict() if ema is not None else None,
+        "scaler": scaler.state_dict() if scaler is not None else None,
+        "rng_state": torch.get_rng_state(),
         "step": int(step),
         "metadata": dict(metadata or {}),
     }
@@ -47,6 +52,8 @@ def load_checkpoint(
     *,
     optimizer: torch.optim.Optimizer | None = None,
     scheduler: Any = None,
+    ema: Any = None,
+    scaler: Any = None,
     map_location: str | torch.device = "cpu",
     strict: bool = True,
 ) -> dict[str, Any]:
@@ -62,6 +69,12 @@ def load_checkpoint(
         optimizer.load_state_dict(payload["optimizer"])
     if scheduler is not None and payload.get("scheduler") is not None:
         scheduler.load_state_dict(payload["scheduler"])
+    if ema is not None and payload.get("ema") is not None:
+        ema.load_state_dict(payload["ema"])
+    if scaler is not None and payload.get("scaler") is not None:
+        scaler.load_state_dict(payload["scaler"])
+    if payload.get("rng_state") is not None:
+        torch.set_rng_state(payload["rng_state"].cpu())
     return {
         "step": int(payload.get("step", 0)),
         "metadata": payload.get("metadata", {}),

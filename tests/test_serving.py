@@ -80,6 +80,20 @@ def test_liveness_and_unavailable_readiness():
     assert ready.json()["status"] == "not_ready"
 
 
+def test_api_key_rate_limit_and_metrics():
+    configured = settings(api_key="secret", requests_per_minute=1)
+    app = create_app(FakeBackend(), settings=configured)
+    unauthorized = request(app, "POST", "/v1/generate", json={"prompt": "hello"})
+    assert unauthorized.status_code == 401
+    headers = {"Authorization": "Bearer secret"}
+    accepted = request(app, "POST", "/v1/generate", json={"prompt": "hello"}, headers=headers)
+    limited = request(app, "POST", "/v1/generate", json={"prompt": "again"}, headers=headers)
+    assert accepted.status_code == 200
+    assert limited.status_code == 429
+    metrics = request(app, "GET", "/metrics").json()
+    assert metrics["completed_requests"] == 1
+
+
 def test_backend_lifecycle_and_readiness():
     async def scenario():
         backend = FakeBackend()

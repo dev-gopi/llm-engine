@@ -5,10 +5,11 @@ language model from the ground up. The repository separates tokenization, data
 processing, model architecture, training, inference, and serving so each part
 can evolve independently as the model grows.
 
-> **Development status:** This repository currently provides the project
-> structure, starter datasets, and a developing Transformer implementation. Several
-> training, inference, and checkpointing modules are still placeholders.
-> It is not production-ready yet.
+> **Development status:** The complete local pipeline is implemented: dataset
+> preparation, tokenization, GPT training and resume, evaluation, cached
+> generation, model-backed serving, and model export. Production deployment
+> still requires appropriately licensed data, trained weights, capacity testing,
+> security controls, and operational monitoring.
 
 ## Goals
 
@@ -153,12 +154,15 @@ Serving defaults come from [`configs/inference.yaml`](configs/inference.yaml)
 and can be overridden with `GOPI_MODEL_NAME`, `GOPI_BOT_NAME`,
 `GOPI_MAX_CONCURRENCY`, `GOPI_QUEUE_TIMEOUT_SECONDS`,
 `GOPI_GENERATION_TIMEOUT_SECONDS`, and `GOPI_CORS_ORIGINS`.
+Set `GOPI_API_KEY` to require bearer authentication and
+`GOPI_REQUESTS_PER_MINUTE` to enforce the built-in per-process safety limit.
+The `/metrics` endpoint exposes request, failure, concurrency, and generation
+time counters for scraping or gateway integration.
 
-The default application intentionally reports `503 not_ready` until a concrete
-asynchronous generation backend is injected. This prevents a healthy-looking
-deployment from accepting traffic before model weights and tokenizer artifacts
-are loaded. Authentication, TLS, and global rate limiting should be enforced by
-the deployment gateway or ingress layer.
+At startup the application loads the configured tokenizer, model configuration,
+and checkpoint. It reports `503 not_ready` when an artifact is absent or the
+backend cannot be loaded. Authentication, TLS, and global rate limiting should
+be enforced by the deployment gateway or ingress layer.
 
 ## Assistant identity
 
@@ -278,19 +282,22 @@ depend on the training package.
 
 ## Commands
 
-The intended command-line workflows are:
+The command-line workflows are:
 
 ```bash
 python scripts/tokenize.py train
 python scripts/train.py
 python scripts/evaluate.py
-python scripts/generate.py
-python scripts/export.py
+python scripts/generate.py "Hello Gopi"
+python scripts/export.py --format safetensors
 python scripts/serve.py
 ```
 
-These entrypoints currently remain scaffolds and will become functional as their
-respective subsystems are implemented.
+Training settings, dataset paths, checkpoint frequency, optimizer, scheduler,
+and EMA behavior are controlled by `configs/training.yaml`. Training resumes
+with `python scripts/train.py --resume checkpoints/latest/model.pt`.
+`mixed_precision` accepts `none`, `bf16`, or CUDA-only `fp16`, while
+`gradient_accumulation_steps` controls effective batch size.
 
 Run the test suite with:
 
@@ -302,36 +309,33 @@ pytest -q
 
 | Area | Status |
 | --- | --- |
-| Project architecture and configuration | Scaffolded |
-| Dataset acquisition and chat preprocessing | Working |
+| Project architecture and configuration | Production implementation |
+| Dataset acquisition and chat preprocessing | Production implementation |
 | Token embedding matrix | Production implementation |
-| Positional embeddings | Minimal implementation |
-| Transformer blocks and language-model head | Minimal implementation |
+| Positional embeddings | Production implementation |
+| Transformer blocks and language-model head | Production implementation |
 | Causal QKV self-attention and attention masks | Production implementation |
 | Position-wise FFN with GELU/SwiGLU support | Production implementation |
 | Pre-norm residual connections and LayerNorm/RMSNorm | Production implementation |
 | Shifted causal LM loss and perplexity | Production implementation |
-| Byte-level BPE tokenizer and artifact persistence | Working |
-| Full training and evaluation loops | Not implemented |
-| Checkpoint save and resume | Not implemented |
-| Autoregressive generation and sampling | Not implemented |
-| Per-layer attention KV cache | Working |
+| Byte-level BPE tokenizer and artifact persistence | Production implementation |
+| Full training and evaluation loops | Production implementation |
+| Checkpoint save and resume | Production implementation |
+| Autoregressive generation and sampling | Production implementation |
+| Per-layer attention KV cache | Production implementation |
 | REST/WebSocket serving infrastructure | Production implementation |
-| Model-backed serving generation | Waiting for inference engine |
-| Model export | Not implemented |
-| Meaningful unit tests | Working and expanding |
+| Model-backed serving generation | Production implementation |
+| SafeTensors, PyTorch Export, and ONNX export | Production implementation |
+| Meaningful unit and integration tests | Production implementation |
 
 ## Roadmap
 
-1. Build dataset loaders and causal language-model collators.
-2. Complete positional encoding and language-model head configuration.
-3. Implement training, validation, scheduling, and checkpoint recovery.
-4. Add autoregressive generation with top-k/top-p sampling.
-5. Connect per-layer KV caches across the complete model and stream tokens.
-6. Connect the inference generator backend to the serving runtime.
-7. Add SafeTensors, ONNX, and GGUF export workflows.
-8. Expand correctness, reproducibility, and integration tests.
-9. Add distributed training only after the single-device pipeline is stable.
+1. Train and publish reproducible small-model reference checkpoints.
+2. Add gradient accumulation and automatic mixed precision benchmarks.
+3. Add sharded FSDP checkpointing for multi-node training.
+4. Add a separately validated GGUF conversion workflow.
+5. Add persistent shared conversation sessions and continuous batching.
+6. Add deployment authentication, telemetry, rate limiting, and load tests.
 
 ## Design principles
 

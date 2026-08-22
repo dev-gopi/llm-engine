@@ -116,6 +116,10 @@ class PositionalEmbedding(nn.Module):
         return positions.unsqueeze(0).expand(batch_size, -1)
 
     def _validate_bounds(self, positions: Tensor, mask: Tensor | None) -> None:
+        # Export/compile capture cannot materialize data-dependent tensor values
+        # as Python integers. Runtime eager calls retain the detailed error.
+        if torch.compiler.is_compiling():
+            return
         active = positions if mask is None else positions[mask]
         if active.numel() == 0:
             return

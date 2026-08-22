@@ -5,6 +5,9 @@ top_k: 40
 max_tokens: 512
 top_p: 1.0
 repetition_penalty: 1.0
+context_memory:
+  enabled: true
+  max_tokens: 1536
 serving:
   model_name: gopi
   model_config: configs/model.yaml
@@ -15,3 +18,5 @@ serving:
   queue_timeout_seconds: 1.0
   generation_timeout_seconds: 120.0
   cors_origins: []
+  requests_per_minute: 60
+  session_store_path: data/cache/sessions.sqlite
