@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["httpx", "pytest"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

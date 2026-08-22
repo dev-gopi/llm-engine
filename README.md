@@ -6,8 +6,8 @@ processing, model architecture, training, inference, and serving so each part
 can evolve independently as the model grows.
 
 > **Development status:** This repository currently provides the project
-> structure, starter datasets, and a minimal Transformer implementation. Several
-> training, inference, checkpointing, and serving modules are still placeholders.
+> structure, starter datasets, and a developing Transformer implementation. Several
+> training, inference, and checkpointing modules are still placeholders.
 > It is not production-ready yet.
 
 ## Goals
@@ -127,6 +127,38 @@ Optional label smoothing and logit z-loss are available for regularization and
 large-scale numerical stability. Detailed outputs expose cross-entropy, z-loss,
 and the valid token count for correctly weighted logging. Perplexity is computed
 as `exp(mean_token_cross_entropy)`.
+
+## Model serving
+
+The FastAPI service exposes separate liveness and readiness checks, validated
+generation requests, structured errors, request IDs, and WebSocket token
+streaming. Its runtime bounds concurrent generations, limits queue wait time,
+cancels requests that exceed their deadline, and runs backend startup/shutdown
+hooks through the application lifespan.
+
+```text
+GET  /health/live
+GET  /health/ready
+POST /v1/generate
+WS   /v1/generate/stream
+```
+
+Start the server with:
+
+```bash
+python scripts/serve.py --host 0.0.0.0 --port 8000
+```
+
+Serving defaults come from [`configs/inference.yaml`](configs/inference.yaml)
+and can be overridden with `GOPI_MODEL_NAME`, `GOPI_BOT_NAME`,
+`GOPI_MAX_CONCURRENCY`, `GOPI_QUEUE_TIMEOUT_SECONDS`,
+`GOPI_GENERATION_TIMEOUT_SECONDS`, and `GOPI_CORS_ORIGINS`.
+
+The default application intentionally reports `503 not_ready` until a concrete
+asynchronous generation backend is injected. This prevents a healthy-looking
+deployment from accepting traffic before model weights and tokenizer artifacts
+are loaded. Authentication, TLS, and global rate limiting should be enforced by
+the deployment gateway or ingress layer.
 
 ## Assistant identity
 
@@ -254,6 +286,7 @@ python scripts/train.py
 python scripts/evaluate.py
 python scripts/generate.py
 python scripts/export.py
+python scripts/serve.py
 ```
 
 These entrypoints currently remain scaffolds and will become functional as their
@@ -283,7 +316,8 @@ pytest -q
 | Checkpoint save and resume | Not implemented |
 | Autoregressive generation and sampling | Not implemented |
 | Per-layer attention KV cache | Working |
-| REST generation and WebSocket streaming | Not implemented |
+| REST/WebSocket serving infrastructure | Production implementation |
+| Model-backed serving generation | Waiting for inference engine |
 | Model export | Not implemented |
 | Meaningful unit tests | Working and expanding |
 
@@ -294,7 +328,7 @@ pytest -q
 3. Implement training, validation, scheduling, and checkpoint recovery.
 4. Add autoregressive generation with top-k/top-p sampling.
 5. Connect per-layer KV caches across the complete model and stream tokens.
-6. Connect generation to FastAPI and WebSocket endpoints.
+6. Connect the inference generator backend to the serving runtime.
 7. Add SafeTensors, ONNX, and GGUF export workflows.
 8. Expand correctness, reproducibility, and integration tests.
 9. Add distributed training only after the single-device pipeline is stable.

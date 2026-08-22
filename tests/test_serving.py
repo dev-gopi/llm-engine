@@ -1,0 +1,312 @@
+import asyncio
+
+import httpx
+import pytest
+from starlette.websockets import WebSocketDisconnect
+
+from serving.api import ServingSettings, create_app
+from serving.runtime import (
+    BackendGeneration,
+    BackendStreamEvent,
+    GenerationTimeoutError,
+    ServerBusyError,
+    ServingRuntime,
+)
+from serving.schemas import FinishReason, GenerateRequest
+from serving.websocket import generate_stream
+
+
+class FakeBackend:
+    def __init__(self):
+        self.ready = True
+        self.started = False
+        self.stopped = False
+
+    async def startup(self):
+        self.started = True
+
+    async def shutdown(self):
+        self.stopped = True
+
+    async def generate(self, request):
+        return BackendGeneration(
+            text=f"Gopi: {request.prompt}",
+            prompt_tokens=2,
+            completion_tokens=3,
+            finish_reason=FinishReason.STOP,
+        )
+
+    async def stream(self, request):
+        yield BackendStreamEvent(token="Go", token_id=10, prompt_tokens=2)
+        yield BackendStreamEvent(token="pi", token_id=11)
+        yield BackendStreamEvent(
+            finish_reason=FinishReason.STOP,
+            prompt_tokens=2,
+            completion_tokens=2,
+        )
+
+
+def settings(**overrides):
+    values = {
+        "model_name": "gopi-test",
+        "bot_name": "Gopi",
+        "max_concurrency": 2,
+        "queue_timeout_seconds": 0.1,
+        "generation_timeout_seconds": 1.0,
+    }
+    values.update(overrides)
+    return ServingSettings(**values)
+
+
+async def send_request(app, method, path, **kwargs):
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.request(method, path, **kwargs)
+
+
+def request(app, method, path, **kwargs):
+    return asyncio.run(send_request(app, method, path, **kwargs))
+
+
+def test_liveness_and_unavailable_readiness():
+    app = create_app(settings=settings())
+    live = request(app, "GET", "/health/live")
+    ready = request(app, "GET", "/health/ready")
+    assert live.status_code == 200
+    assert live.json()["status"] == "ok"
+    assert not live.json()["ready"]
+    assert ready.status_code == 503
+    assert ready.json()["status"] == "not_ready"
+
+
+def test_backend_lifecycle_and_readiness():
+    async def scenario():
+        backend = FakeBackend()
+        app = create_app(backend, settings=settings())
+        async with app.router.lifespan_context(app):
+            assert backend.started
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get("/health/ready")
+                assert response.status_code == 200
+        assert backend.stopped
+
+    asyncio.run(scenario())
+
+
+def test_rest_generation_response_and_request_id():
+    response = request(
+        create_app(FakeBackend(), settings=settings()),
+        "POST",
+        "/v1/generate",
+        headers={"X-Request-ID": "request-123"},
+        json={"prompt": "hello", "max_tokens": 10, "temperature": 0.2},
+    )
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "request-123"
+    payload = response.json()
+    assert payload["id"].startswith("gen_")
+    assert payload["model"] == "gopi-test"
+    assert payload["bot_name"] == "Gopi"
+    assert payload["text"] == "Gopi: hello"
+    assert payload["finish_reason"] == "stop"
+    assert payload["usage"]["total_tokens"] == 5
+
+
+def test_invalid_request_returns_structured_error():
+    response = request(
+        create_app(FakeBackend(), settings=settings()),
+        "POST",
+        "/v1/generate",
+        json={"prompt": "   ", "unexpected": True},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert response.json()["error"]["request_id"]
+
+
+def test_unavailable_backend_returns_503():
+    response = request(
+        create_app(settings=settings()), "POST", "/v1/generate", json={"prompt": "hello"}
+    )
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "backend_unavailable"
+
+
+class SlowBackend(FakeBackend):
+    async def generate(self, request):
+        await asyncio.sleep(0.1)
+        return await super().generate(request)
+
+
+def test_generation_timeout_returns_504():
+    response = request(
+        create_app(
+            SlowBackend(), settings=settings(generation_timeout_seconds=0.01)
+        ),
+        "POST",
+        "/v1/generate",
+        json={"prompt": "hello"},
+    )
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "generation_timeout"
+
+
+class BrokenBackend(FakeBackend):
+    async def generate(self, request):
+        raise RuntimeError("secret backend details")
+
+
+def test_unexpected_backend_error_is_sanitized():
+    response = request(
+        create_app(BrokenBackend(), settings=settings()),
+        "POST",
+        "/v1/generate",
+        json={"prompt": "hello"},
+    )
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "internal_error"
+    assert "secret" not in response.text
+
+
+class FakeWebSocket:
+    def __init__(self, app, messages):
+        self.app = app
+        self.headers = {}
+        self.messages = list(messages)
+        self.sent = []
+        self.accepted = False
+        self.closed_code = None
+
+    async def accept(self):
+        self.accepted = True
+
+    async def close(self, code):
+        self.closed_code = code
+
+    async def receive_json(self):
+        if not self.messages:
+            raise WebSocketDisconnect()
+        return self.messages.pop(0)
+
+    async def send_json(self, payload):
+        self.sent.append(payload)
+
+
+def test_websocket_stream_protocol():
+    async def scenario():
+        app = create_app(FakeBackend(), settings=settings())
+        websocket = FakeWebSocket(app, [{"prompt": "hello", "max_tokens": 4}])
+        async with app.router.lifespan_context(app):
+            await generate_stream(websocket)
+        return websocket
+
+    websocket = asyncio.run(scenario())
+    assert websocket.accepted
+    assert [message["type"] for message in websocket.sent] == [
+        "start",
+        "token",
+        "token",
+        "done",
+    ]
+    assert [websocket.sent[1]["token"], websocket.sent[2]["token"]] == ["Go", "pi"]
+    assert websocket.sent[-1]["usage"]["total_tokens"] == 4
+
+
+def test_websocket_validation_error_does_not_crash_connection():
+    async def scenario():
+        app = create_app(FakeBackend(), settings=settings())
+        websocket = FakeWebSocket(app, [{"prompt": ""}])
+        await generate_stream(websocket)
+        return websocket
+
+    websocket = asyncio.run(scenario())
+    assert websocket.sent[0]["type"] == "error"
+    assert websocket.sent[0]["error"]["code"] == "validation_error"
+
+
+def test_stop_sequences_are_deduplicated():
+    request_model = GenerateRequest(prompt="hello", stop=["END", "END", "STOP"])
+    assert request_model.stop == ["END", "STOP"]
+
+
+def test_settings_load_yaml_and_environment_override(tmp_path, monkeypatch):
+    config = tmp_path / "inference.yaml"
+    config.write_text(
+        "bot_name: ConfigGopi\n"
+        "serving:\n"
+        "  model_name: configured-model\n"
+        "  max_concurrency: 7\n"
+        "  queue_timeout_seconds: 2.5\n"
+        "  generation_timeout_seconds: 30\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GOPI_INFERENCE_CONFIG", str(config))
+    monkeypatch.setenv("GOPI_BOT_NAME", "EnvironmentGopi")
+    loaded = ServingSettings.from_environment()
+    assert loaded.model_name == "configured-model"
+    assert loaded.bot_name == "EnvironmentGopi"
+    assert loaded.max_concurrency == 7
+    assert loaded.queue_timeout_seconds == 2.5
+    assert loaded.generation_timeout_seconds == 30
+
+
+def test_websocket_rejects_disallowed_browser_origin():
+    async def scenario():
+        configured = settings(cors_origins=("https://allowed.example",))
+        app = create_app(FakeBackend(), settings=configured)
+        websocket = FakeWebSocket(app, [])
+        websocket.headers["origin"] = "https://blocked.example"
+        await generate_stream(websocket)
+        return websocket
+
+    websocket = asyncio.run(scenario())
+    assert not websocket.accepted
+    assert websocket.closed_code == 1008
+
+
+def test_runtime_rejects_saturated_queue():
+    class BlockingBackend(FakeBackend):
+        def __init__(self):
+            super().__init__()
+            self.release = asyncio.Event()
+
+        async def generate(self, request):
+            await self.release.wait()
+            return await super().generate(request)
+
+    async def scenario():
+        backend = BlockingBackend()
+        runtime = ServingRuntime(
+            backend,
+            max_concurrency=1,
+            queue_timeout_seconds=0.01,
+            generation_timeout_seconds=1,
+        )
+        first = asyncio.create_task(runtime.generate(GenerateRequest(prompt="hello")))
+        while runtime.active_requests == 0:
+            await asyncio.sleep(0)
+        with pytest.raises(ServerBusyError):
+            await runtime.generate(GenerateRequest(prompt="second"))
+        backend.release.set()
+        await first
+        assert runtime.active_requests == 0
+        assert runtime.total_requests == 1
+
+    asyncio.run(scenario())
+
+
+def test_runtime_timeout_releases_worker():
+    async def scenario():
+        runtime = ServingRuntime(
+            SlowBackend(),
+            max_concurrency=1,
+            queue_timeout_seconds=0.1,
+            generation_timeout_seconds=0.01,
+        )
+        with pytest.raises(GenerationTimeoutError):
+            await runtime.generate(GenerateRequest(prompt="hello"))
+        assert runtime.active_requests == 0
+
+    asyncio.run(scenario())

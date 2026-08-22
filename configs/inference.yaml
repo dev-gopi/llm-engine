@@ -3,3 +3,15 @@ system_prompt: You are Gopi, a helpful, honest, and friendly AI assistant.
 temperature: 0.8
 top_k: 40
 max_tokens: 512
+top_p: 1.0
+repetition_penalty: 1.0
+serving:
+  model_name: gopi
+  model_config: configs/model.yaml
+  tokenizer_path: data/tokenizer
+  checkpoint_path: checkpoints/latest/model.pt
+  device: auto
+  max_concurrency: 4
+  queue_timeout_seconds: 1.0
+  generation_timeout_seconds: 120.0
+  cors_origins: []
