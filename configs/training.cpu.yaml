@@ -11,6 +11,8 @@ train_files:
   - data/processed/dailydialog/dailydialog-conversations.json
 validation_files:
   - data/processed/wikitext_103/validation.jsonl
+  - data/processed/ultrachat_200k/validation.jsonl
+  - data/processed/dailydialog/validation.jsonl
 learning_rate: 0.0003
 weight_decay: 0.01
 beta1: 0.9
