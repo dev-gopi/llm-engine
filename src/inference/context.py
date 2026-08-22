@@ -47,8 +47,8 @@ class ConversationMemory:
             self._trim()
 
     def render(self, *, add_generation_prompt: bool = True, reserve_tokens: int = 0) -> str:
-        if not 0 <= reserve_tokens < self.max_tokens:
-            raise ValueError("reserve_tokens must be smaller than max_tokens")
+        if reserve_tokens < 0:
+            raise ValueError("reserve_tokens must be non-negative")
         with self._lock:
             self._trim(budget=self.max_tokens - reserve_tokens, add_generation_prompt=add_generation_prompt)
             return format_messages(
@@ -70,12 +70,21 @@ class ConversationMemory:
             self._trim()
 
     def _trim(self, *, budget: int | None = None, add_generation_prompt: bool = False) -> None:
-        budget = budget or self.max_tokens
-        while self._token_count(add_generation_prompt) > budget:
-            removable = next((index for index, message in enumerate(self._messages) if message.role != "system"), None)
-            if removable is None:
+        budget = budget if budget is not None else self.max_tokens
+        max_prompt_budget = max(1, self.max_tokens - 1)
+        target_budget = max(1, min(budget, max_prompt_budget))
+        while self._token_count(add_generation_prompt) > target_budget:
+            non_system_indices = [index for index, message in enumerate(self._messages) if message.role != "system"]
+            if not non_system_indices:
                 raise ValueError("system prompt alone exceeds the context budget")
-            self._messages.pop(removable)
+            if len(non_system_indices) == 1 and self._token_count(add_generation_prompt) <= max_prompt_budget:
+                break
+            self._messages.pop(non_system_indices[0])
+        if self._token_count(add_generation_prompt) > max_prompt_budget:
+            non_system_indices = [index for index, message in enumerate(self._messages) if message.role != "system"]
+            if not non_system_indices:
+                raise ValueError("system prompt alone exceeds the context budget")
+            self._messages.pop(non_system_indices[0])
         if not self._messages:
             raise ValueError("conversation context is empty")
 

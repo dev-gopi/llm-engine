@@ -335,3 +335,57 @@ def test_runtime_timeout_releases_worker():
         assert runtime.active_requests == 0
 
     asyncio.run(scenario())
+
+
+def test_websocket_stream_with_session_id(tmp_path):
+    from inference.context import SQLiteSessionStore
+    from serving.backend import ConfiguredModelBackend
+    from tokenizer.bpe import BYTE_ENCODER
+    from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
+
+    pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
+    vocab = {piece: index for index, piece in enumerate(pieces)}
+    tok = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+
+    class SessionFakeBackend(FakeBackend):
+        def __init__(self, db_path):
+            super().__init__()
+            from collections import defaultdict
+            self.system_prompt = "You are Gopi."
+            self.sessions = SQLiteSessionStore(db_path, tok, max_tokens=512, system_prompt=self.system_prompt)
+            self._session_locks = defaultdict(asyncio.Lock)
+            self._stream_steps = ConfiguredModelBackend._stream_steps.__get__(self)
+
+        async def stream(self, request):
+            async for event in ConfiguredModelBackend.stream(self, request):
+                yield event
+
+        async def _stream_unlocked(self, request):
+            async for event in ConfiguredModelBackend._stream_unlocked(self, request):
+                yield event
+
+        @property
+        def generator(self):
+            class DummyGenerator:
+                tokenizer = tok
+
+                def stream(self, prompt, **options):
+                    yield GenerationStep(token="Hi", token_id=1, prompt_tokens=5, completion_tokens=1)
+                    yield GenerationStep(token="", token_id=None, prompt_tokens=5, completion_tokens=1, finish_reason="stop")
+
+            from inference.generator import GenerationStep
+            return DummyGenerator()
+
+    async def scenario():
+        backend = SessionFakeBackend(tmp_path / "sessions.sqlite")
+        app = create_app(backend, settings=settings())
+        websocket = FakeWebSocket(app, [{"prompt": "hello", "session_id": "sess-123", "max_tokens": 512}])
+        async with app.router.lifespan_context(app):
+            await generate_stream(websocket)
+        return websocket
+
+    websocket = asyncio.run(scenario())
+    assert websocket.accepted
+    assert [message["type"] for message in websocket.sent] == ["start", "token", "done"]
+    assert websocket.sent[1]["token"] == "Hi"
+
