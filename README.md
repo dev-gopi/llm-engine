@@ -84,6 +84,18 @@ when available and retains a numerically stable fallback. It supports boolean
 padding masks, additive attention biases, training dropout, and incremental
 key/value caches shaped as `[batch, heads, sequence, head_dim]` for generation.
 
+### Feed-forward network
+
+`FeedForward` applies the same nonlinear transformation independently to every
+token position. The default configuration expands each 768-dimensional token
+to 3,072 dimensions, applies GELU, projects back to the model dimension, and
+then applies dropout.
+
+The implementation also supports ReLU, SiLU, tanh-approximated GELU, SwiGLU,
+and GEGLU. Gated variants use one fused gate/value projection. Hidden dimensions
+can be rounded to a configurable multiple for accelerator efficiency, while
+biases, initialization, dropout, device, and dtype remain configurable.
+
 ## Assistant identity
 
 The assistant is named **Gopi**. Its default identity is configured in
@@ -231,6 +243,7 @@ pytest -q
 | Positional embeddings | Minimal implementation |
 | Transformer blocks and language-model head | Minimal implementation |
 | Causal QKV self-attention and attention masks | Production implementation |
+| Position-wise FFN with GELU/SwiGLU support | Production implementation |
 | Byte-level BPE tokenizer and artifact persistence | Working |
 | Full training and evaluation loops | Not implemented |
 | Checkpoint save and resume | Not implemented |
@@ -243,7 +256,7 @@ pytest -q
 ## Roadmap
 
 1. Build dataset loaders and causal language-model collators.
-2. Complete positional encoding, feed-forward, normalization, and block configuration.
+2. Complete positional encoding, normalization, and block configuration.
 3. Implement training, validation, scheduling, and checkpoint recovery.
 4. Add autoregressive generation with top-k/top-p sampling.
 5. Connect per-layer KV caches across the complete model and stream tokens.
