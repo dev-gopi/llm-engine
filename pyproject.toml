@@ -16,7 +16,7 @@ dependencies = [
     "regex",
     "safetensors",
     "torch",
-    "uvicorn",
+    "uvicorn[standard]",
 ]
 
 [project.optional-dependencies]

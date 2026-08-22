@@ -11,6 +11,7 @@ from serving.runtime import (
     GenerationTimeoutError,
     ServerBusyError,
     ServingRuntime,
+    UnavailableBackend,
 )
 from serving.schemas import FinishReason, GenerateRequest
 from serving.websocket import generate_stream
@@ -70,7 +71,7 @@ def request(app, method, path, **kwargs):
 
 
 def test_liveness_and_unavailable_readiness():
-    app = create_app(settings=settings())
+    app = create_app(UnavailableBackend(), settings=settings())
     live = request(app, "GET", "/health/live")
     ready = request(app, "GET", "/health/ready")
     assert live.status_code == 200
@@ -109,6 +110,13 @@ def test_backend_lifecycle_and_readiness():
     asyncio.run(scenario())
 
 
+def test_browser_playground_is_served():
+    response = request(create_app(FakeBackend(), settings=settings()), "GET", "/ui/")
+    assert response.status_code == 200
+    assert "Gopi Playground" in response.text
+    assert 'src="app.js"' in response.text
+
+
 def test_rest_generation_response_and_request_id():
     response = request(
         create_app(FakeBackend(), settings=settings()),
@@ -142,7 +150,10 @@ def test_invalid_request_returns_structured_error():
 
 def test_unavailable_backend_returns_503():
     response = request(
-        create_app(settings=settings()), "POST", "/v1/generate", json={"prompt": "hello"}
+        create_app(UnavailableBackend(), settings=settings()),
+        "POST",
+        "/v1/generate",
+        json={"prompt": "hello"},
     )
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "backend_unavailable"

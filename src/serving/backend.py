@@ -57,7 +57,14 @@ class ConfiguredModelBackend:
         if missing:
             logger.warning("Model backend not loaded; missing: %s", ", ".join(map(str, missing)))
             return
-        self._load()
+        try:
+            self._load()
+        except (OSError, RuntimeError, TypeError, ValueError):
+            logger.exception(
+                "Model backend not loaded; verify that the model configuration, "
+                "tokenizer, and checkpoint are compatible"
+            )
+            self.generator = None
 
     async def shutdown(self) -> None:
         self.generator = None

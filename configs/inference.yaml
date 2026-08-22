@@ -10,10 +10,10 @@ context_memory:
   max_tokens: 1536
 serving:
   model_name: gopi
-  model_config: configs/model.yaml
+  model_config: configs/model.cpu.yaml
   tokenizer_path: data/tokenizer
   checkpoint_path: checkpoints/latest/model.pt
-  device: auto
+  device: cpu
   max_concurrency: 4
   queue_timeout_seconds: 1.0
   generation_timeout_seconds: 120.0

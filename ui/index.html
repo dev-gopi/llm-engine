@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Local test interface for the Gopi language model">
+    <title>Gopi Playground</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LOCAL MODEL PLAYGROUND</p>
+          <h1>Talk with <span>Gopi</span></h1>
+          <p class="subtitle">Test generation, sampling, and streaming from one simple interface.</p>
+        </div>
+        <button id="healthButton" class="status" type="button" aria-label="Check server status">
+          <i></i><span id="healthText">Check server</span>
+        </button>
+      </header>
+
+      <section class="workspace">
+        <aside class="controls" aria-label="Generation settings">
+          <h2>Connection</h2>
+          <label>API base URL
+            <input id="baseUrl" type="url" value="" placeholder="Same origin">
+          </label>
+          <label>API key <small>(optional)</small>
+            <input id="apiKey" type="password" autocomplete="off" placeholder="Bearer token">
+          </label>
+          <label class="switch-row">
+            <span>Stream response</span>
+            <input id="stream" type="checkbox" checked>
+          </label>
+
+          <h2>Sampling</h2>
+          <label>Maximum tokens <output id="maxTokensValue">80</output>
+            <input id="maxTokens" type="range" min="1" max="512" value="80">
+          </label>
+          <label>Temperature <output id="temperatureValue">0.8</output>
+            <input id="temperature" type="range" min="0" max="2" step="0.1" value="0.8">
+          </label>
+          <label>Top K
+            <input id="topK" type="number" min="0" max="100000" value="40">
+          </label>
+          <label>Top P
+            <input id="topP" type="number" min="0.01" max="1" step="0.01" value="1">
+          </label>
+          <label>Repetition penalty
+            <input id="repetitionPenalty" type="number" min="0.1" max="2" step="0.1" value="1">
+          </label>
+          <label>Seed <small>(blank = random)</small>
+            <input id="seed" type="number" min="0" placeholder="123">
+          </label>
+          <button id="resetButton" class="secondary" type="button">Reset settings</button>
+        </aside>
+
+        <section class="chat" aria-label="Chat playground">
+          <div id="messages" class="messages" aria-live="polite">
+            <article class="message assistant">
+              <div class="avatar">G</div>
+              <div><strong>Gopi</strong><p>Server ready? Check the status, then send me a test prompt.</p></div>
+            </article>
+          </div>
+
+          <div id="errorBox" class="error" role="alert" hidden></div>
+          <form id="promptForm" class="composer">
+            <label for="prompt" class="sr-only">Message</label>
+            <textarea id="prompt" rows="3" maxlength="131072" required placeholder="Ask Gopi something…"></textarea>
+            <div class="composer-footer">
+              <span id="usage">No generation yet</span>
+              <div>
+                <button id="stopButton" class="secondary" type="button" hidden>Stop</button>
+                <button id="sendButton" type="submit">Generate</button>
+              </div>
+            </div>
+          </form>
+        </section>
+      </section>
+    </main>
+    <script src="app.js" defer></script>
+  </body>
+</html>

@@ -150,6 +150,12 @@ Start the server with:
 python scripts/serve.py --host 0.0.0.0 --port 8000
 ```
 
+Open `http://127.0.0.1:8000/ui/` for the built-in browser playground. It can
+check readiness, call the REST endpoint, stream tokens over WebSocket, adjust
+sampling parameters, stop an active request, and display token usage. When API
+key authentication is enabled, use non-streaming mode because browser
+WebSockets cannot attach the required `Authorization` header.
+
 Serving defaults come from [`configs/inference.yaml`](configs/inference.yaml)
 and can be overridden with `GOPI_MODEL_NAME`, `GOPI_BOT_NAME`,
 `GOPI_MAX_CONCURRENCY`, `GOPI_QUEUE_TIMEOUT_SECONDS`,

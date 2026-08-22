@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from utils.config import load_yaml
 from utils.logger import get_logger
 
@@ -234,6 +234,27 @@ def create_app(
                 total_tokens=prompt_tokens + completion_tokens,
             ),
         )
+
+    ui_directory = Path(__file__).resolve().parents[2] / "ui"
+    if ui_directory.is_dir():
+        ui_assets = {
+            "index": (ui_directory / "index.html").read_text(encoding="utf-8"),
+            "styles": (ui_directory / "styles.css").read_text(encoding="utf-8"),
+            "script": (ui_directory / "app.js").read_text(encoding="utf-8"),
+        }
+
+        @application.get("/ui", include_in_schema=False)
+        @application.get("/ui/", include_in_schema=False)
+        async def playground() -> HTMLResponse:
+            return HTMLResponse(ui_assets["index"])
+
+        @application.get("/ui/styles.css", include_in_schema=False)
+        async def playground_styles() -> Response:
+            return Response(ui_assets["styles"], media_type="text/css")
+
+        @application.get("/ui/app.js", include_in_schema=False)
+        async def playground_script() -> Response:
+            return Response(ui_assets["script"], media_type="text/javascript")
 
     application.include_router(websocket_router)
     return application
