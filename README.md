@@ -56,7 +56,7 @@ The current model is a compact GPT-style network composed of:
 6. Layer normalization and residual connections
 7. A vocabulary projection head
 
-Architecture values live in [`configs/model.yaml`](configs/model.yaml), keeping
+Architecture values live in model configurations like [`configs/model.gpu.yaml`](configs/model.gpu.yaml) (full model) or [`configs/model.cpu.yaml`](configs/model.cpu.yaml) (compact model), keeping
 the model implementation independent from experiment size.
 
 ### Token embedding matrix
@@ -68,10 +68,10 @@ vocabulary resizing, hardware-aligned vocabulary padding, and weight sharing
 with the language-model output projection. Device and floating-point dtype can
 be selected at construction time.
 
-With the default configuration, the matrix contains `50,000 × 768 = 38.4M`
-parameters. Its initialization and behavior are controlled by
+With the GPU configuration (`configs/model.gpu.yaml`), the matrix contains `50,000 × 768 = 38.4M`
+parameters (or `50,000 × 128 = 6.4M` in `configs/model.cpu.yaml`). Its initialization and behavior are controlled by
 `padding_idx`, `initializer_range`, `scale_embeddings`, and
-`freeze_embeddings` in [`configs/model.yaml`](configs/model.yaml).
+`freeze_embeddings` in model configuration files like [`configs/model.gpu.yaml`](configs/model.gpu.yaml).
 
 ### Causal self-attention
 
@@ -113,7 +113,7 @@ branch supports independent residual dropout and configurable residual scaling.
 The project provides a bias-configurable LayerNorm matching PyTorch's reference
 equation and an RMSNorm alternative with float32 accumulation for FP16/BF16
 inputs. Normalization type, epsilon, bias, residual layout, dropout, and scale
-are configured in [`configs/model.yaml`](configs/model.yaml). A final LayerNorm
+are configured in model configuration files (e.g. [`configs/model.gpu.yaml`](configs/model.gpu.yaml) or [`configs/model.cpu.yaml`](configs/model.cpu.yaml)). A final LayerNorm
 is applied before the language-model output head.
 
 ### Causal language-model loss
@@ -199,8 +199,7 @@ Convert the raw line-oriented Parquet shards into article-level JSONL:
 .venv/bin/python scripts/prepare_wikitext.py
 ```
 
-The generated train and validation splits are included in
-`configs/training.yaml` alongside the conversational datasets.
+The generated train and validation splits are included in training configuration profiles (such as `configs/pretraining.cpu.yaml`, `configs/pretraining.gpu.yaml`, `configs/finetuning.cpu.yaml`, `configs/finetuning.gpu.yaml`, `configs/training.cpu.yaml`, and `configs/training.gpu.yaml`) alongside the conversational datasets.
 
 ### UltraChat 200k subset
 
@@ -290,17 +289,18 @@ FastAPI, Uvicorn, and pytest.
 
 Configuration is divided by responsibility:
 
-| File | Responsibility |
-| --- | --- |
-| `configs/model.yaml` | Vocabulary size and Transformer architecture |
-| `configs/training.yaml` | Batch size, epochs, learning rate, and weight decay |
-| `configs/model.cpu.yaml` | Compact model for CPU development and smoke tests |
-| `configs/small-training.yaml` | DailyDialog-only first-training profile |
-| `configs/pretraining.cpu.yaml` | WikiText language pretraining on CPU |
-| `configs/finetuning.cpu.yaml` | UltraChat and DailyDialog supervised fine-tuning |
-| `configs/training.cpu.yaml` | CPU profile for training across all configured datasets |
-| `configs/tokenizer.yaml` | Tokenizer type and vocabulary size |
-| `configs/inference.yaml` | Gopi's identity and generation behavior |
+| File | Responsibility | Key Parameters |
+| --- | --- | --- |
+| `configs/model.cpu.yaml` | Compact model for CPU development and smoke tests | `hidden_size: 128`, `layers: 4`, `heads: 4`, `max_position: 512`, `ffn_hidden_size: 512` |
+| `configs/model.gpu.yaml` | Full model configuration for GPU training and production | `hidden_size: 768`, `layers: 12`, `heads: 12`, `max_position: 2048`, `ffn_hidden_size: 3072` |
+| `configs/pretraining.cpu.yaml` | Pretraining configuration for CPU | DailyDialog dataset, `batch_size: 2`, `max_sequence_length: 256`, `gradient_accumulation_steps: 4`, 1 epoch |
+| `configs/pretraining.gpu.yaml` | Pretraining configuration for GPU | DailyDialog dataset, `batch_size: 2`, `max_sequence_length: 512`, `gradient_accumulation_steps: 16`, `mixed_precision: fp16`, 3 epochs |
+| `configs/finetuning.cpu.yaml` | Supervised fine-tuning configuration for CPU | WikiText + UltraChat datasets, `batch_size: 2`, `max_sequence_length: 256`, `gradient_accumulation_steps: 4`, 3 epochs |
+| `configs/finetuning.gpu.yaml` | Supervised fine-tuning configuration for GPU | WikiText + UltraChat datasets, `batch_size: 2`, `max_sequence_length: 512`, `gradient_accumulation_steps: 16`, `mixed_precision: fp16`, 3 epochs |
+| `configs/training.cpu.yaml` | Full CPU profile across all datasets | WikiText + UltraChat + DailyDialog, `batch_size: 2`, `max_sequence_length: 256`, `gradient_accumulation_steps: 4`, 1 epoch |
+| `configs/training.gpu.yaml` | Full GPU profile across all datasets | WikiText + UltraChat + DailyDialog, `batch_size: 32`, `max_sequence_length: 2048`, `gradient_accumulation_steps: 1`, 10 epochs |
+| `configs/tokenizer.yaml` | Byte-level BPE tokenizer training setup | `vocab_size: 50000`, `min_frequency: 2`, `special_tokens`, sources list |
+| `configs/inference.yaml` | Assistant identity, sampling, and API serving defaults | `bot_name: Gopi`, temperature, top_k/p, context_memory, sqlite session path, concurrency & rate limits |
 
 Training code must not read inference settings, and inference code must not
 depend on the training package.
@@ -319,7 +319,7 @@ python scripts/serve.py
 ```
 
 Training settings, dataset paths, checkpoint frequency, optimizer, scheduler,
-and EMA behavior are controlled by `configs/training.yaml`. Training resumes
+and EMA behavior are controlled by configuration files such as `configs/training.cpu.yaml` or `configs/training.gpu.yaml`. Training resumes
 with `python scripts/train.py --resume checkpoints/latest/model.pt`.
 `mixed_precision` accepts `none`, `bf16`, or CUDA-only `fp16`, while
 `gradient_accumulation_steps` controls effective batch size.
@@ -327,14 +327,14 @@ with `python scripts/train.py --resume checkpoints/latest/model.pt`.
 ### First small training run
 
 Before starting the complete corpus, verify the pipeline with the compact CPU
-model and the 2,000-pair DailyDialog subset:
+model and the 2,000-pair DailyDialog subset using `configs/pretraining.cpu.yaml`:
 
 ```bash
 python scripts/train.py --model-config configs/model.cpu.yaml \
-  --training-config configs/small-training.yaml --epochs 1
+  --training-config configs/pretraining.cpu.yaml --epochs 1
 ```
 
-This profile uses two examples per batch, 128-token sequences, four-step
+This profile uses two examples per batch, 256-token sequences, four-step
 gradient accumulation, and a single-process data loader. It writes the final
 checkpoint to `checkpoints/latest/model.pt`. On the current reference run, one
 epoch completed 250 optimizer steps and reduced the running training loss from
@@ -344,7 +344,7 @@ Evaluate a bounded sample without loading the full dataset into memory:
 
 ```bash
 python scripts/evaluate.py --model-config configs/model.cpu.yaml \
-  --training-config configs/small-training.yaml \
+  --training-config configs/pretraining.cpu.yaml \
   --dataset data/processed/dailydialog/dailydialog-conversations.json \
   --max-batches 25 --device cpu
 ```
@@ -397,12 +397,12 @@ to transfer model weights into a new stage with a fresh optimizer and schedule.
 For a CUDA GPU, use the full model with the conservative FP16 profiles:
 
 ```bash
-python scripts/train.py --model-config configs/model.yaml \
+python scripts/train.py --model-config configs/model.gpu.yaml \
   --training-config configs/pretraining.gpu.yaml \
   --output checkpoints/pretraining-gpu/latest.pt \
   --best-output checkpoints/pretraining-gpu/best.pt
 
-python scripts/train.py --model-config configs/model.yaml \
+python scripts/train.py --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
   --init-from checkpoints/pretraining-gpu/best.pt \
   --output checkpoints/finetuning-gpu/latest.pt \

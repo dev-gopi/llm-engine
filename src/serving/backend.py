@@ -30,7 +30,7 @@ class ConfiguredModelBackend:
     def __init__(
         self,
         *,
-        model_config: str | Path = "configs/model.yaml",
+        model_config: str | Path = "configs/model.cpu.yaml",
         tokenizer_path: str | Path = "data/tokenizer",
         checkpoint_path: str | Path = "checkpoints/latest/model.pt",
         device: str = "auto",
@@ -190,7 +190,7 @@ def backend_from_environment() -> ConfiguredModelBackend:
     if not isinstance(serving, dict):
         raise ValueError("inference serving configuration must be a mapping")
     return ConfiguredModelBackend(
-        model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.yaml"))),
+        model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.cpu.yaml"))),
         tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer"))),
         checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/latest/model.pt"))),
         device=os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),

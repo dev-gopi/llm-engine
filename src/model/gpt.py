@@ -183,7 +183,7 @@ class MiniGPT(nn.Module):
         cls, config: Mapping[str, Any], *,
         device: torch.device | str | None = None, dtype: torch.dtype | None = None,
     ) -> "MiniGPT":
-        """Build a complete model from ``configs/model.yaml`` values."""
+        """Build a complete model from model configuration values."""
         if str(config.get("position_type", "learned")).lower() != "learned":
             raise ValueError("MiniGPT currently supports position_type='learned' only")
         return cls(

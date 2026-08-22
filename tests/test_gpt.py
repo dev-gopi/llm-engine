@@ -41,7 +41,7 @@ def test_gpt_ties_embedding_and_lm_head_weights():
 
 
 def test_gpt_builds_all_layers_from_config():
-    config = load_yaml("configs/model.yaml")
+    config = load_yaml("configs/model.cpu.yaml")
     config.update({"vocab_size": 64, "hidden_size": 16, "layers": 2, "heads": 4,
                    "max_position": 32, "ffn_hidden_size": 32, "ffn_multiple_of": 1})
     model = MiniGPT.from_config(config)

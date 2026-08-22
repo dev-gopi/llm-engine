@@ -29,8 +29,8 @@ from utils.seed import set_seed
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/training.yaml"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--training-config", type=Path, default=Path("configs/training.gpu.yaml"))
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--output", type=Path, default=Path("checkpoints/latest/model.pt"))
     parser.add_argument("--best-output", type=Path, default=Path("checkpoints/best/model.pt"))

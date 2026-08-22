@@ -23,8 +23,8 @@ from utils.device import resolve_device
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/training.yaml"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.cpu.yaml"))
+    parser.add_argument("--training-config", type=Path, default=Path("configs/training.cpu.yaml"))
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/latest/model.pt"))
     parser.add_argument("--dataset", type=Path, action="append")
