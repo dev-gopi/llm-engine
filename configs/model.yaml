@@ -7,3 +7,6 @@ padding_idx: 0
 initializer_range: 0.02
 scale_embeddings: false
 freeze_embeddings: false
+attention_dropout: 0.0
+attention_bias: true
+causal_attention: true

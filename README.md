@@ -72,6 +72,18 @@ parameters. Its initialization and behavior are controlled by
 `padding_idx`, `initializer_range`, `scale_embeddings`, and
 `freeze_embeddings` in [`configs/model.yaml`](configs/model.yaml).
 
+### Causal self-attention
+
+`MultiHeadAttention` uses a fused projection to create query, key, and value
+tensors, splits them across attention heads, applies scaled dot-product
+attention, and combines the heads through an output projection. Causal masking
+is enabled by default, so a token cannot read future training tokens.
+
+The implementation uses PyTorch's optimized scaled-dot-product attention kernel
+when available and retains a numerically stable fallback. It supports boolean
+padding masks, additive attention biases, training dropout, and incremental
+key/value caches shaped as `[batch, heads, sequence, head_dim]` for generation.
+
 ## Assistant identity
 
 The assistant is named **Gopi**. Its default identity is configured in
@@ -218,28 +230,27 @@ pytest -q
 | Token embedding matrix | Production implementation |
 | Positional embeddings | Minimal implementation |
 | Transformer blocks and language-model head | Minimal implementation |
-| Causal attention and attention masks | Not implemented |
+| Causal QKV self-attention and attention masks | Production implementation |
 | Byte-level BPE tokenizer and artifact persistence | Working |
 | Full training and evaluation loops | Not implemented |
 | Checkpoint save and resume | Not implemented |
 | Autoregressive generation and sampling | Not implemented |
-| KV cache | Not implemented |
+| Per-layer attention KV cache | Working |
 | REST generation and WebSocket streaming | Not implemented |
 | Model export | Not implemented |
-| Meaningful unit tests | Not implemented |
+| Meaningful unit tests | Working and expanding |
 
 ## Roadmap
 
-1. Implement and test a production-quality BPE tokenizer.
-2. Build dataset loaders and causal language-model collators.
-3. Add causal masking, dropout, and configurable model construction.
-4. Implement training, validation, scheduling, and checkpoint recovery.
-5. Add autoregressive generation with top-k/top-p sampling.
-6. Introduce KV caching and token streaming.
-7. Connect generation to FastAPI and WebSocket endpoints.
-8. Add SafeTensors, ONNX, and GGUF export workflows.
-9. Expand correctness, reproducibility, and integration tests.
-10. Add distributed training only after the single-device pipeline is stable.
+1. Build dataset loaders and causal language-model collators.
+2. Complete positional encoding, feed-forward, normalization, and block configuration.
+3. Implement training, validation, scheduling, and checkpoint recovery.
+4. Add autoregressive generation with top-k/top-p sampling.
+5. Connect per-layer KV caches across the complete model and stream tokens.
+6. Connect generation to FastAPI and WebSocket endpoints.
+7. Add SafeTensors, ONNX, and GGUF export workflows.
+8. Expand correctness, reproducibility, and integration tests.
+9. Add distributed training only after the single-device pipeline is stable.
 
 ## Design principles
 
