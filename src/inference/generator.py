@@ -66,12 +66,15 @@ class Generator:
         repetition_penalty: float = 1.0,
         seed: int | None = None,
         stop: list[str] | None = None,
+        allow_special_tokens: bool = False,
     ) -> GenerationResult:
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
-        prompt_ids = self.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
+        prompt_ids = self.tokenizer.encode(
+            prompt, add_bos=True, allowed_special="all" if allow_special_tokens else ()
+        )
         if not prompt_ids:
             raise ValueError("prompt encoded to no tokens")
         if len(prompt_ids) >= self.max_positions:
@@ -134,7 +137,7 @@ class Generator:
         memory.add("user", user_message)
         reserve = int(generation_options.get("max_tokens", 128))
         prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
-        result = self.generate(prompt, **generation_options)
+        result = self.generate(prompt, allow_special_tokens=True, **generation_options)
         if result.text:
             memory.add("assistant", result.text)
         return result
@@ -152,13 +155,17 @@ class Generator:
         top_p = float(options.get("top_p", 1.0))
         repetition_penalty = float(options.get("repetition_penalty", 1.0))
         stop_sequences = options.get("stop") or []
-        prompt_ids = self.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
+        prompt_ids = self.tokenizer.encode(
+            prompt, add_bos=True,
+            allowed_special="all" if options.get("allow_special_tokens", False) else (),
+        )
         if not prompt_ids or len(prompt_ids) >= self.max_positions:
             raise ValueError("prompt is empty or exceeds the model context")
         random = torch.Generator(device=self.device)
         if options.get("seed") is not None:
             random.manual_seed(int(options["seed"]))
         all_ids, generated = list(prompt_ids), []
+        emitted_text = ""
         output = self.model(torch.tensor([all_ids], device=self.device), use_cache=True)
         if not isinstance(output, tuple):
             raise RuntimeError("model did not return a requested KV cache")
@@ -174,10 +181,17 @@ class Generator:
                 break
             generated.append(token_id)
             all_ids.append(token_id)
-            token = self.tokenizer.decode([token_id], skip_special_tokens=True)
-            yield GenerationStep(token, token_id, len(prompt_ids), len(generated))
             text = self.tokenizer.decode(generated, skip_special_tokens=True)
-            if any(sequence in text for sequence in stop_sequences):
+            stop_positions = [text.find(sequence) for sequence in stop_sequences if sequence in text]
+            stopped = bool(stop_positions)
+            visible = text[: min(stop_positions)] if stopped else text
+            if not stopped and stop_sequences:
+                visible = visible[: max(0, len(visible) - max(map(len, stop_sequences)) + 1)]
+            visible = visible.rstrip("\ufffd")
+            delta = visible[len(emitted_text) :] if visible.startswith(emitted_text) else ""
+            emitted_text = visible
+            yield GenerationStep(delta, token_id, len(prompt_ids), len(generated))
+            if stopped:
                 finish_reason = "stop"
                 break
             output = self.model(
@@ -189,6 +203,13 @@ class Generator:
                 raise RuntimeError("model did not return a requested KV cache")
             logits, raw_cache = output
             cache.update(raw_cache)
+        final_text = self.tokenizer.decode(generated, skip_special_tokens=True)
+        stop_positions = [final_text.find(sequence) for sequence in stop_sequences if sequence in final_text]
+        if stop_positions:
+            final_text = final_text[: min(stop_positions)]
+        remaining = final_text[len(emitted_text) :] if final_text.startswith(emitted_text) else ""
+        if remaining:
+            yield GenerationStep(remaining, None, len(prompt_ids), len(generated))
         yield GenerationStep("", None, len(prompt_ids), len(generated), finish_reason)
 
     @staticmethod

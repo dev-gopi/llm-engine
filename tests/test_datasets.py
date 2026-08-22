@@ -3,7 +3,7 @@ import json
 import torch
 
 from datasets.collator import Collator
-from datasets.loader import TextDataset, iter_records
+from datasets.loader import LazyJSONLDataset, TextDataset, iter_records
 from datasets.preprocessor import clean, format_messages
 from datasets.sampler import Sampler
 from tokenizer.bpe import BYTE_ENCODER
@@ -37,5 +37,28 @@ def test_dataset_reader_tokenization_collator_and_sampler(tmp_path) -> None:
         [dataset[index] for index in batches[0]]
     )
     assert batch["input_ids"].shape[1] % 8 == 0
-    assert torch.equal(batch["attention_mask"], batch["loss_mask"])
+    assert torch.all(batch["loss_mask"] <= batch["attention_mask"])
+    assert torch.any(batch["attention_mask"] & ~batch["loss_mask"])
     assert torch.all(batch["labels"][~batch["attention_mask"]] == -100)
+
+
+def test_sampler_shards_ranks_without_overlap() -> None:
+    lengths = list(range(12))
+    first = {index for batch in Sampler(lengths, 2, shuffle=False, rank=0, world_size=2) for index in batch}
+    second = {index for batch in Sampler(lengths, 2, shuffle=False, rank=1, world_size=2) for index in batch}
+    assert first.isdisjoint(second)
+    assert first | second == set(range(12))
+
+
+def test_sampler_resume_skips_completed_batches() -> None:
+    sampler = Sampler(list(range(8)), 2, shuffle=False)
+    sampler.load_state_dict({"epoch": 3, "start_batch": 2})
+    assert list(sampler) == [[4, 5], [6, 7]]
+
+
+def test_lazy_jsonl_indexes_without_eager_tokenization(tmp_path) -> None:
+    source = tmp_path / "data.jsonl"
+    source.write_text(json.dumps({"text": "hello"}) + "\n", encoding="utf-8")
+    dataset = LazyJSONLDataset(source, tokenizer(), max_length=16)
+    assert len(dataset) == 1
+    assert dataset[0]["input_ids"].numel() >= 2

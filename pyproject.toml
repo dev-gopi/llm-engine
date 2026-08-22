@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["httpx", "pytest"]
+export = ["onnx>=1.16", "onnxruntime>=1.18"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

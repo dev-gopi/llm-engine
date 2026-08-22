@@ -6,6 +6,7 @@ import math
 from collections.abc import Iterable, Mapping
 
 import torch
+import torch.distributed as dist
 from torch import Tensor, nn
 
 from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
@@ -50,6 +51,15 @@ class Evaluator:
                 token_count += details.token_count
         finally:
             self.model.train(was_training)
+        if dist.is_available() and dist.is_initialized():
+            totals = torch.tensor(
+                [loss_sum, cross_entropy_sum, z_loss_sum, token_count, batch_count],
+                dtype=torch.float64,
+                device=self.device,
+            )
+            dist.all_reduce(totals, op=dist.ReduceOp.SUM)
+            loss_sum, cross_entropy_sum, z_loss_sum = map(float, totals[:3])
+            token_count, batch_count = int(totals[3]), int(totals[4])
         if token_count == 0:
             raise ValueError("evaluation produced no valid target tokens")
         loss = loss_sum / token_count

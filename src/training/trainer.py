@@ -38,6 +38,8 @@ class Trainer:
         self.device = torch.device(device)
         self.global_step = 0
         self.micro_step = 0
+        self.current_epoch = 0
+        self.batch_in_epoch = 0
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -131,15 +133,19 @@ class Trainer:
         if epochs < 1:
             raise ValueError("epochs must be positive")
         history: list[dict[str, float | int]] = []
-        for epoch in range(epochs):
+        for epoch in range(self.current_epoch, epochs):
             batch_sampler = getattr(dataloader, "batch_sampler", None)
             if hasattr(batch_sampler, "set_epoch"):
                 batch_sampler.set_epoch(epoch)
+            if hasattr(batch_sampler, "set_start_batch"):
+                batch_sampler.set_start_batch(self.batch_in_epoch if epoch == self.current_epoch else 0)
             running_loss = 0.0
-            batch_index = 0
-            for batch_index, batch in enumerate(dataloader, 1):
+            resume_offset = self.batch_in_epoch if epoch == self.current_epoch else 0
+            batch_index = resume_offset
+            for batch_index, batch in enumerate(dataloader, resume_offset + 1):
                 previous_step = self.global_step
                 loss = self.train_step(batch)
+                self.batch_in_epoch = batch_index
                 running_loss += loss
                 optimizer_stepped = self.global_step != previous_step
                 if optimizer_stepped and log_every and self.global_step % log_every == 0:
@@ -150,8 +156,26 @@ class Trainer:
                     metrics = evaluator.evaluate(validation_dataloader)
                     history.append({"epoch": epoch + 1, "step": self.global_step, **metrics})
             self.flush_gradients()
+            self.current_epoch = epoch + 1
+            self.batch_in_epoch = 0
+            if hasattr(batch_sampler, "set_start_batch"):
+                batch_sampler.set_start_batch(0)
             epoch_record: dict[str, float | int] = {"epoch": epoch + 1, "step": self.global_step, "train_loss": running_loss / max(batch_index, 1)}
             if evaluator and validation_dataloader:
                 epoch_record.update(evaluator.evaluate(validation_dataloader))
             history.append(epoch_record)
         return history
+
+    def state_dict(self) -> dict[str, int]:
+        return {
+            "global_step": self.global_step,
+            "micro_step": self.micro_step,
+            "current_epoch": self.current_epoch,
+            "batch_in_epoch": self.batch_in_epoch,
+        }
+
+    def load_state_dict(self, state: Mapping[str, int]) -> None:
+        self.global_step = int(state.get("global_step", self.global_step))
+        self.micro_step = int(state.get("micro_step", 0))
+        self.current_epoch = int(state.get("current_epoch", 0))
+        self.batch_in_epoch = int(state.get("batch_in_epoch", 0))

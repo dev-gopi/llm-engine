@@ -49,3 +49,16 @@ def test_single_process_distributed_helpers() -> None:
     assert context.world_size == 1
     value = torch.tensor(2.0)
     assert DistributedTrainer.mean(value, context).item() == 2.0
+
+
+def test_checkpoint_can_apply_ema_weights(tmp_path) -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    ema = EMA(model, decay=0.9)
+    expected = ema.shadow["tok.embedding.weight"].clone()
+    with torch.no_grad():
+        model.tok.weight.add_(2)
+    path = save_checkpoint(tmp_path / "ema.pt", model, ema=ema)
+    restored = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    state = load_checkpoint(path, restored, use_ema=True)
+    assert state["ema_applied"]
+    torch.testing.assert_close(restored.tok.weight, expected)

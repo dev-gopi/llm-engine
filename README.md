@@ -187,6 +187,15 @@ WikiText-103 provides general English text for language-model pretraining.
 - Local raw path: `data/raw/wikitext-103-raw-v1/`
 - Format: Parquet
 
+Convert the raw line-oriented Parquet shards into article-level JSONL:
+
+```bash
+.venv/bin/python scripts/prepare_wikitext.py
+```
+
+The generated train and validation splits are included in
+`configs/training.yaml` alongside the conversational datasets.
+
 ### UltraChat 200k subset
 
 UltraChat supplies multi-turn instruction conversations for supervised
@@ -299,6 +308,14 @@ with `python scripts/train.py --resume checkpoints/latest/model.pt`.
 `mixed_precision` accepts `none`, `bf16`, or CUDA-only `fp16`, while
 `gradient_accumulation_steps` controls effective batch size.
 
+For CPU development, use the smaller profile instead of the 125M-parameter
+default model:
+
+```bash
+python scripts/train.py --model-config configs/model.cpu.yaml \
+  --training-config configs/training.cpu.yaml --epochs 1
+```
+
 Run the test suite with:
 
 ```bash
@@ -325,17 +342,18 @@ pytest -q
 | Per-layer attention KV cache | Production implementation |
 | REST/WebSocket serving infrastructure | Production implementation |
 | Model-backed serving generation | Production implementation |
-| SafeTensors, PyTorch Export, and ONNX export | Production implementation |
+| SafeTensors and PyTorch Export | Production implementation |
+| ONNX export | Implemented; install `.[export]` and validate in the target runtime |
 | Meaningful unit and integration tests | Production implementation |
 
 ## Roadmap
 
 1. Train and publish reproducible small-model reference checkpoints.
-2. Add gradient accumulation and automatic mixed precision benchmarks.
+2. Benchmark automatic mixed precision and accumulation on target GPUs.
 3. Add sharded FSDP checkpointing for multi-node training.
 4. Add a separately validated GGUF conversion workflow.
-5. Add persistent shared conversation sessions and continuous batching.
-6. Add deployment authentication, telemetry, rate limiting, and load tests.
+5. Add continuous request batching for higher serving throughput.
+6. Run ONNX Runtime compatibility, deployment load, and failure-recovery tests.
 
 ## Design principles
 

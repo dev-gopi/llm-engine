@@ -53,7 +53,7 @@ def main() -> None:
     output = args.output or Path("exports") / args.format / f"gopi{suffixes[args.format]}"
     config = load_yaml(args.model_config)
     model = MiniGPT.from_config(config, device="cpu")
-    load_checkpoint(args.checkpoint, model)
+    load_checkpoint(args.checkpoint, model, use_ema=True)
     artifact = export_model(model, output, args.format, sequence_length=args.sequence_length)
     destination_config = artifact.parent / "model.yaml"
     shutil.copy2(args.model_config, destination_config)

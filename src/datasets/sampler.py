@@ -12,7 +12,7 @@ from torch.utils.data import Sampler as TorchSampler
 class Sampler(TorchSampler[list[int]]):
     """Shuffle buckets while grouping similar sequence lengths."""
 
-    def __init__(self, lengths: Sequence[int], batch_size: int, *, shuffle: bool = True, drop_last: bool = False, seed: int = 0, bucket_size_multiplier: int = 50) -> None:
+    def __init__(self, lengths: Sequence[int], batch_size: int, *, shuffle: bool = True, drop_last: bool = False, seed: int = 0, bucket_size_multiplier: int = 50, rank: int = 0, world_size: int = 1) -> None:
         if batch_size < 1 or bucket_size_multiplier < 1:
             raise ValueError("batch and bucket sizes must be positive")
         self.lengths = list(lengths)
@@ -22,15 +22,32 @@ class Sampler(TorchSampler[list[int]]):
         self.seed = seed
         self.epoch = 0
         self.bucket_size = batch_size * bucket_size_multiplier
+        if world_size < 1 or not 0 <= rank < world_size:
+            raise ValueError("rank must be inside a positive world_size")
+        self.rank = rank
+        self.world_size = world_size
+        self.start_batch = 0
 
     def set_epoch(self, epoch: int) -> None:
         self.epoch = epoch
+
+    def set_start_batch(self, start_batch: int) -> None:
+        if start_batch < 0:
+            raise ValueError("start_batch must be non-negative")
+        self.start_batch = start_batch
 
     def __iter__(self) -> Iterator[list[int]]:
         randomizer = random.Random(self.seed + self.epoch)
         indices = list(range(len(self.lengths)))
         if self.shuffle:
             randomizer.shuffle(indices)
+        if self.world_size > 1:
+            if not self.drop_last:
+                target = math.ceil(len(indices) / self.world_size) * self.world_size
+                indices.extend(indices[: target - len(indices)])
+            else:
+                indices = indices[: len(indices) - len(indices) % self.world_size]
+            indices = indices[self.rank :: self.world_size]
         batches: list[list[int]] = []
         for start in range(0, len(indices), self.bucket_size):
             bucket = sorted(indices[start : start + self.bucket_size], key=self.lengths.__getitem__)
@@ -39,7 +56,16 @@ class Sampler(TorchSampler[list[int]]):
             batches = [batch for batch in batches if len(batch) == self.batch_size]
         if self.shuffle:
             randomizer.shuffle(batches)
-        yield from batches
+        yield from batches[self.start_batch :]
 
     def __len__(self) -> int:
-        return len(self.lengths) // self.batch_size if self.drop_last else math.ceil(len(self.lengths) / self.batch_size)
+        examples = len(self.lengths) // self.world_size if self.drop_last else math.ceil(len(self.lengths) / self.world_size)
+        batches = examples // self.batch_size if self.drop_last else math.ceil(examples / self.batch_size)
+        return max(0, batches - self.start_batch)
+
+    def state_dict(self) -> dict[str, int]:
+        return {"epoch": self.epoch, "start_batch": self.start_batch}
+
+    def load_state_dict(self, state: dict[str, int]) -> None:
+        self.epoch = int(state.get("epoch", 0))
+        self.set_start_batch(int(state.get("start_batch", 0)))

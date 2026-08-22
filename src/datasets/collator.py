@@ -25,8 +25,12 @@ class Collator:
             length = ((length + self.pad_to_multiple_of - 1) // self.pad_to_multiple_of) * self.pad_to_multiple_of
         inputs = torch.full((len(sequences), length), self.pad_token_id, dtype=torch.long)
         mask = torch.zeros((len(sequences), length), dtype=torch.bool)
+        loss_mask = torch.zeros((len(sequences), length), dtype=torch.bool)
         for row, sequence in enumerate(sequences):
             inputs[row, : sequence.numel()] = sequence.long()
             mask[row, : sequence.numel()] = True
-        labels = inputs.clone().masked_fill(~mask, self.ignore_index)
-        return {"input_ids": inputs, "attention_mask": mask, "labels": labels, "loss_mask": mask}
+            item = examples[row]
+            example_loss_mask = item.get("loss_mask") if isinstance(item, dict) else None
+            loss_mask[row, : sequence.numel()] = example_loss_mask.bool() if example_loss_mask is not None else True
+        labels = inputs.clone().masked_fill(~loss_mask, self.ignore_index)
+        return {"input_ids": inputs, "attention_mask": mask, "labels": labels, "loss_mask": loss_mask}

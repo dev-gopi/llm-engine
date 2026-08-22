@@ -29,15 +29,26 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/latest/model.pt"))
     parser.add_argument("--dataset", type=Path, action="append")
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--max-batches", type=int, help="limit evaluation batches for a smoke test")
     args = parser.parse_args()
+    if not args.checkpoint.is_file():
+        parser.error(
+            f"checkpoint not found: {args.checkpoint}. "
+            "Train one first with `python scripts/train.py --epochs 1`, or pass "
+            "an existing file with `--checkpoint PATH`."
+        )
     model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
     tokenizer = Tokenizer.load(args.tokenizer)
+    if tokenizer.vocab_size != int(model_config["vocab_size"]):
+        parser.error("tokenizer vocabulary does not match model vocab_size")
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device=device)
-    load_checkpoint(args.checkpoint, model, map_location=device)
+    load_checkpoint(args.checkpoint, model, map_location=device, use_ema=True)
     paths = args.dataset or config.get("validation_files") or config["train_files"]
     loader = build_loader(paths, tokenizer, config, shuffle=False)
-    metrics = Evaluator(model, loss_fn=CausalLanguageModelLoss.from_config(config), device=device).evaluate(loader)
+    metrics = Evaluator(model, loss_fn=CausalLanguageModelLoss.from_config(config), device=device).evaluate(
+        loader, max_batches=args.max_batches
+    )
     print(json.dumps(metrics, indent=2))
 
 

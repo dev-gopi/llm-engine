@@ -46,9 +46,10 @@ def main() -> None:
         parser.error("tokenizer vocabulary does not match model vocab_size")
     model = MiniGPT.from_config(model_config, device=distributed.device)
     training_model = DistributedTrainer.wrap(model, distributed)
-    train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True)
+    train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True, rank=distributed.rank, world_size=distributed.world_size)
     epochs = args.epochs or int(config.get("epochs", 1))
-    total_steps = max(1, len(train_loader) * epochs)
+    accumulation = int(config.get("gradient_accumulation_steps", 1))
+    total_steps = max(1, (len(train_loader) * epochs + accumulation - 1) // accumulation)
     optimizer = adamw_from_config(training_model, config)
     scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
     ema = EMA(training_model, decay=float(config.get("ema_decay", 0.999)))
@@ -56,24 +57,29 @@ def main() -> None:
     trainer = Trainer(
         training_model, optimizer, loss_fn, scheduler=scheduler, ema=ema,
         gradient_clip_norm=config.get("gradient_clip_norm", 1.0), device=distributed.device,
-        gradient_accumulation_steps=int(config.get("gradient_accumulation_steps", 1)),
+        gradient_accumulation_steps=accumulation,
         mixed_precision=str(config.get("mixed_precision", "none")),
     )
     if args.resume:
         state = load_checkpoint(args.resume, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=trainer.scaler, map_location=distributed.device)
         trainer.global_step = state["step"]
+        trainer.load_state_dict(state.get("trainer", {}))
+        sampler_state = state.get("sampler")
+        if sampler_state and hasattr(train_loader.batch_sampler, "load_state_dict"):
+            train_loader.batch_sampler.load_state_dict(sampler_state)
 
     validation_loader = None
     evaluator = None
     if config.get("validation_files"):
-        validation_loader = build_loader(config["validation_files"], tokenizer, config, shuffle=False)
+        validation_loader = build_loader(config["validation_files"], tokenizer, config, shuffle=False, rank=distributed.rank, world_size=distributed.world_size)
         evaluator = Evaluator(training_model, loss_fn=loss_fn, device=distributed.device)
 
     def checkpoint_callback(current: Trainer, epoch: int) -> None:
         if not distributed.is_main_process:
             return
         save_checkpoint(args.output, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=current.scaler,
-                        step=current.global_step, metadata={"epoch": epoch + 1})
+                        step=current.global_step, metadata={"epoch": epoch + 1},
+                        trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict())
 
     history = trainer.fit(
         train_loader, epochs=epochs, evaluator=evaluator,
