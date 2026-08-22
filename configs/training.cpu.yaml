@@ -8,7 +8,7 @@ lazy_dataset: true
 train_files:
   - data/processed/wikitext_103/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
-  - data/processed/dailydialog/dailydialog-conversations.json
+  - data/processed/dailydialog/train.jsonl
 validation_files:
   - data/processed/wikitext_103/validation.jsonl
   - data/processed/ultrachat_200k/validation.jsonl
