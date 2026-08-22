@@ -6,9 +6,9 @@ num_workers: 0
 pin_memory: false
 lazy_dataset: true
 train_files:
-  - data/processed/dailydialog/train.jsonl
+  - data/processed/wikitext_103/train.jsonl
 validation_files:
-  - data/processed/dailydialog/validation.jsonl
+  - data/processed/wikitext_103/train.jsonl
 learning_rate: 0.0003
 weight_decay: 0.01
 beta1: 0.9

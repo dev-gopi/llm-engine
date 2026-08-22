@@ -6,10 +6,10 @@ num_workers: 0
 pin_memory: false
 lazy_dataset: true
 train_files:
-  - data/processed/wikitext_103/train.jsonl
+  - data/processed/dailydialog/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
 validation_files:
-  - data/processed/wikitext_103/validation.jsonl
+  - data/processed/dailydialog/validation.jsonl
   - data/processed/ultrachat_200k/validation.jsonl
 learning_rate: 0.0001
 weight_decay: 0.01
