@@ -1,3 +1,214 @@
-# LLM Engine Boilerplate
+# Gopi LLM Engine
 
-Production-ready project structure for building a GPT-style LLM from scratch.
+Gopi is an educational, configuration-driven project for building a GPT-style
+language model from the ground up. The repository separates tokenization, data
+processing, model architecture, training, inference, and serving so each part
+can evolve independently as the model grows.
+
+> **Development status:** This repository currently provides the project
+> structure, starter datasets, and a minimal Transformer implementation. Several
+> training, inference, checkpointing, and serving modules are still placeholders.
+> It is not production-ready yet.
+
+## Goals
+
+- Learn and implement the complete LLM pipeline rather than wrapping a hosted model.
+- Keep experiments reproducible through YAML configuration.
+- Maintain clear boundaries between training and inference code.
+- Scale from a small local model toward distributed training and optimized serving.
+- Support checkpoint recovery and multiple deployment formats.
+
+## Repository structure
+
+```text
+llm-engine/
+├── configs/                 # Model, tokenizer, training, and inference settings
+├── data/
+│   ├── raw/                 # Immutable source datasets
+│   ├── processed/           # Normalized training and evaluation data
+│   ├── tokenizer/           # Vocabulary and merge artifacts
+│   └── cache/               # Reusable tokenized tensors
+├── src/
+│   ├── tokenizer/           # BPE training, encoding, and decoding
+│   ├── datasets/            # Loading, preprocessing, sampling, and collation
+│   ├── model/               # GPT model components
+│   ├── optim/               # Optimizers, schedulers, and EMA
+│   ├── training/            # Training, evaluation, metrics, and checkpoints
+│   ├── inference/           # Generation, sampling, and KV caching
+│   ├── serving/             # FastAPI and WebSocket interfaces
+│   └── utils/               # Configuration, devices, logging, and seeds
+├── checkpoints/             # Resumable training state
+├── exports/                 # SafeTensors, ONNX, and GGUF artifacts
+├── scripts/                 # Command-line workflows
+└── tests/                   # Unit and integration tests
+```
+
+## Model architecture
+
+The current model is a compact GPT-style network composed of:
+
+1. Learned token embeddings
+2. Learned positional embeddings
+3. Stacked Transformer blocks
+4. Multi-head self-attention
+5. GELU feed-forward networks
+6. Layer normalization and residual connections
+7. A vocabulary projection head
+
+Architecture values live in [`configs/model.yaml`](configs/model.yaml), keeping
+the model implementation independent from experiment size.
+
+## Assistant identity
+
+The assistant is named **Gopi**. Its default identity is configured in
+[`configs/inference.yaml`](configs/inference.yaml):
+
+```yaml
+bot_name: Gopi
+system_prompt: You are Gopi, a helpful, honest, and friendly AI assistant.
+```
+
+Processed conversational records also contain `"bot_name": "Gopi"` and the
+same system message.
+
+## Datasets
+
+### WikiText-103 Raw
+
+WikiText-103 provides general English text for language-model pretraining.
+
+- Source: [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext)
+- Local raw path: `data/raw/wikitext-103-raw-v1/`
+- Format: Parquet
+
+### UltraChat 200k subset
+
+UltraChat supplies multi-turn instruction conversations for supervised
+fine-tuning. The local working subset contains:
+
+- 20,000 training conversations
+- 2,000 validation conversations
+- 2,000 test conversations
+- License: MIT
+- Source: [HuggingFaceH4/ultrachat_200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k)
+
+Regenerate the processed subset with:
+
+```bash
+.venv/bin/python scripts/prepare_ultrachat.py
+```
+
+### DailyDialog subset
+
+DailyDialog adds human-written, everyday conversations. The processed subset
+contains 2,000 user/assistant pairs.
+
+- License: CC BY-NC-SA 4.0
+- Source: [ConvLab/dailydialog](https://huggingface.co/datasets/ConvLab/dailydialog)
+- Commercial-use warning: this dataset is non-commercial and share-alike.
+
+Regenerate it with:
+
+```bash
+.venv/bin/python scripts/prepare_dailydialog.py
+```
+
+Raw data and generated training artifacts are intentionally excluded from Git.
+Dataset-specific provenance is documented under `data/processed/<dataset>/README.md`.
+
+## Environment setup
+
+Python 3.10 or newer is required. Python 3.12 is used during current development.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install --editable '.[dev]'
+```
+
+The editable installation includes PyTorch, PyYAML, PyArrow, SafeTensors,
+FastAPI, Uvicorn, and pytest.
+
+## Configuration
+
+Configuration is divided by responsibility:
+
+| File | Responsibility |
+| --- | --- |
+| `configs/model.yaml` | Vocabulary size and Transformer architecture |
+| `configs/training.yaml` | Batch size, epochs, learning rate, and weight decay |
+| `configs/tokenizer.yaml` | Tokenizer type and vocabulary size |
+| `configs/inference.yaml` | Gopi's identity and generation behavior |
+
+Training code must not read inference settings, and inference code must not
+depend on the training package.
+
+## Commands
+
+The intended command-line workflows are:
+
+```bash
+python scripts/tokenize.py
+python scripts/train.py
+python scripts/evaluate.py
+python scripts/generate.py
+python scripts/export.py
+```
+
+These entrypoints currently remain scaffolds and will become functional as their
+respective subsystems are implemented.
+
+Run the test suite with:
+
+```bash
+pytest -q
+```
+
+## Current implementation status
+
+| Area | Status |
+| --- | --- |
+| Project architecture and configuration | Scaffolded |
+| Dataset acquisition and chat preprocessing | Working |
+| Token and positional embeddings | Minimal implementation |
+| Transformer blocks and language-model head | Minimal implementation |
+| Causal attention and attention masks | Not implemented |
+| Production BPE tokenizer | Not implemented |
+| Full training and evaluation loops | Not implemented |
+| Checkpoint save and resume | Not implemented |
+| Autoregressive generation and sampling | Not implemented |
+| KV cache | Not implemented |
+| REST generation and WebSocket streaming | Not implemented |
+| Model export | Not implemented |
+| Meaningful unit tests | Not implemented |
+
+## Roadmap
+
+1. Implement and test a production-quality BPE tokenizer.
+2. Build dataset loaders and causal language-model collators.
+3. Add causal masking, dropout, and configurable model construction.
+4. Implement training, validation, scheduling, and checkpoint recovery.
+5. Add autoregressive generation with top-k/top-p sampling.
+6. Introduce KV caching and token streaming.
+7. Connect generation to FastAPI and WebSocket endpoints.
+8. Add SafeTensors, ONNX, and GGUF export workflows.
+9. Expand correctness, reproducibility, and integration tests.
+10. Add distributed training only after the single-device pipeline is stable.
+
+## Design principles
+
+- One responsibility per module
+- Configuration instead of hardcoded experiments
+- Immutable raw data and reproducible preprocessing
+- Independent tokenizer and model artifacts
+- No dependency from inference to training
+- Versioned, resumable checkpoints
+- Tests before performance optimization
+- Honest documentation of unfinished functionality
+
+## License
+
+The project does not currently declare a repository-level software license.
+Dataset licenses apply independently; review them before distributing data or
+using trained artifacts commercially.

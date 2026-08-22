@@ -1,4 +1,26 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "llm-engine"
 version = "0.1.0"
-dependencies = ["torch","pyyaml","fastapi","uvicorn","safetensors"]
+description = "A configuration-driven GPT-style language model engine"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "numpy",
+    "pyarrow",
+    "pyyaml",
+    "safetensors",
+    "torch",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
