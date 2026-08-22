@@ -58,6 +58,20 @@ The current model is a compact GPT-style network composed of:
 Architecture values live in [`configs/model.yaml`](configs/model.yaml), keeping
 the model implementation independent from experiment size.
 
+### Token embedding matrix
+
+`TokenEmbedding` maps vocabulary IDs into the model's hidden dimension. It uses
+GPT-style normal initialization, keeps the padding row zero, optionally scales
+vectors by the square root of the hidden size, and supports freezing, safe
+vocabulary resizing, hardware-aligned vocabulary padding, and weight sharing
+with the language-model output projection. Device and floating-point dtype can
+be selected at construction time.
+
+With the default configuration, the matrix contains `50,000 × 768 = 38.4M`
+parameters. Its initialization and behavior are controlled by
+`padding_idx`, `initializer_range`, `scale_embeddings`, and
+`freeze_embeddings` in [`configs/model.yaml`](configs/model.yaml).
+
 ## Assistant identity
 
 The assistant is named **Gopi**. Its default identity is configured in
@@ -201,7 +215,8 @@ pytest -q
 | --- | --- |
 | Project architecture and configuration | Scaffolded |
 | Dataset acquisition and chat preprocessing | Working |
-| Token and positional embeddings | Minimal implementation |
+| Token embedding matrix | Production implementation |
+| Positional embeddings | Minimal implementation |
 | Transformer blocks and language-model head | Minimal implementation |
 | Causal attention and attention masks | Not implemented |
 | Byte-level BPE tokenizer and artifact persistence | Working |
