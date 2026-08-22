@@ -1,2 +1,17 @@
-type: BPE
+type: byte_level_bpe
 vocab_size: 50000
+min_frequency: 2
+max_training_bytes: 536870912
+output_dir: data/tokenizer
+special_tokens:
+  - <|pad|>
+  - <|unk|>
+  - <|bos|>
+  - <|eos|>
+  - <|system|>
+  - <|user|>
+  - <|assistant|>
+sources:
+  - data/processed/ultrachat_200k/train.jsonl
+  - data/processed/dailydialog/dailydialog-conversations.json
+  - data/raw/wikitext-103-raw-v1/*.parquet

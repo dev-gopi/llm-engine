@@ -116,6 +116,36 @@ Regenerate it with:
 Raw data and generated training artifacts are intentionally excluded from Git.
 Dataset-specific provenance is documented under `data/processed/<dataset>/README.md`.
 
+## Tokenizer
+
+The tokenizer is a reversible byte-level BPE implementation built in this
+repository. It provides full UTF-8 coverage without unknown characters,
+Unicode-aware pre-tokenization, deterministic incremental merge training,
+bounded encoding caches, explicit control-token handling, and atomic artifact
+writes.
+
+Reserved tokens are:
+
+```text
+<|pad|> <|unk|> <|bos|> <|eos|> <|system|> <|user|> <|assistant|>
+```
+
+Train the configured 50,000-token vocabulary from the local datasets:
+
+```bash
+python scripts/tokenize.py train
+```
+
+The command creates `tokenizer.json`, `vocab.json`, and `merges.txt` under
+`data/tokenizer/`. Inspect an artifact with an exact encode/decode round trip:
+
+```bash
+python scripts/tokenize.py inspect "Hello Gopi!" --add-bos --add-eos
+```
+
+Training size, minimum pair frequency, input sources, special tokens, and output
+location are controlled by [`configs/tokenizer.yaml`](configs/tokenizer.yaml).
+
 ## Environment setup
 
 Python 3.10 or newer is required. Python 3.12 is used during current development.
@@ -149,7 +179,7 @@ depend on the training package.
 The intended command-line workflows are:
 
 ```bash
-python scripts/tokenize.py
+python scripts/tokenize.py train
 python scripts/train.py
 python scripts/evaluate.py
 python scripts/generate.py
@@ -174,7 +204,7 @@ pytest -q
 | Token and positional embeddings | Minimal implementation |
 | Transformer blocks and language-model head | Minimal implementation |
 | Causal attention and attention masks | Not implemented |
-| Production BPE tokenizer | Not implemented |
+| Byte-level BPE tokenizer and artifact persistence | Working |
 | Full training and evaluation loops | Not implemented |
 | Checkpoint save and resume | Not implemented |
 | Autoregressive generation and sampling | Not implemented |
