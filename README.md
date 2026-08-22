@@ -364,8 +364,12 @@ metrics can lag behind the ordinary model weights during such a short run.
 
 The small profile uses a held-out validation split, saves the best validation
 checkpoint to `checkpoints/best/model.pt`, and stops after five epochs without
-a meaningful validation improvement. Do not select a final model using training
-loss alone.
+a meaningful validation improvement. To make the best checkpoint available for default serving or generation, copy `best.pt`:
+
+```bash
+mkdir -p checkpoints/latest
+cp checkpoints/best/model.pt checkpoints/latest/model.pt
+```
 
 ### Two-stage CPU training
 
@@ -390,6 +394,13 @@ python scripts/train.py --model-config configs/model.cpu.yaml \
   --best-output checkpoints/finetuning/best.pt
 ```
 
+To use the best fine-tuned model for default serving and generation, copy the best checkpoint to `checkpoints/latest/model.pt`:
+
+```bash
+mkdir -p checkpoints/latest
+cp checkpoints/finetuning/best.pt checkpoints/latest/model.pt
+```
+
 Use `--resume` only to continue the same training stage with its optimizer,
 scheduler, sampler, random-number, and early-stopping state. Use `--init-from`
 to transfer model weights into a new stage with a fresh optimizer and schedule.
@@ -407,6 +418,9 @@ python scripts/train.py --model-config configs/model.gpu.yaml \
   --init-from checkpoints/pretraining-gpu/best.pt \
   --output checkpoints/finetuning-gpu/latest.pt \
   --best-output checkpoints/finetuning-gpu/best.pt
+
+mkdir -p checkpoints/latest
+cp checkpoints/finetuning-gpu/best.pt checkpoints/latest/model.pt
 ```
 
 These profiles use a micro-batch of two 512-token sequences and accumulate 16
