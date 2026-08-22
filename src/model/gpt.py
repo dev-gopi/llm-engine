@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from .embedding import TokenEmbedding
+from .layer_norm import LayerNorm
 from .positional import PositionalEmbedding
 from .transformer_block import TransformerBlock
 
@@ -25,7 +26,7 @@ class MiniGPT(nn.Module):
         self.blocks = nn.ModuleList(
             TransformerBlock(dim, heads) for _ in range(layers)
         )
-        self.norm = nn.LayerNorm(dim)
+        self.norm = LayerNorm(dim)
         self.head = nn.Linear(dim, vocab_size)
 
     def forward(self, token_ids: Tensor, attention_mask: Tensor | None = None) -> Tensor:

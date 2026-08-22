@@ -16,3 +16,9 @@ ffn_multiple_of: 256
 ffn_activation: gelu
 ffn_dropout: 0.0
 ffn_bias: true
+norm_type: layer_norm
+norm_eps: 0.00001
+norm_bias: true
+pre_norm: true
+residual_dropout: 0.0
+residual_scale: 1.0

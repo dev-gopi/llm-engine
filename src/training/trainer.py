@@ -1,14 +1,31 @@
-import torch
-from torch.nn import CrossEntropyLoss
+"""Core single-step model trainer."""
+
+from __future__ import annotations
+
+import torch.nn as nn
+from torch import Tensor
+
+from model.loss import CausalLanguageModelLoss
+
+
 class Trainer:
-    def __init__(self,model,optimizer):
-        self.model=model
-        self.opt=optimizer
-        self.loss_fn=CrossEntropyLoss()
-    def train_step(self,x,y):
-        logits=self.model(x)
-        loss=self.loss_fn(logits.view(-1,logits.size(-1)),y.view(-1))
-        self.opt.zero_grad()
+    def __init__(
+        self,
+        model: nn.Module,
+        optimizer,
+        loss_fn: CausalLanguageModelLoss | None = None,
+    ) -> None:
+        self.model = model
+        self.opt = optimizer
+        # Existing trainer callers provide explicit next-token targets, so this
+        # integration does not shift them a second time.
+        self.loss_fn = loss_fn or CausalLanguageModelLoss(shift_labels=False)
+
+    def train_step(self, inputs: Tensor, targets: Tensor) -> float:
+        self.model.train()
+        self.opt.zero_grad(set_to_none=True)
+        logits = self.model(inputs)
+        loss = self.loss_fn(logits, targets)
         loss.backward()
         self.opt.step()
-        return loss.item()
+        return float(loss.detach().item())

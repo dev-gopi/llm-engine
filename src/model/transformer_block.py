@@ -1,25 +1,123 @@
-"""A single Transformer block."""
+"""A configurable pre-norm Transformer block with residual connections."""
 
 from __future__ import annotations
+
+import math
+from collections.abc import Mapping
+from typing import Any
 
 import torch.nn as nn
 from torch import Tensor
 
 from .attention import MultiHeadAttention
 from .feed_forward import FeedForward
+from .layer_norm import build_normalization
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, dim: int, heads: int = 8) -> None:
+    """Compose self-attention and FFN sublayers with normalized residual paths."""
+
+    def __init__(
+        self,
+        dim: int,
+        heads: int = 8,
+        *,
+        norm_type: str = "layer_norm",
+        norm_eps: float = 1e-5,
+        norm_bias: bool = True,
+        pre_norm: bool = True,
+        residual_dropout: float = 0.0,
+        residual_scale: float = 1.0,
+        attention_dropout: float = 0.0,
+        attention_bias: bool = True,
+        ffn_hidden_dim: int | None = None,
+        ffn_expansion_factor: float = 4.0,
+        ffn_multiple_of: int = 1,
+        ffn_activation: str = "gelu",
+        ffn_dropout: float = 0.0,
+        ffn_bias: bool = True,
+        initializer_range: float = 0.02,
+    ) -> None:
         super().__init__()
-        self.attn = MultiHeadAttention(dim, heads)
-        self.ffn = FeedForward(dim)
-        self.n1 = nn.LayerNorm(dim)
-        self.n2 = nn.LayerNorm(dim)
+        if not 0.0 <= residual_dropout < 1.0:
+            raise ValueError("residual_dropout must satisfy 0 <= dropout < 1")
+        if not math.isfinite(residual_scale) or residual_scale < 0:
+            raise ValueError("residual_scale must be finite and non-negative")
+
+        self.pre_norm = bool(pre_norm)
+        self.residual_scale = float(residual_scale)
+        self.attn = MultiHeadAttention(
+            dim,
+            heads,
+            dropout=attention_dropout,
+            bias=attention_bias,
+            causal=True,
+            initializer_range=initializer_range,
+        )
+        self.ffn = FeedForward(
+            dim,
+            hidden_dim=ffn_hidden_dim,
+            expansion_factor=ffn_expansion_factor,
+            multiple_of=ffn_multiple_of,
+            activation=ffn_activation,
+            dropout=ffn_dropout,
+            bias=ffn_bias,
+            initializer_range=initializer_range,
+        )
+        self.attention_norm = build_normalization(
+            norm_type, dim, eps=norm_eps, bias=norm_bias
+        )
+        self.ffn_norm = build_normalization(norm_type, dim, eps=norm_eps, bias=norm_bias)
+        self.attention_residual_dropout = nn.Dropout(residual_dropout)
+        self.ffn_residual_dropout = nn.Dropout(residual_dropout)
 
     def forward(self, hidden_states: Tensor, attention_mask: Tensor | None = None) -> Tensor:
-        hidden_states = self.n1(
-            hidden_states + self.attn(hidden_states, attention_mask=attention_mask)
+        if self.pre_norm:
+            attention_update = self.attn(
+                self.attention_norm(hidden_states), attention_mask=attention_mask
+            )
+            hidden_states = self._add_residual(
+                hidden_states, attention_update, self.attention_residual_dropout
+            )
+            ffn_update = self.ffn(self.ffn_norm(hidden_states))
+            return self._add_residual(hidden_states, ffn_update, self.ffn_residual_dropout)
+
+        attention_update = self.attn(hidden_states, attention_mask=attention_mask)
+        hidden_states = self.attention_norm(
+            self._add_residual(
+                hidden_states, attention_update, self.attention_residual_dropout
+            )
         )
-        hidden_states = self.n2(hidden_states + self.ffn(hidden_states))
-        return hidden_states
+        ffn_update = self.ffn(hidden_states)
+        return self.ffn_norm(
+            self._add_residual(hidden_states, ffn_update, self.ffn_residual_dropout)
+        )
+
+    def _add_residual(
+        self, residual: Tensor, update: Tensor, dropout: nn.Dropout
+    ) -> Tensor:
+        if residual.shape != update.shape:
+            raise ValueError("residual and sublayer update shapes must match")
+        return residual + dropout(update) * self.residual_scale
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any]) -> "TransformerBlock":
+        return cls(
+            dim=int(config["hidden_size"]),
+            heads=int(config["heads"]),
+            norm_type=str(config.get("norm_type", "layer_norm")),
+            norm_eps=float(config.get("norm_eps", 1e-5)),
+            norm_bias=bool(config.get("norm_bias", True)),
+            pre_norm=bool(config.get("pre_norm", True)),
+            residual_dropout=float(config.get("residual_dropout", 0.0)),
+            residual_scale=float(config.get("residual_scale", 1.0)),
+            attention_dropout=float(config.get("attention_dropout", 0.0)),
+            attention_bias=bool(config.get("attention_bias", True)),
+            ffn_hidden_dim=config.get("ffn_hidden_size"),
+            ffn_expansion_factor=float(config.get("ffn_expansion_factor", 4.0)),
+            ffn_multiple_of=int(config.get("ffn_multiple_of", 1)),
+            ffn_activation=str(config.get("ffn_activation", "gelu")),
+            ffn_dropout=float(config.get("ffn_dropout", 0.0)),
+            ffn_bias=bool(config.get("ffn_bias", True)),
+            initializer_range=float(config.get("initializer_range", 0.02)),
+        )

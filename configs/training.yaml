@@ -2,3 +2,8 @@ batch_size: 32
 epochs: 10
 learning_rate: 0.0003
 weight_decay: 0.01
+ignore_index: -100
+label_smoothing: 0.0
+z_loss_coefficient: 0.0
+shift_labels: true
+loss_reduction: mean

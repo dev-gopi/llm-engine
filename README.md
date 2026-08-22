@@ -96,6 +96,38 @@ and GEGLU. Gated variants use one fused gate/value projection. Hidden dimensions
 can be rounded to a configurable multiple for accelerator efficiency, while
 biases, initialization, dropout, device, and dtype remain configurable.
 
+### Residual connections and normalization
+
+Transformer blocks use pre-normalization by default:
+
+```text
+x = x + Attention(Norm(x))
+x = x + FFN(Norm(x))
+```
+
+This keeps an unobstructed residual path through deep networks and generally
+provides more stable optimization than the previous post-norm layout. Each
+branch supports independent residual dropout and configurable residual scaling.
+
+The project provides a bias-configurable LayerNorm matching PyTorch's reference
+equation and an RMSNorm alternative with float32 accumulation for FP16/BF16
+inputs. Normalization type, epsilon, bias, residual layout, dropout, and scale
+are configured in [`configs/model.yaml`](configs/model.yaml). A final LayerNorm
+is applied before the language-model output head.
+
+### Causal language-model loss
+
+`CausalLanguageModelLoss` computes next-token cross-entropy by aligning each
+logit position with the following token label. Padding and other excluded
+positions use `ignore_index` or an explicit loss mask. The calculation is
+performed in FP32 for stable mixed-precision training and returns a
+differentiable zero for fully masked batches instead of producing NaN.
+
+Optional label smoothing and logit z-loss are available for regularization and
+large-scale numerical stability. Detailed outputs expose cross-entropy, z-loss,
+and the valid token count for correctly weighted logging. Perplexity is computed
+as `exp(mean_token_cross_entropy)`.
+
 ## Assistant identity
 
 The assistant is named **Gopi**. Its default identity is configured in
@@ -244,6 +276,8 @@ pytest -q
 | Transformer blocks and language-model head | Minimal implementation |
 | Causal QKV self-attention and attention masks | Production implementation |
 | Position-wise FFN with GELU/SwiGLU support | Production implementation |
+| Pre-norm residual connections and LayerNorm/RMSNorm | Production implementation |
+| Shifted causal LM loss and perplexity | Production implementation |
 | Byte-level BPE tokenizer and artifact persistence | Working |
 | Full training and evaluation loops | Not implemented |
 | Checkpoint save and resume | Not implemented |
@@ -256,7 +290,7 @@ pytest -q
 ## Roadmap
 
 1. Build dataset loaders and causal language-model collators.
-2. Complete positional encoding, normalization, and block configuration.
+2. Complete positional encoding and language-model head configuration.
 3. Implement training, validation, scheduling, and checkpoint recovery.
 4. Add autoregressive generation with top-k/top-p sampling.
 5. Connect per-layer KV caches across the complete model and stream tokens.
