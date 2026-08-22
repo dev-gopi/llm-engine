@@ -394,6 +394,26 @@ Use `--resume` only to continue the same training stage with its optimizer,
 scheduler, sampler, random-number, and early-stopping state. Use `--init-from`
 to transfer model weights into a new stage with a fresh optimizer and schedule.
 
+For a CUDA GPU, use the full model with the conservative FP16 profiles:
+
+```bash
+python scripts/train.py --model-config configs/model.yaml \
+  --training-config configs/pretraining.gpu.yaml \
+  --output checkpoints/pretraining-gpu/latest.pt \
+  --best-output checkpoints/pretraining-gpu/best.pt
+
+python scripts/train.py --model-config configs/model.yaml \
+  --training-config configs/finetuning.gpu.yaml \
+  --init-from checkpoints/pretraining-gpu/best.pt \
+  --output checkpoints/finetuning-gpu/latest.pt \
+  --best-output checkpoints/finetuning-gpu/best.pt
+```
+
+These profiles use a micro-batch of two 512-token sequences and accumulate 16
+micro-batches for an effective batch size of 32. Reduce `batch_size` to one if
+CUDA runs out of memory. On GPUs with native BF16 support, changing
+`mixed_precision` from `fp16` to `bf16` usually improves numerical robustness.
+
 For a broader CPU experiment using every configured dataset, use:
 
 ```bash

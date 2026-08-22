@@ -1,0 +1,34 @@
+batch_size: 2
+epochs: 3
+seed: 42
+max_sequence_length: 512
+num_workers: 4
+pin_memory: true
+lazy_dataset: true
+train_files:
+  - data/processed/ultrachat_200k/train.jsonl
+  - data/processed/dailydialog/train.jsonl
+validation_files:
+  - data/processed/ultrachat_200k/validation.jsonl
+  - data/processed/dailydialog/validation.jsonl
+learning_rate: 0.0001
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 0.00000001
+gradient_clip_norm: 1.0
+gradient_accumulation_steps: 16
+mixed_precision: fp16
+lr_schedule: cosine
+warmup_ratio: 0.03
+min_lr_ratio: 0.1
+ema_decay: 0.999
+log_every: 25
+checkpoint_every: 1000
+early_stopping_patience: 2
+early_stopping_min_delta: 0.001
+ignore_index: -100
+label_smoothing: 0.0
+z_loss_coefficient: 0.0001
+shift_labels: true
+loss_reduction: mean
