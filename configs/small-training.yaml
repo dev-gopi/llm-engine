@@ -1,24 +1,20 @@
-batch_size: 32
-epochs: 10
+batch_size: 2
+epochs: 1
 seed: 42
-max_sequence_length: 2048
-num_workers: 4
-pin_memory: true
+max_sequence_length: 128
+num_workers: 0
+pin_memory: false
 lazy_dataset: true
 train_files:
-  - data/processed/wikitext_103/train.jsonl
-  - data/processed/ultrachat_200k/train.jsonl
   - data/processed/dailydialog/dailydialog-conversations.json
-validation_files:
-  - data/processed/wikitext_103/validation.jsonl
-  - data/processed/ultrachat_200k/validation.jsonl
+validation_files: []
 learning_rate: 0.0003
 weight_decay: 0.01
 beta1: 0.9
 beta2: 0.95
 adam_epsilon: 0.00000001
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 4
 mixed_precision: none
 lr_schedule: cosine
 warmup_ratio: 0.03

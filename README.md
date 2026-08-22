@@ -283,6 +283,9 @@ Configuration is divided by responsibility:
 | --- | --- |
 | `configs/model.yaml` | Vocabulary size and Transformer architecture |
 | `configs/training.yaml` | Batch size, epochs, learning rate, and weight decay |
+| `configs/model.cpu.yaml` | Compact model for CPU development and smoke tests |
+| `configs/small-training.yaml` | DailyDialog-only first-training profile |
+| `configs/training.cpu.yaml` | CPU profile for training across all configured datasets |
 | `configs/tokenizer.yaml` | Tokenizer type and vocabulary size |
 | `configs/inference.yaml` | Gopi's identity and generation behavior |
 
@@ -308,8 +311,45 @@ with `python scripts/train.py --resume checkpoints/latest/model.pt`.
 `mixed_precision` accepts `none`, `bf16`, or CUDA-only `fp16`, while
 `gradient_accumulation_steps` controls effective batch size.
 
-For CPU development, use the smaller profile instead of the 125M-parameter
-default model:
+### First small training run
+
+Before starting the complete corpus, verify the pipeline with the compact CPU
+model and the 2,000-pair DailyDialog subset:
+
+```bash
+python scripts/train.py --model-config configs/model.cpu.yaml \
+  --training-config configs/small-training.yaml --epochs 1
+```
+
+This profile uses two examples per batch, 128-token sequences, four-step
+gradient accumulation, and a single-process data loader. It writes the final
+checkpoint to `checkpoints/latest/model.pt`. On the current reference run, one
+epoch completed 250 optimizer steps and reduced the running training loss from
+approximately 10.57 to 6.75.
+
+Evaluate a bounded sample without loading the full dataset into memory:
+
+```bash
+python scripts/evaluate.py --model-config configs/model.cpu.yaml \
+  --training-config configs/small-training.yaml \
+  --dataset data/processed/dailydialog/dailydialog-conversations.json \
+  --max-batches 25 --device cpu
+```
+
+Then verify checkpoint loading and autoregressive generation:
+
+```bash
+python scripts/generate.py "Hello, my name is" \
+  --model-config configs/model.cpu.yaml --device cpu \
+  --max-tokens 40 --temperature 0.8 --seed 42
+```
+
+A model trained from scratch on this tiny dataset for one epoch will generally
+produce incoherent text; this run validates the pipeline rather than chatbot
+quality. Evaluation loads EMA weights by default. With `ema_decay: 0.999`, EMA
+metrics can lag behind the ordinary model weights during such a short run.
+
+For a broader CPU experiment using every configured dataset, use:
 
 ```bash
 python scripts/train.py --model-config configs/model.cpu.yaml \
