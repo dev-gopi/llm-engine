@@ -33,9 +33,13 @@ def main() -> None:
     parser.add_argument("--training-config", type=Path, default=Path("configs/training.yaml"))
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--output", type=Path, default=Path("checkpoints/latest/model.pt"))
+    parser.add_argument("--best-output", type=Path, default=Path("checkpoints/best/model.pt"))
     parser.add_argument("--resume", type=Path)
+    parser.add_argument("--init-from", type=Path, help="load model weights only for a new training stage")
     parser.add_argument("--epochs", type=int)
     args = parser.parse_args()
+    if args.resume and args.init_from:
+        parser.error("--resume and --init-from cannot be used together")
 
     configure_logging()
     model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
@@ -45,6 +49,8 @@ def main() -> None:
     if tokenizer.vocab_size != int(model_config["vocab_size"]):
         parser.error("tokenizer vocabulary does not match model vocab_size")
     model = MiniGPT.from_config(model_config, device=distributed.device)
+    if args.init_from:
+        load_checkpoint(args.init_from, model, map_location=distributed.device, use_ema=True)
     training_model = DistributedTrainer.wrap(model, distributed)
     train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True, rank=distributed.rank, world_size=distributed.world_size)
     epochs = args.epochs or int(config.get("epochs", 1))
@@ -81,6 +87,16 @@ def main() -> None:
                         step=current.global_step, metadata={"epoch": epoch + 1},
                         trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict())
 
+    def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
+        if not distributed.is_main_process:
+            return
+        save_checkpoint(
+            args.best_output, model, optimizer=optimizer, scheduler=scheduler, ema=ema,
+            scaler=current.scaler, step=current.global_step,
+            metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True},
+            trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict(),
+        )
+
     history = trainer.fit(
         train_loader, epochs=epochs, evaluator=evaluator,
         validation_dataloader=validation_loader,
@@ -88,10 +104,17 @@ def main() -> None:
         evaluate_every=config.get("evaluate_every"),
         checkpoint_every=config.get("checkpoint_every"),
         checkpoint_callback=checkpoint_callback,
+        best_checkpoint_callback=best_checkpoint_callback,
+        early_stopping_patience=config.get("early_stopping_patience"),
+        early_stopping_min_delta=float(config.get("early_stopping_min_delta", 0.0)),
     )
-    checkpoint_callback(trainer, epochs - 1)
+    final_epoch = int(history[-1]["epoch"]) - 1 if history else trainer.current_epoch - 1
+    checkpoint_callback(trainer, final_epoch)
     if distributed.is_main_process:
-        print(json.dumps({"checkpoint": str(args.output), "step": trainer.global_step, "history": history}, indent=2))
+        print(json.dumps({
+            "checkpoint": str(args.output), "best_checkpoint": str(args.best_output),
+            "step": trainer.global_step, "stopped_early": trainer.stopped_early, "history": history,
+        }, indent=2))
     DistributedTrainer.shutdown()
 
 

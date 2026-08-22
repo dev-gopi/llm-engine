@@ -40,6 +40,9 @@ class Trainer:
         self.micro_step = 0
         self.current_epoch = 0
         self.batch_in_epoch = 0
+        self.best_validation_loss = float("inf")
+        self.epochs_without_improvement = 0
+        self.stopped_early = False
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -129,6 +132,9 @@ class Trainer:
         evaluate_every: int | None = None,
         checkpoint_every: int | None = None,
         checkpoint_callback=None,
+        best_checkpoint_callback=None,
+        early_stopping_patience: int | None = None,
+        early_stopping_min_delta: float = 0.0,
     ) -> list[dict[str, float | int]]:
         if epochs < 1:
             raise ValueError("epochs must be positive")
@@ -163,19 +169,40 @@ class Trainer:
             epoch_record: dict[str, float | int] = {"epoch": epoch + 1, "step": self.global_step, "train_loss": running_loss / max(batch_index, 1)}
             if evaluator and validation_dataloader:
                 epoch_record.update(evaluator.evaluate(validation_dataloader))
+                validation_loss = float(epoch_record["loss"])
+                if validation_loss < self.best_validation_loss - early_stopping_min_delta:
+                    self.best_validation_loss = validation_loss
+                    self.epochs_without_improvement = 0
+                    if best_checkpoint_callback:
+                        best_checkpoint_callback(self, epoch)
+                else:
+                    self.epochs_without_improvement += 1
             history.append(epoch_record)
+            if early_stopping_patience is not None and self.epochs_without_improvement >= early_stopping_patience:
+                self.stopped_early = True
+                logger.info(
+                    "early stopping at epoch=%d after %d epochs without validation improvement",
+                    epoch + 1, self.epochs_without_improvement,
+                )
+                break
         return history
 
-    def state_dict(self) -> dict[str, int]:
+    def state_dict(self) -> dict[str, int | float | bool]:
         return {
             "global_step": self.global_step,
             "micro_step": self.micro_step,
             "current_epoch": self.current_epoch,
             "batch_in_epoch": self.batch_in_epoch,
+            "best_validation_loss": self.best_validation_loss,
+            "epochs_without_improvement": self.epochs_without_improvement,
+            "stopped_early": self.stopped_early,
         }
 
-    def load_state_dict(self, state: Mapping[str, int]) -> None:
+    def load_state_dict(self, state: Mapping[str, int | float | bool]) -> None:
         self.global_step = int(state.get("global_step", self.global_step))
         self.micro_step = int(state.get("micro_step", 0))
         self.current_epoch = int(state.get("current_epoch", 0))
         self.batch_in_epoch = int(state.get("batch_in_epoch", 0))
+        self.best_validation_loss = float(state.get("best_validation_loss", float("inf")))
+        self.epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
+        self.stopped_early = bool(state.get("stopped_early", False))

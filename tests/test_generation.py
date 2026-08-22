@@ -83,7 +83,7 @@ def test_checkpoint_to_serving_backend_integration(tmp_path) -> None:
         "hidden_size": 8,
         "layers": 1,
         "heads": 2,
-        "max_position": 8,
+        "max_position": 64,
         "position_type": "learned",
         "ffn_hidden_size": 16,
         "ffn_multiple_of": 1,

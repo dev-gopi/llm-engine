@@ -232,7 +232,12 @@ Regenerate it with:
 
 ```bash
 .venv/bin/python scripts/prepare_dailydialog.py
+.venv/bin/python scripts/split_dailydialog.py
 ```
+
+The second command creates deterministic `train.jsonl` and `validation.jsonl`
+files while keeping every pair from one source dialogue in the same split. The
+current 2,000-pair subset produces 1,803 training and 197 validation records.
 
 Raw data and generated training artifacts are intentionally excluded from Git.
 Dataset-specific provenance is documented under `data/processed/<dataset>/README.md`.
@@ -291,6 +296,8 @@ Configuration is divided by responsibility:
 | `configs/training.yaml` | Batch size, epochs, learning rate, and weight decay |
 | `configs/model.cpu.yaml` | Compact model for CPU development and smoke tests |
 | `configs/small-training.yaml` | DailyDialog-only first-training profile |
+| `configs/pretraining.cpu.yaml` | WikiText language pretraining on CPU |
+| `configs/finetuning.cpu.yaml` | UltraChat and DailyDialog supervised fine-tuning |
 | `configs/training.cpu.yaml` | CPU profile for training across all configured datasets |
 | `configs/tokenizer.yaml` | Tokenizer type and vocabulary size |
 | `configs/inference.yaml` | Gopi's identity and generation behavior |
@@ -354,6 +361,38 @@ A model trained from scratch on this tiny dataset for one epoch will generally
 produce incoherent text; this run validates the pipeline rather than chatbot
 quality. Evaluation loads EMA weights by default. With `ema_decay: 0.999`, EMA
 metrics can lag behind the ordinary model weights during such a short run.
+
+The small profile uses a held-out validation split, saves the best validation
+checkpoint to `checkpoints/best/model.pt`, and stops after five epochs without
+a meaningful validation improvement. Do not select a final model using training
+loss alone.
+
+### Two-stage CPU training
+
+Start a fresh general-language checkpoint on WikiText. This is a large CPU job,
+so expect it to take substantially longer than the DailyDialog smoke run:
+
+```bash
+python scripts/train.py --model-config configs/model.cpu.yaml \
+  --training-config configs/pretraining.cpu.yaml \
+  --output checkpoints/pretraining/latest.pt \
+  --best-output checkpoints/pretraining/best.pt
+```
+
+Initialize a new optimizer and fine-tune the best pretrained weights on
+UltraChat plus the leakage-resistant DailyDialog training split:
+
+```bash
+python scripts/train.py --model-config configs/model.cpu.yaml \
+  --training-config configs/finetuning.cpu.yaml \
+  --init-from checkpoints/pretraining/best.pt \
+  --output checkpoints/finetuning/latest.pt \
+  --best-output checkpoints/finetuning/best.pt
+```
+
+Use `--resume` only to continue the same training stage with its optimizer,
+scheduler, sampler, random-number, and early-stopping state. Use `--init-from`
+to transfer model weights into a new stage with a fresh optimizer and schedule.
 
 For a broader CPU experiment using every configured dataset, use:
 

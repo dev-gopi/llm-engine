@@ -62,3 +62,27 @@ def test_checkpoint_can_apply_ema_weights(tmp_path) -> None:
     state = load_checkpoint(path, restored, use_ema=True)
     assert state["ema_applied"]
     torch.testing.assert_close(restored.tok.weight, expected)
+
+
+def test_early_stopping_tracks_best_validation_epoch() -> None:
+    class FixedEvaluator:
+        def __init__(self):
+            self.losses = iter([2.0, 2.1, 2.2])
+
+        def evaluate(self, _loader):
+            return {"loss": next(self.losses)}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    trainer = Trainer(model, optimizer)
+    best_epochs = []
+    history = trainer.fit(
+        make_loader(), epochs=5, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), log_every=0,
+        early_stopping_patience=2,
+        best_checkpoint_callback=lambda _trainer, epoch: best_epochs.append(epoch),
+    )
+    assert trainer.stopped_early
+    assert len(history) == 3
+    assert best_epochs == [0]
+    assert trainer.best_validation_loss == 2.0

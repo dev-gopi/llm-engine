@@ -10,6 +10,7 @@ from pathlib import Path
 
 from inference.generator import Generator
 from inference.context import SQLiteSessionStore
+from datasets.preprocessor import format_messages
 from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
@@ -102,9 +103,12 @@ class ConfiguredModelBackend:
             max_tokens=request.max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p,
             repetition_penalty=request.repetition_penalty, seed=request.seed, stop=request.stop,
-            allow_special_tokens=bool(memory),
+            allow_special_tokens=True,
         )
-        prompt = request.prompt
+        prompt = format_messages(
+            [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": request.prompt}],
+            add_generation_prompt=True,
+        )
         if memory:
             memory.add("user", request.prompt)
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
@@ -143,7 +147,10 @@ class ConfiguredModelBackend:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
         memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
-        prompt = request.prompt
+        prompt = format_messages(
+            [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": request.prompt}],
+            add_generation_prompt=True,
+        )
         if memory:
             memory.add("user", request.prompt)
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
@@ -151,7 +158,7 @@ class ConfiguredModelBackend:
         options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
                        top_k=request.top_k, top_p=request.top_p,
                        repetition_penalty=request.repetition_penalty, seed=request.seed, stop=request.stop,
-                       allow_special_tokens=bool(memory))
+                       allow_special_tokens=True)
         async for step in self._stream_steps(prompt, options):
             if step.finish_reason is not None:
                 if memory and request.session_id:

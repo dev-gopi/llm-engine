@@ -11,6 +11,8 @@ const elements = {
 };
 let activeSocket = null;
 let activeController = null;
+const sessionId = sessionStorage.getItem("gopi-session-id") || `chat-${crypto.randomUUID()}`;
+sessionStorage.setItem("gopi-session-id", sessionId);
 
 function baseUrl() { return elements.baseUrl.value.trim().replace(/\/$/, "") || window.location.origin; }
 function requestPayload() {
@@ -19,7 +21,7 @@ function requestPayload() {
     prompt: elements.prompt.value.trim(), max_tokens: Number(elements.maxTokens.value),
     temperature: Number(elements.temperature.value), top_k: Number(elements.topK.value),
     top_p: Number(elements.topP.value), repetition_penalty: Number(elements.repetitionPenalty.value),
-    seed: seed === "" ? null : Number(seed), stop: []
+    seed: seed === "" ? null : Number(seed), stop: [], session_id: sessionId
   };
 }
 function showError(message = "") { elements.error.textContent = message; elements.error.hidden = !message; }
