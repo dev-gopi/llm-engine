@@ -66,6 +66,7 @@ def load_checkpoint(
     map_location: str | torch.device = "cpu",
     strict: bool = True,
     use_ema: bool = False,
+    restore_rng: bool = True,
 ) -> dict[str, Any]:
     source = Path(path)
     if not source.is_file():
@@ -103,14 +104,32 @@ def load_checkpoint(
         ema.load_state_dict(payload["ema"])
     if scaler is not None and payload.get("scaler") is not None:
         scaler.load_state_dict(payload["scaler"])
-    if payload.get("rng_state") is not None:
-        torch.set_rng_state(payload["rng_state"].cpu())
-    if torch.cuda.is_available() and payload.get("cuda_rng_state") is not None:
-        torch.cuda.set_rng_state_all(payload["cuda_rng_state"])
-    if payload.get("python_rng_state") is not None:
-        random.setstate(payload["python_rng_state"])
-    if payload.get("numpy_rng_state") is not None:
-        _set_numpy_rng_state(payload["numpy_rng_state"])
+    if restore_rng:
+        if payload.get("rng_state") is not None:
+            try:
+                torch.set_rng_state(payload["rng_state"].cpu().to(torch.uint8))
+            except Exception:
+                pass
+        if torch.cuda.is_available() and payload.get("cuda_rng_state") is not None:
+            try:
+                cuda_states = [
+                    s.cpu().to(torch.uint8) if isinstance(s, torch.Tensor) else s
+                    for s in payload["cuda_rng_state"]
+                ]
+                if len(cuda_states) == torch.cuda.device_count():
+                    torch.cuda.set_rng_state_all(cuda_states)
+            except Exception:
+                pass
+        if payload.get("python_rng_state") is not None:
+            try:
+                random.setstate(payload["python_rng_state"])
+            except Exception:
+                pass
+        if payload.get("numpy_rng_state") is not None:
+            try:
+                _set_numpy_rng_state(payload["numpy_rng_state"])
+            except Exception:
+                pass
     return {
         "step": int(payload.get("step", 0)),
         "metadata": payload.get("metadata", {}),

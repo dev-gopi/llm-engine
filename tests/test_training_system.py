@@ -97,3 +97,16 @@ def test_checkpoint_architecture_mismatch_error(tmp_path) -> None:
     with pytest.raises(RuntimeError, match="architecture mismatch"):
         load_checkpoint(path, model_large)
 
+
+def test_checkpoint_rng_state_loading(tmp_path) -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(tmp_path / "rng.pt", model)
+    restored = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+
+    # With restore_rng=False
+    load_checkpoint(path, restored, restore_rng=False)
+
+    # With restore_rng=True
+    load_checkpoint(path, restored, restore_rng=True)
+
+

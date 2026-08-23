@@ -48,9 +48,16 @@ def main() -> None:
     tokenizer = Tokenizer.load(args.tokenizer)
     if tokenizer.vocab_size != int(model_config["vocab_size"]):
         parser.error("tokenizer vocabulary does not match model vocab_size")
+    max_seq_len = int(config.get("max_sequence_length", 0))
+    max_pos = int(model_config.get("max_position", 0))
+    if max_seq_len > max_pos:
+        parser.error(
+            f"training max_sequence_length ({max_seq_len}) exceeds model max_position ({max_pos}). "
+            f"Use a matching training config (e.g. max_sequence_length <= {max_pos}) or a model config with max_position >= {max_seq_len}."
+        )
     model = MiniGPT.from_config(model_config, device=distributed.device)
     if args.init_from:
-        load_checkpoint(args.init_from, model, map_location=distributed.device, use_ema=True)
+        load_checkpoint(args.init_from, model, map_location=distributed.device, use_ema=True, restore_rng=False)
     training_model = DistributedTrainer.wrap(model, distributed)
     train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True, rank=distributed.rank, world_size=distributed.world_size)
     epochs = args.epochs or int(config.get("epochs", 1))
