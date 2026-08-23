@@ -46,15 +46,16 @@ llm-engine/
 
 ## Model architecture
 
-The current model is a compact GPT-style network composed of:
+The current model is a flexible, modern GPT-style network featuring:
 
-1. Learned token embeddings
-2. Learned positional embeddings
-3. Stacked Transformer blocks
-4. Multi-head self-attention
-5. GELU feed-forward networks
-6. Layer normalization and residual connections
-7. A vocabulary projection head
+1. Learned or Rotary (RoPE) Positional Embeddings (with Linear Position Interpolation support)
+2. Token Embedding matrix with configurable initialization strategies (`normal`, `mean`, `zero`) for vocabulary resizing
+3. Multi-Head Self-Attention with Grouped-Query Attention (GQA/MQA) support
+4. Gradient Checkpointing for memory-efficient long-sequence training
+5. GELU / SwiGLU / GEGLU feed-forward networks
+6. Layer Normalization / RMSNorm and pre-norm residual connections
+7. Causal Dot-Product Attention with cached causal masking and PyTorch SDPA integration
+8. Vocabulary projection head with optional weight tying
 
 Architecture values live in model configurations like [`configs/model.gpu.yaml`](configs/model.gpu.yaml) (full model) or [`configs/model.cpu.yaml`](configs/model.cpu.yaml) (compact model), keeping
 the model implementation independent from experiment size.
@@ -234,9 +235,17 @@ Regenerate it with:
 .venv/bin/python scripts/split_dailydialog.py
 ```
 
-The second command creates deterministic `train.jsonl` and `validation.jsonl`
-files while keeping every pair from one source dialogue in the same split. The
-current 2,000-pair subset produces 1,803 training and 197 validation records.
+### Hugging Face Dataset Downloader
+
+Download and process any Hugging Face dataset directly into raw Parquet (`data/raw/<dataset>/`) and tokenized chat JSONL (`data/processed/<dataset>/`):
+
+```bash
+# Download Databricks Dolly 15k
+python scripts/prepare_hf_dataset.py --dataset databricks/databricks-dolly-15k --train-size 5000 --validation-size 500
+
+# Download HuggingFace NoRobots
+python scripts/prepare_hf_dataset.py --dataset HuggingFaceH4/no_robots --train-size 5000 --validation-size 500
+```
 
 Raw data and generated training artifacts are intentionally excluded from Git.
 Dataset-specific provenance is documented under `data/processed/<dataset>/README.md`.
