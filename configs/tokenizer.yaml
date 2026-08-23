@@ -14,7 +14,7 @@ special_tokens:
 sources:
   - data/processed/alpaca/train.jsonl
   - data/processed/databricks-dolly-15k/train.jsonl
-  - data/processed/no_robots/train.jsonl
   - data/processed/dailydialog/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/wikitext_103/train.jsonl
+  - data/processed/no_robots/train.jsonl

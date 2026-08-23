@@ -1,5 +1,5 @@
 batch_size: 1
-epochs: 10
+epochs: 15
 seed: 42
 max_sequence_length: 512
 num_workers: 4
@@ -20,7 +20,7 @@ mixed_precision: fp16
 lr_schedule: cosine
 warmup_ratio: 0.03
 min_lr_ratio: 0.1
-ema_decay: 0.999
+ema_decay: 0.9999
 log_every: 25
 checkpoint_every: 1000
 early_stopping_patience: 2
