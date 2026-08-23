@@ -1,7 +1,7 @@
 vocab_size: 50000
-hidden_size: 128
-layers: 4
-heads: 4
+hidden_size: 256
+layers: 8
+heads: 8
 max_position: 512
 position_type: learned
 position_initializer_range: 0.02
@@ -15,7 +15,7 @@ lm_head_bias: false
 attention_dropout: 0.0
 attention_bias: true
 causal_attention: true
-ffn_hidden_size: 512
+ffn_hidden_size: 1024
 ffn_expansion_factor: 4.0
 ffn_multiple_of: 64
 ffn_activation: gelu
