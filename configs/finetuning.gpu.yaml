@@ -8,9 +8,13 @@ lazy_dataset: true
 train_files:
   - data/processed/dailydialog/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
+  - data/processed/databricks-dolly-15k/train.jsonl
+  - data/processed/no_robots/train.jsonl
 validation_files:
   - data/processed/dailydialog/validation.jsonl
   - data/processed/ultrachat_200k/validation.jsonl
+  - data/processed/databricks-dolly-15k/validation.jsonl
+  - data/processed/no_robots/validation.jsonl
 learning_rate: 0.0001
 weight_decay: 0.01
 beta1: 0.9

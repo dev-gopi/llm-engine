@@ -146,6 +146,8 @@ class Trainer:
             if hasattr(batch_sampler, "set_start_batch"):
                 batch_sampler.set_start_batch(self.batch_in_epoch if epoch == self.current_epoch else 0)
             running_loss = 0.0
+            window_loss = 0.0
+            window_batches = 0
             resume_offset = self.batch_in_epoch if epoch == self.current_epoch else 0
             batch_index = resume_offset
             for batch_index, batch in enumerate(dataloader, resume_offset + 1):
@@ -153,9 +155,15 @@ class Trainer:
                 loss = self.train_step(batch)
                 self.batch_in_epoch = batch_index
                 running_loss += loss
+                window_loss += loss
+                window_batches += 1
                 optimizer_stepped = self.global_step != previous_step
                 if optimizer_stepped and log_every and self.global_step % log_every == 0:
-                    logger.info("epoch=%d step=%d loss=%.6f", epoch + 1, self.global_step, running_loss / batch_index)
+                    current_loss = window_loss / max(window_batches, 1)
+                    avg_loss = running_loss / batch_index
+                    logger.info("epoch=%d step=%d loss=%.6f (avg=%.6f)", epoch + 1, self.global_step, current_loss, avg_loss)
+                    window_loss = 0.0
+                    window_batches = 0
                 if optimizer_stepped and checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
                     checkpoint_callback(self, epoch)
                 if optimizer_stepped and evaluate_every and evaluator and validation_dataloader and self.global_step % evaluate_every == 0:
