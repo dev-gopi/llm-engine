@@ -12,6 +12,9 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 import argparse
 
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def main() -> None:

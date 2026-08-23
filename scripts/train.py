@@ -22,9 +22,13 @@ from training.data import build_loader
 from training.distributed import DistributedTrainer
 from training.evaluator import Evaluator
 from training.trainer import Trainer
+from dotenv import load_dotenv
+
 from utils.config import load_yaml
 from utils.logger import configure_logging
 from utils.seed import set_seed
+
+load_dotenv()
 
 
 def main() -> None:

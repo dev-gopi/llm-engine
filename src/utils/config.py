@@ -6,6 +6,7 @@ from typing import Any
 import yaml
 
 
+
 def load_yaml(path: str | Path) -> dict[str, Any]:
     config_path = Path(path).expanduser()
     if not config_path.is_file():
