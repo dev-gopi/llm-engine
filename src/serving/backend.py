@@ -55,14 +55,23 @@ class ConfiguredModelBackend:
 
     async def startup(self) -> None:
         if not self.checkpoint_path.exists():
-            for fallback in (
+            # Search for candidates by priority and modification time
+            candidates = [
                 Path("checkpoints/finetuning/best.pt"),
+                Path("checkpoints/finetuning/latest.pt"),
                 Path("checkpoints/latest/model.pt"),
                 Path("checkpoints/latest/best.pt"),
                 Path("checkpoints/pretraining/best.pt"),
-            ):
+            ]
+            # Also find all .pt files under checkpoints/ sorted by modification time
+            all_pt_files = sorted(Path("checkpoints").glob("**/*.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
+            for file in all_pt_files:
+                if file not in candidates:
+                    candidates.append(file)
+
+            for fallback in candidates:
                 if fallback.exists():
-                    logger.info("Configured checkpoint %s not found; falling back to %s", self.checkpoint_path, fallback)
+                    logger.info("Configured checkpoint %s not found; falling back to latest checkpoint %s", self.checkpoint_path, fallback)
                     self.checkpoint_path = fallback
                     break
 
@@ -87,11 +96,26 @@ class ConfiguredModelBackend:
         tokenizer = Tokenizer.load(self.tokenizer_path)
         config = load_yaml(self.model_config)
         if int(config["vocab_size"]) != tokenizer.vocab_size:
-            raise ValueError(
-                f"model vocab_size={config['vocab_size']} does not match tokenizer vocab_size={tokenizer.vocab_size}"
-            )
-        model = MiniGPT.from_config(config, device=device)
-        load_checkpoint(self.checkpoint_path, model, map_location=device, use_ema=True)
+            config["vocab_size"] = tokenizer.vocab_size
+
+        try:
+            model = MiniGPT.from_config(config, device=device)
+            load_checkpoint(self.checkpoint_path, model, map_location=device, use_ema=True)
+        except RuntimeError as error:
+            # Fallback to alternative model configs (e.g. model.gpu.yaml) if architecture mismatch occurs
+            alt_config_path = Path("configs/model.gpu.yaml") if self.model_config.name == "model.cpu.yaml" else Path("configs/model.cpu.yaml")
+            if alt_config_path.exists():
+                logger.info("Retrying checkpoint load with alternate config: %s", alt_config_path)
+                alt_config = load_yaml(alt_config_path)
+                if int(alt_config["vocab_size"]) != tokenizer.vocab_size:
+                    alt_config["vocab_size"] = tokenizer.vocab_size
+                model = MiniGPT.from_config(alt_config, device=device)
+                load_checkpoint(self.checkpoint_path, model, map_location=device, use_ema=True)
+                self.model_config = alt_config_path
+                config = alt_config
+            else:
+                raise error
+
         self.generator = Generator(model, tokenizer, device=device)
         if self.session_store_path:
             self.sessions = SQLiteSessionStore(
@@ -99,7 +123,7 @@ class ConfiguredModelBackend:
                 max_tokens=min(self.context_tokens, model.max_positions),
                 system_prompt=self.system_prompt,
             )
-        logger.info("Loaded model checkpoint %s on %s", self.checkpoint_path, device)
+        logger.info("Successfully loaded model checkpoint %s using config %s on %s", self.checkpoint_path, self.model_config, device)
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         if request.session_id:
@@ -124,10 +148,13 @@ class ConfiguredModelBackend:
         if memory:
             memory.add("user", request.prompt)
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
+        prompt_ids = self.generator.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
+        logger.info("Generating with prompt repr: %r", prompt)
+        logger.info("Prompt token IDs (first 30): %s", prompt_ids[:30])
         generated_ids: list[int] = []
         pieces: list[str] = []
         finish_reason = "length"
-        prompt_tokens = 0
+        prompt_tokens = len(prompt_ids)
         async for event in self._stream_steps(prompt, options):
             prompt_tokens = event.prompt_tokens
             if event.token_id is not None:

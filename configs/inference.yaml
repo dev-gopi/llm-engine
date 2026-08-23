@@ -1,16 +1,16 @@
 bot_name: Gopi
 system_prompt: You are Gopi, a helpful, honest, and friendly AI assistant.
-temperature: 0.6
+temperature: 0.3
 top_k: 40
 max_tokens: 512
 top_p: 0.9
-repetition_penalty: 1.15
+repetition_penalty: 1.2
 context_memory:
   enabled: true
   max_tokens: 1536
 serving:
   model_name: gopi
-  model_config: configs/model.cpu.yaml
+  model_config: configs/model.gpu.yaml
   tokenizer_path: data/tokenizer
   checkpoint_path: checkpoints/latest/model.pt
   device: cpu
