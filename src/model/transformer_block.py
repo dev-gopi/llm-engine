@@ -1,4 +1,4 @@
-"""A configurable pre-norm Transformer block with residual connections."""
+"""A configurable pre-norm / post-norm Transformer block with residual connections and GQA/RoPE support."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ class TransformerBlock(nn.Module):
         dim: int,
         heads: int = 8,
         *,
+        kv_heads: int | None = None,
         norm_type: str = "layer_norm",
         norm_eps: float = 1e-5,
         norm_bias: bool = True,
@@ -53,6 +54,7 @@ class TransformerBlock(nn.Module):
         self.attn = MultiHeadAttention(
             dim,
             heads,
+            kv_heads=kv_heads,
             dropout=attention_dropout,
             bias=attention_bias,
             causal=causal_attention,
@@ -86,13 +88,19 @@ class TransformerBlock(nn.Module):
         hidden_states: Tensor,
         attention_mask: Tensor | None = None,
         *,
+        rotary_pos_emb: tuple[Tensor, Tensor] | None = None,
+        position_ids: Tensor | None = None,
         past_key_value: KeyValueCache | None = None,
         use_cache: bool = False,
     ) -> Tensor | tuple[Tensor, KeyValueCache]:
         if self.pre_norm:
             attention_result = self.attn(
-                self.attention_norm(hidden_states), attention_mask=attention_mask,
-                past_key_value=past_key_value, use_cache=use_cache,
+                self.attention_norm(hidden_states),
+                attention_mask=attention_mask,
+                rotary_pos_emb=rotary_pos_emb,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                use_cache=use_cache,
             )
             attention_update, present = self._unpack_attention(attention_result, use_cache)
             hidden_states = self._add_residual(
@@ -103,8 +111,12 @@ class TransformerBlock(nn.Module):
             return (output, present) if present is not None else output
 
         attention_result = self.attn(
-            hidden_states, attention_mask=attention_mask,
-            past_key_value=past_key_value, use_cache=use_cache,
+            hidden_states,
+            attention_mask=attention_mask,
+            rotary_pos_emb=rotary_pos_emb,
+            position_ids=position_ids,
+            past_key_value=past_key_value,
+            use_cache=use_cache,
         )
         attention_update, present = self._unpack_attention(attention_result, use_cache)
         hidden_states = self.attention_norm(
@@ -148,6 +160,7 @@ class TransformerBlock(nn.Module):
         return cls(
             dim=int(config["hidden_size"]),
             heads=int(config["heads"]),
+            kv_heads=(int(config["kv_heads"]) if config.get("kv_heads") is not None else None),
             norm_type=str(config.get("norm_type", "layer_norm")),
             norm_eps=float(config.get("norm_eps", 1e-5)),
             norm_bias=bool(config.get("norm_bias", True)),

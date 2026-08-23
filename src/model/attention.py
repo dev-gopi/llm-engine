@@ -1,4 +1,4 @@
-"""Causal multi-head self-attention for decoder-only language models."""
+"""Causal multi-head self-attention with Grouped Query Attention (GQA) and RoPE support."""
 
 from __future__ import annotations
 
@@ -11,18 +11,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from .positional import apply_rotary_pos_emb
 
 KeyValueCache: TypeAlias = tuple[Tensor, Tensor]
 AttentionOutput: TypeAlias = Tensor | tuple[Tensor, KeyValueCache]
 
 
 class MultiHeadAttention(nn.Module):
-    """GPT-style self-attention with fused QKV projection and KV caching.
+    """GPT-style self-attention with fused/GQA QKV projection, RoPE support, and KV caching.
 
     Boolean masks use ``True`` for positions that may be attended to. Floating
     masks are additive attention biases, normally zero for allowed positions and
-    ``-inf`` for blocked positions. Cached keys and values use the shape
-    ``[batch, heads, sequence, head_dim]``.
+    ``-inf`` for blocked positions. Cached keys and values use shape
+    ``[batch, kv_heads, sequence, head_dim]``.
     """
 
     def __init__(
@@ -30,6 +31,7 @@ class MultiHeadAttention(nn.Module):
         dim: int,
         heads: int = 8,
         *,
+        kv_heads: int | None = None,
         dropout: float = 0.0,
         bias: bool = True,
         causal: bool = True,
@@ -38,35 +40,63 @@ class MultiHeadAttention(nn.Module):
         dtype: torch.dtype | None = None,
     ) -> None:
         super().__init__()
-        self._validate_configuration(dim, heads, dropout, initializer_range)
+        self._validate_configuration(dim, heads, kv_heads, dropout, initializer_range)
         self.dim = dim
         self.heads = heads
+        self.kv_heads = kv_heads if kv_heads is not None else heads
+        self.num_kv_groups = heads // self.kv_heads
         self.head_dim = dim // heads
         self.dropout = float(dropout)
         self.causal = bool(causal)
         self.initializer_range = float(initializer_range)
 
         factory_kwargs = {"device": device, "dtype": dtype}
-        self.qkv_proj = nn.Linear(dim, 3 * dim, bias=bias, **factory_kwargs)
+        if self.kv_heads == self.heads:
+            self.qkv_proj = nn.Linear(dim, 3 * dim, bias=bias, **factory_kwargs)
+            self.q_proj = None
+            self.k_proj = None
+            self.v_proj = None
+        else:
+            self.qkv_proj = None
+            self.q_proj = nn.Linear(dim, dim, bias=bias, **factory_kwargs)
+            self.k_proj = nn.Linear(dim, self.kv_heads * self.head_dim, bias=bias, **factory_kwargs)
+            self.v_proj = nn.Linear(dim, self.kv_heads * self.head_dim, bias=bias, **factory_kwargs)
+
         self.out_proj = nn.Linear(dim, dim, bias=bias, **factory_kwargs)
+        self._mask_cache: dict[tuple[Any, ...], Tensor] = {}
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        nn.init.normal_(self.qkv_proj.weight, mean=0.0, std=self.initializer_range)
+        if self.qkv_proj is not None:
+            nn.init.normal_(self.qkv_proj.weight, mean=0.0, std=self.initializer_range)
+            if self.qkv_proj.bias is not None:
+                nn.init.zeros_(self.qkv_proj.bias)
+        else:
+            for proj in (self.q_proj, self.k_proj, self.v_proj):
+                if proj is not None:
+                    nn.init.normal_(proj.weight, mean=0.0, std=self.initializer_range)
+                    if proj.bias is not None:
+                        nn.init.zeros_(proj.bias)
+
         nn.init.normal_(self.out_proj.weight, mean=0.0, std=self.initializer_range)
-        if self.qkv_proj.bias is not None:
-            nn.init.zeros_(self.qkv_proj.bias)
         if self.out_proj.bias is not None:
             nn.init.zeros_(self.out_proj.bias)
 
     def project_qkv(self, hidden_states: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        """Project to Q, K, and V tensors shaped ``[batch, heads, seq, head_dim]``."""
-
+        """Project to Q [batch, heads, seq, head_dim], K & V [batch, kv_heads, seq, head_dim]."""
         self._validate_hidden_states(hidden_states)
         batch_size, sequence_length, _ = hidden_states.shape
-        projected = self.qkv_proj(hidden_states)
-        projected = projected.view(batch_size, sequence_length, 3, self.heads, self.head_dim)
-        query, key, value = projected.permute(2, 0, 3, 1, 4).unbind(0)
+
+        if self.qkv_proj is not None:
+            projected = self.qkv_proj(hidden_states)
+            projected = projected.view(batch_size, sequence_length, 3, self.heads, self.head_dim)
+            query, key, value = projected.permute(2, 0, 3, 1, 4).unbind(0)
+        else:
+            assert self.q_proj is not None and self.k_proj is not None and self.v_proj is not None
+            query = self.q_proj(hidden_states).view(batch_size, sequence_length, self.heads, self.head_dim).transpose(1, 2)
+            key = self.k_proj(hidden_states).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
+            value = self.v_proj(hidden_states).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
+
         return query, key, value
 
     def forward(
@@ -74,11 +104,18 @@ class MultiHeadAttention(nn.Module):
         hidden_states: Tensor,
         attention_mask: Tensor | None = None,
         *,
+        rotary_pos_emb: tuple[Tensor, Tensor] | None = None,
+        position_ids: Tensor | None = None,
         past_key_value: KeyValueCache | None = None,
         use_cache: bool = False,
         is_causal: bool | None = None,
     ) -> AttentionOutput:
         query, key, value = self.project_qkv(hidden_states)
+
+        if rotary_pos_emb is not None:
+            cos, sin = rotary_pos_emb
+            query, key = apply_rotary_pos_emb(query, key, cos, sin, position_ids=position_ids)
+
         batch_size, _, query_length, _ = query.shape
         past_length = 0
 
@@ -88,7 +125,17 @@ class MultiHeadAttention(nn.Module):
             key = torch.cat((past_key, key), dim=2)
             value = torch.cat((past_value, value), dim=2)
 
+        present_key_value = (key, value) if use_cache else None
         key_length = key.size(2)
+
+        # Expand K, V if GQA / MQA is active (num_kv_groups > 1)
+        if self.num_kv_groups > 1:
+            key_attn = key.repeat_interleave(self.num_kv_groups, dim=1)
+            value_attn = value.repeat_interleave(self.num_kv_groups, dim=1)
+        else:
+            key_attn = key
+            value_attn = value
+
         apply_causal = self.causal if is_causal is None else bool(is_causal)
         prepared_mask, kernel_is_causal = self._prepare_mask(
             attention_mask,
@@ -105,18 +152,18 @@ class MultiHeadAttention(nn.Module):
         if hasattr(F, "scaled_dot_product_attention"):
             attended = F.scaled_dot_product_attention(
                 query,
-                key,
-                value,
+                key_attn,
+                value_attn,
                 attn_mask=prepared_mask,
                 dropout_p=dropout_probability,
                 is_causal=kernel_is_causal,
                 scale=1.0 / math.sqrt(self.head_dim),
             )
-        else:  # pragma: no cover - supported for older PyTorch deployments
+        else:  # pragma: no cover
             attended = self._attention_fallback(
                 query,
-                key,
-                value,
+                key_attn,
+                value_attn,
                 prepared_mask,
                 dropout_probability,
                 kernel_is_causal,
@@ -125,7 +172,8 @@ class MultiHeadAttention(nn.Module):
         output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, self.dim)
         output = self.out_proj(output)
         if use_cache:
-            return output, (key, value)
+            assert present_key_value is not None
+            return output, present_key_value
         return output
 
     def _prepare_mask(
@@ -140,8 +188,6 @@ class MultiHeadAttention(nn.Module):
         device: torch.device,
         dtype: torch.dtype,
     ) -> tuple[Tensor | None, bool]:
-        # The native causal kernel is fastest when no cache/custom mask requires
-        # constructing an explicit offset-aware mask.
         if attention_mask is None and causal and past_length == 0:
             return None, True
         if attention_mask is None and not causal:
@@ -159,10 +205,18 @@ class MultiHeadAttention(nn.Module):
             )
 
         if causal:
-            query_positions = torch.arange(query_length, device=device) + past_length
-            key_positions = torch.arange(key_length, device=device)
-            causal_mask = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
-            causal_mask = causal_mask.view(1, 1, query_length, key_length)
+            cache_key = (query_length, key_length, past_length, str(device))
+            if cache_key in self._mask_cache:
+                causal_mask = self._mask_cache[cache_key]
+            else:
+                query_positions = torch.arange(query_length, device=device) + past_length
+                key_positions = torch.arange(key_length, device=device)
+                causal_mask = (key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)).view(
+                    1, 1, query_length, key_length
+                )
+                if len(self._mask_cache) < 32:
+                    self._mask_cache[cache_key] = causal_mask
+
             if prepared is None:
                 prepared = causal_mask
             elif prepared.dtype == torch.bool:
@@ -222,7 +276,7 @@ class MultiHeadAttention(nn.Module):
         if not isinstance(cache, tuple) or len(cache) != 2:
             raise TypeError("past_key_value must be a (key, value) tuple")
         key, value = cache
-        expected_prefix = (batch_size, self.heads)
+        expected_prefix = (batch_size, self.kv_heads)
         for name, tensor in (("key", key), ("value", value)):
             if not isinstance(tensor, Tensor) or tensor.ndim != 4:
                 raise ValueError(f"cached {name} must have four dimensions")
@@ -270,6 +324,7 @@ class MultiHeadAttention(nn.Module):
         return cls(
             dim=int(config["hidden_size"]),
             heads=int(config["heads"]),
+            kv_heads=(int(config["kv_heads"]) if config.get("kv_heads") is not None else None),
             dropout=float(config.get("attention_dropout", 0.0)),
             bias=bool(config.get("attention_bias", True)),
             causal=bool(config.get("causal_attention", True)),
@@ -280,8 +335,8 @@ class MultiHeadAttention(nn.Module):
 
     def extra_repr(self) -> str:
         return (
-            f"dim={self.dim}, heads={self.heads}, head_dim={self.head_dim}, "
-            f"dropout={self.dropout}, causal={self.causal}"
+            f"dim={self.dim}, heads={self.heads}, kv_heads={self.kv_heads}, "
+            f"head_dim={self.head_dim}, dropout={self.dropout}, causal={self.causal}"
         )
 
     def _validate_hidden_states(self, hidden_states: Tensor) -> None:
@@ -304,7 +359,7 @@ class MultiHeadAttention(nn.Module):
 
     @staticmethod
     def _validate_configuration(
-        dim: int, heads: int, dropout: float, initializer_range: float
+        dim: int, heads: int, kv_heads: int | None, dropout: float, initializer_range: float
     ) -> None:
         for name, value in (("dim", dim), ("heads", heads)):
             if not isinstance(value, int) or isinstance(value, bool):
@@ -313,6 +368,11 @@ class MultiHeadAttention(nn.Module):
                 raise ValueError(f"{name} must be positive")
         if dim % heads:
             raise ValueError("dim must be divisible by heads")
+        if kv_heads is not None:
+            if not isinstance(kv_heads, int) or isinstance(kv_heads, bool) or kv_heads < 1:
+                raise ValueError("kv_heads must be a positive integer")
+            if heads % kv_heads != 0:
+                raise ValueError("heads must be divisible by kv_heads")
         if not 0.0 <= dropout < 1.0:
             raise ValueError("dropout must satisfy 0 <= dropout < 1")
         if not math.isfinite(initializer_range) or initializer_range <= 0:

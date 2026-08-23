@@ -1,7 +1,8 @@
-"""Learned absolute positional embeddings for GPT-style models."""
+"""Positional embedding mechanisms including learned, rotary (RoPE), and sinusoidal embeddings."""
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -13,6 +14,126 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def rotate_half(x: Tensor) -> Tensor:
+    """Rotates half the hidden dims of the input tensor for RoPE."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(
+    q: Tensor,
+    k: Tensor,
+    cos: Tensor,
+    sin: Tensor,
+    position_ids: Tensor | None = None,
+) -> tuple[Tensor, Tensor]:
+    """Apply rotary position embedding (RoPE) to query and key tensors.
+
+    q, k shape: [batch, heads, seq, head_dim]
+    cos, sin shape: [1, 1, seq, head_dim] or [batch, 1, seq, head_dim]
+    """
+    if position_ids is not None:
+        # Index cos and sin using position_ids
+        # position_ids shape: [batch, seq] or [1, seq]
+        cos = cos.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)  # [batch, 1, seq, head_dim]
+        sin = sin.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
+class RotaryPositionalEmbedding(nn.Module):
+    """Rotary Position Embedding (RoPE) with optional position scaling / interpolation."""
+
+    def __init__(
+        self,
+        dim: int,
+        max_position_embeddings: int = 2048,
+        base: float = 10000.0,
+        scaling_factor: float = 1.0,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> None:
+        super().__init__()
+        if not isinstance(dim, int) or dim <= 0 or dim % 2 != 0:
+            raise ValueError("dim must be a positive even integer for RoPE")
+        if max_position_embeddings <= 0:
+            raise ValueError("max_position_embeddings must be positive")
+        if base <= 0:
+            raise ValueError("base must be positive")
+        if scaling_factor <= 0:
+            raise ValueError("scaling_factor must be positive")
+
+        self.dim = dim
+        self.max_position_embeddings = max_position_embeddings
+        self.base = float(base)
+        self.scaling_factor = float(scaling_factor)
+
+        # Inverse frequencies
+        inv_freq = 1.0 / (
+            self.base ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim)
+        )
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        self._build_cos_sin_cache(max_position_embeddings, device=device, dtype=dtype)
+
+    def _build_cos_sin_cache(
+        self, seq_len: int, device: torch.device | str | None = None, dtype: torch.dtype | None = None
+    ) -> None:
+        self.max_seq_len_cached = seq_len
+        t = torch.arange(seq_len, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+        if self.scaling_factor != 1.0:
+            t = t / self.scaling_factor
+
+        freqs = torch.outer(t, self.inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        self.register_buffer("cos_cached", emb.cos()[None, None, :, :].to(dtype=dtype, device=device), persistent=False)
+        self.register_buffer("sin_cached", emb.sin()[None, None, :, :].to(dtype=dtype, device=device), persistent=False)
+
+    def forward(self, x: Tensor, seq_len: int | None = None) -> tuple[Tensor, Tensor]:
+        """Return (cos, sin) tensors cached up to max(seq_len, x.shape[2])."""
+        target_seq_len = seq_len if seq_len is not None else x.shape[2]
+        if target_seq_len > self.max_seq_len_cached:
+            self._build_cos_sin_cache(target_seq_len, device=x.device, dtype=x.dtype)
+
+        return (
+            self.cos_cached[:, :, :target_seq_len, :].to(dtype=x.dtype, device=x.device),
+            self.sin_cached[:, :, :target_seq_len, :].to(dtype=x.dtype, device=x.device),
+        )
+
+
+class SinusoidalPositionalEmbedding(nn.Module):
+    """Fixed sinusoidal positional embedding."""
+
+    def __init__(
+        self,
+        max_pos: int,
+        dim: int,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> None:
+        super().__init__()
+        self.max_positions = max_pos
+        self.embedding_dim = dim
+
+        position = torch.arange(max_pos, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, dim, 2, dtype=torch.float32) * (-math.log(10000.0) / dim))
+
+        pe = torch.zeros(max_pos, dim, dtype=dtype, device=device)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("weight", pe, persistent=True)
+
+    def forward(self, inputs: Tensor, position_offset: int = 0) -> Tensor:
+        batch_size, sequence_length = inputs.shape[:2]
+        end_pos = position_offset + sequence_length
+        if end_pos > self.max_positions:
+            raise IndexError(f"End position {end_pos} exceeds max_positions {self.max_positions}")
+        embeddings = self.weight[position_offset:end_pos].unsqueeze(0).expand(batch_size, -1, -1)
+        return embeddings.to(dtype=inputs.dtype, device=inputs.device)
+
+
 class PositionalEmbedding(nn.Module):
     """Trainable positions with explicit IDs, decoding offsets, and padding."""
 
@@ -22,6 +143,7 @@ class PositionalEmbedding(nn.Module):
         dim: int,
         *,
         initializer_range: float = 0.02,
+        interpolate_positions: bool = False,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -35,6 +157,7 @@ class PositionalEmbedding(nn.Module):
         self.max_positions = max_pos
         self.embedding_dim = dim
         self.initializer_range = float(initializer_range)
+        self.interpolate_positions = bool(interpolate_positions)
         self.emb = nn.Embedding(max_pos, dim, device=device, dtype=dtype)
         self.reset_parameters()
 
@@ -66,6 +189,12 @@ class PositionalEmbedding(nn.Module):
         positions = self._make_position_ids(
             batch_size, sequence_length, inputs.device, position_ids, position_offset, mask
         )
+
+        if self.interpolate_positions and not torch.compiler.is_compiling():
+            max_p = positions.max().item()
+            if max_p >= self.max_positions:
+                positions = (positions.float() * (self.max_positions - 1) / float(max_p)).long()
+
         self._validate_bounds(positions, mask)
         embeddings = self.emb(positions)
         if mask is not None:
@@ -116,8 +245,6 @@ class PositionalEmbedding(nn.Module):
         return positions.unsqueeze(0).expand(batch_size, -1)
 
     def _validate_bounds(self, positions: Tensor, mask: Tensor | None) -> None:
-        # Export/compile capture cannot materialize data-dependent tensor values
-        # as Python integers. Runtime eager calls retain the detailed error.
         if torch.compiler.is_compiling():
             return
         active = positions if mask is None else positions[mask]
@@ -130,8 +257,8 @@ class PositionalEmbedding(nn.Module):
                 f"but received range [{minimum}, {maximum}]"
             )
 
-    def resize(self, new_max_positions: int) -> None:
-        """Resize the table while preserving all overlapping weights."""
+    def resize(self, new_max_positions: int, *, interpolate: bool = False) -> None:
+        """Resize the table while preserving or interpolating weights."""
         if not isinstance(new_max_positions, int) or isinstance(new_max_positions, bool) or new_max_positions <= 0:
             raise ValueError("new_max_positions must be a positive integer")
         if new_max_positions == self.max_positions:
@@ -140,15 +267,23 @@ class PositionalEmbedding(nn.Module):
         replacement = nn.Embedding(
             new_max_positions, self.embedding_dim, device=old.weight.device, dtype=old.weight.dtype
         )
-        nn.init.normal_(replacement.weight, mean=0.0, std=self.initializer_range)
         with torch.no_grad():
-            replacement.weight[: min(self.max_positions, new_max_positions)].copy_(
-                old.weight[: min(self.max_positions, new_max_positions)]
-            )
+            if interpolate and self.max_positions > 1:
+                # Interpolate old weights across new position range
+                weight_reshaped = old.weight.t().unsqueeze(0)  # [1, dim, old_pos]
+                interpolated = torch.nn.functional.interpolate(
+                    weight_reshaped, size=new_max_positions, mode="linear", align_corners=True
+                )
+                replacement.weight.copy_(interpolated.squeeze(0).t())
+            else:
+                nn.init.normal_(replacement.weight, mean=0.0, std=self.initializer_range)
+                replacement.weight[: min(self.max_positions, new_max_positions)].copy_(
+                    old.weight[: min(self.max_positions, new_max_positions)]
+                )
         self.emb = replacement
         previous = self.max_positions
         self.max_positions = new_max_positions
-        logger.info("Resized positional embeddings from %d to %d", previous, new_max_positions)
+        logger.info("Resized positional embeddings from %d to %d (interpolate=%s)", previous, new_max_positions, interpolate)
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any], **kwargs: Any) -> "PositionalEmbedding":
@@ -158,5 +293,6 @@ class PositionalEmbedding(nn.Module):
             initializer_range=float(
                 config.get("position_initializer_range", config.get("initializer_range", 0.02))
             ),
+            interpolate_positions=bool(config.get("interpolate_positions", False)),
             **kwargs,
         )

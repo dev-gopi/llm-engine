@@ -79,9 +79,16 @@ class TokenEmbedding(nn.Module):
             embeddings = embeddings * math.sqrt(self.embedding_dim)
         return embeddings
 
-    def resize(self, new_vocab_size: int, *, pad_to_multiple_of: int | None = None) -> int:
+    def resize(
+        self,
+        new_vocab_size: int,
+        *,
+        pad_to_multiple_of: int | None = None,
+        init_strategy: str = "normal",
+    ) -> int:
         """Resize the vocabulary and retain every overlapping token vector.
 
+        Supports ``init_strategy`` of "normal", "mean", or "zero" for newly added tokens.
         Returns the effective size, which may be larger than ``new_vocab_size``
         when ``pad_to_multiple_of`` is used for hardware-friendly dimensions.
         Any output projection tied before resizing must be tied again afterward.
@@ -91,6 +98,10 @@ class TokenEmbedding(nn.Module):
             raise TypeError("new_vocab_size must be an integer")
         if new_vocab_size < 1:
             raise ValueError("new_vocab_size must be positive")
+        valid_strategies = {"normal", "mean", "zero"}
+        if init_strategy not in valid_strategies:
+            raise ValueError(f"init_strategy must be one of {sorted(valid_strategies)}, got {init_strategy!r}")
+
         if pad_to_multiple_of is not None:
             if not isinstance(pad_to_multiple_of, int) or isinstance(pad_to_multiple_of, bool):
                 raise TypeError("pad_to_multiple_of must be an integer")
@@ -110,9 +121,21 @@ class TokenEmbedding(nn.Module):
             device=old_embedding.weight.device,
             dtype=old_embedding.weight.dtype,
         )
-        nn.init.normal_(new_embedding.weight, mean=0.0, std=self.initializer_range)
         rows_to_copy = min(self.vocab_size, new_vocab_size)
         with torch.no_grad():
+            if init_strategy == "zero":
+                new_embedding.weight.zero_()
+            elif init_strategy == "normal":
+                nn.init.normal_(new_embedding.weight, mean=0.0, std=self.initializer_range)
+            elif init_strategy == "mean":
+                if self.padding_idx is not None and self.vocab_size > 1:
+                    mask = torch.ones(self.vocab_size, dtype=torch.bool, device=old_embedding.weight.device)
+                    mask[self.padding_idx] = False
+                    mean_vec = old_embedding.weight[mask].mean(dim=0)
+                else:
+                    mean_vec = old_embedding.weight.mean(dim=0)
+                new_embedding.weight.copy_(mean_vec.unsqueeze(0).expand(new_vocab_size, -1))
+
             new_embedding.weight[:rows_to_copy].copy_(old_embedding.weight[:rows_to_copy])
             if self.padding_idx is not None:
                 new_embedding.weight[self.padding_idx].zero_()

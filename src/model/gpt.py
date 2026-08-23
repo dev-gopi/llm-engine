@@ -1,4 +1,4 @@
-"""Production GPT-style decoder-only language model assembly."""
+"""Production GPT-style decoder-only language model assembly with GQA, RoPE, and checkpointing."""
 
 from __future__ import annotations
 
@@ -8,14 +8,15 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 from torch import Tensor
 
 from utils.logger import get_logger
 
-from .embedding import TokenEmbedding
 from .attention import KeyValueCache
+from .embedding import TokenEmbedding
 from .layer_norm import build_normalization
-from .positional import PositionalEmbedding
+from .positional import PositionalEmbedding, RotaryPositionalEmbedding, SinusoidalPositionalEmbedding
 from .transformer_block import TransformerBlock
 
 logger = get_logger(__name__)
@@ -33,7 +34,11 @@ class MiniGPT(nn.Module):
         max_pos: int = 512,
         initializer_range: float = 0.02,
         *,
+        kv_heads: int | None = None,
+        position_type: str = "learned",
         position_initializer_range: float | None = None,
+        rope_base: float = 10000.0,
+        rope_scale: float = 1.0,
         padding_idx: int | None = None,
         embedding_dropout: float = 0.0,
         scale_embeddings: bool = False,
@@ -55,6 +60,7 @@ class MiniGPT(nn.Module):
         ffn_activation: str = "gelu",
         ffn_dropout: float = 0.0,
         ffn_bias: bool = True,
+        gradient_checkpointing: bool = False,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -63,32 +69,77 @@ class MiniGPT(nn.Module):
         self.vocab_size = vocab_size
         self.dim = dim
         self.max_positions = max_pos
+        self.position_type = str(position_type).lower()
         self.tie_word_embeddings = bool(tie_word_embeddings)
+        self.gradient_checkpointing = bool(gradient_checkpointing)
+
+        if self.position_type not in {"learned", "rotary", "sinusoidal", "none"}:
+            raise ValueError(f"Unsupported position_type: {position_type!r}")
 
         self.tok = TokenEmbedding(
-            vocab_size, dim, padding_idx=padding_idx,
-            initializer_range=initializer_range, scale_embeddings=scale_embeddings,
+            vocab_size,
+            dim,
+            padding_idx=padding_idx,
+            initializer_range=initializer_range,
+            scale_embeddings=scale_embeddings,
             freeze=freeze_embeddings,
-            device=device, dtype=dtype,
+            device=device,
+            dtype=dtype,
         )
-        self.pos = PositionalEmbedding(
-            max_pos, dim,
-            initializer_range=(position_initializer_range or initializer_range),
-            device=device, dtype=dtype
-        )
+
+        if self.position_type == "learned":
+            self.pos: nn.Module | None = PositionalEmbedding(
+                max_pos,
+                dim,
+                initializer_range=(position_initializer_range or initializer_range),
+                device=device,
+                dtype=dtype,
+            )
+            self.rotary_emb: RotaryPositionalEmbedding | None = None
+        elif self.position_type == "rotary":
+            self.pos = None
+            head_dim = dim // heads
+            self.rotary_emb = RotaryPositionalEmbedding(
+                head_dim,
+                max_position_embeddings=max_pos,
+                base=rope_base,
+                scaling_factor=rope_scale,
+                device=device,
+                dtype=dtype,
+            )
+        elif self.position_type == "sinusoidal":
+            self.pos = SinusoidalPositionalEmbedding(
+                max_pos, dim, device=device, dtype=dtype
+            )
+            self.rotary_emb = None
+        else:
+            self.pos = None
+            self.rotary_emb = None
+
         self.embedding_dropout = nn.Dropout(embedding_dropout)
         self.blocks = nn.ModuleList(
             TransformerBlock(
-                dim, heads, norm_type=norm_type, norm_eps=norm_eps, norm_bias=norm_bias,
-                pre_norm=pre_norm, residual_dropout=residual_dropout,
-                residual_scale=residual_scale, attention_dropout=attention_dropout,
-                attention_bias=attention_bias, ffn_hidden_dim=ffn_hidden_dim,
+                dim,
+                heads,
+                kv_heads=kv_heads,
+                norm_type=norm_type,
+                norm_eps=norm_eps,
+                norm_bias=norm_bias,
+                pre_norm=pre_norm,
+                residual_dropout=residual_dropout,
+                residual_scale=residual_scale,
+                attention_dropout=attention_dropout,
+                attention_bias=attention_bias,
+                ffn_hidden_dim=ffn_hidden_dim,
                 causal_attention=causal_attention,
                 ffn_expansion_factor=ffn_expansion_factor,
-                ffn_multiple_of=ffn_multiple_of, ffn_activation=ffn_activation,
-                ffn_dropout=ffn_dropout, ffn_bias=ffn_bias,
+                ffn_multiple_of=ffn_multiple_of,
+                ffn_activation=ffn_activation,
+                ffn_dropout=ffn_dropout,
+                ffn_bias=ffn_bias,
                 initializer_range=initializer_range,
-                device=device, dtype=dtype,
+                device=device,
+                dtype=dtype,
             )
             for _ in range(layers)
         )
@@ -102,6 +153,12 @@ class MiniGPT(nn.Module):
         if self.tie_word_embeddings:
             self.tie_weights()
         logger.debug("Initialized GPT with %d layers and %d parameters", layers, self.num_parameters())
+
+    def gradient_checkpointing_enable(self) -> None:
+        self.gradient_checkpointing = True
+
+    def gradient_checkpointing_disable(self) -> None:
+        self.gradient_checkpointing = False
 
     def forward(
         self,
@@ -120,28 +177,70 @@ class MiniGPT(nn.Module):
             cached_length = past_key_values[0][0].shape[2]
             if position_offset == 0:
                 position_offset = cached_length
-        positions = self.pos(
-            token_ids, position_ids=position_ids, position_offset=position_offset,
-            attention_mask=attention_mask,
-        )
-        hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
+
+        seq_len = token_ids.shape[1]
+        rotary_pos_emb: tuple[Tensor, Tensor] | None = None
+
+        if self.position_type == "learned" and self.pos is not None:
+            positions = self.pos(
+                token_ids,
+                position_ids=position_ids,
+                position_offset=position_offset,
+                attention_mask=attention_mask,
+            )
+            hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
+        elif self.position_type == "sinusoidal" and self.pos is not None:
+            positions = self.pos(token_ids, position_offset=position_offset)
+            hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
+        elif self.position_type == "rotary" and self.rotary_emb is not None:
+            hidden_states = self.embedding_dropout(self.tok(token_ids))
+            rotary_pos_emb = self.rotary_emb(hidden_states, seq_len=position_offset + seq_len)
+        else:
+            hidden_states = self.embedding_dropout(self.tok(token_ids))
+
         present_key_values: list[KeyValueCache] = []
         for index, block in enumerate(self.blocks):
-            block_output = block(
-                hidden_states,
-                attention_mask=attention_mask,
-                past_key_value=past_key_values[index] if past_key_values is not None else None,
-                use_cache=use_cache,
-            )
-            if use_cache:
-                if not isinstance(block_output, tuple):
-                    raise RuntimeError("Transformer block did not return a requested cache")
-                hidden_states, present = block_output
-                present_key_values.append(present)
+            past_kv = past_key_values[index] if past_key_values is not None else None
+
+            if self.gradient_checkpointing and self.training and not use_cache:
+                def create_custom_forward(target_block: TransformerBlock):
+                    def custom_forward(*inputs: Any) -> Tensor:
+                        out = target_block(
+                            inputs[0],
+                            attention_mask=inputs[1],
+                            rotary_pos_emb=rotary_pos_emb,
+                            position_ids=position_ids,
+                        )
+                        assert isinstance(out, Tensor)
+                        return out
+
+                    return custom_forward
+
+                hidden_states = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(block),
+                    hidden_states,
+                    attention_mask,
+                    use_reentrant=False,
+                )
             else:
-                if isinstance(block_output, tuple):
-                    raise RuntimeError("Transformer block unexpectedly returned a cache")
-                hidden_states = block_output
+                block_output = block(
+                    hidden_states,
+                    attention_mask=attention_mask,
+                    rotary_pos_emb=rotary_pos_emb,
+                    position_ids=position_ids,
+                    past_key_value=past_kv,
+                    use_cache=use_cache,
+                )
+                if use_cache:
+                    if not isinstance(block_output, tuple):
+                        raise RuntimeError("Transformer block did not return a requested cache")
+                    hidden_states, present = block_output
+                    present_key_values.append(present)
+                else:
+                    if isinstance(block_output, tuple):
+                        raise RuntimeError("Transformer block unexpectedly returned a cache")
+                    hidden_states = block_output
+
         logits = self.head(self.norm(hidden_states))
         return (logits, tuple(present_key_values)) if use_cache else logits
 
@@ -150,26 +249,44 @@ class MiniGPT(nn.Module):
         self.tok.tie_weights(self.head)
 
     def resize_token_embeddings(
-        self, new_vocab_size: int, *, pad_to_multiple_of: int | None = None
+        self,
+        new_vocab_size: int,
+        *,
+        pad_to_multiple_of: int | None = None,
+        init_strategy: str = "normal",
     ) -> int:
         """Resize input/output vocabulary matrices and restore weight tying."""
-        effective_size = self.tok.resize(new_vocab_size, pad_to_multiple_of=pad_to_multiple_of)
+        effective_size = self.tok.resize(
+            new_vocab_size, pad_to_multiple_of=pad_to_multiple_of, init_strategy=init_strategy
+        )
         old_head = self.head
         replacement = nn.Linear(
-            self.dim, effective_size, bias=old_head.bias is not None,
-            device=old_head.weight.device, dtype=old_head.weight.dtype,
+            self.dim,
+            effective_size,
+            bias=old_head.bias is not None,
+            device=old_head.weight.device,
+            dtype=old_head.weight.dtype,
         )
+        rows = min(old_head.out_features, effective_size)
         with torch.no_grad():
-            rows = min(old_head.out_features, effective_size)
+            if init_strategy == "zero":
+                replacement.weight.zero_()
+            elif init_strategy == "mean":
+                mean_vec = old_head.weight.mean(dim=0)
+                replacement.weight.copy_(mean_vec.unsqueeze(0).expand(effective_size, -1))
+            else:
+                nn.init.normal_(replacement.weight, mean=0.0, std=self.tok.initializer_range)
+
             replacement.weight[:rows].copy_(old_head.weight[:rows])
             if replacement.bias is not None:
                 replacement.bias.zero_()
                 replacement.bias[:rows].copy_(old_head.bias[:rows])
+
         self.head = replacement
         self.vocab_size = effective_size
         if self.tie_word_embeddings:
             self.tie_weights()
-        logger.info("Resized GPT vocabulary to %d tokens", effective_size)
+        logger.info("Resized GPT vocabulary to %d tokens (init_strategy=%s)", effective_size, init_strategy)
         return effective_size
 
     def num_parameters(self, *, trainable_only: bool = False) -> int:
@@ -180,18 +297,32 @@ class MiniGPT(nn.Module):
 
     @classmethod
     def from_config(
-        cls, config: Mapping[str, Any], *,
-        device: torch.device | str | None = None, dtype: torch.dtype | None = None,
+        cls,
+        config: Mapping[str, Any],
+        *,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
     ) -> "MiniGPT":
         """Build a complete model from model configuration values."""
-        if str(config.get("position_type", "learned")).lower() != "learned":
-            raise ValueError("MiniGPT currently supports position_type='learned' only")
+        pos_type = str(config.get("position_type", "learned")).lower()
+        valid_pos_types = {"learned", "rotary", "sinusoidal", "none"}
+        if pos_type not in valid_pos_types:
+            raise ValueError(f"position_type must be one of {sorted(valid_pos_types)}, got {pos_type!r}")
+
         return cls(
-            vocab_size=int(config["vocab_size"]), dim=int(config["hidden_size"]),
-            layers=int(config["layers"]), heads=int(config["heads"]),
+            vocab_size=int(config["vocab_size"]),
+            dim=int(config["hidden_size"]),
+            layers=int(config["layers"]),
+            heads=int(config["heads"]),
+            kv_heads=(int(config["kv_heads"]) if config.get("kv_heads") is not None else None),
             max_pos=int(config["max_position"]),
+            position_type=pos_type,
+            rope_base=float(config.get("rope_base", 10000.0)),
+            rope_scale=float(config.get("rope_scale", 1.0)),
             initializer_range=float(config.get("initializer_range", 0.02)),
-            position_initializer_range=float(config.get("position_initializer_range", config.get("initializer_range", 0.02))),
+            position_initializer_range=float(
+                config.get("position_initializer_range", config.get("initializer_range", 0.02))
+            ),
             padding_idx=config.get("padding_idx"),
             embedding_dropout=float(config.get("embedding_dropout", 0.0)),
             scale_embeddings=bool(config.get("scale_embeddings", False)),
@@ -207,21 +338,37 @@ class MiniGPT(nn.Module):
             attention_dropout=float(config.get("attention_dropout", 0.0)),
             attention_bias=bool(config.get("attention_bias", True)),
             causal_attention=bool(config.get("causal_attention", True)),
-            ffn_hidden_dim=(int(config["ffn_hidden_size"]) if config.get("ffn_hidden_size") is not None else None),
+            ffn_hidden_dim=(
+                int(config["ffn_hidden_size"])
+                if config.get("ffn_hidden_size") is not None
+                else None
+            ),
             ffn_expansion_factor=float(config.get("ffn_expansion_factor", 4.0)),
             ffn_multiple_of=int(config.get("ffn_multiple_of", 1)),
             ffn_activation=str(config.get("ffn_activation", "gelu")),
             ffn_dropout=float(config.get("ffn_dropout", 0.0)),
-            ffn_bias=bool(config.get("ffn_bias", True)), device=device, dtype=dtype,
+            ffn_bias=bool(config.get("ffn_bias", True)),
+            gradient_checkpointing=bool(config.get("gradient_checkpointing", False)),
+            device=device,
+            dtype=dtype,
         )
 
     @staticmethod
     def _validate_configuration(
-        vocab_size: int, dim: int, layers: int, heads: int,
-        max_pos: int, embedding_dropout: float,
+        vocab_size: int,
+        dim: int,
+        layers: int,
+        heads: int,
+        max_pos: int,
+        embedding_dropout: float,
     ) -> None:
-        for name, value in (("vocab_size", vocab_size), ("dim", dim), ("layers", layers),
-                            ("heads", heads), ("max_pos", max_pos)):
+        for name, value in (
+            ("vocab_size", vocab_size),
+            ("dim", dim),
+            ("layers", layers),
+            ("heads", heads),
+            ("max_pos", max_pos),
+        ):
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
         if dim % heads != 0:
