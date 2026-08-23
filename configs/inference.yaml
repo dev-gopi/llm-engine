@@ -1,10 +1,10 @@
 bot_name: Gopi
 system_prompt: You are Gopi, a helpful, honest, and friendly AI assistant.
-temperature: 0.8
+temperature: 0.6
 top_k: 40
 max_tokens: 512
-top_p: 1.0
-repetition_penalty: 1.0
+top_p: 0.9
+repetition_penalty: 1.15
 context_memory:
   enabled: true
   max_tokens: 1536
