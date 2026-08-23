@@ -54,6 +54,18 @@ class ConfiguredModelBackend:
         return self.generator is not None
 
     async def startup(self) -> None:
+        if not self.checkpoint_path.exists():
+            for fallback in (
+                Path("checkpoints/finetuning/best.pt"),
+                Path("checkpoints/latest/model.pt"),
+                Path("checkpoints/latest/best.pt"),
+                Path("checkpoints/pretraining/best.pt"),
+            ):
+                if fallback.exists():
+                    logger.info("Configured checkpoint %s not found; falling back to %s", self.checkpoint_path, fallback)
+                    self.checkpoint_path = fallback
+                    break
+
         missing = [path for path in (self.model_config, self.tokenizer_path, self.checkpoint_path) if not path.exists()]
         if missing:
             logger.warning("Model backend not loaded; missing: %s", ", ".join(map(str, missing)))
