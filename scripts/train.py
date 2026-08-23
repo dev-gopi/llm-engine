@@ -84,7 +84,7 @@ def main() -> None:
         if not distributed.is_main_process:
             return
         save_checkpoint(args.output, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=current.scaler,
-                        step=current.global_step, metadata={"epoch": epoch + 1},
+                        step=current.global_step, metadata={"epoch": epoch + 1, "model_config": model_config},
                         trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict())
 
     def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
@@ -93,7 +93,7 @@ def main() -> None:
         save_checkpoint(
             args.best_output, model, optimizer=optimizer, scheduler=scheduler, ema=ema,
             scaler=current.scaler, step=current.global_step,
-            metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True},
+            metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config},
             trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict(),
         )
 

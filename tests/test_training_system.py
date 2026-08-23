@@ -86,3 +86,14 @@ def test_early_stopping_tracks_best_validation_epoch() -> None:
     assert len(history) == 3
     assert best_epochs == [0]
     assert trainer.best_validation_loss == 2.0
+
+
+def test_checkpoint_architecture_mismatch_error(tmp_path) -> None:
+    import pytest
+    model_small = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(tmp_path / "small.pt", model_small, metadata={"model_config": {"dim": 8, "layers": 1}})
+
+    model_large = MiniGPT(vocab_size=16, dim=16, layers=2, heads=2, max_pos=8)
+    with pytest.raises(RuntimeError, match="architecture mismatch"):
+        load_checkpoint(path, model_large)
+

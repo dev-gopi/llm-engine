@@ -74,7 +74,20 @@ def load_checkpoint(
     if not isinstance(payload, dict):
         raise ValueError("checkpoint must contain a mapping")
     state = payload.get("model", payload)
-    model.load_state_dict(state, strict=strict)
+    try:
+        model.load_state_dict(state, strict=strict)
+    except RuntimeError as err:
+        saved_config = payload.get("metadata", {}).get("model_config")
+        if saved_config:
+            raise RuntimeError(
+                f"Failed to load checkpoint '{source}' due to model architecture mismatch. "
+                f"Checkpoint model config: {saved_config}. Original error: {err}"
+            ) from err
+        raise RuntimeError(
+            f"Failed to load checkpoint '{source}' due to model architecture mismatch. "
+            f"Please verify that --model-config matches the architecture used when creating the checkpoint. "
+            f"Original error: {err}"
+        ) from err
     if use_ema and payload.get("ema") and payload["ema"].get("shadow"):
         parameters = dict(model.named_parameters())
         with torch.no_grad():
