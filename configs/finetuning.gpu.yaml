@@ -6,11 +6,13 @@ num_workers: 2
 pin_memory: true
 lazy_dataset: true
 train_files:
+  - data/processed/alpaca/train.jsonl
   - data/processed/dailydialog/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/databricks-dolly-15k/train.jsonl
   - data/processed/no_robots/train.jsonl
 validation_files:
+  - data/processed/alpaca/validation.jsonl
   - data/processed/dailydialog/validation.jsonl
   - data/processed/ultrachat_200k/validation.jsonl
   - data/processed/databricks-dolly-15k/validation.jsonl

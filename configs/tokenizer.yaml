@@ -12,6 +12,9 @@ special_tokens:
   - <|user|>
   - <|assistant|>
 sources:
+  - data/processed/alpaca/train.jsonl
+  - data/processed/databricks-dolly-15k/train.jsonl
+  - data/processed/no_robots/train.jsonl
+  - data/processed/dailydialog/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
-  - data/processed/dailydialog/dailydialog-conversations.json
-  - data/raw/wikitext-103-raw-v1/*.parquet
+  - data/processed/wikitext_103/train.jsonl

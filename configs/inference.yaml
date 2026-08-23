@@ -12,8 +12,8 @@ serving:
   model_name: gopi
   model_config: configs/model.gpu.yaml
   tokenizer_path: data/tokenizer
-  checkpoint_path: checkpoints/latest/model.pt
-  device: cpu
+  checkpoint_path: checkpoints/finetuning/best.pt
+  device: auto
   max_concurrency: 4
   queue_timeout_seconds: 1.0
   generation_timeout_seconds: 120.0

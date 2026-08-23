@@ -48,11 +48,12 @@ class Trainer:
         if mixed_precision not in {"none", "fp16", "bf16"}:
             raise ValueError("mixed_precision must be none, fp16, or bf16")
         if mixed_precision == "fp16" and self.device.type != "cuda":
-            raise ValueError("fp16 training requires CUDA")
+            logger.warning("fp16 mixed precision requested but CUDA device is not available. Falling back to mixed_precision='none'.")
+            mixed_precision = "none"
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.mixed_precision = mixed_precision
         self.autocast_dtype = torch.float16 if mixed_precision == "fp16" else torch.bfloat16
-        self.scaler = torch.amp.GradScaler("cuda", enabled=mixed_precision == "fp16")
+        self.scaler = torch.amp.GradScaler("cuda", enabled=mixed_precision == "fp16" and self.device.type == "cuda")
         self.model.to(self.device)
         # Existing trainer callers provide explicit next-token targets, so this
         # integration does not shift them a second time.

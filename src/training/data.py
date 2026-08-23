@@ -38,9 +38,10 @@ def build_loader(
     pad_id = tokenizer.token_to_id("<|pad|>")
     if pad_id is None:
         raise ValueError("tokenizer must define <|pad|>")
+    import torch
     return DataLoader(
         dataset, batch_sampler=sampler,
         collate_fn=Collator(pad_id, ignore_index=int(config.get("ignore_index", -100))),
         num_workers=int(config.get("num_workers", 0)),
-        pin_memory=bool(config.get("pin_memory", False)),
+        pin_memory=bool(config.get("pin_memory", False)) and torch.cuda.is_available(),
     )
