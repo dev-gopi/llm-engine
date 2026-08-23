@@ -1,8 +1,8 @@
-batch_size: 2
+batch_size: 1
 epochs: 10
 seed: 42
 max_sequence_length: 512
-num_workers: 4
+num_workers: 2
 pin_memory: true
 lazy_dataset: true
 train_files:
@@ -23,7 +23,7 @@ beta1: 0.9
 beta2: 0.95
 adam_epsilon: 0.00000001
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 16
+gradient_accumulation_steps: 32
 mixed_precision: fp16
 lr_schedule: cosine
 warmup_ratio: 0.03

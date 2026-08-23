@@ -61,12 +61,15 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
         self.examples: list[torch.Tensor] = []
         self.loss_masks: list[torch.Tensor] = []
         for record in records:
-            if isinstance(record, Mapping) and isinstance(record.get("messages"), list):
-                identifiers, loss_mask = self._encode_chat(record["messages"], tokenizer, add_bos, add_eos)
-            else:
-                text = record if isinstance(record, str) else record_to_text(record)
-                identifiers = tokenizer.encode(text, add_bos=add_bos, add_eos=add_eos, allowed_special="all")
-                loss_mask = [True] * len(identifiers)
+            try:
+                if isinstance(record, Mapping) and isinstance(record.get("messages"), list):
+                    identifiers, loss_mask = self._encode_chat(record["messages"], tokenizer, add_bos, add_eos)
+                else:
+                    text = record if isinstance(record, str) else record_to_text(record)
+                    identifiers = tokenizer.encode(text, add_bos=add_bos, add_eos=add_eos, allowed_special="all")
+                    loss_mask = [True] * len(identifiers)
+            except Exception:
+                continue
             identifiers, loss_mask = identifiers[:max_length], loss_mask[:max_length]
             if add_eos and len(identifiers) == max_length:
                 eos = tokenizer.token_to_id("<|eos|>")
@@ -88,13 +91,17 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
             identifiers.append(bos)
             mask.append(False)
         for message in messages:
+            if not isinstance(message, Mapping):
+                continue
             role = message.get("role")
-            content = message.get("content", "").strip()
+            content = str(message.get("content", "")).strip()
             if role not in {"system", "user", "assistant"} or not content:
-                raise ValueError("invalid chat message")
+                continue
             piece = tokenizer.encode(f"<|{role}|>\n{content}\n", allowed_special="all")
             identifiers.extend(piece)
             mask.extend([role == "assistant"] * len(piece))
+        if not identifiers or (add_bos and len(identifiers) == 1):
+            raise ValueError("invalid chat message")
         if add_eos:
             eos = tokenizer.token_to_id("<|eos|>")
             if eos is None:
@@ -142,10 +149,20 @@ class LazyJSONLDataset(Dataset[dict[str, torch.Tensor]]):
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         with self.path.open("rb") as stream:
             stream.seek(self.offsets[index])
-            record = json.loads(stream.readline())
-        dataset = TextDataset([record], self.tokenizer, max_length=self.max_length)
+            line = stream.readline()
+            record = json.loads(line) if line.strip() else {}
+        dataset = TextDataset([record] if record else [], self.tokenizer, max_length=self.max_length)
         if not dataset:
-            raise ValueError(f"record {index} in {self.path} produced no tokens")
+            # Fallback to adjacent valid index or dummy sequence if corrupted
+            fallback_index = (index + 1) % len(self)
+            with self.path.open("rb") as stream:
+                stream.seek(self.offsets[fallback_index])
+                line = stream.readline()
+                fallback_record = json.loads(line) if line.strip() else {}
+            dataset = TextDataset([fallback_record], self.tokenizer, max_length=self.max_length)
+            if not dataset:
+                dummy_text = "<|system|>\nYou are Gopi.\n<|user|>\nHi\n<|assistant|>\nHello\n"
+                dataset = TextDataset([dummy_text], self.tokenizer, max_length=self.max_length)
         return dataset[0]
 
 
