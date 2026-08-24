@@ -13,7 +13,7 @@
         <div>
           <p class="eyebrow">LOCAL MODEL PLAYGROUND</p>
           <h1>Talk with <span>Gopi</span></h1>
-          <p class="subtitle">Test generation, sampling, and streaming from one simple interface.</p>
+          <p class="subtitle">Your private, local, general-purpose AI assistant.</p>
         </div>
         <button id="healthButton" class="status" type="button" aria-label="Check server status">
           <i></i><span id="healthText">Check server</span>
@@ -35,11 +35,11 @@
           </label>
 
           <h2>Sampling</h2>
-          <label>Maximum tokens <output id="maxTokensValue">256</output>
-            <input id="maxTokens" type="range" min="1" max="512" value="256">
+          <label>Maximum tokens <output id="maxTokensValue">128</output>
+            <input id="maxTokens" type="range" min="1" max="512" value="128">
           </label>
-          <label>Temperature <output id="temperatureValue">0.3</output>
-            <input id="temperature" type="range" min="0" max="2" step="0.1" value="0.3">
+          <label>Temperature <output id="temperatureValue">0.7</output>
+            <input id="temperature" type="range" min="0" max="2" step="0.1" value="0.7">
           </label>
           <label>Top K
             <input id="topK" type="number" min="0" max="100000" value="40">
@@ -60,7 +60,7 @@
           <div id="messages" class="messages" aria-live="polite">
             <article class="message assistant">
               <div class="avatar">G</div>
-              <div><strong>Gopi</strong><p>Server ready? Check the status, then send me a test prompt.</p></div>
+              <div><strong>Gopi</strong><p>Hello! I’m your local AI assistant. What can I help you with?</p></div>
             </article>
           </div>
 

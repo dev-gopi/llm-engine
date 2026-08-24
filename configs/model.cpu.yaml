@@ -1,7 +1,7 @@
 vocab_size: 50000
 hidden_size: 256
 layers: 6
-heads: 6
+heads: 8
 max_position: 512
 position_type: learned
 position_initializer_range: 0.02

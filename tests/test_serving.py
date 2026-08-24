@@ -256,6 +256,15 @@ def test_stop_sequences_are_deduplicated():
     assert request_model.stop == ["END", "STOP"]
 
 
+def test_request_defaults_match_local_inference_profile():
+    request_model = GenerateRequest(prompt="hello")
+    assert request_model.max_tokens == 128
+    assert request_model.temperature == 0.7
+    assert request_model.top_k == 40
+    assert request_model.top_p == 0.9
+    assert request_model.repetition_penalty == 1.1
+
+
 def test_settings_load_yaml_and_environment_override(tmp_path, monkeypatch):
     config = tmp_path / "inference.yaml"
     config.write_text(
@@ -388,4 +397,3 @@ def test_websocket_stream_with_session_id(tmp_path):
     assert websocket.accepted
     assert [message["type"] for message in websocket.sent] == ["start", "token", "done"]
     assert websocket.sent[1]["token"] == "Hi"
-

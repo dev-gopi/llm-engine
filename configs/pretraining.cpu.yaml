@@ -1,13 +1,15 @@
 batch_size: 2
-epochs: 15
+epochs: 10
 seed: 42
 max_sequence_length: 256
 num_workers: 4
 pin_memory: false
 lazy_dataset: true
 train_files:
+  - data/processed/tinystories/train.jsonl
   - data/processed/wikitext_103/train.jsonl
 validation_files:
+  - data/processed/tinystories/validation.jsonl
   - data/processed/wikitext_103/validation.jsonl
 learning_rate: 0.0003
 weight_decay: 0.01
@@ -23,7 +25,7 @@ min_lr_ratio: 0.1
 ema_decay: 0.9999
 log_every: 50
 checkpoint_every: 1000
-early_stopping_patience: 2
+early_stopping_patience: 3
 early_stopping_min_delta: 0.001
 ignore_index: -100
 label_smoothing: 0.0

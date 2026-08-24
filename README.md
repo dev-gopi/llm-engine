@@ -69,8 +69,8 @@ vocabulary resizing, hardware-aligned vocabulary padding, and weight sharing
 with the language-model output projection. Device and floating-point dtype can
 be selected at construction time.
 
-With the GPU configuration (`configs/model.gpu.yaml`), the matrix contains `50,000 × 768 = 38.4M`
-parameters (or `50,000 × 128 = 6.4M` in `configs/model.cpu.yaml`). Its initialization and behavior are controlled by
+With the GPU configuration (`configs/model.gpu.yaml`), the matrix contains `50,000 × 256 = 12.8M`
+parameters (the CPU configuration currently uses the same embedding dimensions). Its initialization and behavior are controlled by
 `padding_idx`, `initializer_range`, `scale_embeddings`, and
 `freeze_embeddings` in model configuration files like [`configs/model.gpu.yaml`](configs/model.gpu.yaml).
 
@@ -89,8 +89,8 @@ key/value caches shaped as `[batch, heads, sequence, head_dim]` for generation.
 ### Feed-forward network
 
 `FeedForward` applies the same nonlinear transformation independently to every
-token position. The default configuration expands each 768-dimensional token
-to 3,072 dimensions, applies GELU, projects back to the model dimension, and
+token position. The current configurations expand each 256-dimensional token
+to 1,024 dimensions, apply GELU, project back to the model dimension, and
 then applies dropout.
 
 The implementation also supports ReLU, SiLU, tanh-approximated GELU, SwiGLU,
@@ -300,14 +300,14 @@ Configuration is divided by responsibility:
 
 | File | Responsibility | Key Parameters |
 | --- | --- | --- |
-| `configs/model.cpu.yaml` | Compact model for CPU development and smoke tests | `hidden_size: 128`, `layers: 4`, `heads: 4`, `max_position: 512`, `ffn_hidden_size: 512` |
-| `configs/model.gpu.yaml` | Full model configuration for GPU training and production | `hidden_size: 768`, `layers: 12`, `heads: 12`, `max_position: 2048`, `ffn_hidden_size: 3072` |
-| `configs/pretraining.cpu.yaml` | Pretraining configuration for CPU | DailyDialog dataset, `batch_size: 2`, `max_sequence_length: 256`, `gradient_accumulation_steps: 4`, 1 epoch |
-| `configs/pretraining.gpu.yaml` | Pretraining configuration for GPU | DailyDialog dataset, `batch_size: 2`, `max_sequence_length: 512`, `gradient_accumulation_steps: 16`, `mixed_precision: fp16`, 3 epochs |
-| `configs/finetuning.cpu.yaml` | Supervised fine-tuning configuration for CPU | WikiText + UltraChat datasets, `batch_size: 2`, `max_sequence_length: 256`, `gradient_accumulation_steps: 4`, 3 epochs |
-| `configs/finetuning.gpu.yaml` | Supervised fine-tuning configuration for GPU | WikiText + UltraChat datasets, `batch_size: 2`, `max_sequence_length: 512`, `gradient_accumulation_steps: 16`, `mixed_precision: fp16`, 3 epochs |
-| `configs/training.cpu.yaml` | Full CPU profile across all datasets | WikiText + UltraChat + DailyDialog, `batch_size: 2`, `max_sequence_length: 256`, `gradient_accumulation_steps: 4`, 1 epoch |
-| `configs/training.gpu.yaml` | Full GPU profile across all datasets | WikiText + UltraChat + DailyDialog, `batch_size: 32`, `max_sequence_length: 2048`, `gradient_accumulation_steps: 1`, 10 epochs |
+| `configs/model.cpu.yaml` | Compact model for CPU development and fresh training | `hidden_size: 256`, `layers: 6`, `heads: 8`, `max_position: 512`, `ffn_hidden_size: 1024` |
+| `configs/model.gpu.yaml` | Architecture used by the included trained checkpoint | `hidden_size: 256`, `layers: 8`, `heads: 8`, `max_position: 512`, `ffn_hidden_size: 1024` |
+| `configs/pretraining.cpu.yaml` | CPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 256`, effective batch 8, 10 epochs |
+| `configs/pretraining.gpu.yaml` | GPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 10 epochs |
+| `configs/finetuning.cpu.yaml` | CPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 256`, effective batch 32, 3 epochs |
+| `configs/finetuning.gpu.yaml` | GPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 3 epochs |
+| `configs/training.cpu.yaml` | Combined CPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, 5 epochs |
+| `configs/training.gpu.yaml` | Combined GPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, `mixed_precision: fp16`, 5 epochs |
 | `configs/tokenizer.yaml` | Byte-level BPE tokenizer training setup | `vocab_size: 50000`, `min_frequency: 2`, `special_tokens`, sources list |
 | `configs/inference.yaml` | Assistant identity, sampling, and API serving defaults | `bot_name: Gopi`, temperature, top_k/p, context_memory, sqlite session path, concurrency & rate limits |
 

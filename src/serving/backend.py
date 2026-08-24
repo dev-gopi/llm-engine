@@ -149,8 +149,7 @@ class ConfiguredModelBackend:
             memory.add("user", request.prompt)
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
         prompt_ids = self.generator.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
-        logger.info("Generating with prompt repr: %r", prompt)
-        logger.info("Prompt token IDs (first 30): %s", prompt_ids[:30])
+        logger.debug("Generating from a %d-token prompt", len(prompt_ids))
         generated_ids: list[int] = []
         pieces: list[str] = []
         finish_reason = "length"

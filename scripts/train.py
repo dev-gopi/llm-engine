@@ -11,6 +11,8 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
+import torch
+
 from model.gpt import MiniGPT
 from model.loss import CausalLanguageModelLoss
 from optim.adamw import adamw_from_config
@@ -47,6 +49,12 @@ def main() -> None:
 
     configure_logging()
     model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
+    if str(config.get("mixed_precision", "none")) == "fp16" and not torch.cuda.is_available():
+        parser.error(
+            "the selected GPU training profile requires CUDA, but PyTorch cannot access a GPU. "
+            "Fix the NVIDIA driver until `nvidia-smi` works, or explicitly select "
+            "--model-config configs/model.cpu.yaml --training-config configs/training.cpu.yaml"
+        )
     set_seed(int(config.get("seed", 42)))
     distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
     tokenizer = Tokenizer.load(args.tokenizer)

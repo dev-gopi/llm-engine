@@ -52,10 +52,10 @@ def extract_messages(row: dict, dataset_name: str, bot_name: str = DEFAULT_BOT_N
             {"role": "assistant", "content": output_str},
         ]
 
-    # Case 3: Plain text / Code records
-    text = row.get("text") or row.get("content") or row.get("code")
-    if text and isinstance(text, str) and text.strip():
-        return [{"role": "system", "content": text.strip()}]
+    # # Case 3: Plain text / Code records
+    # text = row.get("text") or row.get("content") or row.get("code")
+    # if text and isinstance(text, str) and text.strip():
+    #     return [{"role": "system", "content": text.strip()}]
 
     return None
 
@@ -113,15 +113,20 @@ def download_and_convert_dataset(
             parquet_file = pq.ParquetFile(buffer)
             for batch in parquet_file.iter_batches():
                 for row in batch.to_pylist():
-                    msgs = extract_messages(row, dataset_name, bot_name=bot_name)
-                    if not msgs:
-                        continue
+                    messages = extract_messages(row, dataset_name, bot_name=bot_name)
                     record = {
                         "id": f"{dataset_name.replace('/', '_')}_{len(records)}",
-                        "bot_name": bot_name,
-                        "messages": msgs,
                         "source": dataset_name,
                     }
+                    if messages:
+                        record.update({"bot_name": bot_name, "messages": messages})
+                    else:
+                        text = row.get("text") or row.get("content") or row.get("code")
+                        # Row-wise conversation exports (for example OASST1) must
+                        # be reconstructed into turns instead of treated as prose.
+                        if row.get("role") or not isinstance(text, str) or not text.strip():
+                            continue
+                        record["text"] = text.strip()
                     records.append(record)
                     if len(records) >= total_needed:
                         break

@@ -96,8 +96,8 @@ elements.health.addEventListener("click", checkHealth);
 elements.maxTokens.addEventListener("input", () => { elements.maxTokensValue.value = elements.maxTokens.value; });
 elements.temperature.addEventListener("input", () => { elements.temperatureValue.value = elements.temperature.value; });
 elements.reset.addEventListener("click", () => {
-  elements.maxTokens.value = "256"; elements.temperature.value = "0.3"; elements.topK.value = "40";
+  elements.maxTokens.value = "128"; elements.temperature.value = "0.7"; elements.topK.value = "40";
   elements.topP.value = "0.9"; elements.repetitionPenalty.value = "1.2"; elements.seed.value = "";
-  elements.maxTokensValue.value = "256"; elements.temperatureValue.value = "0.3";
+  elements.maxTokensValue.value = "128"; elements.temperatureValue.value = "0.7";
 });
 checkHealth();
