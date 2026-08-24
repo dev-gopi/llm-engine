@@ -69,7 +69,15 @@ def main() -> None:
         )
     model = MiniGPT.from_config(model_config, device=distributed.device)
     if args.init_from:
-        load_checkpoint(args.init_from, model, map_location=distributed.device, use_ema=True, restore_rng=False)
+        # A new training stage should start from the learned model itself. EMA
+        # can lag badly during short stages and is recreated for this run below.
+        load_checkpoint(
+            args.init_from,
+            model,
+            map_location=distributed.device,
+            use_ema=False,
+            restore_rng=False,
+        )
     training_model = DistributedTrainer.wrap(model, distributed)
     train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True, rank=distributed.rank, world_size=distributed.world_size)
     epochs = args.epochs or int(config.get("epochs", 1))
