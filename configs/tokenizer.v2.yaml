@@ -1,0 +1,21 @@
+type: byte_level_bpe
+vocab_size: 32000
+min_frequency: 3
+max_training_bytes: 1073741824
+output_dir: data/tokenizer-v2
+special_tokens:
+  - <|pad|>
+  - <|unk|>
+  - <|bos|>
+  - <|eos|>
+  - <|system|>
+  - <|user|>
+  - <|assistant|>
+sources:
+  - data/processed/tinystories/train.jsonl
+  - data/processed/wikitext_103/train.jsonl
+  - data/processed/helpsteer/train.jsonl
+  - data/processed/openorca/train.jsonl
+  - data/processed/ultrachat_200k/train.jsonl
+  - data/processed/gsm8k/train.jsonl
+  - data/processed/core_chat/train.jsonl

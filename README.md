@@ -314,6 +314,46 @@ Configuration is divided by responsibility:
 Training code must not read inference settings, and inference code must not
 depend on the training package.
 
+### From-scratch v2 model
+
+The v2 profiles preserve the original trained model while providing a stronger
+from-scratch path for memory-constrained hardware. The GPU architecture uses a
+32K vocabulary, 384 hidden dimensions, 10 layers, rotary positions, RMSNorm,
+SwiGLU, grouped-query attention, tied embeddings, and gradient checkpointing.
+It does not load or depend on third-party pretrained weights.
+
+Prepare the dedicated tokenizer before training v2. This intentionally creates
+`data/tokenizer-v2` and does not overwrite the tokenizer used by v1 checkpoints:
+
+```bash
+python scripts/tokenize.py train --config configs/tokenizer.v2.yaml
+```
+
+Run staged GPU training with separate checkpoints:
+
+```bash
+python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/pretraining.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --output checkpoints/v2-pretraining/latest.pt \
+  --best-output checkpoints/v2-pretraining/best.pt
+
+python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/finetuning.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --init-from checkpoints/v2-pretraining/best.pt \
+  --output checkpoints/v2-finetuning/latest.pt \
+  --best-output checkpoints/v2-finetuning/best.pt
+```
+
+The v2 pretraining corpus uses complete bounded WikiText chunks instead of
+silently truncating each article. Fine-tuning adds MIT-licensed GSM8K reasoning
+examples and a deterministic project-owned core behavior set alongside
+UltraChat, HelpSteer, and OpenOrca. These additions improve data coverage but do
+not make a small from-scratch model equivalent to a billion-parameter model.
+
 ## Commands
 
 The command-line workflows are:
