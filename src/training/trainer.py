@@ -147,6 +147,7 @@ class Trainer:
             if hasattr(batch_sampler, "set_start_batch"):
                 batch_sampler.set_start_batch(self.batch_in_epoch if epoch == self.current_epoch else 0)
             running_loss = 0.0
+            running_batches = 0
             window_loss = 0.0
             window_batches = 0
             resume_offset = self.batch_in_epoch if epoch == self.current_epoch else 0
@@ -156,12 +157,13 @@ class Trainer:
                 loss = self.train_step(batch)
                 self.batch_in_epoch = batch_index
                 running_loss += loss
+                running_batches += 1
                 window_loss += loss
                 window_batches += 1
                 optimizer_stepped = self.global_step != previous_step
                 if optimizer_stepped and log_every and self.global_step % log_every == 0:
                     current_loss = window_loss / max(window_batches, 1)
-                    avg_loss = running_loss / batch_index
+                    avg_loss = running_loss / max(running_batches, 1)
                     logger.info("epoch=%d step=%d loss=%.6f (avg=%.6f)", epoch + 1, self.global_step, current_loss, avg_loss)
                     window_loss = 0.0
                     window_batches = 0
@@ -175,7 +177,11 @@ class Trainer:
             self.batch_in_epoch = 0
             if hasattr(batch_sampler, "set_start_batch"):
                 batch_sampler.set_start_batch(0)
-            epoch_record: dict[str, float | int] = {"epoch": epoch + 1, "step": self.global_step, "train_loss": running_loss / max(batch_index, 1)}
+            epoch_record: dict[str, float | int] = {
+                "epoch": epoch + 1,
+                "step": self.global_step,
+                "train_loss": running_loss / max(running_batches, 1),
+            }
             if evaluator and validation_dataloader:
                 epoch_record.update(evaluator.evaluate(validation_dataloader))
                 validation_loss = float(epoch_record["loss"])

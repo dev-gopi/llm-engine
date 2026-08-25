@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import torch
 from torch.utils.data import DataLoader
 
@@ -88,6 +90,26 @@ def test_early_stopping_tracks_best_validation_epoch() -> None:
     assert trainer.best_validation_loss == 2.0
 
 
+def test_resumed_epoch_loss_uses_batches_processed_after_resume() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    trainer = Trainer(model, optimizer)
+    trainer.batch_in_epoch = 5
+
+    losses = iter([2.0, 4.0])
+
+    def train_step(_batch):
+        trainer.global_step += 1
+        return next(losses)
+
+    trainer.train_step = train_step
+    with patch("training.trainer.logger.info") as log_info:
+        history = trainer.fit([{}, {}], epochs=1, log_every=1)
+
+    assert history[-1]["train_loss"] == 3.0
+    assert [call.args[-1] for call in log_info.call_args_list] == [2.0, 3.0]
+
+
 def test_checkpoint_architecture_mismatch_error(tmp_path) -> None:
     import pytest
     model_small = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
@@ -108,5 +130,3 @@ def test_checkpoint_rng_state_loading(tmp_path) -> None:
 
     # With restore_rng=True
     load_checkpoint(path, restored, restore_rng=True)
-
-
