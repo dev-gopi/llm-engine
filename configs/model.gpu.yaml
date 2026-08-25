@@ -27,3 +27,4 @@ norm_bias: true
 pre_norm: true
 residual_dropout: 0.0
 residual_scale: 1.0
+gradient_checkpointing: true

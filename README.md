@@ -305,7 +305,7 @@ Configuration is divided by responsibility:
 | `configs/pretraining.cpu.yaml` | CPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 256`, effective batch 8, 10 epochs |
 | `configs/pretraining.gpu.yaml` | GPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 10 epochs |
 | `configs/finetuning.cpu.yaml` | CPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 256`, effective batch 32, 3 epochs |
-| `configs/finetuning.gpu.yaml` | GPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 3 epochs |
+| `configs/finetuning.gpu.yaml` | Memory-safe 4 GB GPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 1`, `max_sequence_length: 256`, effective batch 32, gradient checkpointing, `mixed_precision: fp16`, 3 epochs |
 | `configs/training.cpu.yaml` | Combined CPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, 5 epochs |
 | `configs/training.gpu.yaml` | Combined GPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, `mixed_precision: fp16`, 5 epochs |
 | `configs/tokenizer.yaml` | Byte-level BPE tokenizer training setup | `vocab_size: 50000`, `min_frequency: 2`, `special_tokens`, sources list |
