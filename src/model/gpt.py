@@ -195,6 +195,16 @@ class MiniGPT(nn.Module):
         elif self.position_type == "rotary" and self.rotary_emb is not None:
             hidden_states = self.embedding_dropout(self.tok(token_ids))
             rotary_pos_emb = self.rotary_emb(hidden_states, seq_len=position_offset + seq_len)
+            # The RoPE cache covers the full prefix, while an incremental
+            # decoding call only projects the newly supplied tokens. Slice to
+            # those positions unless explicit position IDs will index it.
+            if position_ids is None:
+                start = position_offset
+                stop = position_offset + seq_len
+                rotary_pos_emb = (
+                    rotary_pos_emb[0][:, :, start:stop, :],
+                    rotary_pos_emb[1][:, :, start:stop, :],
+                )
         else:
             hidden_states = self.embedding_dropout(self.tok(token_ids))
 

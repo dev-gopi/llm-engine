@@ -127,6 +127,26 @@ def test_minigpt_with_gqa() -> None:
     assert logits.shape == (2, 8, 32)
 
 
+def test_gqa_rope_kv_cache_matches_full_sequence() -> None:
+    model = MiniGPT.from_config({
+        "vocab_size": 32,
+        "hidden_size": 24,
+        "layers": 2,
+        "heads": 6,
+        "kv_heads": 2,
+        "max_position": 64,
+        "position_type": "rotary",
+    }).eval()
+    tokens = torch.randint(0, 32, (1, 7))
+    with torch.no_grad():
+        full = model(tokens)
+        prefix, cache = model(tokens[:, :5], use_cache=True)
+        step, updated = model(tokens[:, 5:], past_key_values=cache, use_cache=True)
+    torch.testing.assert_close(step, full[:, 5:], atol=1e-5, rtol=1e-4)
+    assert prefix.shape == (1, 5, 32)
+    assert all(key.shape == value.shape == (1, 2, 7, 4) for key, value in updated)
+
+
 def test_minigpt_gradient_checkpointing() -> None:
     model = MiniGPT(vocab_size=32, dim=16, layers=2, heads=4, max_pos=32, gradient_checkpointing=True)
     model.train()
