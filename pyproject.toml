@@ -26,3 +26,6 @@ export = ["onnx>=1.16", "onnxruntime>=1.18"]
 [tool.setuptools.packages.find]
 where = ["src"]
 namespaces = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]

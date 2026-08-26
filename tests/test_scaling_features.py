@@ -130,12 +130,20 @@ def test_distributed_checkpoint_round_trip_without_process_group(tmp_path) -> No
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     original = model.tok.weight.detach().clone()
-    path = save_distributed_checkpoint(tmp_path / "dcp", model, optimizer, metadata={"step": 7})
+    with pytest.warns(UserWarning, match="assuming the intent is to save in a single process"):
+        path = save_distributed_checkpoint(
+            tmp_path / "dcp", model, optimizer, metadata={"step": 7}
+        )
     # Periodic checkpoints reuse the configured destination safely.
-    path = save_distributed_checkpoint(path, model, optimizer, metadata={"step": 8})
+    with pytest.warns(UserWarning) as warnings:
+        path = save_distributed_checkpoint(path, model, optimizer, metadata={"step": 8})
+    messages = [str(warning.message) for warning in warnings]
+    assert any("assuming the intent is to save in a single process" in message for message in messages)
+    assert any("overwriting since self.overwrite=True" in message for message in messages)
     with torch.no_grad():
         model.tok.weight.add_(1)
-    metadata = load_distributed_checkpoint(path, model, optimizer)
+    with pytest.warns(UserWarning, match="assuming the intent is to load in a single process"):
+        metadata = load_distributed_checkpoint(path, model, optimizer)
     torch.testing.assert_close(model.tok.weight, original)
     assert metadata["step"] == 8
     assert metadata["trainer"] == {} and metadata["sampler"] == {}
