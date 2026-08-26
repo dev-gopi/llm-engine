@@ -34,6 +34,7 @@ data/raw/*
 data/processed/*
 data/cache/*
 data/tokenizer/*
+data/tokenizer-v2/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/processed/*/
@@ -41,6 +42,7 @@ data/processed/*/*
 !data/processed/*/README.md
 !data/cache/.gitkeep
 !data/tokenizer/.gitkeep
+!data/tokenizer-v2/.gitkeep
 
 # Training checkpoints and generated model exports
 checkpoints/*
