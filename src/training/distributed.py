@@ -10,6 +10,16 @@ import torch.distributed as dist
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel
 
+try:
+    from torch.distributed.fsdp import (
+        FullyShardedDataParallel,
+        MixedPrecision,
+        ShardingStrategy,
+    )
+    from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+except ImportError:  # pragma: no cover - depends on the installed PyTorch build
+    FullyShardedDataParallel = None
+
 
 @dataclass(frozen=True)
 class DistributedContext:
@@ -40,10 +50,48 @@ class DistributedTrainer:
         return DistributedContext(rank, local_rank, world_size, device)
 
     @staticmethod
-    def wrap(model: nn.Module, context: DistributedContext) -> nn.Module:
+    def wrap(
+        model: nn.Module,
+        context: DistributedContext,
+        *,
+        strategy: str = "ddp",
+        mixed_precision: str = "none",
+    ) -> nn.Module:
+        strategy = strategy.lower()
+        if strategy not in {"none", "ddp", "fsdp", "fsdp_hybrid"}:
+            raise ValueError("distributed_strategy must be none, ddp, fsdp, or fsdp_hybrid")
         model = model.to(context.device)
-        if context.world_size == 1:
+        if context.world_size == 1 or strategy == "none":
             return model
+        if strategy.startswith("fsdp"):
+            if FullyShardedDataParallel is None:
+                raise RuntimeError("this PyTorch build does not provide FSDP")
+            if context.device.type != "cuda":
+                raise RuntimeError("FSDP training requires CUDA in this engine")
+            from functools import partial
+            from model.transformer_block import TransformerBlock
+
+            dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(mixed_precision)
+            precision = None if dtype is None else MixedPrecision(
+                param_dtype=dtype, reduce_dtype=dtype, buffer_dtype=dtype
+            )
+            sharding = (
+                ShardingStrategy.HYBRID_SHARD
+                if strategy == "fsdp_hybrid"
+                else ShardingStrategy.FULL_SHARD
+            )
+            return FullyShardedDataParallel(
+                model,
+                auto_wrap_policy=partial(
+                    transformer_auto_wrap_policy,
+                    transformer_layer_cls={TransformerBlock},
+                ),
+                sharding_strategy=sharding,
+                mixed_precision=precision,
+                device_id=context.device,
+                use_orig_params=True,
+                limit_all_gathers=True,
+            )
         device_ids = [context.local_rank] if context.device.type == "cuda" else None
         return DistributedDataParallel(model, device_ids=device_ids)
 

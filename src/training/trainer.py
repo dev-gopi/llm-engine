@@ -102,7 +102,12 @@ class Trainer:
     def _optimizer_step(self) -> None:
         self.scaler.unscale_(self.opt)
         if self.gradient_clip_norm is not None:
-            nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
+            # FSDP must aggregate sharded gradient norms collectively.
+            clip = getattr(self.model, "clip_grad_norm_", None)
+            if callable(clip):
+                clip(self.gradient_clip_norm)
+            else:
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
         self.scaler.step(self.opt)
         self.scaler.update()
         if self.scheduler is not None:

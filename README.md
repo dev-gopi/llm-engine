@@ -354,6 +354,114 @@ examples and a deterministic project-owned core behavior set alongside
 UltraChat, HelpSteer, and OpenOrca. These additions improve data coverage but do
 not make a small from-scratch model equivalent to a billion-parameter model.
 
+### Future large-model profiles
+
+The current v1 and v2 configurations remain unchanged. Optional architecture
+targets are provided as `configs/model.future.1b.yaml`,
+`configs/model.future.7b.yaml`, and `configs/model.future.30b.yaml`. They verify
+that model dimensions, GQA, SwiGLU, RoPE, and long context are configuration
+driven; they are not laptop training profiles and do not include the distributed
+memory sharding required to train models of those sizes.
+
+Inspect a profile without allocating its weights or risking an out-of-memory
+error:
+
+```bash
+python scripts/inspect_model.py configs/model.v2.gpu.yaml
+python scripts/inspect_model.py configs/model.future.7b.yaml
+```
+
+The estimator reports parameter-weight and full-length KV-cache memory. Real
+training needs substantially more memory for gradients, optimizer states,
+activations, communication buffers, and temporary kernels. The loader also
+accepts common future configuration aliases such as `num_hidden_layers`,
+`num_attention_heads`, `num_key_value_heads`, `context_length`, and
+`intermediate_size`, while retaining all existing key names.
+
+### Scale-out training and data
+
+Multi-process DDP remains the default. Future training profiles may opt into
+parameter, gradient, and optimizer sharding with:
+
+```yaml
+distributed_strategy: fsdp       # or fsdp_hybrid across suitable nodes
+mixed_precision: bf16
+gradient_checkpointing: true     # model configuration
+fused_optimizer: true
+```
+
+Launch distributed runs with `torchrun`. FSDP requires CUDA and more than one
+process; `fsdp_hybrid` is intended for multi-node jobs. The engine wraps each
+Transformer block independently, enables original-parameter optimizer handling,
+limits all-gathers, and selects BF16/FP16 FSDP policies from the training file.
+Current single-file checkpoints remain the default. Selecting `fsdp` or
+`fsdp_hybrid` automatically makes `--output` and `--best-output` reshardable
+checkpoint directories and disables parameter EMA to preserve sharded memory.
+Other strategies can opt in with `checkpoint_format: distributed`. Cluster launchers can use
+`training.distributed_checkpoint.save_distributed_checkpoint` and
+`load_distributed_checkpoint` for collective, reshardable model/optimizer
+directories on a shared filesystem. Validate save, restart, and world-size
+changes on the exact cluster topology before a long run.
+
+Check accelerator support before selecting precision or fused-kernel options:
+
+```bash
+python scripts/capabilities.py
+```
+
+PyTorch SDPA already dispatches to an efficient/FlashAttention kernel when the
+installed CUDA build, GPU, dtype, and tensor shapes support it. FP8 is reported
+separately because having a float8 dtype in PyTorch does not mean the GPU can
+execute FP8 training. RTX 3050 hardware should use FP16, not FP8.
+
+For corpora too large for JSONL tokenization during training, build bounded
+uint32 binary shards with filtering, exact deduplication, English screening,
+PII redaction, document packing, and a reproducible manifest:
+
+```bash
+python scripts/build_token_shards.py data/processed/wikitext_103/train.jsonl \
+  --tokenizer data/tokenizer-v2 \
+  --output data/shards/pretraining-v2 \
+  --sequence-length 512 --english-only
+```
+
+Set a training profile's only `train_files` entry to
+`data/shards/pretraining-v2/manifest.json`. The loader memory-maps shard files
+on demand and continues to use rank-aware sampling. Keep benchmark/test data in
+separate files; do not include it when building training shards.
+
+### Preference training and capability evaluation
+
+`src/post_training` now provides a validated preference-pair dataset,
+response-only sequence scoring, the DPO loss, and a frozen-reference DPO
+training step. Input records use `prompt`, `chosen`, and `rejected` fields.
+The existing chat training path remains the supervised fine-tuning (SFT) stage.
+
+Run held-out deterministic generation checks after SFT or preference training:
+
+```bash
+python scripts/evaluate_benchmarks.py \
+  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --model-config configs/model.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2
+```
+
+The starter benchmark reports separate scores for identity, conversation,
+instruction following, math, reasoning, knowledge, and safety. Expand
+`configs/evaluation.core.jsonl` with genuinely held-out cases as the model and
+datasets grow.
+
+### Scalable serving primitives
+
+The inference package includes an opt-in fixed-page KV allocator, bounded LRU
+prefix cache, and CPU dynamic quantization helper. The serving package includes
+an asynchronous dynamic batch queue for backends implementing
+`batch_generate(requests)`. These primitives do not change the existing API or
+single-request generator. A production continuous-batching backend must combine
+requests token-by-token and apply request-specific stopping and sampling rules;
+the queue intentionally does not pretend that independent calls are continuous
+token-level batching.
+
 ## Commands
 
 The command-line workflows are:

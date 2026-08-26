@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from datasets.collator import Collator
 from datasets.loader import build_text_dataset
+from datasets.token_shards import TokenShardDataset
 from datasets.sampler import Sampler
 from tokenizer.encoder import Tokenizer
 
@@ -23,10 +24,25 @@ def build_loader(
     rank: int = 0,
     world_size: int = 1,
 ) -> DataLoader:
-    dataset = build_text_dataset(
-        paths, tokenizer, max_length=int(config.get("max_sequence_length", 2048)),
-        lazy=bool(config.get("lazy_dataset", True)),
-    )
+    paths = list(paths)
+    if len(paths) == 1 and Path(paths[0]).name == "manifest.json":
+        dataset = TokenShardDataset(paths[0])
+        if dataset.tokenizer_vocab_size and dataset.tokenizer_vocab_size != tokenizer.vocab_size:
+            raise ValueError(
+                f"token shard vocabulary ({dataset.tokenizer_vocab_size}) does not match "
+                f"tokenizer vocabulary ({tokenizer.vocab_size})"
+            )
+        expected = int(config.get("max_sequence_length", dataset.sequence_length))
+        if dataset.sequence_length != expected:
+            raise ValueError(
+                f"token shard sequence length ({dataset.sequence_length}) does not match "
+                f"max_sequence_length ({expected})"
+            )
+    else:
+        dataset = build_text_dataset(
+            paths, tokenizer, max_length=int(config.get("max_sequence_length", 2048)),
+            lazy=bool(config.get("lazy_dataset", True)),
+        )
     if not dataset:
         raise ValueError("configured dataset contains no usable examples")
     sampler = Sampler(

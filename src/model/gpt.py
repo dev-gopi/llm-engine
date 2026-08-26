@@ -14,6 +14,7 @@ from torch import Tensor
 from utils.logger import get_logger
 
 from .attention import KeyValueCache
+from .config import normalize_model_config
 from .embedding import TokenEmbedding
 from .layer_norm import build_normalization
 from .positional import PositionalEmbedding, RotaryPositionalEmbedding, SinusoidalPositionalEmbedding
@@ -314,6 +315,7 @@ class MiniGPT(nn.Module):
         dtype: torch.dtype | None = None,
     ) -> "MiniGPT":
         """Build a complete model from model configuration values."""
+        config = normalize_model_config(config)
         pos_type = str(config.get("position_type", "learned")).lower()
         valid_pos_types = {"learned", "rotary", "sinusoidal", "none"}
         if pos_type not in valid_pos_types:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ from optim.ema import EMA
 from optim.scheduler import Scheduler
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
+from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
 from training.data import build_loader
 from training.distributed import DistributedTrainer
 from training.evaluator import Evaluator
@@ -57,6 +59,7 @@ def main() -> None:
         )
     set_seed(int(config.get("seed", 42)))
     distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
+    atexit.register(DistributedTrainer.shutdown)
     tokenizer = Tokenizer.load(args.tokenizer)
     if tokenizer.vocab_size != int(model_config["vocab_size"]):
         parser.error("tokenizer vocabulary does not match model vocab_size")
@@ -78,14 +81,27 @@ def main() -> None:
             use_ema=False,
             restore_rng=False,
         )
-    training_model = DistributedTrainer.wrap(model, distributed)
+    strategy = str(config.get("distributed_strategy", "ddp"))
+    distributed_checkpoints = strategy.startswith("fsdp") or str(
+        config.get("checkpoint_format", "single_file")
+    ).lower() == "distributed"
+    training_model = DistributedTrainer.wrap(
+        model,
+        distributed,
+        strategy=strategy,
+        mixed_precision=str(config.get("mixed_precision", "none")),
+    )
     train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True, rank=distributed.rank, world_size=distributed.world_size)
     epochs = args.epochs or int(config.get("epochs", 1))
     accumulation = int(config.get("gradient_accumulation_steps", 1))
     total_steps = max(1, (len(train_loader) * epochs + accumulation - 1) // accumulation)
     optimizer = adamw_from_config(training_model, config)
     scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
-    ema = EMA(training_model, decay=float(config.get("ema_decay", 0.999)))
+    # A conventional EMA duplicates every parameter and defeats FSDP memory
+    # sharding. Large FSDP jobs should average selected exported checkpoints.
+    ema = None if strategy.startswith("fsdp") else EMA(
+        training_model, decay=float(config.get("ema_decay", 0.999))
+    )
     loss_fn = CausalLanguageModelLoss.from_config(config)
     trainer = Trainer(
         training_model, optimizer, loss_fn, scheduler=scheduler, ema=ema,
@@ -94,7 +110,12 @@ def main() -> None:
         mixed_precision=str(config.get("mixed_precision", "none")),
     )
     if args.resume:
-        state = load_checkpoint(args.resume, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=trainer.scaler, map_location=distributed.device)
+        if args.resume.is_dir():
+            state = load_distributed_checkpoint(args.resume, training_model, optimizer)
+            if state.get("scheduler"):
+                scheduler.load_state_dict(state["scheduler"])
+        else:
+            state = load_checkpoint(args.resume, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=trainer.scaler, map_location=distributed.device)
         trainer.global_step = state["step"]
         trainer.load_state_dict(state.get("trainer", {}))
         sampler_state = state.get("sampler")
@@ -108,6 +129,21 @@ def main() -> None:
         evaluator = Evaluator(training_model, loss_fn=loss_fn, device=distributed.device)
 
     def checkpoint_callback(current: Trainer, epoch: int) -> None:
+        if distributed_checkpoints:
+            save_distributed_checkpoint(
+                args.output,
+                training_model,
+                optimizer,
+                metadata={
+                    "step": current.global_step,
+                    "epoch": epoch + 1,
+                    "model_config": model_config,
+                    "trainer": current.state_dict(),
+                    "sampler": train_loader.batch_sampler.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                },
+            )
+            return
         if not distributed.is_main_process:
             return
         save_checkpoint(args.output, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=current.scaler,
@@ -115,6 +151,23 @@ def main() -> None:
                         trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict())
 
     def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
+        if distributed_checkpoints:
+            save_distributed_checkpoint(
+                args.best_output,
+                training_model,
+                optimizer,
+                metadata={
+                    "step": current.global_step,
+                    "epoch": epoch + 1,
+                    "validation_loss": current.best_validation_loss,
+                    "best": True,
+                    "model_config": model_config,
+                    "trainer": current.state_dict(),
+                    "sampler": train_loader.batch_sampler.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                },
+            )
+            return
         if not distributed.is_main_process:
             return
         save_checkpoint(
