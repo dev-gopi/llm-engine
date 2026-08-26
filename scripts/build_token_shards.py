@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-import argparse
-import json
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
-import numpy as np
-
+# Remove the scripts directory before importing modules such as dataclasses.
+# Python's inspect -> linecache import chain imports the standard-library
+# ``tokenize`` module, which would otherwise be shadowed by scripts/tokenize.py.
 script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
+
+import argparse
+import json
+from dataclasses import asdict
+
+import numpy as np
 
 from datasets.filters import CorpusFilter
 from datasets.loader import iter_records

@@ -1,5 +1,8 @@
 import asyncio
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -39,6 +42,18 @@ def test_binary_token_shard_dataset(tmp_path) -> None:
     (tmp_path / "tokens-00000.bin").write_bytes(b"bad")
     with pytest.raises(ValueError, match="size mismatch"):
         TokenShardDataset(tmp_path / "manifest.json")
+
+
+def test_token_shard_cli_does_not_shadow_standard_library_tokenize() -> None:
+    completed = subprocess.run(
+        [sys.executable, "scripts/build_token_shards.py", "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--sequence-length" in completed.stdout
 
 
 def test_paged_cache_round_trip_and_prefix_lru() -> None:

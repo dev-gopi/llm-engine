@@ -29,6 +29,24 @@ def main() -> None:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--max-tokens", type=int, default=64)
     args = parser.parse_args()
+    for label, path in (
+        ("benchmark cases", args.cases),
+        ("model configuration", args.model_config),
+        ("tokenizer", args.tokenizer),
+        ("checkpoint", args.checkpoint),
+    ):
+        exists = path.is_dir() if label == "tokenizer" else path.is_file()
+        if not exists:
+            message = f"{label} not found: {path}"
+            if label == "checkpoint":
+                available = sorted(Path("checkpoints").glob("**/*.pt"))
+                if available:
+                    message += "\nAvailable checkpoints:\n  " + "\n  ".join(map(str, available))
+                message += (
+                    "\nA v2 pretraining checkpoint must be fine-tuned before running "
+                    "assistant capability benchmarks."
+                )
+            parser.error(message)
     cases = []
     with args.cases.open(encoding="utf-8") as stream:
         for line in stream:
@@ -38,7 +56,13 @@ def main() -> None:
             ))
     device = resolve_device(args.device)
     tokenizer = Tokenizer.load(args.tokenizer)
-    model = MiniGPT.from_config(load_yaml(args.model_config), device=device)
+    model_config = load_yaml(args.model_config)
+    if tokenizer.vocab_size != int(model_config["vocab_size"]):
+        parser.error(
+            f"tokenizer vocabulary ({tokenizer.vocab_size}) does not match "
+            f"model vocabulary ({model_config['vocab_size']})"
+        )
+    model = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(args.checkpoint, model, map_location=device, use_ema=True)
     generator = Generator(model, tokenizer, device=device)
     scored = []
