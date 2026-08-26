@@ -5,11 +5,12 @@ language model from the ground up. The repository separates tokenization, data
 processing, model architecture, training, inference, and serving so each part
 can evolve independently as the model grows.
 
-> **Development status:** The complete local pipeline is implemented: dataset
-> preparation, tokenization, GPT training and resume, evaluation, cached
-> generation, model-backed serving, and model export. Production deployment
-> still requires appropriately licensed data, trained weights, capacity testing,
-> security controls, and operational monitoring.
+> **Development status:** The local from-scratch pipeline is implemented and
+> covered by 199 tests: preparation, tokenization, pretraining, SFT, DPO
+> components, evaluation, cached generation, serving, and export. FSDP,
+> distributed checkpoints, binary token shards, and scalable serving primitives
+> are opt-in. Multi-GPU/multi-node operation still requires validation on the
+> target cluster; this repository is not presented as a production deployment.
 
 ## Goals
 
@@ -18,6 +19,25 @@ can evolve independently as the model grows.
 - Maintain clear boundaries between training and inference code.
 - Scale from a small local model toward distributed training and optimized serving.
 - Support checkpoint recovery and multiple deployment formats.
+
+## Quick start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --editable '.[dev]'
+python scripts/capabilities.py
+pytest -q
+```
+
+Inspect a model before allocating its weights:
+
+```bash
+python scripts/inspect_model.py configs/model.v2.gpu.yaml
+```
+
+The v2 GPU profile is the recommended from-scratch laptop path. The future
+1B/7B/30B files are architecture targets, not profiles for a 4 GB GPU.
 
 ## Repository structure
 
@@ -35,6 +55,8 @@ llm-engine/
 │   ├── model/               # GPT model components
 │   ├── optim/               # Optimizers, schedulers, and EMA
 │   ├── training/            # Training, evaluation, metrics, and checkpoints
+│   ├── post_training/       # Preference data and DPO objective
+│   ├── evaluation/          # Held-out capability benchmark scoring
 │   ├── inference/           # Generation, sampling, and KV caching
 │   ├── serving/             # FastAPI and WebSocket interfaces
 │   └── utils/               # Configuration, devices, logging, and seeds
@@ -200,7 +222,9 @@ Convert the raw line-oriented Parquet shards into article-level JSONL:
 .venv/bin/python scripts/prepare_wikitext.py
 ```
 
-The generated train and validation splits are included in training configuration profiles (such as `configs/pretraining.cpu.yaml`, `configs/pretraining.gpu.yaml`, `configs/finetuning.cpu.yaml`, `configs/finetuning.gpu.yaml`, `configs/training.cpu.yaml`, and `configs/training.gpu.yaml`) alongside the conversational datasets.
+The generated train and validation splits are used by the pretraining and
+combined-training profiles. Supervised fine-tuning profiles use conversation
+and instruction datasets instead.
 
 ### UltraChat 200k subset
 
@@ -219,7 +243,7 @@ Regenerate the processed subset with:
 .venv/bin/python scripts/prepare_ultrachat.py
 ```
 
-### DailyDialog subset
+### DailyDialog subset (excluded from active profiles)
 
 DailyDialog adds human-written, everyday conversations. The processed subset
 contains 2,000 user/assistant pairs.
@@ -227,6 +251,9 @@ contains 2,000 user/assistant pairs.
 - License: CC BY-NC-SA 4.0
 - Source: [ConvLab/dailydialog](https://huggingface.co/datasets/ConvLab/dailydialog)
 - Commercial-use warning: this dataset is non-commercial and share-alike.
+
+DailyDialog is retained only as an optional experiment and provenance example.
+It is not part of the active pretraining or fine-tuning configurations.
 
 Regenerate it with:
 
@@ -237,7 +264,10 @@ Regenerate it with:
 
 ### Hugging Face Dataset Downloader
 
-Download and process any Hugging Face dataset directly into raw Parquet (`data/raw/<dataset>/`) and tokenized chat JSONL (`data/processed/<dataset>/`):
+Download and process compatible Hugging Face datasets into raw Parquet
+(`data/raw/<dataset>/`) and chat JSONL (`data/processed/<dataset>/`). Downloading
+a dataset does not make its license or contents suitable for training; review
+its license, provenance, privacy, safety, and schema first.
 
 ```bash
 # Download Databricks Dolly 15k
@@ -361,7 +391,8 @@ targets are provided as `configs/model.future.1b.yaml`,
 `configs/model.future.7b.yaml`, and `configs/model.future.30b.yaml`. They verify
 that model dimensions, GQA, SwiGLU, RoPE, and long context are configuration
 driven; they are not laptop training profiles and do not include the distributed
-memory sharding required to train models of those sizes.
+cluster resources required to train models of those sizes. The engine provides
+opt-in FSDP, but these files intentionally contain architecture values only.
 
 Inspect a profile without allocating its weights or risking an out-of-memory
 error:
@@ -473,6 +504,9 @@ python scripts/evaluate.py
 python scripts/generate.py "Hello Gopi"
 python scripts/export.py --format safetensors
 python scripts/serve.py
+python scripts/capabilities.py
+python scripts/inspect_model.py configs/model.v2.gpu.yaml
+python scripts/evaluate_benchmarks.py --checkpoint checkpoints/v2-finetuning/best.pt
 ```
 
 Training settings, dataset paths, checkpoint frequency, optimizer, scheduler,
@@ -483,26 +517,25 @@ with `python scripts/train.py --resume checkpoints/latest/model.pt`.
 
 ### First small training run
 
-Before starting the complete corpus, verify the pipeline with the compact CPU
-model and the 2,000-pair DailyDialog subset using `configs/pretraining.cpu.yaml`:
+Before starting a complete corpus run, verify the pipeline with the compact CPU
+model and a single pretraining epoch. The configured inputs are TinyStories and
+WikiText, so the required processed files must exist first:
 
 ```bash
 python scripts/train.py --model-config configs/model.cpu.yaml \
   --training-config configs/pretraining.cpu.yaml --epochs 1
 ```
 
-This profile uses two examples per batch, 256-token sequences, four-step
-gradient accumulation, and a single-process data loader. It writes the final
-checkpoint to `checkpoints/latest/model.pt`. On the current reference run, one
-epoch completed 250 optimizer steps and reduced the running training loss from
-approximately 10.57 to 6.75.
+This profile uses two examples per batch, 256-token sequences and four-step
+gradient accumulation. It writes the final checkpoint to
+`checkpoints/latest/model.pt`.
 
 Evaluate a bounded sample without loading the full dataset into memory:
 
 ```bash
 python scripts/evaluate.py --model-config configs/model.cpu.yaml \
   --training-config configs/pretraining.cpu.yaml \
-  --dataset data/processed/dailydialog/dailydialog-conversations.json \
+  --dataset data/processed/tinystories/validation.jsonl \
   --max-batches 25 --device cpu
 ```
 
@@ -530,8 +563,8 @@ cp checkpoints/best/model.pt checkpoints/latest/model.pt
 
 ### Two-stage CPU training
 
-Start a fresh general-language checkpoint on WikiText. This is a large CPU job,
-so expect it to take substantially longer than the DailyDialog smoke run:
+Start a fresh general-language checkpoint on TinyStories and WikiText. This is
+a large CPU job and can take a long time:
 
 ```bash
 python scripts/train.py --model-config configs/model.cpu.yaml \
@@ -541,7 +574,7 @@ python scripts/train.py --model-config configs/model.cpu.yaml \
 ```
 
 Initialize a new optimizer and fine-tune the best pretrained weights on
-UltraChat plus the leakage-resistant DailyDialog training split:
+UltraChat, HelpSteer, and OpenOrca:
 
 ```bash
 python scripts/train.py --model-config configs/model.cpu.yaml \
@@ -602,34 +635,29 @@ pytest -q
 
 | Area | Status |
 | --- | --- |
-| Project architecture and configuration | Production implementation |
-| Dataset acquisition and chat preprocessing | Production implementation |
-| Token embedding matrix | Production implementation |
-| Positional embeddings | Production implementation |
-| Transformer blocks and language-model head | Production implementation |
-| Causal QKV self-attention and attention masks | Production implementation |
-| Position-wise FFN with GELU/SwiGLU support | Production implementation |
-| Pre-norm residual connections and LayerNorm/RMSNorm | Production implementation |
-| Shifted causal LM loss and perplexity | Production implementation |
-| Byte-level BPE tokenizer and artifact persistence | Production implementation |
-| Full training and evaluation loops | Production implementation |
-| Checkpoint save and resume | Production implementation |
-| Autoregressive generation and sampling | Production implementation |
-| Per-layer attention KV cache | Production implementation |
-| REST/WebSocket serving infrastructure | Production implementation |
-| Model-backed serving generation | Production implementation |
-| SafeTensors and PyTorch Export | Production implementation |
-| ONNX export | Implemented; install `.[export]` and validate in the target runtime |
-| Meaningful unit and integration tests | Production implementation |
+| Local tokenizer, model, training, evaluation and generation | Implemented and tested |
+| RoPE, GQA/MQA, RMSNorm, SwiGLU and checkpointed activations | Implemented and tested |
+| DDP and rank-aware sampling | Implemented; requires multi-GPU validation |
+| FSDP/hybrid FSDP and reshardable checkpoints | Implemented; requires cluster validation |
+| Filtered, deduplicated, memory-mapped binary token shards | Implemented and tested locally |
+| SFT data masking and DPO objective/training step | Implemented and tested locally |
+| Capability benchmark runner | Implemented; starter cases must be expanded |
+| REST/WebSocket model serving | Implemented and tested locally |
+| Paged KV, prefix cache and dynamic batch queue | Implemented primitives; backend integration remains |
+| CPU dynamic quantization | Implemented; target-model quality validation remains |
+| SafeTensors and PyTorch Export | Implemented |
+| ONNX export | Implemented; install `.[export]` and validate in target runtime |
+| Automated tests | 199 passing in the current development environment |
 
 ## Roadmap
 
-1. Train and publish reproducible small-model reference checkpoints.
-2. Benchmark automatic mixed precision and accumulation on target GPUs.
-3. Add sharded FSDP checkpointing for multi-node training.
-4. Add a separately validated GGUF conversion workflow.
-5. Add continuous request batching for higher serving throughput.
-6. Run ONNX Runtime compatibility, deployment load, and failure-recovery tests.
+1. Run FSDP save/resume/world-size-change tests on a real multi-GPU cluster.
+2. Integrate paged KV storage and the dynamic queue into a token-level continuous-batching backend.
+3. Add tensor-parallel inference and multi-replica request routing.
+4. Add a complete DPO command-line training workflow and larger held-out benchmarks.
+5. Add a separately validated GGUF conversion workflow.
+6. Validate ONNX Runtime, deployment load, security, and failure recovery.
+7. Train and publish reproducible small-model reference checkpoints with dataset provenance.
 
 ## Design principles
 

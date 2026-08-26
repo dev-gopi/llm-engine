@@ -33,6 +33,7 @@ dist/
 data/raw/*
 data/processed/*
 data/cache/*
+data/shards/*
 data/tokenizer/*
 data/tokenizer-v2/*
 !data/raw/.gitkeep
@@ -41,6 +42,7 @@ data/tokenizer-v2/*
 data/processed/*/*
 !data/processed/*/README.md
 !data/cache/.gitkeep
+!data/shards/.gitkeep
 !data/tokenizer/.gitkeep
 !data/tokenizer-v2/.gitkeep
 
@@ -71,3 +73,16 @@ mlruns/
 *.onnx
 *.gguf
 *.npz
+*.pt2
+*.distcp
+.metadata
+
+# Local runtime databases and profiling output
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+events.out.tfevents.*
+*.trace.json
+
+# Notebook scratch state
+.ipynb_checkpoints/
