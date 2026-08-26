@@ -5,6 +5,9 @@ max_sequence_length: 128
 num_workers: 2
 pin_memory: false
 lazy_dataset: true
+distributed_strategy: ddp
+distributed_backend: null
+checkpoint_format: single_file
 train_files:
   - data/processed/tinystories/train.jsonl
   - data/processed/wikitext_103/train.jsonl
@@ -16,6 +19,7 @@ weight_decay: 0.1
 beta1: 0.9
 beta2: 0.95
 adam_epsilon: 0.00000001
+fused_optimizer: false
 gradient_clip_norm: 1.0
 gradient_accumulation_steps: 32
 mixed_precision: none
@@ -25,6 +29,7 @@ min_lr_ratio: 0.1
 ema_decay: 0.999
 log_every: 25
 checkpoint_every: 1000
+evaluate_every: null
 early_stopping_patience: 2
 early_stopping_min_delta: 0.001
 ignore_index: -100

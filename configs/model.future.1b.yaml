@@ -8,8 +8,11 @@ max_position: 8192
 position_type: rotary
 rope_base: 10000.0
 rope_scale: 1.0
+padding_idx: 0
 initializer_range: 0.02
 embedding_dropout: 0.0
+scale_embeddings: false
+freeze_embeddings: false
 tie_word_embeddings: true
 lm_head_bias: false
 attention_dropout: 0.0

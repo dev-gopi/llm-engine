@@ -434,6 +434,21 @@ Other strategies can opt in with `checkpoint_format: distributed`. Cluster launc
 directories on a shared filesystem. Validate save, restart, and world-size
 changes on the exact cluster topology before a long run.
 
+An opt-in 1B example is provided in
+`configs/pretraining.future.fsdp.yaml`. After building its binary shard input,
+launch it on a suitable multi-GPU machine with:
+
+```bash
+torchrun --standalone --nproc-per-node=8 scripts/train.py \
+  --model-config configs/model.future.1b.yaml \
+  --training-config configs/pretraining.future.fsdp.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --output checkpoints/future-1b/latest \
+  --best-output checkpoints/future-1b/best
+```
+
+Do not run this profile on the RTX 3050 laptop.
+
 Check accelerator support before selecting precision or fused-kernel options:
 
 ```bash
