@@ -176,6 +176,16 @@ class Trainer:
                     checkpoint_callback(self, epoch)
                 if optimizer_stepped and evaluate_every and evaluator and validation_dataloader and self.global_step % evaluate_every == 0:
                     metrics = evaluator.evaluate(validation_dataloader)
+                    logger.info(
+                        "validation epoch=%d step=%d loss=%.6f cross_entropy=%.6f perplexity=%.4f tokens=%d batches=%d",
+                        epoch + 1,
+                        self.global_step,
+                        float(metrics["loss"]),
+                        float(metrics.get("cross_entropy", float("nan"))),
+                        float(metrics.get("perplexity", float("nan"))),
+                        int(metrics.get("tokens", 0)),
+                        int(metrics.get("batches", 0)),
+                    )
                     history.append({"epoch": epoch + 1, "step": self.global_step, **metrics})
             self.flush_gradients()
             self.current_epoch = epoch + 1
@@ -189,6 +199,16 @@ class Trainer:
             }
             if evaluator and validation_dataloader:
                 epoch_record.update(evaluator.evaluate(validation_dataloader))
+                logger.info(
+                    "validation epoch=%d step=%d loss=%.6f cross_entropy=%.6f perplexity=%.4f tokens=%d batches=%d",
+                    epoch + 1,
+                    self.global_step,
+                    float(epoch_record["loss"]),
+                    float(epoch_record.get("cross_entropy", float("nan"))),
+                    float(epoch_record.get("perplexity", float("nan"))),
+                    int(epoch_record.get("tokens", 0)),
+                    int(epoch_record.get("batches", 0)),
+                )
                 validation_loss = float(epoch_record["loss"])
                 if validation_loss < self.best_validation_loss - early_stopping_min_delta:
                     self.best_validation_loss = validation_loss
