@@ -35,7 +35,7 @@ min_lr_ratio: 0.1
 ema_decay: 0.999
 log_every: 25
 checkpoint_every: 1000
-evaluate_every: 500
+evaluate_every: null
 early_stopping_patience: 2
 early_stopping_min_delta: 0.001
 ignore_index: -100
