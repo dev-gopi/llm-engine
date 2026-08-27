@@ -10,6 +10,7 @@ from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, relevan
 from scripts.mcp_client import parse_args
 from serving.backend import ConfiguredModelBackend
 from serving.schemas import GenerateRequest
+from utils.config import load_yaml
 
 
 SERVER = Path(__file__).parent / "fixtures" / "fake_mcp_server.py"
@@ -121,3 +122,15 @@ def test_backend_model_plans_executes_and_injects_mcp_result() -> None:
         assert "untrusted external data" in augmented
 
     asyncio.run(scenario())
+
+
+def test_mcp_config_contains_maintained_reference_servers() -> None:
+    servers = load_yaml("configs/mcp.yaml")["mcp"]["servers"]
+    assert set(servers) == {
+        "filesystem", "memory", "sequential-thinking", "everything", "fetch", "git", "time",
+    }
+    assert servers["filesystem"]["enabled"] is True
+    assert all(not servers[name]["enabled"] and servers[name]["allowed_tools"] for name in servers if name != "filesystem")
+    assert servers["memory"]["allowed_tools"] == ["read_graph", "search_nodes", "open_nodes"]
+    assert "get-env" not in servers["everything"]["allowed_tools"]
+    assert "git_commit" not in servers["git"]["allowed_tools"]

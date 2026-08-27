@@ -25,3 +25,94 @@ mcp:
         - search_files
         - get_file_info
         - list_allowed_directories
+
+    # Stateful knowledge graph. Disabled because its tools mutate persistent memory.
+    memory:
+      enabled: false
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-memory"]
+      protocol: auto
+      timeout_seconds: 30
+      max_message_bytes: 16777216
+      env: {}
+      allowed_tools:
+        - read_graph
+        - search_nodes
+        - open_nodes
+
+    # Iterative reasoning reference server. The current engine performs one MCP
+    # call per generation, so multi-call thought loops require further orchestration.
+    sequential-thinking:
+      enabled: false
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+      protocol: auto
+      timeout_seconds: 30
+      max_message_bytes: 16777216
+      env: {}
+      allowed_tools:
+        - sequentialthinking
+
+    # Protocol test server; not intended for production access.
+    everything:
+      enabled: false
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything"]
+      protocol: auto
+      timeout_seconds: 30
+      max_message_bytes: 16777216
+      env: {}
+      # Deliberately excludes get-env (credential disclosure), network-backed
+      # gzip-file-as-resource, and state-toggling/long-running test tools.
+      allowed_tools:
+        - echo
+        - get-annotated-message
+        - get-resource-links
+        - get-resource-reference
+        - get-structured-content
+        - get-sum
+        - get-tiny-image
+
+    # Python reference servers require uv/uvx: https://docs.astral.sh/uv/
+    # Network content is untrusted and can contain prompt injection.
+    fetch:
+      enabled: false
+      command: uvx
+      args: ["mcp-server-fetch"]
+      protocol: auto
+      timeout_seconds: 30
+      max_message_bytes: 16777216
+      env: {}
+      allowed_tools:
+        - fetch
+
+    # Git includes mutating operations. Review discovered tool names and allow
+    # only the minimum read-only subset required by your application.
+    git:
+      enabled: false
+      command: uvx
+      args: ["mcp-server-git", "--repository", "."]
+      protocol: auto
+      timeout_seconds: 30
+      max_message_bytes: 16777216
+      env: {}
+      allowed_tools:
+        - git_status
+        - git_diff_unstaged
+        - git_diff_staged
+        - git_diff
+        - git_log
+        - git_show
+        - git_branch
+
+    time:
+      enabled: false
+      command: uvx
+      args: ["mcp-server-time"]
+      protocol: auto
+      timeout_seconds: 30
+      max_message_bytes: 16777216
+      env: {}
+      allowed_tools:
+        - get_current_time
+        - convert_time

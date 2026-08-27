@@ -249,6 +249,19 @@ python scripts/mcp_client.py list --server filesystem
 python scripts/mcp_client.py call --server filesystem read_file '{"path":"README.md"}'
 ```
 
+The configuration includes templates for all seven maintained MCP reference
+servers: Filesystem, Memory, Sequential Thinking, Everything, Fetch, Git, and
+Time. Only the read-only subset of Filesystem is enabled. The others are
+disabled until their dependencies, permissions, and tool schemas are reviewed.
+Their templates include conservative allowlists. The TypeScript servers use
+`npx`; Fetch, Git, and Time
+use `uvx` and require [uv](https://docs.astral.sh/uv/) to be installed.
+
+To inspect a disabled server safely, first install its runner, temporarily set
+`enabled: true`, and review its `allowed_tools`; backend startup intentionally
+skips servers with empty allowlists. The standalone CLI
+can list configured server tools without enabling model access.
+
 The CLI is intentionally explicit and does not let generated model text launch
 tools automatically. The serving backend can opt into model-routed calls by
 setting `mcp: true` on a generation request. It performs a private JSON planning
