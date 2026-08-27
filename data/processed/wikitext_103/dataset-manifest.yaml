@@ -1,0 +1,12 @@
+schema_version: 1
+name: WikiText-103 Raw
+source: Salesforce/wikitext:wikitext-103-raw-v1
+version: local-article-jsonl-v1
+license:
+  identifier: CC-BY-SA-4.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - pretraining
+  - mixed
+privacy_review: unreviewed

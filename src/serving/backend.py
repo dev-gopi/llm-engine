@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import asyncio
+import torch
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -13,6 +14,7 @@ from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
+from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from datasets.preprocessor import format_messages
 from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
@@ -23,6 +25,7 @@ from utils.logger import get_logger
 
 from .runtime import BackendGeneration, BackendStreamEvent, BackendUnavailableError
 from .schemas import FinishReason, GenerateRequest
+from .orchestration import ReloadableBackend, ReplicaPoolBackend
 
 logger = get_logger(__name__)
 
@@ -46,6 +49,10 @@ class ConfiguredModelBackend:
         response_format: str | None = None,
         context_tokens: int = 1536,
         web_search: dict | None = None,
+        prefix_cache_capacity: int = 0,
+        paged_kv_pages: int = 0,
+        paged_kv_page_size: int = 16,
+        tensor_parallel_size: int = 1,
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
@@ -57,6 +64,10 @@ class ConfiguredModelBackend:
         self.response_format = response_format
         self.context_tokens = context_tokens
         self.web_search = web_search or {}
+        self.prefix_cache_capacity = prefix_cache_capacity
+        self.paged_kv_pages = paged_kv_pages
+        self.paged_kv_page_size = paged_kv_page_size
+        self.tensor_parallel_size = tensor_parallel_size
         self.sessions: SQLiteSessionStore | None = None
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -103,9 +114,24 @@ class ConfiguredModelBackend:
         self.generator = None
 
     def _load(self) -> None:
+        if self.tensor_parallel_size > 1:
+            if not torch.distributed.is_available():
+                raise RuntimeError("this PyTorch build does not provide distributed support")
+            if not torch.distributed.is_initialized():
+                backend = "nccl" if torch.cuda.is_available() else "gloo"
+                if backend == "nccl":
+                    torch.cuda.set_device(int(os.getenv("LOCAL_RANK", "0")))
+                torch.distributed.init_process_group(backend=backend)
+            if torch.cuda.is_available() and self.device in {"auto", "cuda"}:
+                self.device = f"cuda:{int(os.getenv('LOCAL_RANK', '0'))}"
         device = resolve_device(self.device)
         tokenizer = Tokenizer.load(self.tokenizer_path)
         config = load_yaml(self.model_config)
+        validate_tensor_parallel_size(
+            self.tensor_parallel_size,
+            attention_heads=int(config["heads"]),
+            kv_heads=int(config.get("kv_heads", config["heads"])),
+        )
         if int(config["vocab_size"]) != tokenizer.vocab_size:
             config["vocab_size"] = tokenizer.vocab_size
 
@@ -127,7 +153,15 @@ class ConfiguredModelBackend:
             else:
                 raise error
 
-        self.generator = Generator(model, tokenizer, device=device)
+        if self.tensor_parallel_size > 1:
+            parallelize_minigpt(model)
+
+        self.generator = Generator(
+            model, tokenizer, device=device,
+            prefix_cache_capacity=self.prefix_cache_capacity,
+            paged_kv_pages=self.paged_kv_pages,
+            paged_kv_page_size=self.paged_kv_page_size,
+        )
         if self.session_store_path:
             self.sessions = SQLiteSessionStore(
                 self.session_store_path, tokenizer,
@@ -377,7 +411,7 @@ class ConfiguredModelBackend:
             yield step
             await asyncio.sleep(0)
 
-def backend_from_environment() -> ConfiguredModelBackend:
+def _configured_from_environment(*, device: str | None = None) -> ConfiguredModelBackend:
     inference_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.yaml"))
     inference = load_yaml(inference_path) if inference_path.is_file() else {}
     serving = inference.get("serving", {})
@@ -387,10 +421,28 @@ def backend_from_environment() -> ConfiguredModelBackend:
         model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.cpu.yaml"))),
         tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer"))),
         checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/latest/model.pt"))),
-        device=os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
+        device=device or os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
         session_store_path=os.getenv("GOPI_SESSION_STORE", str(serving.get("session_store_path", "data/cache/sessions.sqlite"))),
         system_prompt=str(inference.get("system_prompt", "You are Gopi, a helpful assistant.")),
         response_format=os.getenv("GOPI_RESPONSE_FORMAT", str(inference.get("response_format", "plain"))),
         context_tokens=int((inference.get("context_memory") or {}).get("max_tokens", 1536)),
         web_search=inference.get("web_search") if isinstance(inference.get("web_search"), dict) else {},
+        prefix_cache_capacity=int(serving.get("prefix_cache_capacity", 0)),
+        paged_kv_pages=int(serving.get("paged_kv_pages", 0)),
+        paged_kv_page_size=int(serving.get("paged_kv_page_size", 16)),
+        tensor_parallel_size=int(serving.get("tensor_parallel_size", 1)),
     )
+
+
+def _reload_candidate():
+    devices = [value.strip() for value in os.getenv("GOPI_REPLICA_DEVICES", "").split(",") if value.strip()]
+    replicas = [_configured_from_environment(device=device) for device in devices] or [_configured_from_environment()]
+    backend = replicas[0] if len(replicas) == 1 else ReplicaPoolBackend(replicas)
+    checkpoint = replicas[0].checkpoint_path
+    version = f"{checkpoint}:{checkpoint.stat().st_mtime_ns if checkpoint.exists() else 'missing'}"
+    return backend, version
+
+
+def backend_from_environment() -> ReloadableBackend:
+    backend, version = _reload_candidate()
+    return ReloadableBackend(backend, version=version, factory=_reload_candidate)

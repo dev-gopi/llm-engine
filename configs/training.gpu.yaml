@@ -1,6 +1,10 @@
 batch_size: 1
 epochs: 5
 seed: 42
+dataset_governance:
+  policy: warn
+  stage: mixed
+  commercial_use: false
 max_sequence_length: 512
 num_workers: 4
 pin_memory: true

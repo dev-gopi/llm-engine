@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import time
 from collections.abc import Mapping
 from collections.abc import Iterable
 
@@ -43,6 +45,10 @@ class Trainer:
         self.best_validation_loss = float("inf")
         self.epochs_without_improvement = 0
         self.stopped_early = False
+        self.tokens_processed = 0
+        self.training_seconds = 0.0
+        self.nonfinite_updates = 0
+        self.last_gradient_norm = float("nan")
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -66,6 +72,7 @@ class Trainer:
         inputs: Tensor | Mapping[str, Tensor],
         targets: Tensor | None = None,
     ) -> float:
+        started = time.perf_counter()
         self.model.train()
         if self.micro_step % self.gradient_accumulation_steps == 0:
             self.opt.zero_grad(set_to_none=True)
@@ -93,21 +100,42 @@ class Trainer:
                 logits = logits[0]
             loss_function = self.batch_loss_fn if is_batch else self.tensor_loss_fn
             loss = loss_function(logits, targets, loss_mask=loss_mask)
+        if not bool(torch.isfinite(loss.detach())):
+            self.nonfinite_updates += 1
+            self.opt.zero_grad(set_to_none=True)
+            raise FloatingPointError(
+                f"non-finite training loss at optimizer step {self.global_step}"
+            )
         self.scaler.scale(loss / self.gradient_accumulation_steps).backward()
+        self.tokens_processed += self._count_target_tokens(targets, loss_mask, is_batch)
         self.micro_step += 1
         if self.micro_step % self.gradient_accumulation_steps == 0:
             self._optimizer_step()
+        self.training_seconds += time.perf_counter() - started
         return float(loss.detach().item())
 
-    def _optimizer_step(self) -> None:
+    def _optimizer_step(self) -> bool:
         self.scaler.unscale_(self.opt)
         if self.gradient_clip_norm is not None:
             # FSDP must aggregate sharded gradient norms collectively.
             clip = getattr(self.model, "clip_grad_norm_", None)
             if callable(clip):
-                clip(self.gradient_clip_norm)
+                gradient_norm = clip(self.gradient_clip_norm)
             else:
-                nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
+                gradient_norm = nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
+        else:
+            gradient_norm = self._gradient_norm()
+        self.last_gradient_norm = float(gradient_norm)
+        if not math.isfinite(self.last_gradient_norm):
+            self.nonfinite_updates += 1
+            self.opt.zero_grad(set_to_none=True)
+            self.scaler.update()
+            logger.warning(
+                "skipping non-finite gradients at optimizer step=%d gradient_norm=%s",
+                self.global_step,
+                self.last_gradient_norm,
+            )
+            return False
         self.scaler.step(self.opt)
         self.scaler.update()
         if self.scheduler is not None:
@@ -115,6 +143,38 @@ class Trainer:
         if self.ema is not None:
             self.ema.update(self.model)
         self.global_step += 1
+        return True
+
+    def _gradient_norm(self) -> Tensor:
+        norms = [
+            parameter.grad.detach().float().norm(2)
+            for parameter in self.model.parameters()
+            if parameter.grad is not None
+        ]
+        if not norms:
+            return torch.tensor(0.0, device=self.device)
+        return torch.stack([norm.to(self.device) for norm in norms]).norm(2)
+
+    @staticmethod
+    def _count_target_tokens(targets: Tensor, loss_mask: Tensor | None, is_batch: bool) -> int:
+        if loss_mask is not None:
+            selected = loss_mask[:, 1:] if is_batch and loss_mask.ndim == 2 else loss_mask
+            return int(selected.sum().item())
+        return int(targets[:, 1:].numel() if is_batch and targets.ndim == 2 else targets.numel())
+
+    @property
+    def learning_rate(self) -> float:
+        return float(self.opt.param_groups[0]["lr"])
+
+    @property
+    def tokens_per_second(self) -> float:
+        return self.tokens_processed / self.training_seconds if self.training_seconds > 0 else 0.0
+
+    @property
+    def peak_memory_mb(self) -> float:
+        if self.device.type != "cuda" or not torch.cuda.is_available():
+            return 0.0
+        return torch.cuda.max_memory_allocated(self.device) / (1024 * 1024)
 
     def flush_gradients(self) -> None:
         remainder = self.micro_step % self.gradient_accumulation_steps
@@ -169,7 +229,13 @@ class Trainer:
                 if optimizer_stepped and log_every and self.global_step % log_every == 0:
                     current_loss = window_loss / max(window_batches, 1)
                     avg_loss = running_loss / max(running_batches, 1)
-                    logger.info("epoch=%d step=%d loss=%.6f (avg=%.6f)", epoch + 1, self.global_step, current_loss, avg_loss)
+                    logger.info(
+                        "epoch=%d step=%d loss=%.6f lr=%.8g grad_norm=%.4f tokens=%d "
+                        "tokens_per_second=%.1f peak_memory_mb=%.1f nonfinite_updates=%d (avg=%.6f)",
+                        epoch + 1, self.global_step, current_loss, self.learning_rate,
+                        self.last_gradient_norm, self.tokens_processed, self.tokens_per_second,
+                        self.peak_memory_mb, self.nonfinite_updates, avg_loss,
+                    )
                     window_loss = 0.0
                     window_batches = 0
                 if optimizer_stepped and checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
@@ -196,6 +262,12 @@ class Trainer:
                 "epoch": epoch + 1,
                 "step": self.global_step,
                 "train_loss": running_loss / max(running_batches, 1),
+                "learning_rate": self.learning_rate,
+                "gradient_norm": self.last_gradient_norm,
+                "tokens_processed": self.tokens_processed,
+                "tokens_per_second": self.tokens_per_second,
+                "peak_memory_mb": self.peak_memory_mb,
+                "nonfinite_updates": self.nonfinite_updates,
             }
             if evaluator and validation_dataloader:
                 epoch_record.update(evaluator.evaluate(validation_dataloader))
@@ -236,6 +308,10 @@ class Trainer:
             "best_validation_loss": self.best_validation_loss,
             "epochs_without_improvement": self.epochs_without_improvement,
             "stopped_early": self.stopped_early,
+            "tokens_processed": self.tokens_processed,
+            "training_seconds": self.training_seconds,
+            "nonfinite_updates": self.nonfinite_updates,
+            "last_gradient_norm": self.last_gradient_norm,
         }
 
     def load_state_dict(self, state: Mapping[str, int | float | bool]) -> None:
@@ -246,3 +322,7 @@ class Trainer:
         self.best_validation_loss = float(state.get("best_validation_loss", float("inf")))
         self.epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
         self.stopped_early = bool(state.get("stopped_early", False))
+        self.tokens_processed = int(state.get("tokens_processed", 0))
+        self.training_seconds = float(state.get("training_seconds", 0.0))
+        self.nonfinite_updates = int(state.get("nonfinite_updates", 0))
+        self.last_gradient_norm = float(state.get("last_gradient_norm", float("nan")))

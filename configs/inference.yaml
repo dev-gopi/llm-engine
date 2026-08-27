@@ -25,8 +25,14 @@ serving:
   checkpoint_path: checkpoints/latest/model.pt
   device: auto
   max_concurrency: 1
+  continuous_streams: 4
   queue_timeout_seconds: 5.0
   generation_timeout_seconds: 180.0
   cors_origins: []
   requests_per_minute: 60
+  rate_limit_store_path: data/cache/rate-limits.sqlite
+  prefix_cache_capacity: 16
+  paged_kv_pages: 128
+  paged_kv_page_size: 16
+  tensor_parallel_size: 1
   session_store_path: data/cache/sessions.sqlite

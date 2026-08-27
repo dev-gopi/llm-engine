@@ -100,3 +100,48 @@ class PrefixCache:
         self._values.move_to_end(tokens)
         while len(self._values) > self.capacity:
             self._values.popitem(last=False)
+
+
+class PagedPrefixCache:
+    """LRU prefix cache backed by the fixed-page KV allocator for batch-one generation."""
+
+    def __init__(self, allocator: PagedKVCache, *, capacity: int = 32) -> None:
+        if capacity < 1:
+            raise ValueError("capacity must be positive")
+        self.allocator = allocator
+        self.capacity = capacity
+        self.entries: OrderedDict[tuple[int, ...], tuple[str, Tensor]] = OrderedDict()
+        self.counter = 0
+
+    def get(self, tokens: tuple[int, ...]) -> tuple[Tensor, tuple[tuple[Tensor, Tensor], ...]] | None:
+        entry = self.entries.get(tokens)
+        if entry is None:
+            return None
+        self.entries.move_to_end(tokens)
+        request_id, logits = entry
+        keys, values = self.allocator.materialize(request_id)
+        cache = tuple(
+            (keys[layer].unsqueeze(0), values[layer].unsqueeze(0))
+            for layer in range(keys.shape[0])
+        )
+        return logits, cache
+
+    def put(self, tokens: tuple[int, ...], logits: Tensor, cache) -> None:
+        if tokens in self.entries:
+            request_id, _ = self.entries.pop(tokens)
+            self.allocator.release(request_id)
+        required_pages = (len(tokens) + self.allocator.page_size - 1) // self.allocator.page_size
+        if required_pages > len(self.allocator.free_pages) + sum(
+            len(self.allocator.tables[request_id]) for request_id, _ in self.entries.values()
+        ):
+            raise MemoryError("prefix requires more pages than the cache capacity")
+        while len(self.entries) >= self.capacity or required_pages > len(self.allocator.free_pages):
+            _, (expired, _) = self.entries.popitem(last=False)
+            self.allocator.release(expired)
+        self.counter += 1
+        request_id = f"prefix-{self.counter}"
+        self.allocator.reserve(request_id, len(tokens))
+        keys = torch.stack([layer[0].squeeze(0) for layer in cache])
+        values = torch.stack([layer[1].squeeze(0) for layer in cache])
+        self.allocator.append(request_id, keys, values)
+        self.entries[tokens] = (request_id, logits.detach().clone())

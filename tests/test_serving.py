@@ -321,6 +321,19 @@ def test_websocket_rejects_disallowed_browser_origin():
     assert websocket.closed_code == 1008
 
 
+def test_websocket_accepts_bearer_subprotocol_authentication():
+    async def scenario():
+        app = create_app(FakeBackend(), settings=settings(api_key="secret"))
+        websocket = FakeWebSocket(app, [])
+        websocket.headers["sec-websocket-protocol"] = "bearer, secret"
+        await generate_stream(websocket)
+        return websocket
+
+    websocket = asyncio.run(scenario())
+    assert websocket.accepted
+    assert websocket.closed_code is None
+
+
 def test_runtime_rejects_saturated_queue():
     class BlockingBackend(FakeBackend):
         def __init__(self):

@@ -15,6 +15,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 import torch
 
 from model.gpt import MiniGPT
+from datasets.governance import enforce_dataset_governance
 from model.loss import CausalLanguageModelLoss
 from optim.adamw import adamw_from_config
 from optim.ema import EMA
@@ -29,10 +30,11 @@ from training.trainer import Trainer
 from dotenv import load_dotenv
 
 from utils.config import load_yaml
-from utils.logger import configure_logging
+from utils.logger import configure_logging, get_logger
 from utils.seed import set_seed
 
 load_dotenv()
+logger = get_logger(__name__)
 
 
 def main() -> None:
@@ -58,6 +60,12 @@ def main() -> None:
             "--model-config configs/model.cpu.yaml --training-config configs/training.cpu.yaml"
         )
     set_seed(int(config.get("seed", 42)))
+    governed_paths = [*config.get("train_files", []), *config.get("validation_files", [])]
+    governance_findings = enforce_dataset_governance(
+        governed_paths, config.get("dataset_governance"),
+    )
+    for finding in governance_findings:
+        logger.warning("dataset governance [%s]: %s", finding.code, finding.message)
     distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
     atexit.register(DistributedTrainer.shutdown)
     tokenizer = Tokenizer.load(args.tokenizer)
@@ -111,9 +119,10 @@ def main() -> None:
     )
     if args.resume:
         if args.resume.is_dir():
-            state = load_distributed_checkpoint(args.resume, training_model, optimizer)
-            if state.get("scheduler"):
-                scheduler.load_state_dict(state["scheduler"])
+            state = load_distributed_checkpoint(
+                args.resume, training_model, optimizer,
+                scheduler=scheduler, scaler=trainer.scaler,
+            )
         else:
             state = load_checkpoint(args.resume, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=trainer.scaler, map_location=distributed.device)
         trainer.global_step = state["step"]
@@ -134,13 +143,14 @@ def main() -> None:
                 args.output,
                 training_model,
                 optimizer,
+                scheduler=scheduler,
+                scaler=current.scaler,
                 metadata={
                     "step": current.global_step,
                     "epoch": epoch + 1,
                     "model_config": model_config,
                     "trainer": current.state_dict(),
                     "sampler": train_loader.batch_sampler.state_dict(),
-                    "scheduler": scheduler.state_dict(),
                 },
             )
             return
@@ -156,6 +166,8 @@ def main() -> None:
                 args.best_output,
                 training_model,
                 optimizer,
+                scheduler=scheduler,
+                scaler=current.scaler,
                 metadata={
                     "step": current.global_step,
                     "epoch": epoch + 1,
@@ -164,7 +176,6 @@ def main() -> None:
                     "model_config": model_config,
                     "trainer": current.state_dict(),
                     "sampler": train_loader.batch_sampler.state_dict(),
-                    "scheduler": scheduler.state_dict(),
                 },
             )
             return

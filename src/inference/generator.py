@@ -14,6 +14,7 @@ from utils.logger import get_logger
 from .sampler import TopKSampler
 from .context import ConversationMemory
 from .kv_cache import KVCache
+from .paged_kv_cache import PagedKVCache, PagedPrefixCache, PrefixCache
 
 logger = get_logger(__name__)
 
@@ -44,6 +45,9 @@ class Generator:
         tokenizer: Tokenizer,
         *,
         device: str | torch.device = "auto",
+        prefix_cache_capacity: int = 0,
+        paged_kv_pages: int = 0,
+        paged_kv_page_size: int = 16,
     ) -> None:
         self.device = resolve_device(device)
         self.model = model.to(self.device).eval()
@@ -53,6 +57,22 @@ class Generator:
         if self.max_positions < 1:
             raise ValueError("model must expose a positive max_positions value")
         self.eos_token_id = tokenizer.token_to_id("<|eos|>")
+        self.prefix_cache: PrefixCache | PagedPrefixCache | None = None
+        self.prefix_cache_hits = 0
+        self.prefix_cache_misses = 0
+        if paged_kv_pages:
+            first_attention = getattr(model, "blocks", [None])[0].attn
+            allocator = PagedKVCache(
+                num_pages=paged_kv_pages, page_size=paged_kv_page_size,
+                layers=len(model.blocks), kv_heads=first_attention.kv_heads,
+                head_dim=first_attention.head_dim, device=self.device,
+                dtype=next(model.parameters()).dtype,
+            )
+            self.prefix_cache = PagedPrefixCache(
+                allocator, capacity=prefix_cache_capacity or min(32, paged_kv_pages)
+            )
+        elif prefix_cache_capacity:
+            self.prefix_cache = PrefixCache(prefix_cache_capacity)
 
     @torch.inference_mode()
     def generate(
@@ -91,11 +111,7 @@ class Generator:
         limit = min(max_tokens, self.max_positions - len(prompt_ids))
         stop_sequences = stop or []
 
-        input_ids = torch.tensor([all_ids], dtype=torch.long, device=self.device)
-        model_output = self.model(input_ids, use_cache=True)
-        if not isinstance(model_output, tuple):
-            raise RuntimeError("model did not return a requested KV cache")
-        logits, raw_cache = model_output
+        logits, raw_cache = self._prefill(prompt_ids)
         cache = KVCache(raw_cache)
         for _ in range(limit):
             next_logits = logits[:, -1, :]
@@ -143,6 +159,88 @@ class Generator:
         return result
 
     @torch.inference_mode()
+    def generate_batch(self, prompts: list[str], **options) -> list[GenerationResult]:
+        """Decode prompt cohorts in tensor batches and compact completed KV rows.
+
+        Prompts of equal token length share prefill and decode calls. Different
+        lengths form independent cohorts, avoiding padding tokens in cached
+        attention while still allowing each cohort to shrink continuously.
+        """
+        if not prompts:
+            return []
+        max_tokens = int(options.get("max_tokens", 128))
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be positive")
+        penalty = float(options.get("repetition_penalty", 1.0))
+        encoded = [self.tokenizer.encode(
+            prompt, add_bos=True,
+            allowed_special="all" if options.get("allow_special_tokens", False) else (),
+        ) for prompt in prompts]
+        if any(not ids or len(ids) >= self.max_positions for ids in encoded):
+            raise ValueError("a prompt is empty or exceeds the model context")
+        results: list[GenerationResult | None] = [None] * len(prompts)
+        cohorts: dict[int, list[int]] = {}
+        for index, ids in enumerate(encoded):
+            cohorts.setdefault(len(ids), []).append(index)
+
+        for prompt_length, indexes in cohorts.items():
+            active = list(indexes)
+            all_ids = [list(encoded[i]) for i in active]
+            generated: list[list[int]] = [[] for _ in active]
+            randoms = [torch.Generator(device=self.device) for _ in active]
+            seed = options.get("seed")
+            if seed is not None:
+                for offset, random in enumerate(randoms):
+                    random.manual_seed(int(seed) + indexes[offset])
+            output = self.model(torch.tensor([encoded[i] for i in active], device=self.device), use_cache=True)
+            if not isinstance(output, tuple):
+                raise RuntimeError("model did not return a requested KV cache")
+            logits, cache = output
+            limit = min(max_tokens, self.max_positions - prompt_length)
+            for step in range(limit):
+                survivors: list[int] = []
+                next_tokens: list[int] = []
+                for row, original_index in enumerate(active):
+                    row_logits = logits[row:row + 1, -1, :].clone()
+                    self._apply_repetition_penalty(row_logits, set(all_ids[row]), penalty)
+                    token_id = int(self.sampler(
+                        row_logits, temperature=float(options.get("temperature", .8)),
+                        top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
+                        generator=randoms[row],
+                    ).item())
+                    eos = self.eos_token_id is not None and token_id == self.eos_token_id
+                    if not eos:
+                        generated[row].append(token_id)
+                        all_ids[row].append(token_id)
+                    text = self.tokenizer.decode(generated[row], skip_special_tokens=True)
+                    stopped = any(value in text for value in (options.get("stop") or []))
+                    done = eos or stopped or step + 1 == limit
+                    if done:
+                        results[original_index] = GenerationResult(
+                            self._trim_stop(text, options.get("stop") or []), tuple(generated[row]),
+                            prompt_length, "stop" if eos or stopped else "length",
+                        )
+                    else:
+                        survivors.append(row)
+                        next_tokens.append(token_id)
+                if not survivors:
+                    break
+                select = torch.tensor(survivors, device=self.device)
+                cache = tuple((key.index_select(0, select), value.index_select(0, select)) for key, value in cache)
+                active = [active[row] for row in survivors]
+                all_ids = [all_ids[row] for row in survivors]
+                generated = [generated[row] for row in survivors]
+                randoms = [randoms[row] for row in survivors]
+                output = self.model(torch.tensor(next_tokens, device=self.device).unsqueeze(1),
+                                    past_key_values=cache, use_cache=True)
+                if not isinstance(output, tuple):
+                    raise RuntimeError("model did not return a requested KV cache")
+                logits, cache = output
+        if any(result is None for result in results):
+            raise RuntimeError("batched generation did not finalize every request")
+        return [result for result in results if result is not None]
+
+    @torch.inference_mode()
     def stream(
         self,
         prompt: str,
@@ -166,10 +264,7 @@ class Generator:
             random.manual_seed(int(options["seed"]))
         all_ids, generated = list(prompt_ids), []
         emitted_text = ""
-        output = self.model(torch.tensor([all_ids], device=self.device), use_cache=True)
-        if not isinstance(output, tuple):
-            raise RuntimeError("model did not return a requested KV cache")
-        logits, raw_cache = output
+        logits, raw_cache = self._prefill(prompt_ids)
         cache = KVCache(raw_cache)
         finish_reason = "length"
         for _ in range(min(max_tokens, self.max_positions - len(prompt_ids))):
@@ -224,3 +319,28 @@ class Generator:
     def _trim_stop(text: str, stop_sequences: list[str]) -> str:
         endings = [text.find(sequence) for sequence in stop_sequences if sequence in text]
         return text[: min(endings)] if endings else text
+
+    def _prefill(self, prompt_ids: list[int]):
+        key = tuple(prompt_ids)
+        if self.prefix_cache is not None:
+            cached = self.prefix_cache.get(key)
+            if cached is not None:
+                self.prefix_cache_hits += 1
+                logits, raw_cache = cached
+                if isinstance(self.prefix_cache, PrefixCache):
+                    logits, raw_cache = cached
+                return logits, raw_cache
+            self.prefix_cache_misses += 1
+        output = self.model(torch.tensor([prompt_ids], dtype=torch.long, device=self.device), use_cache=True)
+        if not isinstance(output, tuple):
+            raise RuntimeError("model did not return a requested KV cache")
+        logits, raw_cache = output
+        if self.prefix_cache is not None:
+            value = (logits.detach().clone(), tuple(
+                (key.detach().clone(), value.detach().clone()) for key, value in raw_cache
+            ))
+            if isinstance(self.prefix_cache, PagedPrefixCache):
+                self.prefix_cache.put(key, logits, raw_cache)
+            else:
+                self.prefix_cache.put(key, value)
+        return logits, raw_cache

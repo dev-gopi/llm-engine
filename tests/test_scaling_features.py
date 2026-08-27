@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,68 @@ def test_corpus_filter_deduplicates_and_redacts_pii() -> None:
     assert text is not None and "<email>" in text and "<phone>" in text
     assert corpus_filter.apply("Contact person@example.com or +1 212 555 0100 today") is None
     assert corpus_filter.stats.duplicate == 1
+
+
+def test_corpus_filter_rejects_near_duplicates_and_benchmark_contamination() -> None:
+    benchmark = (
+        "The patient benchmark answer explains how rainfall forms over mountains "
+        "during a cold winter afternoon."
+    )
+    corpus_filter = CorpusFilter(
+        min_chars=5, excluded_texts=[benchmark], near_duplicate_distance=3,
+    )
+    contaminated = benchmark.replace("afternoon", "evening")
+    first = (
+        "The quick brown fox jumps over the lazy dog beside the quiet river every morning."
+    )
+    near_duplicate = first.replace("morning", "evening")
+    distinct = "A spacecraft uses controlled rocket thrust to adjust its orbit around Mars."
+
+    assert corpus_filter.apply(contaminated) is None
+    embedded = (
+        "An unrelated introduction appears before this evaluation item. "
+        + benchmark
+        + " Additional unrelated material follows the leaked answer."
+    )
+    assert corpus_filter.apply(embedded) is None
+    assert corpus_filter.apply(first) is not None
+    assert corpus_filter.apply(near_duplicate) is None
+    assert corpus_filter.apply(distinct) is not None
+    assert corpus_filter.stats.contamination == 2
+    assert corpus_filter.stats.near_duplicate == 1
+
+
+def test_corpus_filter_can_disable_near_duplicate_detection() -> None:
+    first = "One two three four five six seven eight nine ten eleven twelve."
+    changed = "One two three four five six seven eight nine ten eleven thirteen."
+    corpus_filter = CorpusFilter(min_chars=5, near_duplicate_distance=None)
+    assert corpus_filter.apply(first) is not None
+    assert corpus_filter.apply(changed) is not None
+
+
+def test_corpus_filter_redacts_validated_structured_pii_and_credentials() -> None:
+    text = (
+        "Email alice@example.com, phone +1 212 555 0100, IPv4 192.168.1.1, "
+        "IPv6 2001:db8::1, SSN 123-45-6789, card 4111 1111 1111 1111, "
+        "IBAN GB82 WEST 1234 5698 7654 32, key ghp_abcdefghijklmnopqrstuvwxyz123456, "
+        "and address 123 Main Street Apt 4B. Invalid values 999.999.999.999 and "
+        "4111 1111 1111 1112 must remain."
+    )
+    corpus_filter = CorpusFilter(min_chars=5, near_duplicate_distance=None)
+    redacted = corpus_filter.apply(text)
+
+    assert redacted is not None
+    for placeholder in (
+        "<email>", "<phone>", "<ip>", "<government-id>", "<financial-id>",
+        "<credential>", "<address>",
+    ):
+        assert placeholder in redacted
+    assert "999.999.999.999" in redacted
+    assert "4111 1111 1111 1112" in redacted
+    assert corpus_filter.stats.pii_redactions == 9
+    assert corpus_filter.stats.ip_redactions == 2
+    assert corpus_filter.stats.financial_id_redactions == 2
+    assert corpus_filter.stats.credential_redactions == 1
 
 
 def test_binary_token_shard_dataset(tmp_path) -> None:
@@ -77,6 +140,22 @@ def test_paged_cache_round_trip_and_prefix_lru() -> None:
     prefixes.put((1,), "first")
     prefixes.put((2,), "second")
     assert prefixes.get((1,)) is None and prefixes.get((2,)) == "second"
+
+
+def test_paged_prefix_cache_evicts_by_page_pressure() -> None:
+    from inference.paged_kv_cache import PagedPrefixCache
+
+    allocator = PagedKVCache(
+        num_pages=2, page_size=2, layers=1, kv_heads=1, head_dim=2,
+        device="cpu", dtype=torch.float32,
+    )
+    prefixes = PagedPrefixCache(allocator, capacity=4)
+    cache = ((torch.zeros(1, 1, 3, 2), torch.zeros(1, 1, 3, 2)),)
+    prefixes.put((1, 2, 3), torch.zeros(1, 3, 8), cache)
+    replacement = ((torch.ones(1, 1, 2, 2), torch.ones(1, 1, 2, 2)),)
+    prefixes.put((4, 5), torch.zeros(1, 2, 8), replacement)
+    assert prefixes.get((1, 2, 3)) is None
+    assert prefixes.get((4, 5)) is not None
 
 
 def test_dpo_loss_and_sequence_scores() -> None:
@@ -147,3 +226,42 @@ def test_distributed_checkpoint_round_trip_without_process_group(tmp_path) -> No
     torch.testing.assert_close(model.tok.weight, original)
     assert metadata["step"] == 8
     assert metadata["trainer"] == {} and metadata["sampler"] == {}
+
+
+def test_distributed_checkpoint_restores_scheduler_scaler_and_rng(tmp_path) -> None:
+    random.seed(11)
+    np.random.seed(12)
+    torch.manual_seed(13)
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    optimizer.step()
+    scheduler.step()
+
+    with pytest.warns(UserWarning):
+        path = save_distributed_checkpoint(
+            tmp_path / "complete-dcp", model, optimizer,
+            scheduler=scheduler, scaler=scaler, metadata={"step": 3},
+        )
+    expected_python = random.random()
+    expected_numpy = float(np.random.random())
+    expected_torch = torch.rand(3)
+    optimizer.step()
+    scheduler.step()
+    random.random()
+    np.random.random()
+    torch.rand(3)
+
+    with pytest.warns(UserWarning):
+        metadata = load_distributed_checkpoint(
+            path, model, optimizer, scheduler=scheduler, scaler=scaler,
+        )
+
+    assert scheduler.last_epoch == 1
+    assert random.random() == expected_python
+    assert float(np.random.random()) == expected_numpy
+    torch.testing.assert_close(torch.rand(3), expected_torch)
+    assert metadata["runtime_state_restored"]
+    assert metadata["rng_restored"]
+    assert metadata["checkpoint_world_size"] == 1

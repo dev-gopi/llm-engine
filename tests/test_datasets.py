@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import torch
 
 from datasets.collator import Collator
@@ -62,3 +63,26 @@ def test_lazy_jsonl_indexes_without_eager_tokenization(tmp_path) -> None:
     dataset = LazyJSONLDataset(source, tokenizer(), max_length=16)
     assert len(dataset) == 1
     assert dataset[0]["input_ids"].numel() >= 2
+
+
+def test_text_dataset_rejects_unusable_records_instead_of_skipping() -> None:
+    with pytest.raises(ValueError, match="invalid dataset record at index 0"):
+        TextDataset([{"unsupported": "value"}], tokenizer(), max_length=16)
+
+
+def test_lazy_jsonl_reports_malformed_record_location_without_substitution(tmp_path) -> None:
+    source = tmp_path / "data.jsonl"
+    source.write_text('{"text": "valid"}\nnot-json\n', encoding="utf-8")
+    dataset = LazyJSONLDataset(source, tokenizer(), max_length=16)
+
+    with pytest.raises(ValueError, match=r"invalid JSON at .*data\.jsonl:2"):
+        dataset[1]
+
+
+def test_lazy_jsonl_reports_unusable_record_location_without_substitution(tmp_path) -> None:
+    source = tmp_path / "data.jsonl"
+    source.write_text(json.dumps({"unsupported": "value"}) + "\n", encoding="utf-8")
+    dataset = LazyJSONLDataset(source, tokenizer(), max_length=16)
+
+    with pytest.raises(ValueError, match=r"unusable dataset record at .*data\.jsonl:1"):
+        dataset[0]

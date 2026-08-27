@@ -6,7 +6,7 @@ processing, model architecture, training, inference, and serving so each part
 can evolve independently as the model grows.
 
 > **Development status:** The local from-scratch pipeline is implemented and
-> covered by 199 tests: preparation, tokenization, pretraining, SFT, DPO
+> covered by 264 tests: preparation, tokenization, pretraining, SFT, DPO
 > components, evaluation, cached generation, serving, and export. FSDP,
 > distributed checkpoints, binary token shards, and scalable serving primitives
 > are opt-in. Multi-GPU/multi-node operation still requires validation on the
@@ -35,6 +35,19 @@ Inspect a model before allocating its weights:
 ```bash
 python scripts/inspect_model.py configs/model.v2.gpu.yaml
 ```
+
+Estimate a complete training run without allocating the model:
+
+```bash
+python scripts/plan_training.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/pretraining.v2.gpu.yaml \
+  --training-tokens 1000000000 \
+  --hardware-tflops 10 --utilization 0.35 --gpu-memory-gib 4 --require-fit
+```
+
+CI can also enforce `--max-hours` and `--max-cost`; constraint failures return
+exit status 2 while retaining the JSON report.
 
 The v2 GPU profile is the recommended from-scratch laptop path. The future
 1B/7B/30B files are architecture targets, not profiles for a 4 GB GPU.
@@ -198,6 +211,20 @@ Set `GOPI_API_KEY` to require bearer authentication and
 The `/metrics` endpoint exposes request, failure, concurrency, and generation
 time counters for scraping or gateway integration.
 
+Serving can reuse exact prompt-prefill KV state through a bounded prefix cache
+and fixed-page allocator. `continuous_streams` multiplexes active token streams;
+`Generator.generate_batch()` performs shared tensor prefills/decodes for
+equal-length prompt cohorts and continuously removes completed KV-cache rows.
+`GOPI_REPLICA_DEVICES=cuda:0,cuda:1` creates independent replicas and routes
+requests to the least-active ready replica. SQLite-backed rate limiting lets
+multiple server processes share one request window.
+
+Authenticated WebSockets accept an `Authorization: Bearer ...` header or the
+browser-compatible `Sec-WebSocket-Protocol: bearer, <key>` form. With
+`GOPI_API_KEY` configured, `POST /v1/admin/reload` warms a replacement backend,
+atomically routes new traffic to it, drains old in-flight requests, and then
+shuts down the previous backend.
+
 At startup the application loads the configured tokenizer, model configuration,
 and checkpoint. It reports `503 not_ready` when an artifact is absent or the
 backend cannot be loaded. Authentication, TLS, and global rate limiting should
@@ -290,6 +317,25 @@ python scripts/prepare_hf_dataset.py --dataset HuggingFaceH4/no_robots --train-s
 Raw data and generated training artifacts are intentionally excluded from Git.
 Dataset-specific provenance is documented under `data/processed/<dataset>/README.md`.
 
+### Dataset governance audit
+
+Machine-readable `dataset-manifest.yaml` files record the source, version,
+license review state, commercial-use decision, allowed training stages, and
+privacy-review state. Audit every dataset referenced by a training profile:
+
+```bash
+python scripts/audit_datasets.py \
+  --training-config configs/finetuning.v2.gpu.yaml --stage sft
+```
+
+The command exits unsuccessfully for missing, invalid, unreviewed, or
+policy-incompatible manifests and emits JSON suitable for CI. Training profiles
+also define `dataset_governance.policy`: `warn` reports findings while allowing
+an educational run, `error` blocks training, and `off` explicitly disables the
+check. Set `commercial_use: true` to require an affirmative commercial-use
+decision. A manifest records a review; it does not replace reading the actual
+license or conducting a privacy assessment.
+
 ## Tokenizer
 
 The tokenizer is a reversible byte-level BPE implementation built in this
@@ -346,6 +392,8 @@ Configuration is divided by responsibility:
 | `configs/pretraining.gpu.yaml` | GPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 10 epochs |
 | `configs/finetuning.cpu.yaml` | CPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 256`, effective batch 32, 3 epochs |
 | `configs/finetuning.gpu.yaml` | Memory-safe 4 GB GPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 1`, `max_sequence_length: 256`, effective batch 32, gradient checkpointing, `mixed_precision: fp16`, 3 epochs |
+| `configs/dpo.v2.cpu.yaml` | Single-device CPU preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
+| `configs/dpo.v2.gpu.yaml` | Single-GPU FP16 preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/training.cpu.yaml` | Combined CPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, 5 epochs |
 | `configs/training.gpu.yaml` | Combined GPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, `mixed_precision: fp16`, 5 epochs |
 | `configs/tokenizer.yaml` | Byte-level BPE tokenizer training setup | `vocab_size: 50000`, `min_frequency: 2`, `special_tokens`, sources list |
@@ -409,6 +457,7 @@ error:
 
 ```bash
 python scripts/inspect_model.py configs/model.v2.gpu.yaml
+python scripts/plan_training.py --model-config configs/model.v2.gpu.yaml --training-config configs/pretraining.v2.gpu.yaml --training-tokens 1000000
 python scripts/inspect_model.py configs/model.future.7b.yaml
 ```
 
@@ -441,8 +490,11 @@ checkpoint directories and disables parameter EMA to preserve sharded memory.
 Other strategies can opt in with `checkpoint_format: distributed`. Cluster launchers can use
 `training.distributed_checkpoint.save_distributed_checkpoint` and
 `load_distributed_checkpoint` for collective, reshardable model/optimizer
-directories on a shared filesystem. Validate save, restart, and world-size
-changes on the exact cluster topology before a long run.
+directories on a shared filesystem. Rank-local files preserve scheduler,
+mixed-precision scaler, and RNG state. RNG is restored only when the world size
+matches; resharded runs restore scheduler/scaler state and begin with the
+launcher's seeded RNG streams. Validate save, restart, and world-size changes on
+the exact cluster topology before a long run.
 
 An opt-in 1B example is provided in
 `configs/pretraining.future.fsdp.yaml`. After building its binary shard input,
@@ -471,15 +523,33 @@ separately because having a float8 dtype in PyTorch does not mean the GPU can
 execute FP8 training. RTX 3050 hardware should use FP16, not FP8.
 
 For corpora too large for JSONL tokenization during training, build bounded
-uint32 binary shards with filtering, exact deduplication, English screening,
-PII redaction, document packing, and a reproducible manifest:
+uint32 binary shards with filtering, exact and near deduplication, benchmark
+contamination exclusion, English screening, PII redaction, document packing,
+and a reproducible manifest:
 
 ```bash
 python scripts/build_token_shards.py data/processed/wikitext_103/train.jsonl \
   --tokenizer data/tokenizer-v2 \
   --output data/shards/pretraining-v2 \
-  --sequence-length 512 --english-only
+  --sequence-length 512 --english-only \
+  --exclude configs/evaluation.core.jsonl
 ```
+
+Near duplicates use a bounded 64-bit SimHash index with deterministic FIFO
+eviction. `--near-duplicate-distance` controls corpus deduplication (default 3),
+while the higher-recall `--contamination-distance` controls benchmark matching
+(default 8). Use `-1` to disable either fuzzy check. The shard manifest records
+the thresholds, excluded files, capacity, and separate exact-duplicate,
+near-duplicate, and contamination rejection counts. Review samples when tuning
+thresholds because fuzzy matching can produce false positives.
+
+PII filtering covers email addresses, validated IPv4/IPv6 addresses, phone
+numbers, conservative street-address patterns, US Social Security numbers,
+Luhn-valid payment-card numbers, checksum-valid IBANs, and common API credential
+formats. The manifest reports per-category and total redaction counts. These
+deterministic patterns do not identify contextual PII such as arbitrary person
+names and should be supplemented with a reviewed NER/DLP system for sensitive
+or multilingual corpora.
 
 Set a training profile's only `train_files` entry to
 `data/shards/pretraining-v2/manifest.json`. The loader memory-maps shard files
@@ -488,10 +558,20 @@ separate files; do not include it when building training shards.
 
 ### Preference training and capability evaluation
 
-`src/post_training` now provides a validated preference-pair dataset,
-response-only sequence scoring, the DPO loss, and a frozen-reference DPO
-training step. Input records use `prompt`, `chosen`, and `rejected` fields.
-The existing chat training path remains the supervised fine-tuning (SFT) stage.
+`src/post_training` provides validated preference data, response-only scoring,
+frozen-reference DPO training, validation reward metrics, scheduling, clipping,
+mixed precision, early stopping, and checkpoint resume. Input JSONL records use
+`prompt`, `chosen`, and `rejected` fields.
+
+```bash
+python scripts/train_dpo.py \
+  --training-config configs/dpo.v2.gpu.yaml \
+  --reference-checkpoint checkpoints/v2-finetuning/best.pt
+```
+
+`--init-from` can initialize the policy from another compatible checkpoint;
+`--resume` restores its complete training state. The current DPO CLI is
+single-device and does not claim distributed support.
 
 Run held-out deterministic generation checks after SFT or preference training:
 
@@ -507,16 +587,30 @@ instruction following, math, reasoning, knowledge, and safety. Expand
 `configs/evaluation.core.jsonl` with genuinely held-out cases as the model and
 datasets grow.
 
-### Scalable serving primitives
+### Scalable serving
 
-The inference package includes an opt-in fixed-page KV allocator, bounded LRU
-prefix cache, and CPU dynamic quantization helper. The serving package includes
-an asynchronous dynamic batch queue for backends implementing
-`batch_generate(requests)`. These primitives do not change the existing API or
-single-request generator. A production continuous-batching backend must combine
-requests token-by-token and apply request-specific stopping and sampling rules;
-the queue intentionally does not pretend that independent calls are continuous
-token-level batching.
+The active generator integrates bounded prefix reuse and optional fixed-page KV
+storage. Serving provides continuously admitted stream multiplexing,
+least-active replica routing, shared rate limiting, and warm/drain reloads. The
+older whole-request `DynamicBatcher` remains available for batch-capable
+backends. `Generator.generate_batch()` supplies real tensor-level prefill and
+decode batching with KV-row compaction as requests finish. The HTTP stream
+scheduler still uses independently admitted streams; wiring its live admission
+queue into this tensor primitive remains separate serving work.
+
+`tensor_parallel_size` defaults to 1. Under an initialized `torchrun` process
+group, larger values shard attention heads, FFN intermediate channels, and the
+vocabulary projection. Attention/FFN outputs use all-reduce and vocabulary
+logits use all-gather, so every rank retains the ordinary MiniGPT interface.
+Run `scripts/validate_distributed.py` before a job; add
+`--tensor-parallel-smoke` to compare sharded and unsharded logits.
+
+For example, a local two-rank validation is:
+
+```bash
+torchrun --standalone --nproc-per-node=2 scripts/validate_distributed.py \
+  --backend gloo --expected-nodes 1 --tensor-parallel-smoke
+```
 
 ## Commands
 
@@ -525,6 +619,7 @@ The command-line workflows are:
 ```bash
 python scripts/tokenize.py train
 python scripts/train.py
+python scripts/train_dpo.py --reference-checkpoint checkpoints/v2-finetuning/best.pt
 python scripts/evaluate.py
 python scripts/generate.py "Hello Gopi"
 python scripts/export.py --format safetensors
@@ -532,6 +627,7 @@ python scripts/serve.py
 python scripts/capabilities.py
 python scripts/inspect_model.py configs/model.v2.gpu.yaml
 python scripts/evaluate_benchmarks.py --checkpoint checkpoints/v2-finetuning/best.pt
+python scripts/audit_datasets.py --training-config configs/pretraining.v2.gpu.yaml --stage pretraining
 ```
 
 Training settings, dataset paths, checkpoint frequency, optimizer, scheduler,
@@ -539,6 +635,9 @@ and EMA behavior are controlled by configuration files such as `configs/training
 with `python scripts/train.py --resume checkpoints/latest/model.pt`.
 `mixed_precision` accepts `none`, `bf16`, or CUDA-only `fp16`, while
 `gradient_accumulation_steps` controls effective batch size.
+Training logs and epoch history include learning rate, gradient norm, processed
+tokens, token throughput, peak CUDA memory, and skipped non-finite updates.
+These observability counters are preserved by resumable single-file checkpoints.
 
 ### First small training run
 
@@ -661,25 +760,29 @@ pytest -q
 | Area | Status |
 | --- | --- |
 | Local tokenizer, model, training, evaluation and generation | Implemented and tested |
+| Token/step/FLOP/memory/runtime/cost training planner | Implemented and tested |
 | RoPE, GQA/MQA, RMSNorm, SwiGLU and checkpointed activations | Implemented and tested |
 | DDP and rank-aware sampling | Implemented; requires multi-GPU validation |
 | FSDP/hybrid FSDP and reshardable checkpoints | Implemented; requires cluster validation |
 | Filtered, deduplicated, memory-mapped binary token shards | Implemented and tested locally |
-| SFT data masking and DPO objective/training step | Implemented and tested locally |
+| Dataset provenance/license/privacy policy audit | Implemented; active profiles warn until all reviews are complete |
+| SFT and single-device DPO training/checkpoint workflow | Implemented and tested locally |
 | Capability benchmark runner | Implemented; starter cases must be expanded |
 | REST/WebSocket model serving | Implemented and tested locally |
-| Paged KV, prefix cache and dynamic batch queue | Implemented primitives; backend integration remains |
+| Prefix/paged KV reuse, stream multiplexing, replicas, reload, shared limits | Implemented and tested locally |
+| Tensor-parallel inference | Implemented; two-rank Gloo equivalence validated locally, NCCL hardware validation remains |
+| Multi-node topology/collective validator | Implemented; real cluster validation remains |
 | CPU dynamic quantization | Implemented; target-model quality validation remains |
 | SafeTensors and PyTorch Export | Implemented |
 | ONNX export | Implemented; install `.[export]` and validate in target runtime |
-| Automated tests | 199 passing in the current development environment |
+| Automated tests | 267 passing in the current development environment |
 
 ## Roadmap
 
 1. Run FSDP save/resume/world-size-change tests on a real multi-GPU cluster.
-2. Integrate paged KV storage and the dynamic queue into a token-level continuous-batching backend.
-3. Add tensor-parallel inference and multi-replica request routing.
-4. Add a complete DPO command-line training workflow and larger held-out benchmarks.
+2. Connect live HTTP admission to the tensor-batched decode primitive.
+3. Validate tensor parallelism and FSDP across physical multi-node NCCL hardware.
+4. Add distributed DPO and larger held-out benchmarks.
 5. Add a separately validated GGUF conversion workflow.
 6. Validate ONNX Runtime, deployment load, security, and failure recovery.
 7. Train and publish reproducible small-model reference checkpoints with dataset provenance.

@@ -1,0 +1,28 @@
+batch_size: 1
+epochs: 2
+seed: 42
+max_sequence_length: 256
+num_workers: 0
+train_files:
+  - data/processed/preferences/train.jsonl
+validation_files:
+  - data/processed/preferences/validation.jsonl
+dataset_governance:
+  policy: warn
+  stage: dpo
+  commercial_use: false
+learning_rate: 0.00001
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 0.00000001
+fused_optimizer: false
+gradient_clip_norm: 1.0
+mixed_precision: none
+lr_schedule: cosine
+warmup_ratio: 0.03
+min_lr_ratio: 0.1
+beta: 0.1
+label_smoothing: 0.0
+log_every: 10
+early_stopping_patience: 2

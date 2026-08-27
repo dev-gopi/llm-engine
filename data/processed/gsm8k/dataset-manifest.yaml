@@ -1,0 +1,11 @@
+schema_version: 1
+name: GSM8K working subset
+source: openai/gsm8k
+version: local-chat-conversion-v1
+license:
+  identifier: MIT
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: unreviewed

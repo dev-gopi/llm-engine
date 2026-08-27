@@ -31,6 +31,11 @@ async def generate_stream(websocket: WebSocket) -> None:
     settings = websocket.app.state.settings
     if settings.api_key:
         supplied = websocket.headers.get("authorization", "").removeprefix("Bearer ")
+        protocols = [
+            value.strip() for value in websocket.headers.get("sec-websocket-protocol", "").split(",")
+        ]
+        if len(protocols) >= 2 and protocols[0].lower() == "bearer":
+            supplied = protocols[1]
         if not secrets.compare_digest(supplied, settings.api_key):
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
@@ -46,6 +51,14 @@ async def generate_stream(websocket: WebSocket) -> None:
         request_id: str | None = None
         try:
             payload = await websocket.receive_json()
+            identity = websocket.client.host if getattr(websocket, "client", None) else "unknown"
+            if not await websocket.app.state.rate_limiter.allow(identity):
+                await websocket.send_json(
+                    StreamErrorEvent(
+                        error=ErrorDetail(code="rate_limit_exceeded", message="request rate limit exceeded")
+                    ).model_dump(mode="json")
+                )
+                continue
             request = GenerateRequest.model_validate(payload)
             request_id = f"gen_{uuid.uuid4().hex}"
             await websocket.send_json(

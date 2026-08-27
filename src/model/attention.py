@@ -64,6 +64,7 @@ class MultiHeadAttention(nn.Module):
 
         self.out_proj = nn.Linear(dim, dim, bias=bias, **factory_kwargs)
         self._mask_cache: dict[tuple[Any, ...], Tensor] = {}
+        self.tensor_parallel_group = None
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
@@ -169,8 +170,11 @@ class MultiHeadAttention(nn.Module):
                 kernel_is_causal,
             )
 
-        output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, self.dim)
+        output_width = self.heads * self.head_dim
+        output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, output_width)
         output = self.out_proj(output)
+        if self.tensor_parallel_group is not None:
+            torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
         if use_cache:
             assert present_key_value is not None
             return output, present_key_value

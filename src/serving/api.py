@@ -7,7 +7,6 @@ import re
 import time
 import uuid
 import secrets
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +36,7 @@ from .schemas import (
     TokenUsage,
 )
 from .websocket import router as websocket_router
+from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
 
 
 SERVICE_NAME = "gopi-llm"
@@ -55,6 +55,8 @@ class ServingSettings:
     cors_origins: tuple[str, ...] = ()
     api_key: str | None = None
     requests_per_minute: int = 0
+    rate_limit_store_path: str | None = None
+    continuous_streams: int = 0
 
     @classmethod
     def from_environment(cls) -> "ServingSettings":
@@ -93,6 +95,8 @@ class ServingSettings:
             cors_origins=origins,
             api_key=os.getenv("GOPI_API_KEY") or None,
             requests_per_minute=int(os.getenv("GOPI_REQUESTS_PER_MINUTE", str(serving.get("requests_per_minute", 0)))),
+            rate_limit_store_path=os.getenv("GOPI_RATE_LIMIT_STORE") or serving.get("rate_limit_store_path"),
+            continuous_streams=int(os.getenv("GOPI_CONTINUOUS_STREAMS", str(serving.get("continuous_streams", 0)))),
         )
 
 
@@ -107,6 +111,7 @@ def create_app(
         max_concurrency=settings.max_concurrency,
         queue_timeout_seconds=settings.queue_timeout_seconds,
         generation_timeout_seconds=settings.generation_timeout_seconds,
+        continuous_streams=settings.continuous_streams,
     )
 
     @asynccontextmanager
@@ -124,7 +129,12 @@ def create_app(
     )
     application.state.runtime = runtime
     application.state.settings = settings
-    request_times: dict[str, deque[float]] = defaultdict(deque)
+    rate_limiter = (
+        SQLiteRateLimiter(settings.rate_limit_store_path, settings.requests_per_minute)
+        if settings.rate_limit_store_path
+        else InMemoryRateLimiter(settings.requests_per_minute)
+    )
+    application.state.rate_limiter = rate_limiter
 
     if settings.cors_origins:
         application.add_middleware(
@@ -150,15 +160,10 @@ def create_app(
                     return response
             if settings.requests_per_minute > 0:
                 identity = request.client.host if request.client else "unknown"
-                now = time.monotonic()
-                window = request_times[identity]
-                while window and window[0] <= now - 60:
-                    window.popleft()
-                if len(window) >= settings.requests_per_minute:
+                if not await rate_limiter.allow(identity):
                     response = _error_response(request, "rate_limit_exceeded", "request rate limit exceeded", 429)
                     response.headers["X-Request-ID"] = request_id
                     return response
-                window.append(now)
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         return response
@@ -234,6 +239,20 @@ def create_app(
                 total_tokens=prompt_tokens + completion_tokens,
             ),
         )
+
+    @application.post("/v1/admin/reload", tags=["operations"])
+    async def reload_model(request: Request):
+        if not settings.api_key:
+            return _error_response(
+                request, "reload_disabled", "configure GOPI_API_KEY to enable model reload", 403
+            )
+        callback = getattr(runtime.backend, "reload_current", None)
+        if callback is None:
+            return _error_response(
+                request, "reload_unavailable", "backend does not support reload", 409
+            )
+        version = await callback()
+        return {"status": "reloaded", "version": version}
 
     ui_directory = Path(__file__).resolve().parents[2] / "ui"
     if ui_directory.is_dir():

@@ -33,12 +33,48 @@ def main() -> None:
     parser.add_argument("--sequences-per-shard", type=int, default=8192)
     parser.add_argument("--english-only", action="store_true")
     parser.add_argument("--keep-pii", action="store_true")
+    parser.add_argument(
+        "--exclude", action="append", default=[], type=Path,
+        help="JSON/JSONL benchmark or test file to exclude; may be repeated",
+    )
+    parser.add_argument(
+        "--near-duplicate-distance", type=int, default=3,
+        help="maximum 64-bit SimHash Hamming distance; use -1 to disable",
+    )
+    parser.add_argument(
+        "--contamination-distance", type=int, default=8,
+        help="SimHash distance for excluded benchmark text; use -1 to disable fuzzy matching",
+    )
+    parser.add_argument("--max-fingerprints", type=int, default=1_000_000)
     args = parser.parse_args()
     if args.sequence_length < 2 or args.sequences_per_shard < 1:
         parser.error("sequence length must be >= 2 and sequences per shard must be positive")
 
+    if args.near_duplicate_distance < -1 or args.near_duplicate_distance > 15:
+        parser.error("near duplicate distance must be -1 or between 0 and 15")
+    if args.contamination_distance < -1 or args.contamination_distance > 15:
+        parser.error("contamination distance must be -1 or between 0 and 15")
+    if args.max_fingerprints < 1:
+        parser.error("max fingerprints must be positive")
     tokenizer = Tokenizer.load(args.tokenizer)
-    corpus_filter = CorpusFilter(english_only=args.english_only, redact_pii=not args.keep_pii)
+    excluded_texts = [
+        text
+        for path in args.exclude
+        for record in iter_records(path)
+        for text in _exclusion_texts(record)
+    ]
+    distance = None if args.near_duplicate_distance == -1 else args.near_duplicate_distance
+    contamination_distance = (
+        None if args.contamination_distance == -1 else args.contamination_distance
+    )
+    corpus_filter = CorpusFilter(
+        english_only=args.english_only,
+        redact_pii=not args.keep_pii,
+        near_duplicate_distance=distance,
+        excluded_texts=excluded_texts,
+        contamination_distance=contamination_distance,
+        max_fingerprints=args.max_fingerprints,
+    )
     args.output.mkdir(parents=True, exist_ok=True)
     buffer: list[int] = []
     sequences: list[list[int]] = []
@@ -69,11 +105,35 @@ def main() -> None:
         "dtype": "uint32",
         "sequence_length": args.sequence_length,
         "tokenizer_vocab_size": tokenizer.vocab_size,
+        "filter_config": {
+            "english_only": args.english_only,
+            "redact_pii": not args.keep_pii,
+            "near_duplicate_distance": distance,
+            "contamination_distance": contamination_distance,
+            "max_fingerprints": args.max_fingerprints,
+            "excluded_files": [str(path) for path in args.exclude],
+        },
         "shards": shards,
         "filter_stats": asdict(corpus_filter.stats),
     }
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(manifest, indent=2))
+
+
+def _exclusion_texts(record: dict) -> list[str]:
+    try:
+        return [record_to_text(record)]
+    except ValueError:
+        values: list[str] = []
+        for key in ("prompt", "chosen", "rejected"):
+            if isinstance(record.get(key), str) and record[key].strip():
+                values.append(record[key])
+        expected = record.get("expected")
+        if isinstance(expected, list):
+            values.extend(str(value) for value in expected if str(value).strip())
+        if not values:
+            raise ValueError("exclusion record contains no supported benchmark text")
+        return values
 
 
 if __name__ == "__main__":

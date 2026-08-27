@@ -60,7 +60,7 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
             raise ValueError("max_length must be at least two")
         self.examples: list[torch.Tensor] = []
         self.loss_masks: list[torch.Tensor] = []
-        for record in records:
+        for record_index, record in enumerate(records):
             try:
                 if isinstance(record, Mapping) and isinstance(record.get("messages"), list):
                     identifiers, loss_mask = self._encode_chat(record["messages"], tokenizer, add_bos, add_eos)
@@ -68,8 +68,8 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
                     text = record if isinstance(record, str) else record_to_text(record)
                     identifiers = tokenizer.encode(text, add_bos=add_bos, add_eos=add_eos, allowed_special="all")
                     loss_mask = [True] * len(identifiers)
-            except Exception:
-                continue
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"invalid dataset record at index {record_index}: {error}") from error
             identifiers, loss_mask = identifiers[:max_length], loss_mask[:max_length]
             if add_eos and len(identifiers) == max_length:
                 eos = tokenizer.token_to_id("<|eos|>")
@@ -132,15 +132,19 @@ class LazyJSONLDataset(Dataset[dict[str, torch.Tensor]]):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.offsets: list[int] = []
+        self.line_numbers: list[int] = []
         self.lengths: list[int] = []
         with self.path.open("rb") as stream:
+            line_number = 0
             while True:
                 offset = stream.tell()
                 line = stream.readline()
                 if not line:
                     break
+                line_number += 1
                 if line.strip():
                     self.offsets.append(offset)
+                    self.line_numbers.append(line_number)
                     self.lengths.append(min(max_length, max(2, len(line) // 4)))
 
     def __len__(self) -> int:
@@ -150,19 +154,19 @@ class LazyJSONLDataset(Dataset[dict[str, torch.Tensor]]):
         with self.path.open("rb") as stream:
             stream.seek(self.offsets[index])
             line = stream.readline()
-            record = json.loads(line) if line.strip() else {}
-        dataset = TextDataset([record] if record else [], self.tokenizer, max_length=self.max_length)
+        location = f"{self.path}:{self.line_numbers[index]}"
+        try:
+            record = json.loads(line)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError(f"invalid JSON at {location}") from error
+        if not isinstance(record, dict):
+            raise ValueError(f"record at {location} must be an object")
+        try:
+            dataset = TextDataset([record], self.tokenizer, max_length=self.max_length)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"unusable dataset record at {location}: {error}") from error
         if not dataset:
-            # Fallback to adjacent valid index or dummy sequence if corrupted
-            fallback_index = (index + 1) % len(self)
-            with self.path.open("rb") as stream:
-                stream.seek(self.offsets[fallback_index])
-                line = stream.readline()
-                fallback_record = json.loads(line) if line.strip() else {}
-            dataset = TextDataset([fallback_record], self.tokenizer, max_length=self.max_length)
-            if not dataset:
-                dummy_text = "<|system|>\nYou are Gopi.\n<|user|>\nHi\n<|assistant|>\nHello\n"
-                dataset = TextDataset([dummy_text], self.tokenizer, max_length=self.max_length)
+            raise ValueError(f"unusable dataset record at {location}: token sequence is too short")
         return dataset[0]
 
 

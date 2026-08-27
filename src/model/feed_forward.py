@@ -63,6 +63,7 @@ class FeedForward(nn.Module):
         self.in_proj = nn.Linear(dim, input_features, bias=bias, **factory_kwargs)
         self.out_proj = nn.Linear(self.hidden_dim, dim, bias=bias, **factory_kwargs)
         self.dropout = nn.Dropout(self.dropout_probability)
+        self.tensor_parallel_group = None
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
@@ -81,7 +82,10 @@ class FeedForward(nn.Module):
             hidden = self._activate_gate(gate) * value
         else:
             hidden = self._activate(projected)
-        return self.dropout(self.out_proj(hidden))
+        output = self.dropout(self.out_proj(hidden))
+        if self.tensor_parallel_group is not None:
+            torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
+        return output
 
     def _activate(self, hidden_states: Tensor) -> Tensor:
         if self.activation_name == "gelu":

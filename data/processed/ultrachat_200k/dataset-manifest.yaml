@@ -1,0 +1,12 @@
+schema_version: 1
+name: UltraChat 200k working subset
+source: HuggingFaceH4/ultrachat_200k
+version: local-subset-v1
+license:
+  identifier: MIT
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+  - mixed
+privacy_review: unreviewed

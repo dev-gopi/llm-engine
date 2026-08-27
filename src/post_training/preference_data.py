@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from functools import partial
 from typing import Any
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
+from datasets.loader import iter_records
 from tokenizer.encoder import Tokenizer
 
 
@@ -75,3 +77,23 @@ def preference_collate(batch: list[dict[str, torch.Tensor]], pad_id: int) -> dic
         result[f"{side}_mask"] = response_mask
         result[f"{side}_attention_mask"] = attention_mask
     return result
+
+
+def build_preference_loader(
+    paths: Iterable[str], tokenizer: Tokenizer, *, max_length: int,
+    batch_size: int, shuffle: bool, seed: int = 42, num_workers: int = 0,
+) -> DataLoader:
+    records = (record for path in paths for record in iter_records(path))
+    dataset = PreferenceDataset(records, tokenizer, max_length=max_length)
+    if not dataset:
+        raise ValueError("preference dataset contains no usable chosen/rejected pairs")
+    pad_id = tokenizer.token_to_id("<|pad|>")
+    if pad_id is None:
+        raise ValueError("tokenizer must define <|pad|>")
+    generator = torch.Generator().manual_seed(seed)
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, generator=generator,
+        num_workers=num_workers, collate_fn=partial(preference_collate, pad_id=pad_id),
+    )
+    loader.gopi_shuffle_seed = seed
+    return loader

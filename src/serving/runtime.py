@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from .schemas import FinishReason, GenerateRequest
+from .orchestration import ContinuousStreamScheduler
 
 
 class ServingError(RuntimeError):
@@ -76,6 +77,7 @@ class ServingRuntime:
         max_concurrency: int = 4,
         queue_timeout_seconds: float = 1.0,
         generation_timeout_seconds: float = 120.0,
+        continuous_streams: int = 0,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
@@ -86,6 +88,10 @@ class ServingRuntime:
         self.queue_timeout_seconds = queue_timeout_seconds
         self.generation_timeout_seconds = generation_timeout_seconds
         self._semaphore = asyncio.Semaphore(max_concurrency)
+        self.stream_scheduler = (
+            ContinuousStreamScheduler(backend or self.backend, max_active=continuous_streams)
+            if continuous_streams else None
+        )
         self.active_requests = 0
         self.total_requests = 0
         self.completed_requests = 0
@@ -101,8 +107,12 @@ class ServingRuntime:
 
     async def startup(self) -> None:
         await self._call_lifecycle("startup")
+        if self.stream_scheduler:
+            await self.stream_scheduler.startup()
 
     async def shutdown(self) -> None:
+        if self.stream_scheduler:
+            await self.stream_scheduler.shutdown()
         await self._call_lifecycle("shutdown")
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
@@ -132,7 +142,8 @@ class ServingRuntime:
         started = time.monotonic()
         try:
             async with asyncio.timeout(self.generation_timeout_seconds):
-                async for event in self.backend.stream(request):
+                source = self.stream_scheduler.stream(request) if self.stream_scheduler else self.backend.stream(request)
+                async for event in source:
                     yield event
             self.completed_requests += 1
         except TimeoutError as error:
