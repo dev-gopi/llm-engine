@@ -102,7 +102,10 @@ def load_checkpoint(
         scheduler.load_state_dict(payload["scheduler"])
     if ema is not None and payload.get("ema") is not None:
         ema.load_state_dict(payload["ema"])
-    if scaler is not None and payload.get("scaler") is not None:
+    # A disabled GradScaler serializes as an empty mapping. This is a valid
+    # checkpoint state (for example BF16/CPU -> FP16 GPU), but an enabled
+    # GradScaler rejects it. In that case retain the new scaler's fresh state.
+    if scaler is not None and payload.get("scaler"):
         scaler.load_state_dict(payload["scaler"])
     if restore_rng:
         if payload.get("rng_state") is not None:

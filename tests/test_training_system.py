@@ -66,6 +66,18 @@ def test_checkpoint_can_apply_ema_weights(tmp_path) -> None:
     torch.testing.assert_close(restored.tok.weight, expected)
 
 
+def test_checkpoint_skips_empty_disabled_scaler_state(tmp_path) -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    disabled_scaler = torch.amp.GradScaler("cuda", enabled=False)
+    path = save_checkpoint(tmp_path / "disabled-scaler.pt", model, scaler=disabled_scaler)
+
+    class FreshEnabledScaler:
+        def load_state_dict(self, _state):
+            raise AssertionError("empty scaler state must not be restored")
+
+    load_checkpoint(path, model, scaler=FreshEnabledScaler())
+
+
 def test_early_stopping_tracks_best_validation_epoch() -> None:
     class FixedEvaluator:
         def __init__(self):
