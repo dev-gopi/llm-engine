@@ -16,6 +16,7 @@ const elements = {
 };
 const settingsKey = "gopi-playground-settings";
 const transcriptKey = "gopi-playground-transcript";
+const defaultResponse = "Sorry, I couldn't generate a response. Please try rephrasing your prompt.";
 let activeSocket = null;
 let activeController = null;
 let generationInProgress = false;
@@ -136,7 +137,7 @@ async function generateRest(payload, target) {
     method: "POST", headers: headers(), body: JSON.stringify(payload), signal: activeController.signal
   });
   if (!response.ok) throw new Error(await readError(response));
-  const result = await response.json(); setMessage(target, result.text, payload.response_format); updateUsage(result.usage, result.finish_reason);
+  const result = await response.json(); setMessage(target, result.text?.trim() || defaultResponse, payload.response_format); updateUsage(result.usage, result.finish_reason);
 }
 function websocketUrl() {
   const url = new URL(baseUrl()); url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -150,7 +151,7 @@ function generateStream(payload, target) {
     socket.addEventListener("message", ({ data }) => {
       let event; try { event = JSON.parse(data); } catch { reject(new Error("Server returned invalid stream data.")); socket.close(); return; }
       if (event.type === "token") { setMessage(target, (target.dataset.rawText || "") + event.token); elements.messages.scrollTop = elements.messages.scrollHeight; }
-      if (event.type === "done") { setMessage(target, target.dataset.rawText || "", payload.response_format); updateUsage(event.usage, event.finish_reason); socket.close(1000); resolve(); }
+      if (event.type === "done") { setMessage(target, target.dataset.rawText?.trim() || defaultResponse, payload.response_format); updateUsage(event.usage, event.finish_reason); socket.close(1000); resolve(); }
       if (event.type === "error") { reject(new Error(event.error?.message || "Streaming failed.")); socket.close(); }
     });
     socket.addEventListener("error", () => reject(new Error("WebSocket connection failed.")));

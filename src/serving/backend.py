@@ -11,6 +11,7 @@ from pathlib import Path
 from inference.generator import Generator
 from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.local_tools import direct_tool_answer, tool_context
+from inference.prompt_safety import blocked_prompt_message
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from datasets.preprocessor import format_messages
 from model.gpt import MiniGPT
@@ -24,6 +25,10 @@ from .runtime import BackendGeneration, BackendStreamEvent, BackendUnavailableEr
 from .schemas import FinishReason, GenerateRequest
 
 logger = get_logger(__name__)
+
+DEFAULT_EMPTY_RESPONSE = "Sorry, I couldn't generate a response. Please try rephrasing your prompt."
+DEFAULT_NO_RESULTS = "Sorry, I couldn't find any results for that search."
+COMPACT_SAFETY_PROMPT = "Be safe. Refuse harm."
 
 
 class ConfiguredModelBackend:
@@ -140,6 +145,14 @@ class ConfiguredModelBackend:
     async def _generate_unlocked(self, request: GenerateRequest) -> BackendGeneration:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
+        safety_refusal = blocked_prompt_message(request.prompt)
+        if safety_refusal is not None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(safety_refusal))
+            return BackendGeneration(
+                text=safety_refusal, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
+            )
         direct_answer = direct_tool_answer(request.prompt, request.tools)
         if direct_answer is not None:
             prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
@@ -150,6 +163,13 @@ class ConfiguredModelBackend:
             )
         memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
         user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
+        if user_prompt is None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
+            return BackendGeneration(
+                text=DEFAULT_NO_RESULTS, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
+            )
         options = dict(
             max_tokens=request.max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p,
@@ -158,10 +178,7 @@ class ConfiguredModelBackend:
         )
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
-        prompt = format_messages(
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            add_generation_prompt=True,
-        )
+        prompt = ConfiguredModelBackend._format_new_conversation(self, system_prompt, user_prompt)
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
@@ -180,8 +197,11 @@ class ConfiguredModelBackend:
                 pieces.append(event.token)
             if event.finish_reason is not None:
                 finish_reason = event.finish_reason
-        text = "".join(pieces)
-        if memory and text:
+        text = "".join(pieces).strip()
+        if not text:
+            text = DEFAULT_EMPTY_RESPONSE
+            generated_ids = list(self.generator.tokenizer.encode(text))
+        if memory:
             memory.add("assistant", text)
         if memory and request.session_id:
             self.sessions.save(request.session_id, memory)
@@ -205,6 +225,19 @@ class ConfiguredModelBackend:
     async def _stream_unlocked(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
+        safety_refusal = blocked_prompt_message(request.prompt)
+        if safety_refusal is not None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(safety_refusal))
+            yield BackendStreamEvent(
+                token=safety_refusal, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            yield BackendStreamEvent(
+                finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            return
         direct_answer = direct_tool_answer(request.prompt, request.tools)
         if direct_answer is not None:
             prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
@@ -220,38 +253,56 @@ class ConfiguredModelBackend:
             return
         memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
         user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
+        if user_prompt is None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
+            yield BackendStreamEvent(
+                token=DEFAULT_NO_RESULTS, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            yield BackendStreamEvent(
+                finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            return
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
-        prompt = format_messages(
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            add_generation_prompt=True,
-        )
+        prompt = ConfiguredModelBackend._format_new_conversation(self, system_prompt, user_prompt)
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
         generated_ids: list[int] = []
+        pieces: list[str] = []
         options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
                        top_k=request.top_k, top_p=request.top_p,
                        repetition_penalty=request.repetition_penalty, seed=request.seed, stop=request.stop,
                        allow_special_tokens=True)
         async for step in self._stream_steps(prompt, options):
             if step.finish_reason is not None:
+                response_text = "".join(pieces).strip()
+                if not response_text:
+                    response_text = DEFAULT_EMPTY_RESPONSE
+                    fallback_tokens = len(self.generator.tokenizer.encode(response_text))
+                    yield BackendStreamEvent(token=response_text, completion_tokens=fallback_tokens)
                 if memory and request.session_id:
-                    text = self.generator.tokenizer.decode(generated_ids, skip_special_tokens=True)
-                    if text:
-                        memory.add("assistant", text)
+                    memory.add("assistant", response_text)
                     self.sessions.save(request.session_id, memory)
                 if search_results:
                     yield BackendStreamEvent(token=f"\n\n{format_sources(search_results)}")
                 yield BackendStreamEvent(
                     finish_reason=FinishReason(step.finish_reason),
                     prompt_tokens=step.prompt_tokens,
-                    completion_tokens=step.completion_tokens,
+                    completion_tokens=(
+                        len(self.generator.tokenizer.encode(response_text))
+                        if not generated_ids else step.completion_tokens
+                    ),
                 )
                 return
             if step.token_id is not None:
                 generated_ids.append(step.token_id)
+            if step.token:
+                pieces.append(step.token)
             yield BackendStreamEvent(
                 token=step.token, token_id=step.token_id,
                 prompt_tokens=step.prompt_tokens, completion_tokens=step.completion_tokens,
@@ -296,7 +347,7 @@ class ConfiguredModelBackend:
         else:
             raise ValueError(f"unsupported search provider: {provider}")
         if not results:
-            raise ValueError("no web results found")
+            return None, []
         search_prompt = build_search_prompt(
             query,
             results,
@@ -306,6 +357,20 @@ class ConfiguredModelBackend:
         if local_context != raw_prompt:
             search_prompt = f"{search_prompt}\n\nAdditional user and trusted tool context:\n{local_context}"
         return search_prompt, results
+
+    def _format_new_conversation(self, system_prompt: str, user_prompt: str) -> str:
+        prompt = format_messages(
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            add_generation_prompt=True,
+        )
+        prompt_ids = self.generator.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
+        if len(prompt_ids) < getattr(self.generator, "max_positions", float("inf")):
+            return prompt
+        logger.warning("System prompt exceeds this model's context; using compact safety prompt")
+        return format_messages(
+            [{"role": "system", "content": COMPACT_SAFETY_PROMPT}, {"role": "user", "content": user_prompt}],
+            add_generation_prompt=True,
+        )
 
     async def _stream_steps(self, prompt: str, options: dict):
         for step in self.generator.stream(prompt, **options):
