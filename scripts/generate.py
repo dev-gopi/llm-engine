@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import sys
-from pathlib import Path
 
-script_directory = str(Path(__file__).resolve().parent)
-if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
-    sys.path.pop(0)
+script_directory = os.path.dirname(os.path.realpath(__file__))
+# The script directory can occur more than once (for example through
+# PYTHONPATH). Remove every copy so scripts/tokenize.py cannot shadow the
+# standard-library tokenize module imported by PyTorch.
+sys.path[:] = [entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory]
+
+import argparse
+import asyncio
+from pathlib import Path
 
 from inference.context import format_system_prompt
 from inference.generator import Generator
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from model.gpt import MiniGPT
+from serving.backend import ConfiguredModelBackend
+from serving.schemas import GenerateRequest
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
@@ -36,6 +42,9 @@ def main() -> None:
     parser.add_argument("--raw", action="store_true", help="Do not wrap prompt in chat template")
     parser.add_argument("--response-format", choices=("plain", "markdown"))
     parser.add_argument("--search", action="store_true", help="Search the web before generating")
+    parser.add_argument("--mcp", action="store_true", help="Allow an allowlisted MCP tool call before generating")
+    parser.add_argument("--mcp-server", help="Restrict MCP routing to one configured server")
+    parser.add_argument("--mcp-config", type=Path, default=Path("configs/mcp.yaml"))
     args = parser.parse_args()
 
     configure_logging()
@@ -114,11 +123,44 @@ def main() -> None:
             add_generation_prompt=True,
         )
 
+    generator = Generator(model, tokenizer, device=device)
+    if args.mcp:
+        if not args.mcp_config.is_file():
+            parser.error(f"MCP configuration not found: {args.mcp_config}")
+        mcp_root = load_yaml(args.mcp_config)
+        mcp_config = mcp_root.get("mcp", {})
+        if not isinstance(mcp_config, dict):
+            parser.error("mcp configuration must be a mapping")
+
+        async def augment_with_mcp() -> str:
+            backend = ConfiguredModelBackend(mcp=mcp_config)
+            backend.generator = generator
+            try:
+                await backend._startup_mcp()
+                request = GenerateRequest(
+                    prompt=prompt,
+                    mcp=True,
+                    mcp_server=args.mcp_server,
+                    seed=args.seed,
+                )
+                return await backend._augment_with_mcp(request, prompt)
+            finally:
+                await backend.shutdown()
+
+        prompt = asyncio.run(augment_with_mcp())
+
+        if args.raw:
+            rendered_prompt = prompt
+        else:
+            rendered_prompt = format_messages(
+                [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
+                add_generation_prompt=True,
+            )
+
     print(f"Rendered Prompt: {repr(rendered_prompt)}")
     prompt_token_ids = tokenizer.encode(rendered_prompt, add_bos=True, allowed_special="all")
     print(f"Prompt Token IDs (first 30): {prompt_token_ids[:30]}")
 
-    generator = Generator(model, tokenizer, device=device)
     result = generator.generate(
         rendered_prompt,
         max_tokens=args.max_tokens or int(inference_config.get("max_tokens", 512)),
