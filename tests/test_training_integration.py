@@ -77,3 +77,13 @@ def test_trainer_rejects_nonfinite_loss_before_updating_weights() -> None:
     assert trainer.nonfinite_updates == 1
     assert trainer.global_step == 0
     torch.testing.assert_close(model.tok.weight, before)
+
+
+def test_trainer_validates_grad_scaler_configuration() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+
+    with pytest.raises(ValueError, match="grad_scaler_initial_scale"):
+        Trainer(model, optimizer, grad_scaler_initial_scale=0)
+    with pytest.raises(ValueError, match="grad_scaler_growth_interval"):
+        Trainer(model, optimizer, grad_scaler_growth_interval=0)

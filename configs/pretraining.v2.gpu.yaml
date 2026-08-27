@@ -27,13 +27,15 @@ fused_optimizer: false
 gradient_clip_norm: 1.0
 gradient_accumulation_steps: 16
 mixed_precision: fp16
+grad_scaler_initial_scale: 4096
+grad_scaler_growth_interval: 10000
 lr_schedule: cosine
 warmup_ratio: 0.03
 min_lr_ratio: 0.1
 ema_decay: 0.999
 log_every: 25
 checkpoint_every: 1000
-evaluate_every: null
+evaluate_every: 2000
 early_stopping_patience: 2
 early_stopping_min_delta: 0.001
 ignore_index: -100

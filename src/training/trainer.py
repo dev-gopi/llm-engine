@@ -31,6 +31,8 @@ class Trainer:
         device: str | torch.device = "cpu",
         gradient_accumulation_steps: int = 1,
         mixed_precision: str = "none",
+        grad_scaler_initial_scale: float = 65536.0,
+        grad_scaler_growth_interval: int = 2000,
     ) -> None:
         self.model = model
         self.opt = optimizer
@@ -56,10 +58,19 @@ class Trainer:
         if mixed_precision == "fp16" and self.device.type != "cuda":
             logger.warning("fp16 mixed precision requested but CUDA device is not available. Falling back to mixed_precision='none'.")
             mixed_precision = "none"
+        if grad_scaler_initial_scale <= 0:
+            raise ValueError("grad_scaler_initial_scale must be positive")
+        if grad_scaler_growth_interval < 1:
+            raise ValueError("grad_scaler_growth_interval must be positive")
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.mixed_precision = mixed_precision
         self.autocast_dtype = torch.float16 if mixed_precision == "fp16" else torch.bfloat16
-        self.scaler = torch.amp.GradScaler("cuda", enabled=mixed_precision == "fp16" and self.device.type == "cuda")
+        self.scaler = torch.amp.GradScaler(
+            "cuda",
+            init_scale=grad_scaler_initial_scale,
+            growth_interval=grad_scaler_growth_interval,
+            enabled=mixed_precision == "fp16" and self.device.type == "cuda",
+        )
         self.model.to(self.device)
         # Existing trainer callers provide explicit next-token targets, so this
         # integration does not shift them a second time.
@@ -131,9 +142,11 @@ class Trainer:
             self.opt.zero_grad(set_to_none=True)
             self.scaler.update()
             logger.warning(
-                "skipping non-finite gradients at optimizer step=%d gradient_norm=%s",
+                "skipping non-finite gradients at optimizer step=%d gradient_norm=%s "
+                "loss_scale=%.1f; the update was discarded and the FP16 loss scale was reduced",
                 self.global_step,
                 self.last_gradient_norm,
+                self.scaler.get_scale(),
             )
             return False
         self.scaler.step(self.opt)

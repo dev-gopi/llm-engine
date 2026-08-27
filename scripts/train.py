@@ -116,6 +116,8 @@ def main() -> None:
         gradient_clip_norm=config.get("gradient_clip_norm", 1.0), device=distributed.device,
         gradient_accumulation_steps=accumulation,
         mixed_precision=str(config.get("mixed_precision", "none")),
+        grad_scaler_initial_scale=float(config.get("grad_scaler_initial_scale", 65536.0)),
+        grad_scaler_growth_interval=int(config.get("grad_scaler_growth_interval", 2000)),
     )
     if args.resume:
         if args.resume.is_dir():
@@ -127,6 +129,12 @@ def main() -> None:
             state = load_checkpoint(args.resume, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=trainer.scaler, map_location=distributed.device)
         trainer.global_step = state["step"]
         trainer.load_state_dict(state.get("trainer", {}))
+        # Checkpoints contain the scaler's old tuning. Keep the current run's
+        # configured growth interval when resuming so stability changes apply.
+        if trainer.scaler.is_enabled():
+            trainer.scaler.set_growth_interval(
+                int(config.get("grad_scaler_growth_interval", 2000))
+            )
         sampler_state = state.get("sampler")
         if sampler_state and hasattr(train_loader.batch_sampler, "load_state_dict"):
             train_loader.batch_sampler.load_state_dict(sampler_state)
