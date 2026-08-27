@@ -16,7 +16,7 @@ from inference.prompt_safety import blocked_prompt_message
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from mcp.client import MCPClient, MCPTool
-from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, tool_result_context, tool_selection_prompt
+from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, relevant_tools, tool_result_context, tool_selection_prompt
 from datasets.preprocessor import format_messages
 from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
@@ -445,21 +445,23 @@ class ConfiguredModelBackend:
             return user_prompt + "\n\nMCP status: no requested MCP tools are available."
         call = parse_explicit_tool_call(user_prompt, catalogs)
         if call is None:
-            selection = tool_selection_prompt(user_prompt, catalogs)
-            planning_prompt = format_messages(
-                [
-                    {"role": "system", "content": "You are a strict JSON tool router. Output JSON only."},
-                    {"role": "user", "content": selection},
-                ],
-                add_generation_prompt=True,
-            )
-            decision = await self._generate_once(planning_prompt, {
-                "max_tokens": int(self.mcp_config.get("planning_max_tokens", 192)),
-                "temperature": 0.0, "top_k": 1, "top_p": 1.0,
-                "repetition_penalty": 1.0, "seed": request.seed, "stop": [],
-                "allow_special_tokens": True,
-            })
-            call = parse_tool_call(decision, catalogs)
+            planning_catalogs = relevant_tools(user_prompt, catalogs)
+            planning_prompt = self._fit_mcp_planning_prompt(user_prompt, planning_catalogs)
+            if planning_prompt is None:
+                logger.warning("MCP planning skipped because no tool catalog fits the model context")
+                return user_prompt
+            planning_tokens = min(int(self.mcp_config.get("planning_max_tokens", 96)), 96)
+            try:
+                decision = await self._generate_once(planning_prompt, {
+                    "max_tokens": planning_tokens,
+                    "temperature": 0.0, "top_k": 1, "top_p": 1.0,
+                    "repetition_penalty": 1.0, "seed": request.seed, "stop": [],
+                    "allow_special_tokens": True,
+                })
+            except ValueError as error:
+                logger.warning("MCP planning skipped: %s", error)
+                return user_prompt
+            call = parse_tool_call(decision, planning_catalogs)
         if call is None:
             return user_prompt
         client = self.mcp_clients.get(call.server)
@@ -470,7 +472,34 @@ class ConfiguredModelBackend:
         except Exception as error:
             logger.warning("MCP tool %s/%s failed: %s", call.server, call.name, error)
             return user_prompt + f"\n\nMCP tool error: {type(error).__name__}: {error}"
-        return tool_result_context(user_prompt, call, result)
+        maximum_chars = int(self.mcp_config.get("max_result_chars", 2000))
+        context = tool_result_context(user_prompt, call, result, max_result_chars=maximum_chars)
+        maximum_tokens = max(32, int(getattr(self.generator, "max_positions", 0)) - 128)
+        while len(self.generator.tokenizer.encode(context, allowed_special="all")) > maximum_tokens and maximum_chars > 128:
+            maximum_chars //= 2
+            context = tool_result_context(user_prompt, call, result, max_result_chars=maximum_chars)
+        return context
+
+    def _fit_mcp_planning_prompt(self, user_prompt: str, catalogs: dict[str, list[MCPTool]]) -> str | None:
+        candidates = {name: list(tools) for name, tools in catalogs.items()}
+        maximum = int(getattr(self.generator, "max_positions", 0))
+        if maximum < 2:
+            return None
+        while any(candidates.values()):
+            selection = tool_selection_prompt(user_prompt, candidates)
+            rendered = format_messages(
+                [
+                    {"role": "system", "content": "You are a strict JSON tool router. Output JSON only."},
+                    {"role": "user", "content": selection},
+                ],
+                add_generation_prompt=True,
+            )
+            length = len(self.generator.tokenizer.encode(rendered, add_bos=True, allowed_special="all"))
+            if length <= maximum - min(64, maximum // 4):
+                return rendered
+            largest = max((name for name, tools in candidates.items() if tools), key=lambda name: len(candidates[name]))
+            candidates[largest].pop()
+        return None
 
     async def _generate_once(self, prompt: str, options: dict) -> str:
         pieces: list[str] = []

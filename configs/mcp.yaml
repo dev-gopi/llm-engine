@@ -1,6 +1,7 @@
 mcp:
   enabled: true
-  planning_max_tokens: 192
+  planning_max_tokens: 96
+  max_result_chars: 2000
   servers:
     filesystem:
       enabled: true

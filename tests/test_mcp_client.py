@@ -6,7 +6,7 @@ import pytest
 
 from mcp.client import LEGACY_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, MCPClient
 from mcp.client import MCPTool
-from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, tool_result_context, tool_selection_prompt
+from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, relevant_tools, tool_result_context, tool_selection_prompt
 from scripts.mcp_client import parse_args
 from serving.backend import ConfiguredModelBackend
 from serving.schemas import GenerateRequest
@@ -84,6 +84,11 @@ def test_model_tool_call_is_allowlisted_and_result_is_untrusted() -> None:
     assert '"read_text_file"' in prompt
     explicit = parse_explicit_tool_call('/mcp files read_text_file {"path":"README.md"}', catalogs)
     assert explicit is not None and explicit.name == "read_text_file"
+    expanded = {"files": [
+        MCPTool("write_file", "Overwrite content", {"type": "object"}),
+        MCPTool("read_text_file", "Read a text file", {"type": "object"}),
+    ]}
+    assert relevant_tools("please read a text file", expanded, limit=1)["files"][0].name == "read_text_file"
 
 
 def test_backend_model_plans_executes_and_injects_mcp_result() -> None:
@@ -95,6 +100,15 @@ def test_backend_model_plans_executes_and_injects_mcp_result() -> None:
 
     async def scenario():
         backend = ConfiguredModelBackend(mcp={"planning_max_tokens": 64})
+        class FakeTokenizer:
+            def encode(self, text, **_kwargs):
+                return list(text.encode())
+
+        class FakeGenerator:
+            tokenizer = FakeTokenizer()
+            max_positions = 4096
+
+        backend.generator = FakeGenerator()
         backend.mcp_tools = {"files": [MCPTool("read_text_file", "Read text", {"type": "object"})]}
         backend.mcp_clients = {"files": FakeClient()}
 
