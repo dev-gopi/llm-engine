@@ -15,6 +15,27 @@ from datasets.sampler import Sampler
 from tokenizer.encoder import Tokenizer
 
 
+def _mixture_groups(paths: list[str | Path], dataset_sizes: list[int], config: Mapping[str, Any]) -> list[tuple[int, int, float]] | None:
+    configured = config.get("dataset_weights")
+    if not configured:
+        return None
+    if not isinstance(configured, Mapping):
+        raise ValueError("dataset_weights must be a mapping")
+    result: list[tuple[int, int, float]] = []
+    start = 0
+    for path, size in zip(paths, dataset_sizes, strict=True):
+        name = Path(path).parent.name
+        weight = float(configured.get(name, 1.0))
+        if weight < 0:
+            raise ValueError(f"dataset weight must be non-negative: {name}")
+        if size:
+            result.append((start, start + size, weight))
+        start += size
+    if not result or not any(weight for _, _, weight in result):
+        raise ValueError("dataset_weights must enable at least one non-empty dataset")
+    return result
+
+
 def build_loader(
     paths: Iterable[str | Path],
     tokenizer: Tokenizer,
@@ -45,11 +66,14 @@ def build_loader(
         )
     if not dataset:
         raise ValueError("configured dataset contains no usable examples")
+    sampling_groups = _mixture_groups(paths, dataset.dataset_sizes, config) if shuffle and hasattr(dataset, "dataset_sizes") else None
     sampler = Sampler(
         dataset.lengths,
         int(config.get("batch_size", 32)), shuffle=shuffle,
         seed=int(config.get("seed", 42)),
         rank=rank, world_size=world_size,
+        sampling_groups=sampling_groups,
+        num_samples=int(config.get("samples_per_epoch", len(dataset))) if sampling_groups else None,
     )
     pad_id = tokenizer.token_to_id("<|pad|>")
     if pad_id is None:

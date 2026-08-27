@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import sys
@@ -19,6 +20,32 @@ import pyarrow.parquet as pq
 DEFAULT_BOT_NAME = "Gopi"
 
 
+def normalize_conversation(messages: list, system_msg: dict[str, str]) -> list[dict[str, str]] | None:
+    role_aliases = {"human": "user", "gpt": "assistant", "bot": "assistant"}
+    normalized: list[dict[str, str]] = []
+    tool_catalogs: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or message.get("from") or "").lower()
+        content = message.get("content", message.get("value", ""))
+        if role == "tool_catalog" and str(content).strip():
+            tool_catalogs.append(str(content).strip())
+            continue
+        role = role_aliases.get(role, role)
+        if role in {"system", "user", "assistant"} and str(content).strip():
+            normalized.append({"role": role, "content": str(content).strip()})
+    if tool_catalogs:
+        catalog = "Available tools (JSON):\n" + "\n".join(tool_catalogs)
+        if normalized and normalized[0]["role"] == "system":
+            normalized[0]["content"] += "\n\n" + catalog
+        else:
+            normalized.insert(0, {"role": "system", "content": system_msg["content"] + "\n\n" + catalog})
+    elif normalized and normalized[0]["role"] != "system":
+        normalized.insert(0, system_msg)
+    return normalized if len(normalized) >= 2 else None
+
+
 def extract_messages(row: dict, dataset_name: str, bot_name: str = DEFAULT_BOT_NAME) -> list[dict[str, str]] | None:
     system_msg = {
         "role": "system",
@@ -27,15 +54,13 @@ def extract_messages(row: dict, dataset_name: str, bot_name: str = DEFAULT_BOT_N
 
     # Case 1: Pre-formatted chat messages (e.g. UltraChat, NoRobots, OpenAssistant)
     if "messages" in row and isinstance(row["messages"], list):
-        msgs = []
-        for msg in row["messages"]:
-            if isinstance(msg, dict) and "role" in msg and "content" in msg:
-                msgs.append({"role": str(msg["role"]), "content": str(msg["content"]).strip()})
-        if msgs and msgs[0]["role"] != "system":
-            msgs.insert(0, system_msg)
-        return msgs if len(msgs) >= 2 else None
+        return normalize_conversation(row["messages"], system_msg)
 
-    # Case 2: Instruction / Context / Output format (e.g. Dolly 15k, Alpaca, Platypus)
+    # Case 2: ShareGPT-style conversations, including function/tool catalogs.
+    if "conversations" in row and isinstance(row["conversations"], list):
+        return normalize_conversation(row["conversations"], system_msg)
+
+    # Case 3: Instruction / Context / Output format (e.g. Dolly 15k, Alpaca, Platypus)
     instruction = row.get("instruction") or row.get("prompt") or row.get("input_text") or row.get("question")
     output = row.get("response") or row.get("output") or row.get("completion") or row.get("answer")
     context = row.get("context") or row.get("input", "")
@@ -80,28 +105,39 @@ def download_and_convert_dataset(
     raw_dir: Path | None = None,
     config: str = "default",
     split: str = "train",
-    train_size: int = 10000,
-    validation_size: int = 1000,
-    test_size: int = 1000,
+    train_size: int | None = 10000,
+    validation_size: int | None = 1000,
+    test_size: int | None = 1000,
     bot_name: str = DEFAULT_BOT_NAME,
 ) -> dict[str, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if raw_dir is not None:
         raw_dir.mkdir(parents=True, exist_ok=True)
 
+    sizes = (train_size, validation_size, test_size)
+    if any(size is None for size in sizes) and not all(size is None for size in sizes):
+        raise ValueError("provide all three split sizes or omit all three for the full dataset")
+    if any(size is not None and size < 0 for size in sizes):
+        raise ValueError("split sizes must be non-negative")
+    full_dataset = all(size is None for size in sizes)
+    total_needed = None if full_dataset else sum(size for size in sizes if size is not None)
     urls = fetch_hf_parquet_urls(dataset_name, config=config, split=split)
     print(f"Fetching {dataset_name} ({len(urls)} parquet files)...")
-
     records: list[dict] = []
-    total_needed = train_size + validation_size + test_size
+    counts = {"train": 0, "validation": 0, "test": 0}
+    streams = {
+        name: (output_dir / f".{name}.jsonl.tmp").open("w", encoding="utf-8")
+        for name in counts
+    } if full_dataset else {}
 
-    for index, url in enumerate(urls):
-        if len(records) >= total_needed:
-            break
-        print(f"Downloading {url}...")
-        request = urllib.request.Request(url, headers={"User-Agent": "LLMEngine/1.0"})
-        with urllib.request.urlopen(request) as response:
-            content = response.read()
+    try:
+        for index, url in enumerate(urls):
+            if total_needed is not None and len(records) >= total_needed:
+                break
+            print(f"Downloading {url}...")
+            request = urllib.request.Request(url, headers={"User-Agent": "LLMEngine/1.0"})
+            with urllib.request.urlopen(request) as response:
+                content = response.read()
 
             # Save raw file locally if raw_dir is specified
             if raw_dir is not None:
@@ -114,22 +150,38 @@ def download_and_convert_dataset(
             for batch in parquet_file.iter_batches():
                 for row in batch.to_pylist():
                     messages = extract_messages(row, dataset_name, bot_name=bot_name)
+                    record_index = sum(counts.values()) if full_dataset else len(records)
                     record = {
-                        "id": f"{dataset_name.replace('/', '_')}_{len(records)}",
+                        "id": f"{dataset_name.replace('/', '_')}_{record_index}",
                         "source": dataset_name,
                     }
                     if messages:
                         record.update({"bot_name": bot_name, "messages": messages})
                     else:
                         text = row.get("text") or row.get("content") or row.get("code")
-                        # Row-wise conversation exports (for example OASST1) must
-                        # be reconstructed into turns instead of treated as prose.
                         if row.get("role") or not isinstance(text, str) or not text.strip():
                             continue
                         record["text"] = text.strip()
-                    records.append(record)
-                    if len(records) >= total_needed:
-                        break
+                    if full_dataset:
+                        split_key = record.get("messages", record.get("text", ""))
+                        fingerprint = hashlib.sha256(json.dumps(split_key, sort_keys=True, ensure_ascii=False).encode()).digest()[0]
+                        split_name = "validation" if fingerprint < 13 else "test" if fingerprint < 26 else "train"
+                        streams[split_name].write(json.dumps(record, ensure_ascii=False) + "\n")
+                        counts[split_name] += 1
+                    else:
+                        records.append(record)
+                        if len(records) >= total_needed:
+                            break
+    finally:
+        for stream in streams.values():
+            stream.close()
+
+    if full_dataset:
+        if not sum(counts.values()):
+            raise ValueError(f"No valid records found in {dataset_name}")
+        for name in counts:
+            (output_dir / f".{name}.jsonl.tmp").replace(output_dir / f"{name}.jsonl")
+        return counts
 
     actual_total = len(records)
     if actual_total == 0:
@@ -161,9 +213,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="train", help="Dataset split to download")
     parser.add_argument("--raw-dir", type=Path, default=None, help="Directory to save raw Parquet files")
     parser.add_argument("--output-dir", type=Path, default=None, help="Output directory path for processed JSONL files")
-    parser.add_argument("--train-size", type=int, default=10000)
-    parser.add_argument("--validation-size", type=int, default=1000)
-    parser.add_argument("--test-size", type=int, default=1000)
+    parser.add_argument("--train-size", type=int, default=10000, help="Bounded train rows (default: 10000)")
+    parser.add_argument("--validation-size", type=int, default=1000, help="Bounded validation rows (default: 1000)")
+    parser.add_argument("--test-size", type=int, default=1000, help="Bounded test rows (default: 1000)")
+    parser.add_argument("--full", action="store_true", help="Process the complete source split using deterministic 90/5/5 splits")
     parser.add_argument("--bot-name", default=DEFAULT_BOT_NAME)
     return parser.parse_args()
 
@@ -180,9 +233,9 @@ def main() -> None:
         raw_dir=raw_dir,
         config=args.config,
         split=args.split,
-        train_size=args.train_size,
-        validation_size=args.validation_size,
-        test_size=args.test_size,
+        train_size=None if args.full else args.train_size,
+        validation_size=None if args.full else args.validation_size,
+        test_size=None if args.full else args.test_size,
         bot_name=args.bot_name,
     )
     result = {

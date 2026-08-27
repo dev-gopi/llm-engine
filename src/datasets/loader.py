@@ -182,7 +182,10 @@ def build_text_dataset(paths: Iterable[str | Path], tokenizer: Tokenizer, *, max
         raise ValueError("no dataset paths configured")
     dataset = datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)
     lengths: list[int] = []
+    dataset_sizes: list[int] = []
     for item in datasets:
+        dataset_sizes.append(len(item))
         lengths.extend(item.lengths if hasattr(item, "lengths") else [example.numel() for example in item.examples])
     dataset.lengths = lengths
+    dataset.dataset_sizes = dataset_sizes
     return dataset

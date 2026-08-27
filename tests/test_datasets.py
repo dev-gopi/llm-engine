@@ -57,6 +57,20 @@ def test_sampler_resume_skips_completed_batches() -> None:
     assert list(sampler) == [[4, 5], [6, 7]]
 
 
+def test_weighted_sampler_uses_bounded_deterministic_epoch() -> None:
+    sampler = Sampler(
+        [1, 1, 1, 1], 2, seed=7,
+        sampling_weights=[0.0, 0.0, 1.0, 1.0], num_samples=10,
+    )
+    first = list(sampler)
+    assert len(first) == 5
+    assert {index for batch in first for index in batch} <= {2, 3}
+    assert first == list(Sampler(
+        [1, 1, 1, 1], 2, seed=7,
+        sampling_weights=[0.0, 0.0, 1.0, 1.0], num_samples=10,
+    ))
+
+
 def test_lazy_jsonl_indexes_without_eager_tokenization(tmp_path) -> None:
     source = tmp_path / "data.jsonl"
     source.write_text(json.dumps({"text": "hello"}) + "\n", encoding="utf-8")

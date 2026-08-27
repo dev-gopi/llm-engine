@@ -317,6 +317,35 @@ python scripts/prepare_hf_dataset.py --dataset HuggingFaceH4/no_robots --train-s
 Raw data and generated training artifacts are intentionally excluded from Git.
 Dataset-specific provenance is documented under `data/processed/<dataset>/README.md`.
 
+The v2 SFT profiles additionally expect category-specific datasets for coding,
+general QA, safety, writing/editing, Bengali and Hindi, and tool calling. The
+bounded local copies used by the profiles can be reproduced with:
+
+```bash
+python scripts/prepare_hf_dataset.py --full --dataset iamtarun/python_code_instructions_18k_alpaca --output-dir data/processed/code_instructions
+python scripts/prepare_hf_dataset.py --full --dataset databricks/databricks-dolly-15k --output-dir data/processed/general_qa
+python scripts/prepare_hf_dataset.py --full --dataset fwnlp/self-instruct-safety-alignment --output-dir data/processed/safety_alignment
+python scripts/prepare_hf_dataset.py --full --dataset HuggingFaceH4/no_robots --output-dir data/processed/writing_editing
+python scripts/prepare_hf_dataset.py --full --dataset rishiraj/bengalichat --output-dir data/processed/multilingual_bn_hi
+python scripts/prepare_hf_dataset.py --full --dataset rishiraj/hindichat --output-dir data/processed/multilingual_hi
+python scripts/prepare_hf_dataset.py --full --dataset narrative-io/narrative-function-calling-v1 --output-dir data/processed/tool_calling
+```
+
+These sources have different licenses and provenance characteristics. Review
+their current dataset cards and add reviewed manifests before changing the v2
+governance policy from `warn` to `error` or enabling commercial use.
+
+The v2 SFT profiles use `dataset_weights` as target dataset-level sampling
+shares. A dataset's configured weight is divided across its rows, so a large
+source such as OpenOrca does not dominate a smaller capability dataset merely
+because it contains more records. `samples_per_epoch` bounds training time and
+sampling is deterministic for a given seed and epoch. Validation remains an
+unweighted pass over every configured validation record.
+
+Chat records use assistant-only supervision: system and user tokens remain in
+the input context but are masked from the causal-language-model loss. Plain
+text records continue to train on every non-padding token.
+
 ### Dataset governance audit
 
 Machine-readable `dataset-manifest.yaml` files record the source, version,
@@ -562,6 +591,13 @@ separate files; do not include it when building training shards.
 frozen-reference DPO training, validation reward metrics, scheduling, clipping,
 mixed precision, early stopping, and checkpoint resume. Input JSONL records use
 `prompt`, `chosen`, and `rejected` fields.
+
+Build those preference pairs deterministically from the scored HelpSteer
+responses already used for SFT:
+
+```bash
+python scripts/prepare_helpsteer_preferences.py
+```
 
 ```bash
 python scripts/train_dpo.py \

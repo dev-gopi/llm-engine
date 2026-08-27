@@ -1,0 +1,11 @@
+schema_version: 1
+name: HelpSteer preference pairs
+source: nvidia/HelpSteer
+version: local-ranked-conversion-v1
+license:
+  identifier: CC-BY-4.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - dpo
+privacy_review: reviewed

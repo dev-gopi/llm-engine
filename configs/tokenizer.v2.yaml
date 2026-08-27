@@ -19,3 +19,10 @@ sources:
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/gsm8k/train.jsonl
   - data/processed/core_chat/train.jsonl
+  - data/processed/code_instructions/train.jsonl
+  - data/processed/general_qa/train.jsonl
+  - data/processed/safety_alignment/train.jsonl
+  - data/processed/writing_editing/train.jsonl
+  - data/processed/multilingual_bn_hi/train.jsonl
+  - data/processed/multilingual_hi/train.jsonl
+  - data/processed/tool_calling/train.jsonl
