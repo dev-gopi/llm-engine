@@ -71,6 +71,7 @@ llm-engine/
 │   ├── post_training/       # Preference data and DPO objective
 │   ├── evaluation/          # Held-out capability benchmark scoring
 │   ├── inference/           # Generation, sampling, and KV caching
+│   ├── mcp/                 # MCP stdio client and tool schemas
 │   ├── serving/             # FastAPI and WebSocket interfaces
 │   └── utils/               # Configuration, devices, logging, and seeds
 ├── checkpoints/             # Resumable training state
@@ -229,6 +230,52 @@ At startup the application loads the configured tokenizer, model configuration,
 and checkpoint. It reports `503 not_ready` when an artifact is absent or the
 backend cannot be loaded. Authentication, TLS, and global rate limiting should
 be enforced by the deployment gateway or ingress layer.
+
+## MCP client
+
+`src/mcp` provides an asynchronous Model Context Protocol client for local
+stdio servers. It launches commands without a shell, negotiates current MCP or
+the legacy initialization handshake, discovers paginated tools, invokes tools,
+captures bounded stderr diagnostics, enforces timeouts, and closes child
+processes cleanly.
+
+Define reviewed servers in [`configs/mcp.yaml`](configs/mcp.yaml). Commands in
+this file execute with the permissions of the LLM Engine process, so never add
+an untrusted package, executable, argument, working directory, or environment
+value. List a server's tools and make an explicit call with:
+
+```bash
+python scripts/mcp_client.py list --server filesystem
+python scripts/mcp_client.py call --server filesystem read_file '{"path":"README.md"}'
+```
+
+The CLI is intentionally explicit and does not let generated model text launch
+tools automatically. The serving backend can opt into model-routed calls by
+setting `mcp: true` on a generation request. It performs a private JSON planning
+pass, validates the selected server and tool against `allowed_tools`, calls the
+server, labels its result as untrusted external data, and gives that result to
+the model for the visible answer:
+
+```json
+{
+  "prompt": "Read README.md and summarize the project",
+  "mcp": true,
+  "mcp_server": "filesystem"
+}
+```
+
+MCP is disabled per request unless `mcp: true` is supplied. The example
+filesystem policy contains read-only tools. Do not add mutating tools such as
+`write_file` or `edit_file` without an application-level approval step. Tool
+routing quality also depends on the model having learned the required compact
+JSON format; invalid or non-allowlisted plans are ignored safely.
+
+For deterministic routing that does not depend on model quality, send an
+explicit prompt while keeping `mcp: true`:
+
+```text
+/mcp filesystem read_text_file {"path":"README.md"}
+```
 
 ## Assistant identity
 

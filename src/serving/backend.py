@@ -15,6 +15,8 @@ from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
+from mcp.client import MCPClient, MCPTool
+from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, tool_result_context, tool_selection_prompt
 from datasets.preprocessor import format_messages
 from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
@@ -53,6 +55,7 @@ class ConfiguredModelBackend:
         paged_kv_pages: int = 0,
         paged_kv_page_size: int = 16,
         tensor_parallel_size: int = 1,
+        mcp: dict | None = None,
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
@@ -68,6 +71,9 @@ class ConfiguredModelBackend:
         self.paged_kv_pages = paged_kv_pages
         self.paged_kv_page_size = paged_kv_page_size
         self.tensor_parallel_size = tensor_parallel_size
+        self.mcp_config = mcp or {}
+        self.mcp_clients: dict[str, MCPClient] = {}
+        self.mcp_tools: dict[str, list[MCPTool]] = {}
         self.sessions: SQLiteSessionStore | None = None
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -109,9 +115,43 @@ class ConfiguredModelBackend:
                 "tokenizer, and checkpoint are compatible"
             )
             self.generator = None
+            return
+        await self._startup_mcp()
 
     async def shutdown(self) -> None:
+        await asyncio.gather(*(client.close() for client in self.mcp_clients.values()))
+        self.mcp_clients.clear()
+        self.mcp_tools.clear()
         self.generator = None
+
+    async def _startup_mcp(self) -> None:
+        servers = self.mcp_config.get("servers", {})
+        if not self.mcp_config.get("enabled", False) or not isinstance(servers, dict):
+            return
+        for name, settings in servers.items():
+            if not isinstance(settings, dict) or not settings.get("enabled", False):
+                continue
+            allowed = settings.get("allowed_tools", [])
+            if not isinstance(allowed, list) or not allowed:
+                logger.warning("MCP server %s has no allowed_tools; skipping", name)
+                continue
+            client = MCPClient(
+                [str(settings["command"]), *(str(value) for value in settings.get("args", []))],
+                cwd=settings.get("cwd"), env=settings.get("env"),
+                timeout=float(settings.get("timeout_seconds", 30)),
+                protocol=str(settings.get("protocol", "auto")),
+                max_message_bytes=int(settings.get("max_message_bytes", 16 * 1024 * 1024)),
+            )
+            try:
+                await client.start()
+                tools = [tool for tool in await client.list_tools() if tool.name in allowed]
+            except Exception:
+                logger.exception("MCP server %s could not be started", name)
+                await client.close()
+                continue
+            self.mcp_clients[str(name)] = client
+            self.mcp_tools[str(name)] = tools
+            logger.info("MCP server %s enabled with %d allowed tools", name, len(tools))
 
     def _load(self) -> None:
         if self.tensor_parallel_size > 1:
@@ -204,6 +244,7 @@ class ConfiguredModelBackend:
                 text=DEFAULT_NO_RESULTS, prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
             )
+        user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
         options = dict(
             max_tokens=request.max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p,
@@ -299,6 +340,7 @@ class ConfiguredModelBackend:
                 completion_tokens=completion_tokens,
             )
             return
+        user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
         prompt = ConfiguredModelBackend._format_new_conversation(self, system_prompt, user_prompt)
@@ -392,6 +434,51 @@ class ConfiguredModelBackend:
             search_prompt = f"{search_prompt}\n\nAdditional user and trusted tool context:\n{local_context}"
         return search_prompt, results
 
+    async def _augment_with_mcp(self, request: GenerateRequest, user_prompt: str) -> str:
+        if not request.mcp:
+            return user_prompt
+        catalogs = self.mcp_tools
+        if request.mcp_server:
+            catalogs = {request.mcp_server: catalogs.get(request.mcp_server, [])}
+        catalogs = {name: tools for name, tools in catalogs.items() if tools}
+        if not catalogs:
+            return user_prompt + "\n\nMCP status: no requested MCP tools are available."
+        call = parse_explicit_tool_call(user_prompt, catalogs)
+        if call is None:
+            selection = tool_selection_prompt(user_prompt, catalogs)
+            planning_prompt = format_messages(
+                [
+                    {"role": "system", "content": "You are a strict JSON tool router. Output JSON only."},
+                    {"role": "user", "content": selection},
+                ],
+                add_generation_prompt=True,
+            )
+            decision = await self._generate_once(planning_prompt, {
+                "max_tokens": int(self.mcp_config.get("planning_max_tokens", 192)),
+                "temperature": 0.0, "top_k": 1, "top_p": 1.0,
+                "repetition_penalty": 1.0, "seed": request.seed, "stop": [],
+                "allow_special_tokens": True,
+            })
+            call = parse_tool_call(decision, catalogs)
+        if call is None:
+            return user_prompt
+        client = self.mcp_clients.get(call.server)
+        if client is None:
+            return user_prompt + f"\n\nMCP status: server {call.server!r} is unavailable."
+        try:
+            result = await client.call_tool(call.name, call.arguments)
+        except Exception as error:
+            logger.warning("MCP tool %s/%s failed: %s", call.server, call.name, error)
+            return user_prompt + f"\n\nMCP tool error: {type(error).__name__}: {error}"
+        return tool_result_context(user_prompt, call, result)
+
+    async def _generate_once(self, prompt: str, options: dict) -> str:
+        pieces: list[str] = []
+        async for step in self._stream_steps(prompt, options):
+            if step.token:
+                pieces.append(step.token)
+        return "".join(pieces).strip()
+
     def _format_new_conversation(self, system_prompt: str, user_prompt: str) -> str:
         prompt = format_messages(
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
@@ -431,7 +518,19 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         paged_kv_pages=int(serving.get("paged_kv_pages", 0)),
         paged_kv_page_size=int(serving.get("paged_kv_page_size", 16)),
         tensor_parallel_size=int(serving.get("tensor_parallel_size", 1)),
+        mcp=_load_mcp_config(),
     )
+
+
+def _load_mcp_config() -> dict:
+    path = Path(os.getenv("GOPI_MCP_CONFIG", "configs/mcp.yaml"))
+    if not path.is_file():
+        return {}
+    root = load_yaml(path)
+    value = root.get("mcp", {})
+    if not isinstance(value, dict):
+        raise ValueError("mcp configuration must be a mapping")
+    return value
 
 
 def _reload_candidate():

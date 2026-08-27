@@ -1,0 +1,26 @@
+mcp:
+  enabled: true
+  planning_max_tokens: 192
+  servers:
+    filesystem:
+      enabled: true
+      command: npx
+      args:
+        - -y
+        - "@modelcontextprotocol/server-filesystem"
+        - .
+      protocol: auto
+      timeout_seconds: 30
+      max_message_bytes: 16777216
+      env: {}
+      # Model-driven calls are restricted to this explicit allowlist.
+      # Add write_file/edit_file only if your application provides approval.
+      allowed_tools:
+        - read_text_file
+        - read_multiple_files
+        - list_directory
+        - list_directory_with_sizes
+        - directory_tree
+        - search_files
+        - get_file_info
+        - list_allowed_directories

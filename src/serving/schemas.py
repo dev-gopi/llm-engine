@@ -27,6 +27,8 @@ class GenerateRequest(StrictSchema):
     session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
     mode: Literal["balanced", "creative", "precise", "coding"] = "balanced"
     tools: list[Literal["calculator", "datetime"]] = Field(default_factory=list, max_length=2)
+    mcp: bool = False
+    mcp_server: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
     response_format: Literal["plain", "markdown"] | None = None
     web_search: bool = False
     max_tokens: int = Field(default=128, ge=1, le=8_192)
