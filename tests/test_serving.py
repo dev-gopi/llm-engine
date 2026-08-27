@@ -115,6 +115,9 @@ def test_browser_playground_is_served():
     assert response.status_code == 200
     assert "Gopi Playground" in response.text
     assert 'src="app.js"' in response.text
+    assert 'id="mcpTool"' in response.text
+    script = request(create_app(FakeBackend(), settings=settings()), "GET", "/ui/app.js")
+    assert "mcp_server:" in script.text
 
 
 def test_rest_generation_response_and_request_id():
