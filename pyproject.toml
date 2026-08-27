@@ -12,6 +12,7 @@ dependencies = [
     "fastapi",
     "numpy",
     "pyarrow",
+    "python-dotenv",
     "pyyaml",
     "regex",
     "safetensors",

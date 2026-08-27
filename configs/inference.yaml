@@ -1,5 +1,6 @@
 bot_name: Gopi
 system_prompt: You are Gopi, a helpful, honest, and friendly general-purpose AI assistant. Answer clearly and directly, admit uncertainty, and ask for clarification when a request is ambiguous.
+response_format: plain
 temperature: 0.7
 top_k: 40
 max_tokens: 128
@@ -8,6 +9,15 @@ repetition_penalty: 1.1
 context_memory:
   enabled: true
   max_tokens: 1536
+web_search:
+  provider: searxng
+  searxng_endpoint: http://localhost:8080/search
+  brave_endpoint: https://api.search.brave.com/res/v1/web/search
+  max_results: 3
+  description_char_limit: 200
+  timeout_seconds: 10
+  temperature: 0.2
+  top_k: 20
 serving:
   model_name: gopi
   model_config: configs/model.gpu.yaml

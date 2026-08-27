@@ -1,4 +1,6 @@
-from inference.context import ConversationMemory, SQLiteSessionStore
+import pytest
+
+from inference.context import ConversationMemory, SQLiteSessionStore, format_system_prompt
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
@@ -31,6 +33,28 @@ def test_context_memory_trims_oldest_non_system_messages() -> None:
     assert roles_and_text[-1] == ("user", "new")
 
 
+def test_context_memory_replaces_system_prompt() -> None:
+    memory = ConversationMemory(tokenizer(), max_tokens=100, system_prompt="Old prompt")
+    memory.add("user", "Hello")
+    memory.set_system_prompt("New prompt")
+    assert [(message.role, message.content) for message in memory.snapshot()] == [
+        ("system", "New prompt"),
+        ("user", "Hello"),
+    ]
+
+
+def test_response_format_system_prompt() -> None:
+    markdown = format_system_prompt("You are Gopi.", "markdown")
+    assert "valid Markdown" in markdown
+    assert "You are Gopi." in markdown
+    assert "plain text" in format_system_prompt("Gopi", "plain")
+    assert "accuracy and clarity" in format_system_prompt("Gopi", "plain", "precise")
+    with pytest.raises(ValueError, match="plain or markdown"):
+        format_system_prompt("Gopi", "html")
+    with pytest.raises(ValueError, match="unsupported assistant mode"):
+        format_system_prompt("Gopi", "plain", "unknown")
+
+
 def test_sqlite_session_store_persists_messages(tmp_path) -> None:
     store = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer(), max_tokens=100, system_prompt="Gopi")
     memory = store.load("abc")
@@ -50,10 +74,16 @@ def test_context_memory_handles_large_reserve_tokens() -> None:
     assert "Hello world" in prompt
 
 
+def test_context_memory_truncates_lone_message_to_reserve_generation_space() -> None:
+    memory = ConversationMemory(tokenizer(), max_tokens=100, system_prompt="Gopi")
+    memory.add("user", "important question " + "search result " * 20)
+    prompt = memory.render(add_generation_prompt=True, reserve_tokens=30)
+    assert len(tokenizer().encode(prompt, add_bos=True, allowed_special="all")) <= 70
+    assert "important question" in prompt
+
+
 def test_context_memory_rejects_negative_reserve_tokens() -> None:
-    import pytest
     memory = ConversationMemory(tokenizer(), max_tokens=100, system_prompt="You are Gopi.")
     memory.add("user", "Hello")
     with pytest.raises(ValueError, match="reserve_tokens must be non-negative"):
         memory.render(reserve_tokens=-1)
-

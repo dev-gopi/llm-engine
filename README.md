@@ -167,6 +167,16 @@ POST /v1/generate
 WS   /v1/generate/stream
 ```
 
+Generation requests accept `response_format: "plain"` (the default) or
+`response_format: "markdown"`. The browser playground exposes the same setting.
+They also accept `mode: "balanced"`, `"creative"`, `"precise"`, or `"coding"`;
+the playground mode picker starts a fresh conversation whenever the mode changes.
+The `tools` array supports `"calculator"` and `"datetime"`, and the playground
+offers those alongside web search in its Tools menu. `/calc`, `/time`, and
+`/search` shortcuts activate the corresponding tool directly.
+Set `web_search: true` (or prefix the prompt with `/search`) to retrieve SearXNG
+or Brave results before generation. The response always includes source URLs.
+
 Start the server with:
 
 ```bash

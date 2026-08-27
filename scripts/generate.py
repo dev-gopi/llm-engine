@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -10,7 +11,9 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
+from inference.context import format_system_prompt
 from inference.generator import Generator
+from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
@@ -31,6 +34,8 @@ def main() -> None:
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--raw", action="store_true", help="Do not wrap prompt in chat template")
+    parser.add_argument("--response-format", choices=("plain", "markdown"))
+    parser.add_argument("--search", action="store_true", help="Search the web before generating")
     args = parser.parse_args()
 
     configure_logging()
@@ -59,13 +64,53 @@ def main() -> None:
     model = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(checkpoint_path, model, map_location=device)
 
-    system_prompt = str(inference_config.get("system_prompt", "You are Gopi, a helpful, honest, and friendly AI assistant."))
+    response_format = args.response_format or str(inference_config.get("response_format", "plain"))
+    system_prompt = format_system_prompt(
+        str(inference_config.get("system_prompt", "You are Gopi, a helpful, honest, and friendly AI assistant.")),
+        response_format,
+    )
+    prompt = args.prompt
+    search_results = []
+    slash_search = prompt.strip().lower() == "/search" or prompt.strip().lower().startswith("/search ")
+    if args.search or slash_search:
+        query = prompt.strip()[7:].strip() if slash_search else prompt.strip()
+        if not query:
+            parser.error("search query cannot be empty")
+        search_config = inference_config.get("web_search", {})
+        provider = os.getenv("GOPI_SEARCH_PROVIDER", str(search_config.get("provider", "searxng"))).lower()
+        common = {
+            "max_results": int(search_config.get("max_results", 3)),
+            "timeout": float(search_config.get("timeout_seconds", 10.0)),
+        }
+        if provider == "searxng":
+            search_results = search_searxng(
+                query,
+                endpoint=os.getenv("GOPI_SEARXNG_URL", str(search_config.get("searxng_endpoint", "http://localhost:8080/search"))),
+                **common,
+            )
+        elif provider == "brave":
+            search_results = search_brave(
+                query,
+                os.getenv("GOPI_SEARCH_API_KEY", ""),
+                endpoint=str(search_config.get("brave_endpoint", "https://api.search.brave.com/res/v1/web/search")),
+                **common,
+            )
+        else:
+            parser.error(f"unsupported search provider: {provider}")
+        if not search_results:
+            parser.error("no web results found")
+        prompt = build_search_prompt(
+            query,
+            search_results,
+            description_char_limit=int(search_config.get("description_char_limit", 200)),
+        )
+
     if args.raw:
-        rendered_prompt = args.prompt
+        rendered_prompt = prompt
     else:
         from datasets.preprocessor import format_messages
         rendered_prompt = format_messages(
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": args.prompt}],
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
             add_generation_prompt=True,
         )
 
@@ -86,6 +131,8 @@ def main() -> None:
     )
     print("\nGenerated Output:")
     print(result.text)
+    if search_results:
+        print(f"\n{format_sources(search_results)}")
 
 
 if __name__ == "__main__":

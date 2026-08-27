@@ -34,6 +34,17 @@
             <input id="stream" type="checkbox" checked>
           </label>
 
+          <label>Response format
+            <select id="responseFormat">
+              <option value="plain">Plain text</option>
+              <option value="markdown">Markdown</option>
+            </select>
+          </label>
+          <label class="switch-row">
+            <span>Web search</span>
+            <input id="webSearch" type="checkbox">
+          </label>
+
           <h2>Sampling</h2>
           <label>Maximum tokens <output id="maxTokensValue">128</output>
             <input id="maxTokens" type="range" min="1" max="512" value="128">
@@ -57,20 +68,34 @@
         </aside>
 
         <section class="chat" aria-label="Chat playground">
-          <div id="messages" class="messages" aria-live="polite">
-            <article class="message assistant">
-              <div class="avatar">G</div>
-              <div><strong>Gopi</strong><p>Hello! I’m your local AI assistant. What can I help you with?</p></div>
-            </article>
-          </div>
+          <div id="messages" class="messages" aria-live="polite"></div>
 
           <div id="errorBox" class="error" role="alert" hidden></div>
           <form id="promptForm" class="composer">
+            <div class="mode-bar">
+              <label for="chatMode">Mode</label>
+              <select id="chatMode" aria-describedby="modeDescription">
+                <option value="balanced">⚖ Balanced</option>
+                <option value="creative">✦ Creative</option>
+                <option value="precise">◎ Precise</option>
+                <option value="coding">&lt;/&gt; Coding</option>
+              </select>
+              <span id="modeDescription">Natural answers for everyday questions</span>
+              <details class="tool-menu">
+                <summary>＋ Tools <b id="toolCount" hidden>0</b></summary>
+                <div class="tool-popover">
+                  <label><input id="calculatorTool" type="checkbox"> <span><strong>Calculator</strong><small>Accurate arithmetic</small></span></label>
+                  <label><input id="datetimeTool" type="checkbox"> <span><strong>Date &amp; time</strong><small>Current server time</small></span></label>
+                  <label><input id="searchTool" type="checkbox"> <span><strong>Web search</strong><small>Current information</small></span></label>
+                </div>
+              </details>
+            </div>
             <label for="prompt" class="sr-only">Message</label>
             <textarea id="prompt" rows="3" maxlength="131072" required placeholder="Ask Gopi something…"></textarea>
             <div class="composer-footer">
               <span id="usage">No generation yet</span>
               <div>
+                <button id="clearButton" class="secondary" type="button">New chat</button>
                 <button id="stopButton" class="secondary" type="button" hidden>Stop</button>
                 <button id="sendButton" type="submit">Generate</button>
               </div>

@@ -25,6 +25,10 @@ class FinishReason(str, Enum):
 class GenerateRequest(StrictSchema):
     prompt: NonEmptyText = Field(max_length=131_072)
     session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
+    mode: Literal["balanced", "creative", "precise", "coding"] = "balanced"
+    tools: list[Literal["calculator", "datetime"]] = Field(default_factory=list, max_length=2)
+    response_format: Literal["plain", "markdown"] | None = None
+    web_search: bool = False
     max_tokens: int = Field(default=128, ge=1, le=8_192)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, allow_inf_nan=False)
     top_k: int = Field(default=40, ge=0, le=100_000)
@@ -45,6 +49,11 @@ class GenerateRequest(StrictSchema):
             if value not in normalized:
                 normalized.append(value)
         return normalized
+
+    @field_validator("tools")
+    @classmethod
+    def deduplicate_tools(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
 
 
 class TokenUsage(StrictSchema):

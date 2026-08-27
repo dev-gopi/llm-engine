@@ -9,7 +9,9 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from inference.generator import Generator
-from inference.context import SQLiteSessionStore
+from inference.context import SQLiteSessionStore, format_system_prompt
+from inference.local_tools import direct_tool_answer, tool_context
+from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from datasets.preprocessor import format_messages
 from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
@@ -36,7 +38,9 @@ class ConfiguredModelBackend:
         device: str = "auto",
         session_store_path: str | Path | None = None,
         system_prompt: str = "You are Gopi, a helpful assistant.",
+        response_format: str | None = None,
         context_tokens: int = 1536,
+        web_search: dict | None = None,
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
@@ -45,7 +49,9 @@ class ConfiguredModelBackend:
         self.generator: Generator | None = None
         self.session_store_path = Path(session_store_path) if session_store_path else None
         self.system_prompt = system_prompt
+        self.response_format = response_format
         self.context_tokens = context_tokens
+        self.web_search = web_search or {}
         self.sessions: SQLiteSessionStore | None = None
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -134,19 +140,31 @@ class ConfiguredModelBackend:
     async def _generate_unlocked(self, request: GenerateRequest) -> BackendGeneration:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
+        direct_answer = direct_tool_answer(request.prompt, request.tools)
+        if direct_answer is not None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(direct_answer))
+            return BackendGeneration(
+                text=direct_answer, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
+            )
         memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
+        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
         options = dict(
             max_tokens=request.max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p,
             repetition_penalty=request.repetition_penalty, seed=request.seed, stop=request.stop,
             allow_special_tokens=True,
         )
+        response_format = request.response_format or getattr(self, "response_format", None)
+        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
         prompt = format_messages(
-            [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": request.prompt}],
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             add_generation_prompt=True,
         )
         if memory:
-            memory.add("user", request.prompt)
+            memory.set_system_prompt(system_prompt)
+            memory.add("user", user_prompt)
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
         prompt_ids = self.generator.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
         logger.debug("Generating from a %d-token prompt", len(prompt_ids))
@@ -167,8 +185,11 @@ class ConfiguredModelBackend:
             memory.add("assistant", text)
         if memory and request.session_id:
             self.sessions.save(request.session_id, memory)
+        visible_text = text
+        if search_results:
+            visible_text = f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
         return BackendGeneration(
-            text=text, prompt_tokens=prompt_tokens,
+            text=visible_text, prompt_tokens=prompt_tokens,
             completion_tokens=len(generated_ids), finish_reason=FinishReason(finish_reason),
         )
 
@@ -184,13 +205,30 @@ class ConfiguredModelBackend:
     async def _stream_unlocked(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
+        direct_answer = direct_tool_answer(request.prompt, request.tools)
+        if direct_answer is not None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(direct_answer))
+            yield BackendStreamEvent(
+                token=direct_answer, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            yield BackendStreamEvent(
+                finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            return
         memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
+        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
+        response_format = request.response_format or getattr(self, "response_format", None)
+        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
         prompt = format_messages(
-            [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": request.prompt}],
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             add_generation_prompt=True,
         )
         if memory:
-            memory.add("user", request.prompt)
+            memory.set_system_prompt(system_prompt)
+            memory.add("user", user_prompt)
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
         generated_ids: list[int] = []
         options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
@@ -204,6 +242,8 @@ class ConfiguredModelBackend:
                     if text:
                         memory.add("assistant", text)
                     self.sessions.save(request.session_id, memory)
+                if search_results:
+                    yield BackendStreamEvent(token=f"\n\n{format_sources(search_results)}")
                 yield BackendStreamEvent(
                     finish_reason=FinishReason(step.finish_reason),
                     prompt_tokens=step.prompt_tokens,
@@ -217,6 +257,56 @@ class ConfiguredModelBackend:
                 prompt_tokens=step.prompt_tokens, completion_tokens=step.completion_tokens,
             )
 
+    async def _prepare_user_prompt(self, request: GenerateRequest):
+        raw_prompt = request.prompt.strip()
+        slash_calculator = raw_prompt.lower().startswith(("/calculate ", "/calc "))
+        slash_datetime = raw_prompt.lower() in {"/time", "/date", "/datetime"}
+        selected_tools = list(request.tools)
+        if slash_calculator and "calculator" not in selected_tools:
+            selected_tools.append("calculator")
+        if slash_datetime and "datetime" not in selected_tools:
+            selected_tools.append("datetime")
+        slash_search = raw_prompt.lower() == "/search" or raw_prompt.lower().startswith("/search ")
+        if not request.web_search and not slash_search:
+            return tool_context(raw_prompt, selected_tools), []
+        query = raw_prompt[7:].strip() if slash_search else raw_prompt
+        if not query:
+            raise ValueError("search query cannot be empty")
+        config = self.web_search
+        provider = os.getenv("GOPI_SEARCH_PROVIDER", str(config.get("provider", "searxng"))).lower()
+        maximum = int(config.get("max_results", 3))
+        timeout = float(config.get("timeout_seconds", 10.0))
+        if provider == "searxng":
+            results = await asyncio.to_thread(
+                search_searxng,
+                query,
+                max_results=maximum,
+                timeout=timeout,
+                endpoint=os.getenv("GOPI_SEARXNG_URL", str(config.get("searxng_endpoint", "http://localhost:8080/search"))),
+            )
+        elif provider == "brave":
+            results = await asyncio.to_thread(
+                search_brave,
+                query,
+                os.getenv("GOPI_SEARCH_API_KEY", ""),
+                max_results=maximum,
+                timeout=timeout,
+                endpoint=str(config.get("brave_endpoint", "https://api.search.brave.com/res/v1/web/search")),
+            )
+        else:
+            raise ValueError(f"unsupported search provider: {provider}")
+        if not results:
+            raise ValueError("no web results found")
+        search_prompt = build_search_prompt(
+            query,
+            results,
+            description_char_limit=int(config.get("description_char_limit", 200)),
+        )
+        local_context = tool_context(raw_prompt, selected_tools)
+        if local_context != raw_prompt:
+            search_prompt = f"{search_prompt}\n\nAdditional user and trusted tool context:\n{local_context}"
+        return search_prompt, results
+
     async def _stream_steps(self, prompt: str, options: dict):
         for step in self.generator.stream(prompt, **options):
             yield step
@@ -224,7 +314,8 @@ class ConfiguredModelBackend:
 
 def backend_from_environment() -> ConfiguredModelBackend:
     inference_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.yaml"))
-    serving = load_yaml(inference_path).get("serving", {}) if inference_path.is_file() else {}
+    inference = load_yaml(inference_path) if inference_path.is_file() else {}
+    serving = inference.get("serving", {})
     if not isinstance(serving, dict):
         raise ValueError("inference serving configuration must be a mapping")
     return ConfiguredModelBackend(
@@ -233,6 +324,8 @@ def backend_from_environment() -> ConfiguredModelBackend:
         checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/latest/model.pt"))),
         device=os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
         session_store_path=os.getenv("GOPI_SESSION_STORE", str(serving.get("session_store_path", "data/cache/sessions.sqlite"))),
-        system_prompt=str(load_yaml(inference_path).get("system_prompt", "You are Gopi, a helpful assistant.")) if inference_path.is_file() else "You are Gopi, a helpful assistant.",
-        context_tokens=int((load_yaml(inference_path).get("context_memory") or {}).get("max_tokens", 1536)) if inference_path.is_file() else 1536,
+        system_prompt=str(inference.get("system_prompt", "You are Gopi, a helpful assistant.")),
+        response_format=os.getenv("GOPI_RESPONSE_FORMAT", str(inference.get("response_format", "plain"))),
+        context_tokens=int((inference.get("context_memory") or {}).get("max_tokens", 1536)),
+        web_search=inference.get("web_search") if isinstance(inference.get("web_search"), dict) else {},
     )

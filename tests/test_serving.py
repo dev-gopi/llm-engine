@@ -263,6 +263,27 @@ def test_request_defaults_match_local_inference_profile():
     assert request_model.top_k == 40
     assert request_model.top_p == 0.9
     assert request_model.repetition_penalty == 1.1
+    assert request_model.response_format is None
+    assert request_model.web_search is False
+
+
+def test_request_accepts_supported_response_formats():
+    assert GenerateRequest(prompt="hello", response_format="markdown").response_format == "markdown"
+    with pytest.raises(ValueError):
+        GenerateRequest(prompt="hello", response_format="html")
+
+
+def test_request_accepts_supported_chat_modes():
+    assert GenerateRequest(prompt="hello").mode == "balanced"
+    assert GenerateRequest(prompt="hello", mode="coding").mode == "coding"
+    with pytest.raises(ValueError):
+        GenerateRequest(prompt="hello", mode="unsupported")
+
+
+def test_request_accepts_supported_tools():
+    assert GenerateRequest(prompt="hello", tools=["calculator", "calculator"]).tools == ["calculator"]
+    with pytest.raises(ValueError):
+        GenerateRequest(prompt="hello", tools=["shell"])
 
 
 def test_settings_load_yaml_and_environment_override(tmp_path, monkeypatch):

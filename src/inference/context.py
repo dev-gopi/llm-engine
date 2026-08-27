@@ -19,6 +19,32 @@ class Message:
     content: str
 
 
+MODE_INSTRUCTIONS = {
+    "balanced": "",
+    "creative": "Explore imaginative ideas, offer original alternatives, and use an engaging voice.",
+    "precise": "Prioritize accuracy and clarity. Be concise, state uncertainty, and avoid speculation.",
+    "coding": "Act as an expert programming assistant. Provide correct, practical code and explain key tradeoffs.",
+}
+
+
+def format_system_prompt(system_prompt: str, response_format: str | None, mode: str = "balanced") -> str:
+    """Add behavior-mode and output-format contracts to a system prompt."""
+    normalized_format = response_format.strip().lower() if response_format else None
+    if normalized_format == "markdown":
+        instruction = "Use valid Markdown."
+    elif normalized_format == "plain":
+        instruction = "Use plain text."
+    elif normalized_format is not None:
+        raise ValueError("response format must be plain or markdown")
+    else:
+        instruction = ""
+    try:
+        mode_instruction = MODE_INSTRUCTIONS[mode.strip().lower()]
+    except KeyError as error:
+        raise ValueError("unsupported assistant mode") from error
+    return "\n".join(part for part in (clean(system_prompt), mode_instruction, instruction) if part)
+
+
 class ConversationMemory:
     """Keep recent messages within a tokenizer-measured context budget.
 
@@ -64,6 +90,17 @@ class ConversationMemory:
         with self._lock:
             self._messages = [message for message in self._messages if preserve_system and message.role == "system"]
 
+    def set_system_prompt(self, content: str) -> None:
+        """Replace the system prompt while preserving the conversation."""
+        normalized = clean(content)
+        if not normalized:
+            raise ValueError("system prompt cannot be empty")
+        with self._lock:
+            self._messages = [Message("system", normalized)] + [
+                message for message in self._messages if message.role != "system"
+            ]
+            self._trim()
+
     def restore(self, messages: list[dict[str, str]]) -> None:
         with self._lock:
             self._messages = [Message(message["role"], clean(message["content"])) for message in messages]
@@ -76,10 +113,13 @@ class ConversationMemory:
         while self._token_count(add_generation_prompt) > target_budget:
             non_system_indices = [index for index, message in enumerate(self._messages) if message.role != "system"]
             if not non_system_indices:
-                raise ValueError("system prompt alone exceeds the context budget")
-            if len(non_system_indices) == 1 and self._token_count(add_generation_prompt) <= max_prompt_budget:
                 break
-            self._messages.pop(non_system_indices[0])
+            index = non_system_indices[0]
+            if len(non_system_indices) == 1:
+                if not self._truncate_message(index, target_budget, add_generation_prompt):
+                    break
+            else:
+                self._messages.pop(index)
         if self._token_count(add_generation_prompt) > max_prompt_budget:
             non_system_indices = [index for index, message in enumerate(self._messages) if message.role != "system"]
             if not non_system_indices:
@@ -87,6 +127,25 @@ class ConversationMemory:
             self._messages.pop(non_system_indices[0])
         if not self._messages:
             raise ValueError("conversation context is empty")
+
+    def _truncate_message(self, index: int, budget: int, add_generation_prompt: bool) -> bool:
+        """Shorten a lone oversized message while retaining its leading instructions."""
+        message = self._messages[index]
+        low, high, best = 1, len(message.content), ""
+        while low <= high:
+            middle = (low + high) // 2
+            candidate = message.content[:middle].rstrip()
+            self._messages[index] = Message(message.role, candidate or message.content[:1])
+            if self._token_count(add_generation_prompt) <= budget:
+                best = self._messages[index].content
+                low = middle + 1
+            else:
+                high = middle - 1
+        self._messages[index] = message
+        if not best:
+            return False
+        self._messages[index] = Message(message.role, best)
+        return True
 
     def _token_count(self, add_generation_prompt: bool) -> int:
         if not self._messages:
