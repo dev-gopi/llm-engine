@@ -1,0 +1,15 @@
+schema_version: 1
+name: TinyStories
+source: roneneldan/TinyStories
+version: local-jsonl-v1
+license:
+  identifier: CDLA-Sharing-1.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - pretraining
+  - mixed
+privacy_review: reviewed
+review_notes:
+  reviewed_at: '2026-08-27'
+  basis: Synthetic GPT-3.5/GPT-4 stories; full local train and validation files scanned for email, SSN-like, GitHub-token, and AWS-key patterns with no matches.

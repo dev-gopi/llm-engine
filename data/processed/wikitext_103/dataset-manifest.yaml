@@ -9,4 +9,8 @@ license:
 allowed_stages:
   - pretraining
   - mixed
-privacy_review: unreviewed
+privacy_review: reviewed
+review_notes:
+  reviewed_at: '2026-08-27'
+  basis: Public encyclopedia-derived corpus; full local train and validation files scanned for email, SSN-like, GitHub-token, and AWS-key patterns.
+  residual_risk: One source row contains two SSN-shaped numeric strings; downstream PII redaction remains enabled.
