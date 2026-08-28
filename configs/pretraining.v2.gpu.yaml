@@ -1,4 +1,4 @@
-batch_size: 2
+batch_size: 1
 epochs: 3
 seed: 42
 dataset_governance:
@@ -6,7 +6,7 @@ dataset_governance:
   stage: pretraining
   commercial_use: false
 max_sequence_length: 256
-num_workers: 2
+num_workers: 1
 pin_memory: true
 lazy_dataset: true
 distributed_strategy: ddp
@@ -25,7 +25,7 @@ beta2: 0.95
 adam_epsilon: 0.00000001
 fused_optimizer: false
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 16
+gradient_accumulation_steps: 32
 mixed_precision: fp16
 grad_scaler_initial_scale: 1024
 grad_scaler_growth_interval: 20000

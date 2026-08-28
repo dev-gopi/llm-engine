@@ -1,7 +1,7 @@
 vocab_size: 32000
-hidden_size: 384
+hidden_size: 512
 layers: 10
-heads: 6
+heads: 8
 kv_heads: 2
 max_position: 512
 position_type: rotary
@@ -17,7 +17,7 @@ lm_head_bias: false
 attention_dropout: 0.0
 attention_bias: false
 causal_attention: true
-ffn_hidden_size: 1536
+ffn_hidden_size: 2048
 ffn_multiple_of: 128
 ffn_activation: swiglu
 ffn_dropout: 0.0
