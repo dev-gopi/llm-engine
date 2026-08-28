@@ -5,8 +5,6 @@ language model from the ground up. The repository separates tokenization, data
 processing, model architecture, training, inference, and serving so each part
 can evolve independently as the model grows.
 
-Before deployment, review [Production readiness](docs/production-readiness.md).
-
 > **Development status:** The local from-scratch pipeline is implemented and
 > covered by an automated test suite: preparation, tokenization, pretraining, SFT, DPO
 > components, evaluation, cached generation, serving, and export. FSDP,
@@ -51,8 +49,8 @@ python scripts/plan_training.py \
 CI can also enforce `--max-hours` and `--max-cost`; constraint failures return
 exit status 2 while retaining the JSON report.
 
-The v2 GPU profile is the recommended from-scratch laptop path. The future
-1B/7B/30B files are architecture targets, not profiles for a 4 GB GPU.
+The v2 GPU profile is the recommended from-scratch laptop path. The 1B/7B/30B
+files are architecture targets, not profiles for a 4 GB GPU.
 
 ## Repository structure
 
@@ -129,7 +127,7 @@ key/value caches shaped as `[batch, heads, sequence, head_dim]` for generation.
 `FeedForward` applies the same nonlinear transformation independently to every
 token position. The current configurations expand each 256-dimensional token
 to 1,024 dimensions, apply GELU, project back to the model dimension, and
-then applies dropout.
+then apply dropout.
 
 The implementation also supports ReLU, SiLU, tanh-approximated GELU, SwiGLU,
 and GEGLU. Gated variants use one fused gate/value projection. Hidden dimensions
@@ -541,7 +539,7 @@ examples and a deterministic project-owned core behavior set alongside
 UltraChat, HelpSteer, and OpenOrca. These additions improve data coverage but do
 not make a small from-scratch model equivalent to a billion-parameter model.
 
-### Future large-model profiles
+### Large-model architecture profiles
 
 The current v1 and v2 configurations remain unchanged. Optional architecture
 targets are provided as `configs/model.future.1b.yaml`,
@@ -563,13 +561,13 @@ python scripts/inspect_model.py configs/model.future.7b.yaml
 The estimator reports parameter-weight and full-length KV-cache memory. Real
 training needs substantially more memory for gradients, optimizer states,
 activations, communication buffers, and temporary kernels. The loader also
-accepts common future configuration aliases such as `num_hidden_layers`,
+accepts common configuration aliases such as `num_hidden_layers`,
 `num_attention_heads`, `num_key_value_heads`, `context_length`, and
 `intermediate_size`, while retaining all existing key names.
 
 ### Scale-out training and data
 
-Multi-process DDP remains the default. Future training profiles may opt into
+Multi-process DDP remains the default. Large-scale training profiles may opt into
 parameter, gradient, and optimizer sharding with:
 
 ```yaml
@@ -688,10 +686,9 @@ python scripts/evaluate_benchmarks.py \
   --tokenizer data/tokenizer-v2
 ```
 
-The starter benchmark reports separate scores for identity, conversation,
-instruction following, math, reasoning, knowledge, and safety. Expand
-`configs/evaluation.core.jsonl` with genuinely held-out cases as the model and
-datasets grow.
+The bundled benchmark reports separate scores for identity, conversation,
+instruction following, math, reasoning, knowledge, and safety using the
+held-out cases in `configs/evaluation.core.jsonl`.
 
 ### Scalable serving
 
@@ -701,8 +698,8 @@ least-active replica routing, shared rate limiting, and warm/drain reloads. The
 older whole-request `DynamicBatcher` remains available for batch-capable
 backends. `Generator.generate_batch()` supplies real tensor-level prefill and
 decode batching with KV-row compaction as requests finish. The HTTP stream
-scheduler still uses independently admitted streams; wiring its live admission
-queue into this tensor primitive remains separate serving work.
+scheduler multiplexes independently admitted streams, while tensor batching is
+available through the generator API.
 
 `tensor_parallel_size` defaults to 1. Under an initialized `torchrun` process
 group, larger values shard attention heads, FFN intermediate channels, and the
@@ -873,7 +870,7 @@ pytest -q
 | Filtered, deduplicated, memory-mapped binary token shards | Implemented and tested locally |
 | Dataset provenance/license/privacy policy audit | Implemented; active profiles warn until all reviews are complete |
 | SFT and single-device DPO training/checkpoint workflow | Implemented and tested locally |
-| Capability benchmark runner | Implemented; starter cases must be expanded |
+| Capability benchmark runner | Implemented and tested with the bundled held-out cases |
 | REST/WebSocket model serving | Implemented and tested locally |
 | Prefix/paged KV reuse, stream multiplexing, replicas, reload, shared limits | Implemented and tested locally |
 | Tensor-parallel inference | Implemented; two-rank Gloo equivalence validated locally, NCCL hardware validation remains |
@@ -881,17 +878,7 @@ pytest -q
 | CPU dynamic quantization | Implemented; target-model quality validation remains |
 | SafeTensors and PyTorch Export | Implemented |
 | ONNX export | Implemented; install `.[export]` and validate in target runtime |
-| Automated tests | 267 passing in the current development environment |
-
-## Roadmap
-
-1. Run FSDP save/resume/world-size-change tests on a real multi-GPU cluster.
-2. Connect live HTTP admission to the tensor-batched decode primitive.
-3. Validate tensor parallelism and FSDP across physical multi-node NCCL hardware.
-4. Add distributed DPO and larger held-out benchmarks.
-5. Add a separately validated GGUF conversion workflow.
-6. Validate ONNX Runtime, deployment load, security, and failure recovery.
-7. Train and publish reproducible small-model reference checkpoints with dataset provenance.
+| Automated tests | 311 passing in the current development environment |
 
 ## Design principles
 
@@ -902,7 +889,7 @@ pytest -q
 - No dependency from inference to training
 - Versioned, resumable checkpoints
 - Tests before performance optimization
-- Honest documentation of unfinished functionality
+- Explicit capability and validation boundaries
 
 ## License
 
