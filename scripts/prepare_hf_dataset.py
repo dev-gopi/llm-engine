@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
+import os
+import shutil
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -85,11 +87,14 @@ def extract_messages(row: dict, dataset_name: str, bot_name: str = DEFAULT_BOT_N
     return None
 
 
-def fetch_hf_parquet_urls(dataset_name: str, config: str = "default", split: str = "train") -> list[str]:
+def fetch_hf_parquet_urls(
+    dataset_name: str, config: str = "default", split: str = "train",
+    *, timeout: float = 60.0,
+) -> list[str]:
     api_url = f"https://huggingface.co/api/datasets/{dataset_name}/parquet/{config}/{split}"
     request = urllib.request.Request(api_url, headers={"User-Agent": "LLMEngine/1.0"})
     try:
-        with urllib.request.urlopen(request) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
             if isinstance(data, list):
                 return data
@@ -109,6 +114,7 @@ def download_and_convert_dataset(
     validation_size: int | None = 1000,
     test_size: int | None = 1000,
     bot_name: str = DEFAULT_BOT_NAME,
+    timeout: float = 60.0,
 ) -> dict[str, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if raw_dir is not None:
@@ -121,7 +127,11 @@ def download_and_convert_dataset(
         raise ValueError("split sizes must be non-negative")
     full_dataset = all(size is None for size in sizes)
     total_needed = None if full_dataset else sum(size for size in sizes if size is not None)
-    urls = fetch_hf_parquet_urls(dataset_name, config=config, split=split)
+    if timeout <= 0:
+        raise ValueError("download timeout must be positive")
+    urls = fetch_hf_parquet_urls(
+        dataset_name, config=config, split=split, timeout=timeout
+    )
     print(f"Fetching {dataset_name} ({len(urls)} parquet files)...")
     records: list[dict] = []
     counts = {"train": 0, "validation": 0, "test": 0}
@@ -136,42 +146,49 @@ def download_and_convert_dataset(
                 break
             print(f"Downloading {url}...")
             request = urllib.request.Request(url, headers={"User-Agent": "LLMEngine/1.0"})
-            with urllib.request.urlopen(request) as response:
-                content = response.read()
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{split}-{index:05d}.", suffix=".parquet",
+                dir=raw_dir or output_dir,
+            )
+            os.close(descriptor)
+            parquet_path = Path(temporary_name)
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response, parquet_path.open("wb") as output:
+                    shutil.copyfileobj(response, output, length=1024 * 1024)
+                if raw_dir is not None:
+                    raw_file_path = raw_dir / f"{split}-{index:05d}.parquet"
+                    os.replace(parquet_path, raw_file_path)
+                    parquet_path = raw_file_path
+                    print(f"Saved raw dataset file to {raw_file_path}")
 
-            # Save raw file locally if raw_dir is specified
-            if raw_dir is not None:
-                raw_file_path = raw_dir / f"{split}-{index:05d}.parquet"
-                raw_file_path.write_bytes(content)
-                print(f"Saved raw dataset file to {raw_file_path}")
-
-            buffer = io.BytesIO(content)
-            parquet_file = pq.ParquetFile(buffer)
-            for batch in parquet_file.iter_batches():
-                for row in batch.to_pylist():
-                    messages = extract_messages(row, dataset_name, bot_name=bot_name)
-                    record_index = sum(counts.values()) if full_dataset else len(records)
-                    record = {
-                        "id": f"{dataset_name.replace('/', '_')}_{record_index}",
-                        "source": dataset_name,
-                    }
-                    if messages:
-                        record.update({"bot_name": bot_name, "messages": messages})
-                    else:
-                        text = row.get("text") or row.get("content") or row.get("code")
-                        if row.get("role") or not isinstance(text, str) or not text.strip():
-                            continue
-                        record["text"] = text.strip()
-                    if full_dataset:
-                        split_key = record.get("messages", record.get("text", ""))
-                        fingerprint = hashlib.sha256(json.dumps(split_key, sort_keys=True, ensure_ascii=False).encode()).digest()[0]
-                        split_name = "validation" if fingerprint < 13 else "test" if fingerprint < 26 else "train"
-                        streams[split_name].write(json.dumps(record, ensure_ascii=False) + "\n")
-                        counts[split_name] += 1
-                    else:
-                        records.append(record)
-                        if len(records) >= total_needed:
-                            break
+                parquet_file = pq.ParquetFile(parquet_path)
+                for batch in parquet_file.iter_batches():
+                    for row in batch.to_pylist():
+                        messages = extract_messages(row, dataset_name, bot_name=bot_name)
+                        record_index = sum(counts.values()) if full_dataset else len(records)
+                        record = {
+                            "id": f"{dataset_name.replace('/', '_')}_{record_index}",
+                            "source": dataset_name,
+                        }
+                        if messages:
+                            record.update({"bot_name": bot_name, "messages": messages})
+                        else:
+                            text = row.get("text") or row.get("content") or row.get("code")
+                            if row.get("role") or not isinstance(text, str) or not text.strip():
+                                continue
+                            record["text"] = text.strip()
+                        if full_dataset:
+                            split_key = record.get("messages", record.get("text", ""))
+                            fingerprint = hashlib.sha256(json.dumps(split_key, sort_keys=True, ensure_ascii=False).encode()).digest()[0]
+                            split_name = "validation" if fingerprint < 13 else "test" if fingerprint < 26 else "train"
+                            streams[split_name].write(json.dumps(record, ensure_ascii=False) + "\n")
+                            counts[split_name] += 1
+                        else:
+                            records.append(record)
+                            if len(records) >= total_needed:
+                                break
+            finally:
+                Path(temporary_name).unlink(missing_ok=True)
     finally:
         for stream in streams.values():
             stream.close()
@@ -186,6 +203,15 @@ def download_and_convert_dataset(
     actual_total = len(records)
     if actual_total == 0:
         raise ValueError(f"No valid records found in {dataset_name}")
+
+    # Source Parquet files are often ordered by topic or collection time.
+    # Hash-order before slicing to avoid systematic train/validation drift.
+    records.sort(key=lambda record: hashlib.sha256(
+        json.dumps(
+            record.get("messages", record.get("text", "")),
+            sort_keys=True, ensure_ascii=False,
+        ).encode("utf-8")
+    ).digest())
 
     actual_train = min(train_size, int(actual_total * 0.8)) if actual_total < total_needed else train_size
     actual_val = min(validation_size, int(actual_total * 0.1)) if actual_total < total_needed else validation_size
@@ -218,6 +244,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-size", type=int, default=1000, help="Bounded test rows (default: 1000)")
     parser.add_argument("--full", action="store_true", help="Process the complete source split using deterministic 90/5/5 splits")
     parser.add_argument("--bot-name", default=DEFAULT_BOT_NAME)
+    parser.add_argument("--timeout", type=float, default=60.0)
     return parser.parse_args()
 
 
@@ -237,6 +264,7 @@ def main() -> None:
         validation_size=None if args.full else args.validation_size,
         test_size=None if args.full else args.test_size,
         bot_name=args.bot_name,
+        timeout=args.timeout,
     )
     result = {
         "dataset": args.dataset,

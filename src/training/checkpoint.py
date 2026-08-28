@@ -67,6 +67,7 @@ def load_checkpoint(
     strict: bool = True,
     use_ema: bool = False,
     restore_rng: bool = True,
+    expected_tokenizer_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     source = Path(path)
     if not source.is_file():
@@ -74,6 +75,16 @@ def load_checkpoint(
     payload = torch.load(source, map_location=map_location, weights_only=True)
     if not isinstance(payload, dict):
         raise ValueError("checkpoint must contain a mapping")
+    saved_fingerprint = payload.get("metadata", {}).get("tokenizer_fingerprint")
+    if (
+        expected_tokenizer_fingerprint is not None
+        and saved_fingerprint is not None
+        and saved_fingerprint != expected_tokenizer_fingerprint
+    ):
+        raise ValueError(
+            "checkpoint tokenizer fingerprint does not match the selected tokenizer; "
+            "use the tokenizer that trained this checkpoint or retrain from scratch"
+        )
     state = payload.get("model", payload)
     try:
         model.load_state_dict(state, strict=strict)

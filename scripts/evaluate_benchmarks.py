@@ -63,7 +63,10 @@ def main() -> None:
             f"model vocabulary ({model_config['vocab_size']})"
         )
     model = MiniGPT.from_config(model_config, device=device)
-    load_checkpoint(args.checkpoint, model, map_location=device, use_ema=True)
+    load_checkpoint(
+        args.checkpoint, model, map_location=device, use_ema=True,
+        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+    )
     generator = Generator(model, tokenizer, device=device)
     scored = []
     details = []

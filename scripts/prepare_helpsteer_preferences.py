@@ -11,9 +11,10 @@ from pathlib import Path
 SCORE_FIELDS = ("helpfulness", "correctness", "coherence", "complexity", "verbosity")
 
 
-def quality(record: dict) -> tuple[float, ...]:
+def quality(record: dict) -> float:
     scores = record.get("scores", {})
-    return tuple(float(scores.get(field, 0)) for field in SCORE_FIELDS)
+    values = [float(scores.get(field, 0)) for field in SCORE_FIELDS]
+    return sum(values) / len(values)
 
 
 def extract_pair(record: dict) -> tuple[str, str] | None:
@@ -26,7 +27,7 @@ def extract_pair(record: dict) -> tuple[str, str] | None:
 
 
 def convert(source: Path) -> list[dict]:
-    groups: dict[str, list[tuple[tuple[float, ...], str]]] = defaultdict(list)
+    groups: dict[str, list[tuple[float, str]]] = defaultdict(list)
     with source.open(encoding="utf-8") as stream:
         for line in stream:
             record = json.loads(line)

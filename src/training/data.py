@@ -53,6 +53,13 @@ def build_loader(
                 f"token shard vocabulary ({dataset.tokenizer_vocab_size}) does not match "
                 f"tokenizer vocabulary ({tokenizer.vocab_size})"
             )
+        if (
+            dataset.tokenizer_fingerprint is not None
+            and dataset.tokenizer_fingerprint != tokenizer.fingerprint
+        ):
+            raise ValueError(
+                "token shard tokenizer fingerprint does not match the selected tokenizer"
+            )
         expected = int(config.get("max_sequence_length", dataset.sequence_length))
         if dataset.sequence_length != expected:
             raise ValueError(

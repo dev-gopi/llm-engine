@@ -6,6 +6,8 @@ from pathlib import Path
 
 import torch
 
+from scripts.prepare_helpsteer_preferences import quality
+
 from model.gpt import MiniGPT
 from optim.adamw import build_adamw
 from optim.scheduler import Scheduler
@@ -14,6 +16,14 @@ from post_training.preference_data import build_preference_loader
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
+
+
+def test_helpsteer_quality_aggregates_all_dimensions() -> None:
+    record = {"scores": {
+        "helpfulness": 4, "correctness": 0, "coherence": 2,
+        "complexity": 1, "verbosity": 3,
+    }}
+    assert quality(record) == 2.0
 
 
 def tokenizer() -> Tokenizer:

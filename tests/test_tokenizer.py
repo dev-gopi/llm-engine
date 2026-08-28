@@ -66,11 +66,22 @@ def test_save_and_load_is_stable(tokenizer: Tokenizer, tmp_path):
     sample = "Exact persistence ✅\n"
     assert restored.vocab == tokenizer.vocab
     assert restored.bpe.merges == tokenizer.bpe.merges
+    assert restored.fingerprint == tokenizer.fingerprint
     assert restored.encode(sample) == tokenizer.encode(sample)
     assert restored.decode(restored.encode(sample)) == sample
     assert json.loads((tmp_path / "tokenizer.json").read_text())["version"] == 1
     assert (tmp_path / "vocab.json").is_file()
     assert (tmp_path / "merges.txt").is_file()
+
+
+def test_load_rejects_tokenizer_fingerprint_mismatch(tokenizer: Tokenizer, tmp_path):
+    artifact = tokenizer.save(tmp_path)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    payload["fingerprint"] = "0" * 64
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fingerprint"):
+        Tokenizer.load(artifact)
 
 
 def test_training_is_deterministic():

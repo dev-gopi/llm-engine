@@ -42,6 +42,18 @@ def test_auto_negotiates_modern_protocol() -> None:
     asyncio.run(scenario())
 
 
+def test_mcp_does_not_inherit_parent_secrets_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("FAKE_MCP_MODERN", "1")
+
+    async def scenario():
+        async with MCPClient([sys.executable, str(SERVER)], timeout=2) as client:
+            # The fake server only advertises modern mode when it receives the
+            # environment variable. A secure default must keep it isolated.
+            assert client.protocol_version == LEGACY_PROTOCOL_VERSION
+
+    asyncio.run(scenario())
+
+
 def test_client_accepts_large_single_line_tool_response() -> None:
     async def scenario():
         text = "x" * 100_000

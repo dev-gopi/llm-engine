@@ -1,4 +1,11 @@
-from training.data import _mixture_groups
+import json
+
+import numpy as np
+import pytest
+
+from tokenizer.bpe import BYTE_ENCODER
+from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
+from training.data import _mixture_groups, build_loader
 
 
 def test_dataset_mixture_weights_are_dataset_level_probabilities() -> None:
@@ -8,3 +15,27 @@ def test_dataset_mixture_weights_are_dataset_level_probabilities() -> None:
         {"dataset_weights": {"small": 0.25, "large": 0.75}},
     )
     assert groups == [(0, 2, 0.25), (2, 10, 0.75)]
+
+
+def test_token_shards_reject_different_same_size_tokenizer(tmp_path) -> None:
+    pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
+    vocab = {piece: index for index, piece in enumerate(pieces)}
+    tokenizer = Tokenizer(
+        vocab,
+        special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS},
+    )
+    np.arange(8, dtype=np.uint32).tofile(tmp_path / "tokens.bin")
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "format": "gopi-token-shards-v1",
+        "dtype": "uint32",
+        "sequence_length": 8,
+        "tokenizer_vocab_size": tokenizer.vocab_size,
+        "tokenizer_fingerprint": "different-tokenizer",
+        "shards": [{"file": "tokens.bin", "sequences": 1}],
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fingerprint"):
+        build_loader(
+            [tmp_path / "manifest.json"], tokenizer,
+            {"batch_size": 1, "max_sequence_length": 8}, shuffle=False,
+        )

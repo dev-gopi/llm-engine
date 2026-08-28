@@ -50,7 +50,10 @@ def main() -> None:
         )
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device=device)
-    load_checkpoint(args.checkpoint, model, map_location=device, use_ema=True)
+    load_checkpoint(
+        args.checkpoint, model, map_location=device, use_ema=True,
+        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+    )
     paths = args.dataset or config.get("validation_files") or config["train_files"]
     loader = build_loader(paths, tokenizer, config, shuffle=False)
     metrics = Evaluator(model, loss_fn=CausalLanguageModelLoss.from_config(config), device=device).evaluate(

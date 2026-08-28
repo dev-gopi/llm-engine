@@ -34,8 +34,19 @@ def apply_rotary_pos_emb(
     cos, sin shape: [1, 1, seq, head_dim] or [batch, 1, seq, head_dim]
     """
     if position_ids is not None:
-        # Index cos and sin using position_ids
-        # position_ids shape: [batch, seq] or [1, seq]
+        if position_ids.dtype not in (torch.int32, torch.int64):
+            raise TypeError("position_ids must use an integer dtype")
+        if position_ids.ndim != 2 or position_ids.shape != (q.shape[0], q.shape[2]):
+            raise ValueError("position_ids must have shape [batch, sequence]")
+        if position_ids.device != q.device:
+            raise ValueError("position_ids and query must be on the same device")
+        if not torch.compiler.is_compiling() and position_ids.numel():
+            minimum, maximum = int(position_ids.min()), int(position_ids.max())
+            if minimum < 0 or maximum >= cos.shape[2]:
+                raise IndexError(
+                    f"position IDs must be in [0, {cos.shape[2] - 1}], "
+                    f"but received range [{minimum}, {maximum}]"
+                )
         cos = cos.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)  # [batch, 1, seq, head_dim]
         sin = sin.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)
     q_embed = (q * cos) + (rotate_half(q) * sin)
@@ -122,7 +133,7 @@ class SinusoidalPositionalEmbedding(nn.Module):
 
         pe = torch.zeros(max_pos, dim, dtype=dtype, device=device)
         pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term[: dim // 2])
         self.register_buffer("weight", pe, persistent=True)
 
     def forward(self, inputs: Tensor, position_offset: int = 0) -> Tensor:

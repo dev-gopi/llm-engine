@@ -132,6 +132,20 @@ def test_checkpoint_architecture_mismatch_error(tmp_path) -> None:
         load_checkpoint(path, model_large)
 
 
+def test_checkpoint_rejects_different_same_size_tokenizer(tmp_path) -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(
+        tmp_path / "model.pt", model,
+        metadata={"tokenizer_fingerprint": "tokenizer-a"},
+    )
+
+    import pytest
+    with pytest.raises(ValueError, match="tokenizer fingerprint"):
+        load_checkpoint(
+            path, model, expected_tokenizer_fingerprint="tokenizer-b"
+        )
+
+
 def test_checkpoint_rng_state_loading(tmp_path) -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     path = save_checkpoint(tmp_path / "rng.pt", model)

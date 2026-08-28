@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import asyncio
 import torch
+from dataclasses import dataclass, field
+from collections import deque
+from contextlib import asynccontextmanager
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from inference.generator import Generator
+from inference.generator import BatchedGenerationState, Generator
 from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
@@ -25,7 +28,10 @@ from utils.config import load_yaml
 from utils.device import resolve_device
 from utils.logger import get_logger
 
-from .runtime import BackendGeneration, BackendStreamEvent, BackendUnavailableError
+from .runtime import (
+    BackendGeneration, BackendStreamEvent, BackendUnavailableError,
+    InvalidGenerationRequestError,
+)
 from .schemas import FinishReason, GenerateRequest
 from .orchestration import ReloadableBackend, ReplicaPoolBackend
 
@@ -34,6 +40,17 @@ logger = get_logger(__name__)
 DEFAULT_EMPTY_RESPONSE = "Sorry, I couldn't generate a response. Please try rephrasing your prompt."
 DEFAULT_NO_RESULTS = "Sorry, I couldn't find any results for that search."
 COMPACT_SAFETY_PROMPT = "Be safe. Refuse harm."
+
+
+@dataclass
+class _BackendBatchStream:
+    generation: BatchedGenerationState | None = None
+    pending: deque[BackendStreamEvent] = field(default_factory=deque)
+    pieces: list[str] = field(default_factory=list)
+    memory: object | None = None
+    session_id: str | None = None
+    search_results: list = field(default_factory=list)
+    released: bool = False
 
 
 class ConfiguredModelBackend:
@@ -56,6 +73,7 @@ class ConfiguredModelBackend:
         paged_kv_page_size: int = 16,
         tensor_parallel_size: int = 1,
         mcp: dict | None = None,
+        allow_checkpoint_fallback: bool = False,
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
@@ -72,18 +90,21 @@ class ConfiguredModelBackend:
         self.paged_kv_page_size = paged_kv_page_size
         self.tensor_parallel_size = tensor_parallel_size
         self.mcp_config = mcp or {}
+        self.allow_checkpoint_fallback = bool(allow_checkpoint_fallback)
         self.mcp_clients: dict[str, MCPClient] = {}
         self.mcp_tools: dict[str, list[MCPTool]] = {}
         self.sessions: SQLiteSessionStore | None = None
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._session_lock_users: dict[str, int] = defaultdict(int)
 
     @property
     def ready(self) -> bool:
         return self.generator is not None
 
     async def startup(self) -> None:
-        if not self.checkpoint_path.exists():
-            # Search for candidates by priority and modification time
+        if not self.checkpoint_path.exists() and self.allow_checkpoint_fallback:
+            # Optional compatibility fallback is restricted to known paths;
+            # never load an arbitrary recently modified checkpoint.
             candidates = [
                 Path("checkpoints/finetuning/best.pt"),
                 Path("checkpoints/finetuning/latest.pt"),
@@ -91,12 +112,6 @@ class ConfiguredModelBackend:
                 Path("checkpoints/latest/best.pt"),
                 Path("checkpoints/pretraining/best.pt"),
             ]
-            # Also find all .pt files under checkpoints/ sorted by modification time
-            all_pt_files = sorted(Path("checkpoints").glob("**/*.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
-            for file in all_pt_files:
-                if file not in candidates:
-                    candidates.append(file)
-
             for fallback in candidates:
                 if fallback.exists():
                     logger.info("Configured checkpoint %s not found; falling back to latest checkpoint %s", self.checkpoint_path, fallback)
@@ -141,6 +156,7 @@ class ConfiguredModelBackend:
                 timeout=float(settings.get("timeout_seconds", 30)),
                 protocol=str(settings.get("protocol", "auto")),
                 max_message_bytes=int(settings.get("max_message_bytes", 16 * 1024 * 1024)),
+                inherit_environment=bool(settings.get("inherit_environment", False)),
             )
             try:
                 await client.start()
@@ -173,11 +189,17 @@ class ConfiguredModelBackend:
             kv_heads=int(config.get("kv_heads", config["heads"])),
         )
         if int(config["vocab_size"]) != tokenizer.vocab_size:
-            config["vocab_size"] = tokenizer.vocab_size
+            raise ValueError(
+                f"model vocabulary ({config['vocab_size']}) does not match "
+                f"tokenizer vocabulary ({tokenizer.vocab_size})"
+            )
 
         try:
             model = MiniGPT.from_config(config, device=device)
-            load_checkpoint(self.checkpoint_path, model, map_location=device, use_ema=True)
+            load_checkpoint(
+                self.checkpoint_path, model, map_location=device, use_ema=True,
+                expected_tokenizer_fingerprint=tokenizer.fingerprint,
+            )
         except RuntimeError as error:
             # Fallback to alternative model configs (e.g. model.gpu.yaml) if architecture mismatch occurs
             alt_config_path = Path("configs/model.gpu.yaml") if self.model_config.name == "model.cpu.yaml" else Path("configs/model.cpu.yaml")
@@ -185,9 +207,15 @@ class ConfiguredModelBackend:
                 logger.info("Retrying checkpoint load with alternate config: %s", alt_config_path)
                 alt_config = load_yaml(alt_config_path)
                 if int(alt_config["vocab_size"]) != tokenizer.vocab_size:
-                    alt_config["vocab_size"] = tokenizer.vocab_size
+                    raise ValueError(
+                        f"alternate model vocabulary ({alt_config['vocab_size']}) does not "
+                        f"match tokenizer vocabulary ({tokenizer.vocab_size})"
+                    )
                 model = MiniGPT.from_config(alt_config, device=device)
-                load_checkpoint(self.checkpoint_path, model, map_location=device, use_ema=True)
+                load_checkpoint(
+                    self.checkpoint_path, model, map_location=device, use_ema=True,
+                    expected_tokenizer_fingerprint=tokenizer.fingerprint,
+                )
                 self.model_config = alt_config_path
                 config = alt_config
             else:
@@ -212,7 +240,7 @@ class ConfiguredModelBackend:
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         if request.session_id:
-            async with self._session_locks[request.session_id]:
+            async with ConfiguredModelBackend._session_guard(self, request.session_id):
                 return await self._generate_unlocked(request)
         return await self._generate_unlocked(request)
 
@@ -257,8 +285,10 @@ class ConfiguredModelBackend:
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
-            prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
-        prompt_ids = self.generator.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
+            maximum = int(getattr(self.generator, "max_positions", request.max_tokens + 1))
+            reserve = min(request.max_tokens, max(1, maximum - 1))
+            prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
+        prompt_ids = ConfiguredModelBackend._validate_prompt(self, prompt)
         logger.debug("Generating from a %d-token prompt", len(prompt_ids))
         generated_ids: list[int] = []
         pieces: list[str] = []
@@ -290,12 +320,160 @@ class ConfiguredModelBackend:
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
         if request.session_id:
-            async with self._session_locks[request.session_id]:
+            async with ConfiguredModelBackend._session_guard(self, request.session_id):
                 async for event in self._stream_unlocked(request):
                     yield event
             return
         async for event in self._stream_unlocked(request):
             yield event
+
+    async def start_stream(self, request: GenerateRequest) -> _BackendBatchStream:
+        """Prepare a request for token-level continuous batching."""
+        if self.generator is None:
+            raise BackendUnavailableError("generation backend is not loaded")
+        state = _BackendBatchStream(session_id=request.session_id)
+        if request.session_id:
+            lock = self._session_locks[request.session_id]
+            self._session_lock_users[request.session_id] += 1
+            await lock.acquire()
+        try:
+            refusal = blocked_prompt_message(request.prompt)
+            direct = refusal or direct_tool_answer(request.prompt, request.tools)
+            if direct is not None:
+                prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+                completion_tokens = len(self.generator.tokenizer.encode(direct))
+                state.pending.extend((
+                    BackendStreamEvent(token=direct, prompt_tokens=prompt_tokens,
+                                       completion_tokens=completion_tokens),
+                    BackendStreamEvent(finish_reason=FinishReason.STOP,
+                                       prompt_tokens=prompt_tokens,
+                                       completion_tokens=completion_tokens),
+                ))
+                return state
+            memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
+            user_prompt, search_results = await self._prepare_user_prompt(request)
+            if user_prompt is None:
+                prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+                completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
+                state.pending.extend((
+                    BackendStreamEvent(token=DEFAULT_NO_RESULTS, prompt_tokens=prompt_tokens,
+                                       completion_tokens=completion_tokens),
+                    BackendStreamEvent(finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
+                                       completion_tokens=completion_tokens),
+                ))
+                return state
+            user_prompt = await self._augment_with_mcp(request, user_prompt)
+            response_format = request.response_format or self.response_format
+            system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
+            prompt = self._format_new_conversation(system_prompt, user_prompt)
+            if memory:
+                memory.set_system_prompt(system_prompt)
+                memory.add("user", user_prompt)
+                reserve = min(request.max_tokens, max(1, self.generator.max_positions - 1))
+                prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
+            self._validate_prompt(prompt)
+            options = dict(
+                max_tokens=request.max_tokens, temperature=request.temperature,
+                top_k=request.top_k, top_p=request.top_p,
+                repetition_penalty=request.repetition_penalty, seed=request.seed,
+                stop=request.stop, allow_special_tokens=True,
+            )
+            state.generation = self.generator.start_batched_stream(prompt, **options)
+            state.memory, state.search_results = memory, search_results
+            return state
+        except BaseException:
+            await self.release_stream(state)
+            raise
+
+    async def decode_stream_batch(
+        self, states: list[_BackendBatchStream]
+    ) -> list[tuple[BackendStreamEvent | None, bool]]:
+        """Advance every active configured request by one scheduler tick."""
+        results: list[tuple[BackendStreamEvent | None, bool] | None] = [None] * len(states)
+        decode_indexes = []
+        decode_states = []
+        for index, state in enumerate(states):
+            if state.pending:
+                event = state.pending.popleft()
+                results[index] = (event, not state.pending and event.finish_reason is not None)
+            elif state.generation is not None:
+                decode_indexes.append(index)
+                decode_states.append(state.generation)
+            else:
+                results[index] = (None, True)
+        if decode_states:
+            steps = self.generator.decode_batched_stream(decode_states)
+            for index, (step, done) in zip(decode_indexes, steps, strict=True):
+                state = states[index]
+                if step.token:
+                    state.pieces.append(step.token)
+                event = BackendStreamEvent(
+                    token=step.token, token_id=step.token_id,
+                    prompt_tokens=step.prompt_tokens,
+                    completion_tokens=step.completion_tokens,
+                )
+                if done:
+                    self._finish_batched_stream(state, step)
+                    if not step.token and state.pending:
+                        event = state.pending.popleft()
+                    results[index] = (event, not state.pending and event.finish_reason is not None)
+                else:
+                    results[index] = (event, False)
+        return [result for result in results if result is not None]
+
+    def _finish_batched_stream(self, state: _BackendBatchStream, step) -> None:
+        response = "".join(state.pieces).strip()
+        if not response:
+            response = DEFAULT_EMPTY_RESPONSE
+            count = len(self.generator.tokenizer.encode(response))
+            state.pending.append(BackendStreamEvent(token=response, completion_tokens=count))
+        if state.memory is not None and state.session_id:
+            state.memory.add("assistant", response)
+            self.sessions.save(state.session_id, state.memory)
+        if state.search_results:
+            state.pending.append(BackendStreamEvent(token=f"\n\n{format_sources(state.search_results)}"))
+        state.pending.append(BackendStreamEvent(
+            finish_reason=FinishReason(step.finish_reason),
+            prompt_tokens=step.prompt_tokens,
+            completion_tokens=(step.completion_tokens or len(self.generator.tokenizer.encode(response))),
+        ))
+
+    async def release_stream(self, state: _BackendBatchStream) -> None:
+        """Release session ownership and references held by a completed request."""
+        if state.released:
+            return
+        state.released = True
+        if state.generation is not None and self.generator is not None:
+            self.generator.release_batched_stream(state.generation)
+        state.generation = None
+        if state.session_id:
+            lock = self._session_locks.get(state.session_id)
+            if lock is not None and lock.locked():
+                lock.release()
+            remaining = self._session_lock_users.get(state.session_id, 1) - 1
+            if remaining > 0:
+                self._session_lock_users[state.session_id] = remaining
+            else:
+                self._session_lock_users.pop(state.session_id, None)
+                self._session_locks.pop(state.session_id, None)
+
+    @asynccontextmanager
+    async def _session_guard(self, session_id: str):
+        """Serialize a session and release its lock entry when no caller remains."""
+        if not hasattr(self, "_session_lock_users"):
+            self._session_lock_users = defaultdict(int)
+        lock = self._session_locks[session_id]
+        self._session_lock_users[session_id] += 1
+        try:
+            async with lock:
+                yield
+        finally:
+            remaining = self._session_lock_users[session_id] - 1
+            if remaining:
+                self._session_lock_users[session_id] = remaining
+            else:
+                self._session_lock_users.pop(session_id, None)
+                self._session_locks.pop(session_id, None)
 
     async def _stream_unlocked(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
         if self.generator is None:
@@ -347,7 +525,10 @@ class ConfiguredModelBackend:
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
-            prompt = memory.render(add_generation_prompt=True, reserve_tokens=request.max_tokens)
+            maximum = int(getattr(self.generator, "max_positions", request.max_tokens + 1))
+            reserve = min(request.max_tokens, max(1, maximum - 1))
+            prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
+        ConfiguredModelBackend._validate_prompt(self, prompt)
         generated_ids: list[int] = []
         pieces: list[str] = []
         options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
@@ -471,7 +652,7 @@ class ConfiguredModelBackend:
             result = await client.call_tool(call.name, call.arguments)
         except Exception as error:
             logger.warning("MCP tool %s/%s failed: %s", call.server, call.name, error)
-            return user_prompt + f"\n\nMCP tool error: {type(error).__name__}: {error}"
+            return user_prompt + f"\n\nMCP tool error: {type(error).__name__}"
         maximum_chars = int(self.mcp_config.get("max_result_chars", 2000))
         context = tool_result_context(user_prompt, call, result, max_result_chars=maximum_chars)
         maximum_tokens = max(32, int(getattr(self.generator, "max_positions", 0)) - 128)
@@ -482,7 +663,9 @@ class ConfiguredModelBackend:
 
     def _fit_mcp_planning_prompt(self, user_prompt: str, catalogs: dict[str, list[MCPTool]]) -> str | None:
         candidates = {name: list(tools) for name, tools in catalogs.items()}
-        maximum = int(getattr(self.generator, "max_positions", 0))
+        maximum = int(getattr(
+            self.generator, "max_positions", getattr(self.sessions, "max_tokens", 0)
+        ))
         if maximum < 2:
             return None
         while any(candidates.values()):
@@ -522,6 +705,20 @@ class ConfiguredModelBackend:
             add_generation_prompt=True,
         )
 
+    def _validate_prompt(self, prompt: str) -> list[int]:
+        identifiers = self.generator.tokenizer.encode(
+            prompt, add_bos=True, allowed_special="all"
+        )
+        maximum = int(getattr(
+            self.generator, "max_positions", getattr(self.sessions, "max_tokens", 0)
+        ))
+        if maximum < 2 or len(identifiers) >= maximum:
+            raise InvalidGenerationRequestError(
+                f"prompt has {len(identifiers)} tokens but model context is {maximum}; "
+                "shorten the prompt or use a model with a larger context window"
+            )
+        return identifiers
+
     async def _stream_steps(self, prompt: str, options: dict):
         for step in self.generator.stream(prompt, **options):
             yield step
@@ -548,6 +745,7 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         paged_kv_page_size=int(serving.get("paged_kv_page_size", 16)),
         tensor_parallel_size=int(serving.get("tensor_parallel_size", 1)),
         mcp=_load_mcp_config(),
+        allow_checkpoint_fallback=bool(serving.get("allow_checkpoint_fallback", False)),
     )
 
 

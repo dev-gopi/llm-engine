@@ -63,6 +63,7 @@ class MCPClient:
         client_version: str = "0.1.0",
         protocol: str = "auto",
         max_message_bytes: int = 16 * 1024 * 1024,
+        inherit_environment: bool = False,
     ) -> None:
         if isinstance(command, (str, bytes)) or not command or any(not isinstance(part, str) or not part for part in command):
             raise ValueError("MCP command must be a non-empty sequence of strings")
@@ -79,6 +80,7 @@ class MCPClient:
         self.client_info = {"name": client_name, "version": client_version}
         self.protocol = protocol
         self.max_message_bytes = int(max_message_bytes)
+        self.inherit_environment = bool(inherit_environment)
         self.protocol_version: str | None = None
         self.server_info: dict[str, Any] = {}
         self.server_capabilities: dict[str, Any] = {}
@@ -102,7 +104,14 @@ class MCPClient:
     async def start(self) -> None:
         if self.running:
             return
-        environment = os.environ.copy()
+        # MCP servers are external programs. Do not expose API keys, cloud
+        # credentials, or unrelated service configuration unless explicitly
+        # requested. PATH keeps normal executable discovery working.
+        environment = os.environ.copy() if self.inherit_environment else {
+            name: os.environ[name]
+            for name in ("PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "TEMP", "TMP")
+            if name in os.environ
+        }
         environment.update(self.env)
         try:
             self.process = await asyncio.create_subprocess_exec(

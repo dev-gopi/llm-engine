@@ -49,6 +49,13 @@ def test_rms_norm_low_precision_is_finite():
     assert torch.isfinite(output).all()
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_rms_norm_preserves_low_precision_input_dtype_with_fp32_parameters(dtype):
+    module = RMSNorm(8)
+    output = module(torch.randn(2, 3, 8, dtype=dtype))
+    assert output.dtype == dtype
+
+
 def test_bias_can_be_disabled_and_parameters_reset():
     module = LayerNorm(8, bias=False)
     assert module.bias is None

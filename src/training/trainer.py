@@ -214,6 +214,7 @@ class Trainer:
         best_checkpoint_callback=None,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
+        stop_requested=None,
     ) -> list[dict[str, float | int]]:
         if epochs < 1:
             raise ValueError("epochs must be positive")
@@ -266,6 +267,12 @@ class Trainer:
                         int(metrics.get("batches", 0)),
                     )
                     history.append({"epoch": epoch + 1, "step": self.global_step, **metrics})
+                if optimizer_stepped and stop_requested and stop_requested():
+                    if checkpoint_callback:
+                        checkpoint_callback(self, epoch)
+                    self.stopped_early = True
+                    logger.warning("coordinated preemption requested at step=%d", self.global_step)
+                    break
             self.flush_gradients()
             self.current_epoch = epoch + 1
             self.batch_in_epoch = 0
@@ -303,6 +310,8 @@ class Trainer:
                 else:
                     self.epochs_without_improvement += 1
             history.append(epoch_record)
+            if self.stopped_early:
+                break
             if early_stopping_patience is not None and self.epochs_without_improvement >= early_stopping_patience:
                 self.stopped_early = True
                 logger.info(

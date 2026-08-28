@@ -46,7 +46,10 @@ def main() -> None:
     tokenizer = Tokenizer.load(args.tokenizer)
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device=device)
-    load_checkpoint(args.checkpoint, model, map_location=device)
+    load_checkpoint(
+        args.checkpoint, model, map_location=device,
+        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+    )
     generator = Generator(model, tokenizer, device=device)
 
     max_tokens = args.max_tokens or int(inference_config.get("max_tokens", 128))

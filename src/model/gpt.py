@@ -171,23 +171,64 @@ class MiniGPT(nn.Module):
         past_key_values: tuple[KeyValueCache, ...] | None = None,
         use_cache: bool = False,
     ) -> Tensor | tuple[Tensor, tuple[KeyValueCache, ...]]:
-        self._validate_inputs(token_ids, attention_mask)
+        self._validate_inputs(token_ids)
+        if not isinstance(position_offset, int) or isinstance(position_offset, bool):
+            raise TypeError("position_offset must be an integer")
+        if position_offset < 0:
+            raise ValueError("position_offset must be non-negative")
         if past_key_values is not None and len(past_key_values) != len(self.blocks):
             raise ValueError("past_key_values must contain one cache per Transformer block")
+        cached_length = 0
         if past_key_values:
+            for cache in past_key_values:
+                if not isinstance(cache, tuple) or len(cache) != 2:
+                    raise TypeError("each past_key_values entry must be a (key, value) tuple")
+                if any(not isinstance(tensor, Tensor) or tensor.ndim != 4 for tensor in cache):
+                    raise ValueError("cached keys and values must have four dimensions")
             cached_length = past_key_values[0][0].shape[2]
+            if any(
+                cache[0].shape[2] != cached_length or cache[1].shape[2] != cached_length
+                for cache in past_key_values
+            ):
+                raise ValueError("all cached keys and values must have the same sequence length")
             if position_offset == 0:
                 position_offset = cached_length
 
         seq_len = token_ids.shape[1]
+        self._validate_attention_mask(
+            attention_mask,
+            batch_size=token_ids.shape[0],
+            sequence_length=seq_len,
+            cached_length=cached_length,
+        )
+        current_attention_mask = attention_mask
+        if attention_mask is not None and attention_mask.shape[1] != seq_len:
+            current_attention_mask = attention_mask[:, -seq_len:]
+        block_attention_mask = attention_mask
+        if attention_mask is not None and cached_length and attention_mask.shape[1] == seq_len:
+            prefix_mask = torch.ones(
+                (token_ids.shape[0], cached_length),
+                dtype=attention_mask.dtype,
+                device=attention_mask.device,
+            )
+            block_attention_mask = torch.cat((prefix_mask, attention_mask), dim=1)
         rotary_pos_emb: tuple[Tensor, Tensor] | None = None
 
         if self.position_type == "learned" and self.pos is not None:
+            learned_position_ids = position_ids
+            if (
+                learned_position_ids is None
+                and attention_mask is not None
+                and attention_mask.shape[1] != seq_len
+            ):
+                learned_position_ids = (
+                    attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)[:, -seq_len:]
+                )
             positions = self.pos(
                 token_ids,
-                position_ids=position_ids,
+                position_ids=learned_position_ids,
                 position_offset=position_offset,
-                attention_mask=attention_mask,
+                attention_mask=current_attention_mask,
             )
             hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
         elif self.position_type == "sinusoidal" and self.pos is not None:
@@ -195,7 +236,14 @@ class MiniGPT(nn.Module):
             hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
         elif self.position_type == "rotary" and self.rotary_emb is not None:
             hidden_states = self.embedding_dropout(self.tok(token_ids))
-            rotary_pos_emb = self.rotary_emb(hidden_states, seq_len=position_offset + seq_len)
+            rope_length = position_offset + seq_len
+            if position_ids is not None:
+                position_ids = self._validate_position_ids(
+                    position_ids, token_ids.shape[0], seq_len, token_ids.device
+                )
+                if not torch.compiler.is_compiling() and position_ids.numel():
+                    rope_length = max(rope_length, int(position_ids.max()) + 1)
+            rotary_pos_emb = self.rotary_emb(hidden_states, seq_len=rope_length)
             # The RoPE cache covers the full prefix, while an incremental
             # decoding call only projects the newly supplied tokens. Slice to
             # those positions unless explicit position IDs will index it.
@@ -230,13 +278,13 @@ class MiniGPT(nn.Module):
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block),
                     hidden_states,
-                    attention_mask,
+                    block_attention_mask,
                     use_reentrant=False,
                 )
             else:
                 block_output = block(
                     hidden_states,
-                    attention_mask=attention_mask,
+                    attention_mask=block_attention_mask,
                     rotary_pos_emb=rotary_pos_emb,
                     position_ids=position_ids,
                     past_key_value=past_kv,
@@ -389,12 +437,51 @@ class MiniGPT(nn.Module):
             raise ValueError("embedding_dropout must satisfy 0 <= dropout < 1")
 
     @staticmethod
-    def _validate_inputs(token_ids: Tensor, attention_mask: Tensor | None) -> None:
+    def _validate_inputs(token_ids: Tensor) -> None:
         if not isinstance(token_ids, Tensor) or token_ids.ndim != 2:
             raise ValueError("token_ids must have shape [batch, sequence]")
         if token_ids.dtype not in (torch.int32, torch.int64):
             raise TypeError("token_ids must use an integer dtype")
         if token_ids.shape[1] == 0:
             raise ValueError("token_ids sequence cannot be empty")
-        if attention_mask is not None and attention_mask.shape != token_ids.shape:
-            raise ValueError("attention_mask must match token_ids shape")
+
+    @staticmethod
+    def _validate_attention_mask(
+        attention_mask: Tensor | None,
+        *,
+        batch_size: int,
+        sequence_length: int,
+        cached_length: int,
+    ) -> None:
+        if attention_mask is None:
+            return
+        if not isinstance(attention_mask, Tensor) or attention_mask.ndim != 2:
+            raise ValueError("attention_mask must have shape [batch, sequence]")
+        valid_shapes = {(batch_size, sequence_length)}
+        if cached_length:
+            valid_shapes.add((batch_size, cached_length + sequence_length))
+        if tuple(attention_mask.shape) not in valid_shapes:
+            expected = " or ".join(str(shape) for shape in sorted(valid_shapes))
+            raise ValueError(f"attention_mask must have shape {expected}")
+        if not torch.compiler.is_compiling() and not torch.all(
+            (attention_mask == 0) | (attention_mask == 1)
+        ):
+            raise ValueError("attention_mask values must be binary")
+
+    @staticmethod
+    def _validate_position_ids(
+        position_ids: Tensor, batch_size: int, sequence_length: int, device: torch.device
+    ) -> Tensor:
+        if not isinstance(position_ids, Tensor):
+            raise TypeError("position_ids must be a torch.Tensor")
+        if position_ids.dtype not in (torch.int32, torch.int64):
+            raise TypeError("position_ids must use an integer dtype")
+        if position_ids.ndim == 1 and position_ids.shape[0] == sequence_length:
+            position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+        elif position_ids.shape != (batch_size, sequence_length):
+            raise ValueError("position_ids must have shape [sequence] or [batch, sequence]")
+        if position_ids.device != device:
+            raise ValueError("position_ids and token_ids must be on the same device")
+        if not torch.compiler.is_compiling() and position_ids.numel() and int(position_ids.min()) < 0:
+            raise IndexError("position IDs must be non-negative")
+        return position_ids.to(dtype=torch.long)

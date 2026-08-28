@@ -75,7 +75,10 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
                 eos = tokenizer.token_to_id("<|eos|>")
                 if eos is not None:
                     identifiers[-1] = eos
-                    loss_mask[-1] = True
+                    # Preserve the role mask. If truncation lands inside a user
+                    # or system turn, supervising this synthetic EOS would teach
+                    # the model to stop instead of producing an assistant reply.
+                    loss_mask[-1] = bool(loss_mask[-1])
             if len(identifiers) >= drop_shorter_than:
                 self.examples.append(torch.tensor(identifiers, dtype=torch.long))
                 self.loss_masks.append(torch.tensor(loss_mask, dtype=torch.bool))

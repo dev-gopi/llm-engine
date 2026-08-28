@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import random
+import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -31,10 +34,14 @@ def save_distributed_checkpoint(
     destination = Path(path)
     rank = dist.get_rank() if dist.is_initialized() else 0
     world_size = dist.get_world_size() if dist.is_initialized() else 1
+    transaction = [uuid.uuid4().hex if rank == 0 else ""]
+    if dist.is_initialized():
+        dist.broadcast_object_list(transaction, src=0)
+    staging = destination.with_name(f".{destination.name}.staging-{transaction[0]}")
     model_state, optimizer_state = get_state_dict(model, optimizer)
     dcp.save(
         {"model": model_state, "optimizer": optimizer_state},
-        storage_writer=dcp.FileSystemWriter(destination, overwrite=True),
+        storage_writer=dcp.FileSystemWriter(staging, overwrite=False),
         no_dist=not dist.is_initialized(),
     )
     rank_state = {
@@ -48,13 +55,31 @@ def save_distributed_checkpoint(
         "python_rng_state": random.getstate(),
         "numpy_rng_state": _numpy_rng_state(),
     }
-    _atomic_torch_save(rank_state, destination / f"gopi_rank_{rank:05d}.pt")
+    _atomic_torch_save(rank_state, staging / f"gopi_rank_{rank:05d}.pt")
+    if dist.is_initialized():
+        dist.barrier()
     if rank == 0:
         saved_metadata = dict(metadata or {})
         saved_metadata["checkpoint_world_size"] = world_size
-        (destination / "gopi_metadata.json").write_text(
+        (staging / "gopi_metadata.json").write_text(
             json.dumps(saved_metadata, indent=2, default=str) + "\n", encoding="utf-8"
         )
+        manifest = _checksum_manifest(staging)
+        (staging / "gopi_manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        (staging / "gopi_complete").write_text(transaction[0] + "\n", encoding="utf-8")
+        backup = destination.with_name(f".{destination.name}.previous-{transaction[0]}")
+        if destination.exists():
+            os.replace(destination, backup)
+        try:
+            os.replace(staging, destination)
+        except BaseException:
+            if backup.exists() and not destination.exists():
+                os.replace(backup, destination)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
     if dist.is_initialized():
         dist.barrier()
     return destination
@@ -73,6 +98,7 @@ def load_distributed_checkpoint(
     source = Path(path)
     if not source.is_dir():
         raise FileNotFoundError(f"distributed checkpoint directory not found: {source}")
+    _verify_checkpoint(source)
     model_state, optimizer_state = get_state_dict(model, optimizer)
     state = {"model": model_state, "optimizer": optimizer_state}
     dcp.load(state, checkpoint_id=source, no_dist=not dist.is_initialized())
@@ -119,6 +145,34 @@ def _atomic_torch_save(payload: dict[str, Any], destination: Path) -> None:
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
+
+
+def _checksum_manifest(directory: Path) -> dict[str, Any]:
+    files = {}
+    for path in sorted(candidate for candidate in directory.rglob("*") if candidate.is_file()):
+        relative = path.relative_to(directory).as_posix()
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        files[relative] = {"sha256": digest.hexdigest(), "bytes": path.stat().st_size}
+    return {"format": "gopi-distributed-checkpoint-v2", "files": files}
+
+
+def _verify_checkpoint(directory: Path) -> None:
+    manifest_path = directory / "gopi_manifest.json"
+    if not (directory / "gopi_complete").is_file() or not manifest_path.is_file():
+        raise ValueError("distributed checkpoint is incomplete or uses an unsupported legacy format")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("format") != "gopi-distributed-checkpoint-v2":
+        raise ValueError("unsupported distributed checkpoint manifest")
+    for relative, expected in manifest.get("files", {}).items():
+        path = directory / relative
+        if not path.is_file() or path.stat().st_size != int(expected["bytes"]):
+            raise ValueError(f"distributed checkpoint file is missing or truncated: {relative}")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != expected["sha256"]:
+            raise ValueError(f"distributed checkpoint checksum mismatch: {relative}")
 
 
 def _numpy_rng_state() -> dict[str, Any]:

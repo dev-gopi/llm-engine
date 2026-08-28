@@ -27,6 +27,8 @@ from training.data import build_loader
 from training.distributed import DistributedTrainer
 from training.evaluator import Evaluator
 from training.trainer import Trainer
+from training.planner import optimizer_steps_for_epochs
+from training.elastic import PreemptionCoordinator
 from dotenv import load_dotenv
 
 from utils.config import load_yaml
@@ -53,13 +55,20 @@ def main() -> None:
 
     configure_logging()
     model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
-    if str(config.get("mixed_precision", "none")) == "fp16" and not torch.cuda.is_available():
+    precision = str(config.get("mixed_precision", "none"))
+    if precision == "fp16" and not torch.cuda.is_available():
         parser.error(
             "the selected GPU training profile requires CUDA, but PyTorch cannot access a GPU. "
             "Fix the NVIDIA driver until `nvidia-smi` works, or explicitly select "
             "--model-config configs/model.cpu.yaml --training-config configs/training.cpu.yaml"
         )
-    set_seed(int(config.get("seed", 42)))
+    if precision == "bf16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
+        parser.error(
+            "the selected profile requires CUDA BF16, but this GPU does not support it; "
+            "use an FP16 profile or set mixed_precision: fp16"
+        )
+    base_seed = int(config.get("seed", 42))
+    set_seed(base_seed)
     governed_paths = [*config.get("train_files", []), *config.get("validation_files", [])]
     governance_findings = enforce_dataset_governance(
         governed_paths, config.get("dataset_governance"),
@@ -88,6 +97,7 @@ def main() -> None:
             map_location=distributed.device,
             use_ema=False,
             restore_rng=False,
+            expected_tokenizer_fingerprint=tokenizer.fingerprint,
         )
     strategy = str(config.get("distributed_strategy", "ddp"))
     distributed_checkpoints = strategy.startswith("fsdp") or str(
@@ -99,10 +109,15 @@ def main() -> None:
         strategy=strategy,
         mixed_precision=str(config.get("mixed_precision", "none")),
     )
+    # Model initialization must be identical across ranks, but stochastic
+    # training operations (for example dropout) should not reuse identical RNG
+    # streams on every worker.
+    if distributed.world_size > 1 and not args.resume:
+        set_seed(base_seed + distributed.rank)
     train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True, rank=distributed.rank, world_size=distributed.world_size)
     epochs = args.epochs or int(config.get("epochs", 1))
     accumulation = int(config.get("gradient_accumulation_steps", 1))
-    total_steps = max(1, (len(train_loader) * epochs + accumulation - 1) // accumulation)
+    total_steps = optimizer_steps_for_epochs(len(train_loader), epochs, accumulation)
     optimizer = adamw_from_config(training_model, config)
     scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
     # A conventional EMA duplicates every parameter and defeats FSDP memory
@@ -119,16 +134,32 @@ def main() -> None:
         grad_scaler_initial_scale=float(config.get("grad_scaler_initial_scale", 65536.0)),
         grad_scaler_growth_interval=int(config.get("grad_scaler_growth_interval", 2000)),
     )
+    preemption = PreemptionCoordinator()
+    preemption.install()
+    atexit.register(preemption.restore)
     if args.resume:
         if args.resume.is_dir():
             state = load_distributed_checkpoint(
                 args.resume, training_model, optimizer,
                 scheduler=scheduler, scaler=trainer.scaler,
             )
+            saved_fingerprint = state.get("tokenizer_fingerprint")
+            if saved_fingerprint and saved_fingerprint != tokenizer.fingerprint:
+                parser.error(
+                    "checkpoint tokenizer fingerprint does not match the selected tokenizer"
+                )
         else:
-            state = load_checkpoint(args.resume, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=trainer.scaler, map_location=distributed.device)
+            state = load_checkpoint(
+                args.resume, model, optimizer=optimizer, scheduler=scheduler,
+                ema=ema, scaler=trainer.scaler, map_location=distributed.device,
+                expected_tokenizer_fingerprint=tokenizer.fingerprint,
+            )
         trainer.global_step = state["step"]
         trainer.load_state_dict(state.get("trainer", {}))
+        if distributed.world_size > 1 and not distributed_checkpoints:
+            # A single-file DDP checkpoint contains rank-zero RNG only. Avoid
+            # cloning that stream across all workers after resume.
+            set_seed(base_seed + distributed.rank + trainer.global_step)
         # Checkpoints contain the scaler's old tuning. Keep the current run's
         # configured growth interval when resuming so stability changes apply.
         if trainer.scaler.is_enabled():
@@ -157,6 +188,7 @@ def main() -> None:
                     "step": current.global_step,
                     "epoch": epoch + 1,
                     "model_config": model_config,
+                    "tokenizer_fingerprint": tokenizer.fingerprint,
                     "trainer": current.state_dict(),
                     "sampler": train_loader.batch_sampler.state_dict(),
                 },
@@ -165,7 +197,7 @@ def main() -> None:
         if not distributed.is_main_process:
             return
         save_checkpoint(args.output, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=current.scaler,
-                        step=current.global_step, metadata={"epoch": epoch + 1, "model_config": model_config},
+                        step=current.global_step, metadata={"epoch": epoch + 1, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint},
                         trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict())
 
     def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
@@ -182,6 +214,7 @@ def main() -> None:
                     "validation_loss": current.best_validation_loss,
                     "best": True,
                     "model_config": model_config,
+                    "tokenizer_fingerprint": tokenizer.fingerprint,
                     "trainer": current.state_dict(),
                     "sampler": train_loader.batch_sampler.state_dict(),
                 },
@@ -192,7 +225,7 @@ def main() -> None:
         save_checkpoint(
             args.best_output, model, optimizer=optimizer, scheduler=scheduler, ema=ema,
             scaler=current.scaler, step=current.global_step,
-            metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config},
+            metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint},
             trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict(),
         )
 
@@ -206,6 +239,7 @@ def main() -> None:
         best_checkpoint_callback=best_checkpoint_callback,
         early_stopping_patience=config.get("early_stopping_patience"),
         early_stopping_min_delta=float(config.get("early_stopping_min_delta", 0.0)),
+        stop_requested=lambda: preemption.should_stop(distributed.device),
     )
     final_epoch = int(history[-1]["epoch"]) - 1 if history else trainer.current_epoch - 1
     checkpoint_callback(trainer, final_epoch)

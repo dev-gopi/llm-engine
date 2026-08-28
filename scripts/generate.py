@@ -71,7 +71,10 @@ def main() -> None:
     print(f"Loading checkpoint: {checkpoint_path}")
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device=device)
-    load_checkpoint(checkpoint_path, model, map_location=device)
+    load_checkpoint(
+        checkpoint_path, model, map_location=device,
+        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+    )
 
     response_format = args.response_format or str(inference_config.get("response_format", "plain"))
     system_prompt = format_system_prompt(

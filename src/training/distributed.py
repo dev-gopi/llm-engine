@@ -39,6 +39,8 @@ class DistributedTrainer:
         world_size = int(os.getenv("WORLD_SIZE", "1"))
         rank = int(os.getenv("RANK", "0"))
         local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        if world_size < 1 or not 0 <= rank < world_size or local_rank < 0:
+            raise ValueError("WORLD_SIZE, RANK, and LOCAL_RANK are inconsistent")
         if world_size > 1 and not dist.is_initialized():
             resolved_backend = backend or ("nccl" if torch.cuda.is_available() else "gloo")
             dist.init_process_group(backend=resolved_backend, init_method="env://")
@@ -61,6 +63,10 @@ class DistributedTrainer:
         if strategy not in {"none", "ddp", "fsdp", "fsdp_hybrid"}:
             raise ValueError("distributed_strategy must be none, ddp, fsdp, or fsdp_hybrid")
         model = model.to(context.device)
+        if context.world_size > 1 and strategy == "none":
+            raise ValueError(
+                "distributed_strategy='none' cannot be used with WORLD_SIZE > 1"
+            )
         if context.world_size == 1 or strategy == "none":
             return model
         if strategy.startswith("fsdp"):

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from training.planner import plan_training
+from training.planner import optimizer_steps_for_epochs, plan_training
 
 
 MODEL = {
@@ -17,6 +17,11 @@ MODEL = {
     "ffn_hidden_size": 256,
     "gradient_checkpointing": True,
 }
+
+
+def test_optimizer_steps_count_partial_accumulation_per_epoch() -> None:
+    assert optimizer_steps_for_epochs(5, epochs=2, accumulation_steps=4) == 4
+    assert optimizer_steps_for_epochs(8, epochs=2, accumulation_steps=4) == 4
 
 
 def test_training_planner_estimates_steps_flops_runtime_cost_and_memory() -> None:

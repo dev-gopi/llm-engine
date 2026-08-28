@@ -14,15 +14,18 @@ class _WorkItem:
 
 
 class DynamicBatcher:
-    def __init__(self, backend: Any, *, max_batch_size: int = 8, wait_milliseconds: float = 5.0) -> None:
-        if max_batch_size < 1 or wait_milliseconds < 0:
+    def __init__(
+        self, backend: Any, *, max_batch_size: int = 8,
+        wait_milliseconds: float = 5.0, queue_size: int = 1024,
+    ) -> None:
+        if max_batch_size < 1 or wait_milliseconds < 0 or queue_size < 1:
             raise ValueError("invalid dynamic batching limits")
         if not callable(getattr(backend, "batch_generate", None)):
             raise TypeError("backend must implement async batch_generate(requests)")
         self.backend = backend
         self.max_batch_size = max_batch_size
         self.wait_seconds = wait_milliseconds / 1000
-        self.queue: asyncio.Queue[_WorkItem | None] = asyncio.Queue()
+        self.queue: asyncio.Queue[_WorkItem | None] = asyncio.Queue(maxsize=queue_size)
         self.worker: asyncio.Task | None = None
 
     async def startup(self) -> None:

@@ -10,6 +10,15 @@ from typing import Any
 from model.config import estimate_model_size, normalize_model_config
 
 
+def optimizer_steps_for_epochs(
+    batches_per_epoch: int, epochs: int, accumulation_steps: int
+) -> int:
+    """Count optimizer updates when partial accumulation is flushed per epoch."""
+    if min(batches_per_epoch, epochs, accumulation_steps) < 1:
+        raise ValueError("batches_per_epoch, epochs, and accumulation_steps must be positive")
+    return epochs * math.ceil(batches_per_epoch / accumulation_steps)
+
+
 @dataclass(frozen=True)
 class TrainingPlan:
     parameters: int

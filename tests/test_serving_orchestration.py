@@ -1,6 +1,6 @@
 import asyncio
 
-from serving.orchestration import ContinuousStreamScheduler, ReloadableBackend, ReplicaPoolBackend
+from serving.orchestration import ContinuousStreamScheduler, ReloadableBackend, ReplicaPoolBackend, TokenStepScheduler
 from serving.rate_limit import SQLiteRateLimiter
 
 
@@ -44,6 +44,74 @@ def test_continuous_scheduler_multiplexes_token_streams() -> None:
     first, second = asyncio.run(scenario())
     assert [event[2] for event in first] == [0, 1, 2]
     assert [event[2] for event in second] == [0, 1, 2]
+
+
+def test_continuous_scheduler_cancels_disconnected_stream() -> None:
+    class EndlessBackend(Backend):
+        def __init__(self):
+            super().__init__("model")
+            self.cancelled = asyncio.Event()
+
+        async def stream(self, request):
+            try:
+                while True:
+                    yield request
+                    await asyncio.sleep(0)
+            finally:
+                self.cancelled.set()
+
+    async def scenario():
+        backend = EndlessBackend()
+        scheduler = ContinuousStreamScheduler(
+            backend, max_active=1, event_queue_size=1
+        )
+        await scheduler.startup()
+        stream = scheduler.stream("request")
+        assert await anext(stream) == "request"
+        await stream.aclose()
+        await asyncio.wait_for(backend.cancelled.wait(), timeout=1)
+        await scheduler.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_token_step_scheduler_batches_active_sequences_and_admits_work():
+    class TokenBackend:
+        def __init__(self):
+            self.batch_sizes = []
+            self.released = []
+
+        async def start_stream(self, request):
+            return [request, 0]
+
+        async def decode_stream_batch(self, states):
+            self.batch_sizes.append(len(states))
+            results = []
+            for state in states:
+                state[1] += 1
+                results.append(((state[0], state[1]), state[1] == 3))
+            return results
+
+        def release_stream(self, state):
+            self.released.append(state[0])
+
+    async def scenario():
+        backend = TokenBackend()
+        scheduler = TokenStepScheduler(backend, max_active=4)
+        await scheduler.startup()
+        results = await asyncio.gather(*(
+            asyncio.create_task(collect(scheduler.stream(value))) for value in ("a", "b", "c")
+        ))
+        await scheduler.shutdown()
+        return backend, results
+
+    async def collect(stream):
+        return [value async for value in stream]
+
+    backend, results = asyncio.run(scenario())
+    assert all(len(values) == 3 for values in results)
+    assert any(size > 1 for size in backend.batch_sizes)
+    assert sorted(backend.released) == ["a", "b", "c"]
 
 
 def test_replica_pool_routes_to_least_active_replica() -> None:

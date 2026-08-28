@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from .schemas import FinishReason, GenerateRequest
-from .orchestration import ContinuousStreamScheduler
+from .orchestration import ContinuousStreamScheduler, TokenStepScheduler
 
 
 class ServingError(RuntimeError):
@@ -27,6 +27,10 @@ class GenerationTimeoutError(ServingError):
 
 class ServerBusyError(ServingError):
     code = "server_busy"
+
+
+class InvalidGenerationRequestError(ServingError):
+    code = "invalid_generation_request"
 
 
 @dataclass(frozen=True)
@@ -88,10 +92,23 @@ class ServingRuntime:
         self.queue_timeout_seconds = queue_timeout_seconds
         self.generation_timeout_seconds = generation_timeout_seconds
         self._semaphore = asyncio.Semaphore(max_concurrency)
-        self.stream_scheduler = (
-            ContinuousStreamScheduler(backend or self.backend, max_active=continuous_streams)
-            if continuous_streams else None
-        )
+        scheduler_backend = backend or self.backend
+        if continuous_streams and all(
+            callable(getattr(scheduler_backend, method, None))
+            for method in ("start_stream", "decode_stream_batch")
+        ):
+            self.stream_scheduler = TokenStepScheduler(
+                scheduler_backend, max_active=continuous_streams
+            )
+            self.stream_scheduler_mode = "token_step"
+        elif continuous_streams:
+            self.stream_scheduler = ContinuousStreamScheduler(
+                scheduler_backend, max_active=continuous_streams
+            )
+            self.stream_scheduler_mode = "independent"
+        else:
+            self.stream_scheduler = None
+            self.stream_scheduler_mode = "disabled"
         self.active_requests = 0
         self.total_requests = 0
         self.completed_requests = 0
@@ -156,13 +173,14 @@ class ServingRuntime:
             self.total_generation_seconds += time.monotonic() - started
             self._release()
 
-    def metrics(self) -> dict[str, int | float]:
+    def metrics(self) -> dict[str, int | float | str]:
         return {
             "active_requests": self.active_requests,
             "total_requests": self.total_requests,
             "completed_requests": self.completed_requests,
             "failed_requests": self.failed_requests,
             "total_generation_seconds": self.total_generation_seconds,
+            "stream_scheduler_mode": self.stream_scheduler_mode,
         }
 
     async def _acquire(self) -> None:

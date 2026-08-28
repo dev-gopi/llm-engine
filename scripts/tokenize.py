@@ -13,7 +13,9 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import argparse
 import glob
+import heapq
 import json
+from collections import deque
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -89,22 +91,73 @@ READERS = {
 }
 
 
-def iter_corpus(patterns: Iterable[str]) -> Iterator[str]:
-    matched_any = False
+def _corpus_readers(patterns: Iterable[str]) -> list[Iterator[str]]:
+    readers: list[Iterator[str]] = []
     for pattern in patterns:
         matches = sorted(Path(item) for item in glob.glob(pattern))
         if not matches:
             raise FileNotFoundError(f"dataset pattern matched no files: {pattern}")
+
+        def read_matches(paths: tuple[Path, ...]) -> Iterator[str]:
+            # A glob is one logical source. Process its shards sequentially so
+            # balanced sampling holds at most one open file per configured
+            # source instead of one descriptor per shard.
+            for path in paths:
+                try:
+                    reader = READERS[path.suffix.lower()]
+                except KeyError as error:
+                    raise ValueError(f"unsupported dataset format: {path}") from error
+                print(f"Reading {path}", file=sys.stderr)
+                yield from reader(path)
+
         for path in matches:
-            matched_any = True
             try:
-                reader = READERS[path.suffix.lower()]
+                READERS[path.suffix.lower()]
             except KeyError as error:
                 raise ValueError(f"unsupported dataset format: {path}") from error
-            print(f"Reading {path}", file=sys.stderr)
-            yield from reader(path)
-    if not matched_any:
+        readers.append(read_matches(tuple(matches)))
+    if not readers:
         raise ValueError("no tokenizer training sources were configured")
+    return readers
+
+
+def iter_corpus(patterns: Iterable[str], *, sampling: str = "sequential") -> Iterator[str]:
+    readers = _corpus_readers(patterns)
+    if sampling == "sequential":
+        for reader in readers:
+            yield from reader
+        return
+    if sampling == "round_robin":
+        # Interleave one extracted text field from each source.
+        pending = deque(readers)
+        while pending:
+            reader = pending.popleft()
+            try:
+                text = next(reader)
+            except StopIteration:
+                continue
+            yield text
+            pending.append(reader)
+        return
+    if sampling == "balanced_bytes":
+        # Always read next from the source that has contributed the fewest
+        # UTF-8 bytes. Unlike equal fixed quotas, this also redistributes the
+        # remaining budget when a small source is exhausted.
+        pending_by_size = [(0, source_id, reader) for source_id, reader in enumerate(readers)]
+        heapq.heapify(pending_by_size)
+        while pending_by_size:
+            contributed_bytes, source_id, reader = heapq.heappop(pending_by_size)
+            try:
+                text = next(reader)
+            except StopIteration:
+                continue
+            yield text
+            contributed_bytes += len(text.encode("utf-8"))
+            heapq.heappush(pending_by_size, (contributed_bytes, source_id, reader))
+        return
+    raise ValueError(
+        "source_sampling must be sequential, round_robin, or balanced_bytes"
+    )
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -136,7 +189,13 @@ def train_command(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
 
-    tokenizer = trainer.train(iter_corpus(args.source or config["sources"]), progress=report)
+    tokenizer = trainer.train(
+        iter_corpus(
+            args.source or config["sources"],
+            sampling=str(config.get("source_sampling", "sequential")),
+        ),
+        progress=report,
+    )
     output_dir = args.output or Path(config.get("output_dir", "data/tokenizer"))
     artifact = tokenizer.save(output_dir)
     print(

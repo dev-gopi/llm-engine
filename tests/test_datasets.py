@@ -84,6 +84,18 @@ def test_text_dataset_rejects_unusable_records_instead_of_skipping() -> None:
         TextDataset([{"unsupported": "value"}], tokenizer(), max_length=16)
 
 
+def test_truncated_user_turn_does_not_supervise_synthetic_eos() -> None:
+    dataset = TextDataset(
+        [{"messages": [{"role": "user", "content": "a" * 100}]}],
+        tokenizer(),
+        max_length=16,
+    )
+
+    example = dataset[0]
+    assert example["input_ids"][-1].item() == tokenizer().token_to_id("<|eos|>")
+    assert not example["loss_mask"][-1].item()
+
+
 def test_lazy_jsonl_reports_malformed_record_location_without_substitution(tmp_path) -> None:
     source = tmp_path / "data.jsonl"
     source.write_text('{"text": "valid"}\nnot-json\n', encoding="utf-8")

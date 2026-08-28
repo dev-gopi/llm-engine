@@ -5,8 +5,10 @@ language model from the ground up. The repository separates tokenization, data
 processing, model architecture, training, inference, and serving so each part
 can evolve independently as the model grows.
 
+Before deployment, review [Production readiness](docs/production-readiness.md).
+
 > **Development status:** The local from-scratch pipeline is implemented and
-> covered by 264 tests: preparation, tokenization, pretraining, SFT, DPO
+> covered by an automated test suite: preparation, tokenization, pretraining, SFT, DPO
 > components, evaluation, cached generation, serving, and export. FSDP,
 > distributed checkpoints, binary token shards, and scalable serving primitives
 > are opt-in. Multi-GPU/multi-node operation still requires validation on the
@@ -505,6 +507,14 @@ Prepare the dedicated tokenizer before training v2. This intentionally creates
 ```bash
 python scripts/tokenize.py train --config configs/tokenizer.v2.yaml
 ```
+
+The v2 tokenizer uses `source_sampling: balanced_bytes`: it repeatedly reads
+from the source that has contributed the fewest UTF-8 bytes. This prevents the
+first large corpus from exhausting `max_training_bytes` before later chat,
+code, and multilingual sources are represented. Regenerating a tokenizer
+changes token IDs and therefore requires model training to restart from
+scratch. New checkpoints record a tokenizer fingerprint and reject a different
+same-size tokenizer during training and inference.
 
 Run staged GPU training with separate checkpoints:
 

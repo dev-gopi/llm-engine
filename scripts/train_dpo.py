@@ -57,6 +57,8 @@ def main() -> None:
     mixed_precision = str(config.get("mixed_precision", "none"))
     if mixed_precision == "fp16" and device.type != "cuda":
         parser.error("the selected DPO profile requires CUDA fp16; use configs/dpo.v2.cpu.yaml")
+    if mixed_precision == "bf16" and device.type == "cuda" and not torch.cuda.is_bf16_supported():
+        parser.error("the selected DPO profile requires BF16, but this GPU does not support it")
     tokenizer = Tokenizer.load(args.tokenizer)
     if tokenizer.vocab_size != int(model_config["vocab_size"]):
         parser.error("tokenizer vocabulary does not match model vocab_size")
@@ -65,9 +67,16 @@ def main() -> None:
 
     policy = MiniGPT.from_config(model_config, device=device)
     reference = MiniGPT.from_config(model_config, device=device)
-    load_checkpoint(args.reference_checkpoint, reference, map_location=device, use_ema=True, restore_rng=False)
+    load_checkpoint(
+        args.reference_checkpoint, reference, map_location=device, use_ema=True,
+        restore_rng=False, expected_tokenizer_fingerprint=tokenizer.fingerprint,
+    )
     if not args.resume:
-        load_checkpoint(args.init_from or args.reference_checkpoint, policy, map_location=device, use_ema=True, restore_rng=False)
+        load_checkpoint(
+            args.init_from or args.reference_checkpoint, policy, map_location=device,
+            use_ema=True, restore_rng=False,
+            expected_tokenizer_fingerprint=tokenizer.fingerprint,
+        )
     train_loader = build_preference_loader(
         config["train_files"], tokenizer, max_length=int(config["max_sequence_length"]),
         batch_size=int(config["batch_size"]), shuffle=True, seed=int(config.get("seed", 42)),
@@ -90,6 +99,7 @@ def main() -> None:
         state = load_checkpoint(
             args.resume, policy, optimizer=optimizer, scheduler=scheduler,
             scaler=trainer.scaler, map_location=device,
+            expected_tokenizer_fingerprint=tokenizer.fingerprint,
         )
         trainer.load_state_dict(state.get("trainer", {}))
 
@@ -99,6 +109,7 @@ def main() -> None:
             step=current.global_step, trainer=current.state_dict(), metadata={
                 "epoch": epoch + 1, "best": best, "model_config": model_config,
                 "reference_checkpoint": str(args.reference_checkpoint), "training_type": "dpo",
+                "tokenizer_fingerprint": tokenizer.fingerprint,
             },
         )
 

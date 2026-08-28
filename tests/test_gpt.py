@@ -66,6 +66,10 @@ def test_gpt_validates_inputs_and_configuration():
     model = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2)
     with pytest.raises(TypeError, match="integer dtype"):
         model(torch.ones((1, 3)))
+    with pytest.raises(ValueError, match="binary"):
+        model(torch.ones((1, 3), dtype=torch.long), attention_mask=torch.tensor([[1, 2, 1]]))
+    with pytest.raises(ValueError, match="non-negative"):
+        model(torch.ones((1, 3), dtype=torch.long), position_offset=-1)
 
 
 def test_gpt_kv_cache_matches_full_sequence_logits():
@@ -79,3 +83,18 @@ def test_gpt_kv_cache_matches_full_sequence_logits():
     assert prefix_logits.shape == (1, 3, 32)
     torch.testing.assert_close(step_logits[:, -1], full[:, -1], atol=1e-5, rtol=1e-5)
     assert updated[0][0].shape[2] == 4
+
+
+@pytest.mark.parametrize("position_type", ["learned", "rotary"])
+def test_gpt_cached_padding_mask_matches_full_sequence(position_type):
+    torch.manual_seed(19)
+    model = MiniGPT(
+        vocab_size=32, dim=8, layers=2, heads=2, max_pos=8, position_type=position_type
+    ).eval()
+    tokens = torch.tensor([[0, 0, 3, 4]])
+    mask = torch.tensor([[0, 0, 1, 1]])
+    with torch.no_grad():
+        full = model(tokens, attention_mask=mask)
+        _, cache = model(tokens[:, :3], attention_mask=mask[:, :3], use_cache=True)
+        step = model(tokens[:, 3:], attention_mask=mask, past_key_values=cache)
+    torch.testing.assert_close(step[:, -1], full[:, -1], atol=1e-5, rtol=1e-5)

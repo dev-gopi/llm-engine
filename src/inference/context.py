@@ -178,18 +178,27 @@ class SQLiteSessionStore:
         self._database_lock = RLock()
         with self._connect() as connection:
             connection.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, messages TEXT NOT NULL, updated REAL NOT NULL)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(updated)"
+            )
 
     def load(self, session_id: str) -> ConversationMemory:
         memory = ConversationMemory(self.tokenizer, max_tokens=self.max_tokens, system_prompt=self.system_prompt)
         with self._database_lock, self._connect() as connection:
             row = connection.execute("SELECT messages, updated FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        if row and row[1] >= time.time() - self.ttl_seconds:
+        cutoff = time.time() - self.ttl_seconds
+        if row and row[1] >= cutoff:
             memory.restore(json.loads(row[0]))
+        elif row:
+            self.delete(session_id)
         return memory
 
     def save(self, session_id: str, memory: ConversationMemory) -> None:
         payload = json.dumps([{"role": message.role, "content": message.content} for message in memory.snapshot()])
         with self._database_lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM sessions WHERE updated < ?", (time.time() - self.ttl_seconds,)
+            )
             connection.execute(
                 "INSERT INTO sessions VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET messages=excluded.messages, updated=excluded.updated",
                 (session_id, payload, time.time()),

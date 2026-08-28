@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from model.gpt import MiniGPT
-from model.positional import PositionalEmbedding
+from model.positional import PositionalEmbedding, SinusoidalPositionalEmbedding
 
 
 def test_default_positions_and_shape() -> None:
@@ -70,3 +70,18 @@ def test_gpt_accepts_explicit_position_controls() -> None:
         offset_logits = model(tokens, position_offset=2)
         explicit_logits = model(tokens, position_ids=torch.tensor([2, 3]))
     assert torch.allclose(offset_logits, explicit_logits)
+
+
+def test_sinusoidal_positions_support_odd_embedding_width() -> None:
+    module = SinusoidalPositionalEmbedding(8, 7)
+    output = module(torch.zeros((2, 3), dtype=torch.long))
+    assert output.shape == (2, 3, 7)
+
+
+def test_rotary_gpt_sizes_cache_for_explicit_position_ids() -> None:
+    model = MiniGPT(
+        vocab_size=16, dim=8, layers=1, heads=2, max_pos=8, position_type="rotary"
+    ).eval()
+    tokens = torch.tensor([[1, 2]])
+    logits = model(tokens, position_ids=torch.tensor([10, 11]))
+    assert logits.shape == (1, 2, 16)

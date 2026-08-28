@@ -12,6 +12,7 @@ from serving.runtime import (
     ServerBusyError,
     ServingRuntime,
     UnavailableBackend,
+    InvalidGenerationRequestError,
 )
 from serving.schemas import FinishReason, GenerateRequest
 from serving.websocket import generate_stream
@@ -95,6 +96,34 @@ def test_api_key_rate_limit_and_metrics():
     assert metrics["completed_requests"] == 1
 
 
+def test_runtime_selects_token_step_scheduler_for_capable_backend():
+    class TokenBackend(FakeBackend):
+        async def start_stream(self, request):
+            return [request.prompt, 0]
+
+        async def decode_stream_batch(self, states):
+            output = []
+            for state in states:
+                state[1] += 1
+                output.append((BackendStreamEvent(
+                    token=state[0], completion_tokens=state[1],
+                    finish_reason=FinishReason.STOP if state[1] == 1 else None,
+                ), state[1] == 1))
+            return output
+
+    async def scenario():
+        runtime = ServingRuntime(TokenBackend(), continuous_streams=4)
+        await runtime.startup()
+        events = [event async for event in runtime.stream(GenerateRequest(prompt="batched"))]
+        metrics = runtime.metrics()
+        await runtime.shutdown()
+        return events, metrics
+
+    events, metrics = asyncio.run(scenario())
+    assert events[0].token == "batched"
+    assert metrics["stream_scheduler_mode"] == "token_step"
+
+
 def test_backend_lifecycle_and_readiness():
     async def scenario():
         backend = FakeBackend()
@@ -149,6 +178,24 @@ def test_invalid_request_returns_structured_error():
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
     assert response.json()["error"]["request_id"]
+
+
+def test_context_overflow_returns_client_error() -> None:
+    class OverflowBackend(FakeBackend):
+        async def generate(self, request):
+            raise InvalidGenerationRequestError("prompt exceeds model context")
+
+    response = request(
+        create_app(OverflowBackend(), settings=settings()),
+        "POST", "/v1/generate", json={"prompt": "too long"},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_generation_request"
+
+
+def test_serving_settings_reject_invalid_capacity() -> None:
+    with pytest.raises(ValueError, match="positive"):
+        ServingSettings(max_concurrency=0)
 
 
 def test_unavailable_backend_returns_503():
@@ -432,5 +479,5 @@ def test_websocket_stream_with_session_id(tmp_path):
 
     websocket = asyncio.run(scenario())
     assert websocket.accepted
-    assert [message["type"] for message in websocket.sent] == ["start", "token", "done"]
+    assert [message["type"] for message in websocket.sent] == ["start", "token", "done"], websocket.sent
     assert websocket.sent[1]["token"] == "Hi"

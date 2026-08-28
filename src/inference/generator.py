@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import itertools
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from tokenizer.encoder import Tokenizer
 from utils.device import resolve_device
@@ -36,6 +38,21 @@ class GenerationStep:
     finish_reason: str | None = None
 
 
+@dataclass
+class BatchedGenerationState:
+    prompt_ids: list[int]
+    all_ids: list[int]
+    generated: list[int]
+    logits: torch.Tensor
+    cache: tuple
+    cache_mask: torch.Tensor
+    random: torch.Generator
+    options: dict
+    emitted_text: str = ""
+    steps: int = 0
+    page_request_id: str | None = None
+
+
 class Generator:
     """Generate text from a decoder-only model using bounded context windows."""
 
@@ -58,6 +75,8 @@ class Generator:
             raise ValueError("model must expose a positive max_positions value")
         self.eos_token_id = tokenizer.token_to_id("<|eos|>")
         self.prefix_cache: PrefixCache | PagedPrefixCache | None = None
+        self.paged_kv_allocator: PagedKVCache | None = None
+        self._paged_request_ids = itertools.count(1)
         self.prefix_cache_hits = 0
         self.prefix_cache_misses = 0
         if paged_kv_pages:
@@ -68,9 +87,11 @@ class Generator:
                 head_dim=first_attention.head_dim, device=self.device,
                 dtype=next(model.parameters()).dtype,
             )
-            self.prefix_cache = PagedPrefixCache(
-                allocator, capacity=prefix_cache_capacity or min(32, paged_kv_pages)
-            )
+            self.paged_kv_allocator = allocator
+            if prefix_cache_capacity:
+                self.prefix_cache = PagedPrefixCache(
+                    allocator, capacity=prefix_cache_capacity
+                )
         elif prefix_cache_capacity:
             self.prefix_cache = PrefixCache(prefix_cache_capacity)
 
@@ -159,6 +180,144 @@ class Generator:
         return result
 
     @torch.inference_mode()
+    def start_batched_stream(self, prompt: str, **options) -> BatchedGenerationState:
+        """Prefill one request for admission to a token-level decode scheduler."""
+        prompt_ids = self.tokenizer.encode(
+            prompt, add_bos=True,
+            allowed_special="all" if options.get("allow_special_tokens", False) else (),
+        )
+        if not prompt_ids or len(prompt_ids) >= self.max_positions:
+            raise ValueError("prompt is empty or exceeds the model context")
+        maximum = int(options.get("max_tokens", 128))
+        if maximum < 1:
+            raise ValueError("max_tokens must be positive")
+        random = torch.Generator(device=self.device)
+        if options.get("seed") is not None:
+            random.manual_seed(int(options["seed"]))
+        logits, cache = self._prefill(prompt_ids)
+        state = BatchedGenerationState(
+            prompt_ids=list(prompt_ids), all_ids=list(prompt_ids), generated=[],
+            logits=logits, cache=cache,
+            cache_mask=torch.ones(len(prompt_ids), dtype=torch.bool, device=self.device),
+            random=random, options=dict(options),
+        )
+        if self.paged_kv_allocator is not None:
+            request_id = f"active-{next(self._paged_request_ids)}"
+            capacity = min(self.max_positions, len(prompt_ids) + maximum)
+            self.paged_kv_allocator.reserve(request_id, capacity)
+            keys = torch.stack([layer[0].squeeze(0) for layer in cache])
+            values = torch.stack([layer[1].squeeze(0) for layer in cache])
+            self.paged_kv_allocator.append(request_id, keys, values)
+            state.page_request_id = request_id
+            state.cache = self._materialize_active_cache(request_id)
+        return state
+
+    @torch.inference_mode()
+    def decode_batched_stream(
+        self, states: list[BatchedGenerationState]
+    ) -> list[tuple[GenerationStep, bool]]:
+        """Sample one token per state and run one model call for all survivors."""
+        if not states:
+            return []
+        results: list[tuple[GenerationStep, bool] | None] = [None] * len(states)
+        survivors: list[tuple[int, BatchedGenerationState, int]] = []
+        for index, state in enumerate(states):
+            options = state.options
+            logits = state.logits[:, -1, :].clone()
+            penalty = float(options.get("repetition_penalty", 1.0))
+            if penalty <= 0:
+                raise ValueError("repetition_penalty must be positive")
+            self._apply_repetition_penalty(logits, set(state.all_ids), penalty)
+            token_id = int(self.sampler(
+                logits, temperature=float(options.get("temperature", .8)),
+                top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
+                generator=state.random,
+            ).item())
+            state.steps += 1
+            eos = self.eos_token_id is not None and token_id == self.eos_token_id
+            if not eos:
+                state.generated.append(token_id)
+                state.all_ids.append(token_id)
+            text = self.tokenizer.decode(state.generated, skip_special_tokens=True)
+            stops = options.get("stop") or []
+            positions = [text.find(value) for value in stops if value in text]
+            stopped = bool(positions)
+            visible = text[:min(positions)] if stopped else text
+            delta = visible[len(state.emitted_text):] if visible.startswith(state.emitted_text) else ""
+            state.emitted_text = visible
+            limit = min(int(options.get("max_tokens", 128)), self.max_positions - len(state.prompt_ids))
+            done = eos or stopped or state.steps >= limit
+            finish = "stop" if eos or stopped else ("length" if done else None)
+            results[index] = (GenerationStep(
+                delta, None if eos else token_id, len(state.prompt_ids),
+                len(state.generated), finish,
+            ), done)
+            if not done:
+                survivors.append((index, state, token_id))
+
+        if survivors:
+            for _, state, _ in survivors:
+                if state.page_request_id is not None:
+                    state.cache = self._materialize_active_cache(state.page_request_id)
+            maximum_cache = max(state.cache[0][0].shape[2] for _, state, _ in survivors)
+            masks, positions, batched_layers = [], [], []
+            for _, state, _ in survivors:
+                padding = maximum_cache - state.cache[0][0].shape[2]
+                masks.append(torch.cat((
+                    torch.zeros(padding, dtype=torch.bool, device=self.device),
+                    state.cache_mask,
+                    torch.ones(1, dtype=torch.bool, device=self.device),
+                )))
+                positions.append(int(state.cache_mask.sum()))
+            for layer in range(len(survivors[0][1].cache)):
+                keys, values = [], []
+                for _, state, _ in survivors:
+                    key, value = state.cache[layer]
+                    padding = maximum_cache - key.shape[2]
+                    keys.append(F.pad(key, (0, 0, padding, 0)))
+                    values.append(F.pad(value, (0, 0, padding, 0)))
+                batched_layers.append((torch.cat(keys), torch.cat(values)))
+            output = self.model(
+                torch.tensor([token for _, _, token in survivors], device=self.device).unsqueeze(1),
+                attention_mask=torch.stack(masks),
+                position_ids=torch.tensor(positions, device=self.device).unsqueeze(1),
+                past_key_values=tuple(batched_layers), use_cache=True,
+            )
+            if not isinstance(output, tuple):
+                raise RuntimeError("model did not return a requested KV cache")
+            logits, cache = output
+            for row, (_, state, _) in enumerate(survivors):
+                state.logits = logits[row:row + 1]
+                if state.page_request_id is not None:
+                    keys = torch.stack([key[row, :, -1:, :] for key, _ in cache])
+                    values = torch.stack([value[row, :, -1:, :] for _, value in cache])
+                    self.paged_kv_allocator.append(state.page_request_id, keys, values)
+                    state.cache = self._materialize_active_cache(state.page_request_id)
+                    state.cache_mask = torch.ones(
+                        state.cache[0][0].shape[2], dtype=torch.bool, device=self.device
+                    )
+                else:
+                    state.cache = tuple((key[row:row + 1], value[row:row + 1]) for key, value in cache)
+                    state.cache_mask = torch.stack(masks)[row]
+        return [result for result in results if result is not None]
+
+    def release_batched_stream(self, state: BatchedGenerationState) -> None:
+        if state.page_request_id is not None and self.paged_kv_allocator is not None:
+            request_id, state.page_request_id = state.page_request_id, None
+            if request_id in self.paged_kv_allocator.tables:
+                self.paged_kv_allocator.release(request_id)
+        state.cache = ()
+
+    def _materialize_active_cache(self, request_id: str) -> tuple:
+        if self.paged_kv_allocator is None:
+            raise RuntimeError("paged KV allocator is not configured")
+        keys, values = self.paged_kv_allocator.materialize(request_id)
+        return tuple(
+            (keys[layer].unsqueeze(0), values[layer].unsqueeze(0))
+            for layer in range(keys.shape[0])
+        )
+
+    @torch.inference_mode()
     def generate_batch(self, prompts: list[str], **options) -> list[GenerationResult]:
         """Decode prompt cohorts in tensor batches and compact completed KV rows.
 
@@ -172,6 +331,8 @@ class Generator:
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         penalty = float(options.get("repetition_penalty", 1.0))
+        if penalty <= 0:
+            raise ValueError("repetition_penalty must be positive")
         encoded = [self.tokenizer.encode(
             prompt, add_bos=True,
             allowed_special="all" if options.get("allow_special_tokens", False) else (),
@@ -252,6 +413,10 @@ class Generator:
         top_k = int(options.get("top_k", 40))
         top_p = float(options.get("top_p", 1.0))
         repetition_penalty = float(options.get("repetition_penalty", 1.0))
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be positive")
+        if repetition_penalty <= 0:
+            raise ValueError("repetition_penalty must be positive")
         stop_sequences = options.get("stop") or []
         prompt_ids = self.tokenizer.encode(
             prompt, add_bos=True,

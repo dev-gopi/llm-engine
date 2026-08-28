@@ -24,6 +24,11 @@ class TokenShardDataset(Dataset[dict[str, torch.Tensor]]):
         if self.sequence_length < 2:
             raise ValueError("token shard sequence_length must be at least two")
         self.tokenizer_vocab_size = int(manifest.get("tokenizer_vocab_size", 0))
+        self.tokenizer_fingerprint = manifest.get("tokenizer_fingerprint")
+        if self.tokenizer_fingerprint is not None and not isinstance(
+            self.tokenizer_fingerprint, str
+        ):
+            raise ValueError("token shard tokenizer_fingerprint must be a string")
         self.shards: list[tuple[Path, int]] = []
         self.cumulative: list[int] = []
         total = 0

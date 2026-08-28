@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import tempfile
@@ -64,6 +65,20 @@ class Tokenizer:
     @property
     def vocab_size(self) -> int:
         return len(self.vocab)
+
+    @property
+    def fingerprint(self) -> str:
+        """Stable identity for detecting incompatible same-size vocabularies."""
+        payload = {
+            "pattern": self.pattern,
+            "vocab": sorted(self.vocab.items(), key=lambda item: item[1]),
+            "merges": list(self.bpe.merges),
+            "special_tokens": sorted(self.special_tokens.items()),
+        }
+        encoded = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     def token_to_id(self, token: str) -> int | None:
         return self.vocab.get(token)
@@ -150,6 +165,7 @@ class Tokenizer:
         payload = {
             "version": TOKENIZER_VERSION,
             "type": "byte_level_bpe",
+            "fingerprint": self.fingerprint,
             "pattern": self.pattern,
             "vocab": self.vocab,
             "merges": [list(pair) for pair in self.bpe.merges],
@@ -175,13 +191,17 @@ class Tokenizer:
             raise ValueError(f"unsupported tokenizer version: {payload.get('version')!r}")
         if payload.get("type") != "byte_level_bpe":
             raise ValueError(f"unsupported tokenizer type: {payload.get('type')!r}")
-        return cls(
+        tokenizer = cls(
             payload["vocab"],
             (tuple(pair) for pair in payload["merges"]),
             special_tokens=payload["special_tokens"],
             pattern=payload["pattern"],
             metadata=payload.get("metadata"),
         )
+        expected_fingerprint = payload.get("fingerprint")
+        if expected_fingerprint is not None and expected_fingerprint != tokenizer.fingerprint:
+            raise ValueError("tokenizer artifact fingerprint does not match its contents")
+        return tokenizer
 
     def _resolve_allowed_special(self, allowed: Collection[str] | str) -> set[str]:
         if allowed == "all":

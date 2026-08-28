@@ -105,6 +105,7 @@ def main() -> None:
         "dtype": "uint32",
         "sequence_length": args.sequence_length,
         "tokenizer_vocab_size": tokenizer.vocab_size,
+        "tokenizer_fingerprint": tokenizer.fingerprint,
         "filter_config": {
             "english_only": args.english_only,
             "redact_pii": not args.keep_pii,

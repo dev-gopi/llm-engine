@@ -22,6 +22,7 @@ from .runtime import (
     BackendUnavailableError,
     GenerationBackend,
     GenerationTimeoutError,
+    InvalidGenerationRequestError,
     ServerBusyError,
     ServingError,
     ServingRuntime,
@@ -57,6 +58,16 @@ class ServingSettings:
     requests_per_minute: int = 0
     rate_limit_store_path: str | None = None
     continuous_streams: int = 0
+
+    def __post_init__(self) -> None:
+        if self.max_concurrency < 1:
+            raise ValueError("max_concurrency must be positive")
+        if self.queue_timeout_seconds <= 0 or self.generation_timeout_seconds <= 0:
+            raise ValueError("serving timeouts must be positive")
+        if self.requests_per_minute < 0 or self.continuous_streams < 0:
+            raise ValueError("rate and stream limits cannot be negative")
+        if not self.model_name.strip() or not self.bot_name.strip():
+            raise ValueError("model_name and bot_name cannot be empty")
 
     @classmethod
     def from_environment(cls) -> "ServingSettings":
@@ -179,6 +190,7 @@ def create_app(
             BackendUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
             GenerationTimeoutError: status.HTTP_504_GATEWAY_TIMEOUT,
             ServerBusyError: status.HTTP_429_TOO_MANY_REQUESTS,
+            InvalidGenerationRequestError: 422,
         }.get(type(error), status.HTTP_500_INTERNAL_SERVER_ERROR)
         return _error_response(request, error.code, str(error), status_code)
 

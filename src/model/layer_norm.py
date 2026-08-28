@@ -84,7 +84,7 @@ class RMSNorm(nn.Module):
         output = normalized * self.weight
         if self.bias is not None:
             output = output + self.bias
-        return output
+        return output.to(hidden_states.dtype)
 
     def reset_parameters(self) -> None:
         nn.init.ones_(self.weight)

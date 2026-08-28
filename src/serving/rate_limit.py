@@ -14,12 +14,21 @@ class InMemoryRateLimiter:
         self.limit = requests_per_minute
         self.windows: dict[str, deque[float]] = defaultdict(deque)
         self.lock = asyncio.Lock()
+        self._operations = 0
 
     async def allow(self, identity: str) -> bool:
         if self.limit <= 0:
             return True
         async with self.lock:
             now = time.time()
+            self._operations += 1
+            if self._operations % 1024 == 0:
+                cutoff = now - 60
+                for key, events in list(self.windows.items()):
+                    while events and events[0] <= cutoff:
+                        events.popleft()
+                    if not events:
+                        self.windows.pop(key, None)
             window = self.windows[identity]
             while window and window[0] <= now - 60:
                 window.popleft()
@@ -45,6 +54,9 @@ class SQLiteRateLimiter:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS rate_events_lookup "
                 "ON rate_events(identity, occurred)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS rate_events_expiry ON rate_events(occurred)"
             )
 
     async def allow(self, identity: str) -> bool:
