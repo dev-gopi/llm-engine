@@ -27,9 +27,9 @@ sources:
   - data/processed/multilingual_bn_hi/train.jsonl
   - data/processed/multilingual_hi/train.jsonl
   - data/processed/tool_calling/train.jsonl
-  - data/processed/emoji_chat/train.jsonl
-  - data/processed/bangla_qa/train.jsonl
-  - data/processed/bangla_reading_qa/train.jsonl
-  - data/processed/hindi_history_qa/train.jsonl
-  - data/processed/hinglish_chat/train.jsonl
-  - data/processed/code_alpaca/train.jsonl
+  # - data/processed/emoji_chat/train.jsonl
+  # - data/processed/bangla_qa/train.jsonl
+  # - data/processed/bangla_reading_qa/train.jsonl
+  # - data/processed/hindi_history_qa/train.jsonl
+  # - data/processed/hinglish_chat/train.jsonl
+  # - data/processed/code_alpaca/train.jsonl
