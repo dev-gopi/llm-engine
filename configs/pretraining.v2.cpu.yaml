@@ -16,8 +16,8 @@ train_files:
   - data/processed/tinystories/train.jsonl
   - data/processed/wikitext_103/train.jsonl
 dataset_weights:
-  tinystories: 0.50
-  wikitext_103: 0.50
+  tinystories: 0.30
+  wikitext_103: 0.70
 validation_files:
   - data/processed/tinystories/validation.jsonl
   - data/processed/wikitext_103/validation.jsonl
