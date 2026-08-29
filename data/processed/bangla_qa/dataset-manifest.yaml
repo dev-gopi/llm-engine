@@ -1,0 +1,13 @@
+schema_version: 1
+name: Bangla Instruction QApair
+source: kamruzzaman-asif/bangla-instruction-dataset:QApair
+version: huggingface-parquet-2026-08-30
+license:
+  identifier: Apache-2.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Full QApair partition; blank, duplicate, and overlength rows removed so every answer fits the 128-token CPU profile.

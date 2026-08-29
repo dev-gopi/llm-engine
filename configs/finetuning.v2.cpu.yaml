@@ -26,6 +26,12 @@ dataset_weights:
   multilingual_bn_hi: 0.04
   multilingual_hi: 0.04
   tool_calling: 0.04
+  emoji_chat: 0.002
+  bangla_qa: 0.03
+  bangla_reading_qa: 0.03
+  hindi_history_qa: 0.01
+  hinglish_chat: 0.005
+  code_alpaca: 0.05
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/helpsteer/train.jsonl
@@ -39,6 +45,12 @@ train_files:
   - data/processed/multilingual_bn_hi/train.jsonl
   - data/processed/multilingual_hi/train.jsonl
   - data/processed/tool_calling/train.jsonl
+  - data/processed/emoji_chat/train.jsonl
+  - data/processed/bangla_qa/train.jsonl
+  - data/processed/bangla_reading_qa/train.jsonl
+  - data/processed/hindi_history_qa/train.jsonl
+  - data/processed/hinglish_chat/train.jsonl
+  - data/processed/code_alpaca/train.jsonl
 validation_files:
   - data/processed/ultrachat_200k/validation.jsonl
   - data/processed/helpsteer/validation.jsonl
@@ -52,6 +64,12 @@ validation_files:
   - data/processed/multilingual_bn_hi/validation.jsonl
   - data/processed/multilingual_hi/validation.jsonl
   - data/processed/tool_calling/validation.jsonl
+  - data/processed/emoji_chat/validation.jsonl
+  - data/processed/bangla_qa/validation.jsonl
+  - data/processed/bangla_reading_qa/validation.jsonl
+  - data/processed/hindi_history_qa/validation.jsonl
+  - data/processed/hinglish_chat/validation.jsonl
+  - data/processed/code_alpaca/validation.jsonl
 learning_rate: 0.00005
 weight_decay: 0.01
 beta1: 0.9

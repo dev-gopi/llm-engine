@@ -1,0 +1,13 @@
+schema_version: 1
+name: Compact Hinglish conversations
+source: DSMJ910/hinglish-instruct-10k
+version: huggingface-parquet-2026-08-30
+license:
+  identifier: Apache-2.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Full source downloaded; only complete conversations fitting the 128-token CPU profile retained.
