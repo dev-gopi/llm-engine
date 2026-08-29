@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
+
+import regex
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class BenchmarkCase:
 
 
 def normalize_answer(text: str) -> str:
-    return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
+    return " ".join(regex.findall(r"[\p{L}\p{M}\p{N}]+", text.casefold()))
 
 
 def score_answer(answer: str, case: BenchmarkCase) -> float:

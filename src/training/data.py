@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
 
 from datasets.collator import Collator
 from datasets.loader import build_text_dataset
@@ -46,26 +46,30 @@ def build_loader(
     world_size: int = 1,
 ) -> DataLoader:
     paths = list(paths)
-    if len(paths) == 1 and Path(paths[0]).name == "manifest.json":
-        dataset = TokenShardDataset(paths[0])
-        if dataset.tokenizer_vocab_size and dataset.tokenizer_vocab_size != tokenizer.vocab_size:
-            raise ValueError(
-                f"token shard vocabulary ({dataset.tokenizer_vocab_size}) does not match "
-                f"tokenizer vocabulary ({tokenizer.vocab_size})"
-            )
-        if (
-            dataset.tokenizer_fingerprint is not None
-            and dataset.tokenizer_fingerprint != tokenizer.fingerprint
-        ):
-            raise ValueError(
-                "token shard tokenizer fingerprint does not match the selected tokenizer"
-            )
-        expected = int(config.get("max_sequence_length", dataset.sequence_length))
-        if dataset.sequence_length != expected:
-            raise ValueError(
-                f"token shard sequence length ({dataset.sequence_length}) does not match "
-                f"max_sequence_length ({expected})"
-            )
+    if paths and all(Path(path).name == "manifest.json" for path in paths):
+        shard_datasets = [TokenShardDataset(path) for path in paths]
+        expected = int(config.get("max_sequence_length", shard_datasets[0].sequence_length))
+        for dataset in shard_datasets:
+            if dataset.tokenizer_vocab_size and dataset.tokenizer_vocab_size != tokenizer.vocab_size:
+                raise ValueError(
+                    f"token shard vocabulary ({dataset.tokenizer_vocab_size}) does not match "
+                    f"tokenizer vocabulary ({tokenizer.vocab_size})"
+                )
+            if (
+                dataset.tokenizer_fingerprint is not None
+                and dataset.tokenizer_fingerprint != tokenizer.fingerprint
+            ):
+                raise ValueError(
+                    "token shard tokenizer fingerprint does not match the selected tokenizer"
+                )
+            if dataset.sequence_length != expected:
+                raise ValueError(
+                    f"token shard sequence length ({dataset.sequence_length}) does not match "
+                    f"max_sequence_length ({expected})"
+                )
+        dataset = shard_datasets[0] if len(shard_datasets) == 1 else ConcatDataset(shard_datasets)
+        dataset.lengths = [length for item in shard_datasets for length in item.lengths]
+        dataset.dataset_sizes = [len(item) for item in shard_datasets]
     else:
         dataset = build_text_dataset(
             paths, tokenizer, max_length=int(config.get("max_sequence_length", 2048)),
@@ -86,9 +90,17 @@ def build_loader(
     if pad_id is None:
         raise ValueError("tokenizer must define <|pad|>")
     import torch
+    num_workers = int(config.get("num_workers", 0))
+    loader_options: dict[str, Any] = {}
+    if num_workers > 0:
+        loader_options["persistent_workers"] = bool(config.get("persistent_workers", True))
+        loader_options["prefetch_factor"] = int(config.get("prefetch_factor", 2))
+        if loader_options["prefetch_factor"] < 1:
+            raise ValueError("prefetch_factor must be positive")
     return DataLoader(
         dataset, batch_sampler=sampler,
         collate_fn=Collator(pad_id, ignore_index=int(config.get("ignore_index", -100))),
-        num_workers=int(config.get("num_workers", 0)),
+        num_workers=num_workers,
         pin_memory=bool(config.get("pin_memory", False)) and torch.cuda.is_available(),
+        **loader_options,
     )

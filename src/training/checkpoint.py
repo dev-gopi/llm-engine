@@ -112,7 +112,18 @@ def load_checkpoint(
             for name, value in payload["ema"]["shadow"].items():
                 normalized = name.removeprefix("module.")
                 if normalized in parameters:
-                    parameters[normalized].copy_(value.to(parameters[normalized].device))
+                    parameter = parameters[normalized]
+                    source_value = value.to(parameter.device)
+                    if (
+                        allow_vocab_extension
+                        and normalized in _VOCABULARY_PARAMETERS
+                        and source_value.ndim == parameter.ndim
+                        and source_value.shape[1:] == parameter.shape[1:]
+                        and source_value.shape[0] < parameter.shape[0]
+                    ):
+                        parameter[: source_value.shape[0]].copy_(source_value)
+                    else:
+                        parameter.copy_(source_value)
     if optimizer is not None and payload.get("optimizer") is not None:
         optimizer.load_state_dict(payload["optimizer"])
     if scheduler is not None and payload.get("scheduler") is not None:

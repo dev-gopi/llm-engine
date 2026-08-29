@@ -10,19 +10,18 @@ num_workers: 1
 pin_memory: true
 persistent_workers: true
 prefetch_factor: 2
-lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
 train_files:
-  - data/processed/tinystories/train.jsonl
-  - data/processed/wikitext_103/train.jsonl
+  - data/shards/pretraining-v2/train/tinystories/manifest.json
+  - data/shards/pretraining-v2/train/wikitext_103/manifest.json
 dataset_weights:
   tinystories: 0.35
   wikitext_103: 0.65
 validation_files:
-  - data/processed/tinystories/validation.jsonl
-  - data/processed/wikitext_103/validation.jsonl
+  - data/shards/pretraining-v2/validation/tinystories/manifest.json
+  - data/shards/pretraining-v2/validation/wikitext_103/manifest.json
 learning_rate: 0.0002
 weight_decay: 0.1
 beta1: 0.9

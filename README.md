@@ -683,7 +683,7 @@ separately because having a float8 dtype in PyTorch does not mean the GPU can
 execute FP8 training. RTX 3050 hardware should use FP16, not FP8.
 
 For corpora too large for JSONL tokenization during training, build bounded
-uint32 binary shards with filtering, exact and near deduplication, benchmark
+binary shards with filtering, exact and near deduplication, benchmark
 contamination exclusion, English screening, PII redaction, document packing,
 and a reproducible manifest:
 
@@ -711,10 +711,51 @@ deterministic patterns do not identify contextual PII such as arbitrary person
 names and should be supplemented with a reviewed NER/DLP system for sensitive
 or multilingual corpora.
 
-Set a training profile's only `train_files` entry to
-`data/shards/pretraining-v2/manifest.json`. The loader memory-maps shard files
-on demand and continues to use rank-aware sampling. Keep benchmark/test data in
-separate files; do not include it when building training shards.
+Set a training profile's `train_files` entries to one or more shard manifests.
+The loader memory-maps them on demand, preserves per-dataset mixture weights,
+and continues to use rank-aware sampling. Keep benchmark/test data in separate
+files; do not include it when building training shards.
+
+For the active 32K v2 laptop model, `auto` storage selects `uint16`, halving
+token-shard I/O compared with `uint32`. Build train and validation shards per
+dataset so the configured 35/65 TinyStories/WikiText sampling mixture remains
+intact:
+
+```bash
+.venv/bin/python scripts/build_token_shards.py data/processed/tinystories/train.jsonl \
+  --tokenizer data/tokenizer-v2 --sequence-length 256 --workers 6 \
+  --output data/shards/pretraining-v2/train/tinystories
+.venv/bin/python scripts/build_token_shards.py data/processed/wikitext_103/train.jsonl \
+  --tokenizer data/tokenizer-v2 --sequence-length 256 --workers 6 \
+  --output data/shards/pretraining-v2/train/wikitext_103
+.venv/bin/python scripts/build_token_shards.py data/processed/tinystories/validation.jsonl \
+  --tokenizer data/tokenizer-v2 --sequence-length 256 \
+  --output data/shards/pretraining-v2/validation/tinystories
+.venv/bin/python scripts/build_token_shards.py data/processed/wikitext_103/validation.jsonl \
+  --tokenizer data/tokenizer-v2 --sequence-length 256 \
+  --output data/shards/pretraining-v2/validation/wikitext_103
+```
+
+After all four manifests exist and pass loader validation, train with the packed
+profile:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/pretraining.v2.packed.gpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --init-from checkpoints/v2-pretraining/latest.pt \
+  --epochs 1 \
+  --output checkpoints/v2-packed-continued/latest.pt \
+  --best-output checkpoints/v2-packed-continued/best.pt
+```
+
+Use `--init-from`, not `--resume`, when switching an existing JSONL run to
+packed shards: packing changes sequence and sampler boundaries, so it is a new
+continued-pretraining stage with fresh optimizer/scheduler state. Exact resume
+within the packed stage can subsequently use
+`--resume checkpoints/v2-packed-continued/latest.pt`.
 
 ### Preference training and capability evaluation
 
@@ -752,6 +793,29 @@ python scripts/evaluate_benchmarks.py \
 The bundled benchmark reports separate scores for identity, conversation,
 instruction following, math, reasoning, knowledge, and safety using the
 held-out cases in `configs/evaluation.core.jsonl`.
+
+For v2, report held-out loss and perplexity separately for English, Bengali,
+Hindi, coding, GSM8K, and chat data:
+
+```bash
+python scripts/evaluate_domains.py \
+  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --device cuda
+```
+
+The result retains each domain and also includes a token-weighted aggregate.
+Test generated answers separately, including Unicode-aware Bengali and Hindi
+matching, with the deterministic six-domain smoke suite:
+
+```bash
+python scripts/evaluate_benchmarks.py \
+  --cases configs/evaluation.v2.domains.jsonl \
+  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --device cuda
+```
+
+These small generation cases are regression smoke tests, not replacements for
+larger human-reviewed or established task benchmarks.
 
 ### Scalable serving
 
@@ -839,8 +903,11 @@ python scripts/generate.py "Hello, my name is" \
 
 A model trained from scratch on this tiny dataset for one epoch will generally
 produce incoherent text; this run validates the pipeline rather than chatbot
-quality. Evaluation loads EMA weights by default. With `ema_decay: 0.999`, EMA
-metrics can lag behind the ordinary model weights during such a short run.
+quality. Evaluation, generation, interactive chat, serving, benchmarks, and
+export load EMA weights by default when a checkpoint contains them. A checkpoint
+without EMA transparently uses its ordinary model weights. With
+`ema_decay: 0.999`, EMA metrics can lag behind the ordinary model weights during
+such a short run.
 
 The small profile uses a held-out validation split, saves the best validation
 checkpoint to `checkpoints/best/model.pt`, and stops after five epochs without

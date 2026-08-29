@@ -12,8 +12,9 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from .positional import apply_rotary_pos_emb
+from .kv_cache import StaticLayerKVCache
 
-KeyValueCache: TypeAlias = tuple[Tensor, Tensor]
+KeyValueCache: TypeAlias = tuple[Tensor, Tensor] | StaticLayerKVCache
 AttentionOutput: TypeAlias = Tensor | tuple[Tensor, KeyValueCache]
 
 
@@ -120,22 +121,19 @@ class MultiHeadAttention(nn.Module):
         batch_size, _, query_length, _ = query.shape
         past_length = 0
 
-        if past_key_value is not None:
+        if isinstance(past_key_value, StaticLayerKVCache):
+            past_length = past_key_value.length
+            key, value = past_key_value.append(key, value)
+        elif past_key_value is not None:
             past_key, past_value = self._validate_cache(past_key_value, batch_size, key)
             past_length = past_key.size(2)
             key = torch.cat((past_key, key), dim=2)
             value = torch.cat((past_value, value), dim=2)
 
-        present_key_value = (key, value) if use_cache else None
+        present_key_value = past_key_value if use_cache and isinstance(
+            past_key_value, StaticLayerKVCache
+        ) else ((key, value) if use_cache else None)
         key_length = key.size(2)
-
-        # Expand K, V if GQA / MQA is active (num_kv_groups > 1)
-        if self.num_kv_groups > 1:
-            key_attn = key.repeat_interleave(self.num_kv_groups, dim=1)
-            value_attn = value.repeat_interleave(self.num_kv_groups, dim=1)
-        else:
-            key_attn = key
-            value_attn = value
 
         apply_causal = self.causal if is_causal is None else bool(is_causal)
         prepared_mask, kernel_is_causal = self._prepare_mask(
@@ -153,14 +151,17 @@ class MultiHeadAttention(nn.Module):
         if hasattr(F, "scaled_dot_product_attention"):
             attended = F.scaled_dot_product_attention(
                 query,
-                key_attn,
-                value_attn,
+                key,
+                value,
                 attn_mask=prepared_mask,
                 dropout_p=dropout_probability,
                 is_causal=kernel_is_causal,
                 scale=1.0 / math.sqrt(self.head_dim),
+                enable_gqa=self.num_kv_groups > 1,
             )
         else:  # pragma: no cover
+            key_attn = key.repeat_interleave(self.num_kv_groups, dim=1)
+            value_attn = value.repeat_interleave(self.num_kv_groups, dim=1)
             attended = self._attention_fallback(
                 query,
                 key_attn,

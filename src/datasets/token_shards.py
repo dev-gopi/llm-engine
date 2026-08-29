@@ -18,8 +18,10 @@ class TokenShardDataset(Dataset[dict[str, torch.Tensor]]):
         manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         if manifest.get("format") != "gopi-token-shards-v1":
             raise ValueError("unsupported token shard manifest format")
-        if manifest.get("dtype") != "uint32":
-            raise ValueError("token shard dtype must be uint32")
+        dtype_name = manifest.get("dtype")
+        if dtype_name not in {"uint16", "uint32"}:
+            raise ValueError("token shard dtype must be uint16 or uint32")
+        self.dtype = np.dtype(dtype_name)
         self.sequence_length = int(manifest["sequence_length"])
         if self.sequence_length < 2:
             raise ValueError("token shard sequence_length must be at least two")
@@ -39,7 +41,7 @@ class TokenShardDataset(Dataset[dict[str, torch.Tensor]]):
                 raise ValueError("token shard sequence counts must be positive")
             if not path.is_file():
                 raise FileNotFoundError(f"token shard not found: {path}")
-            expected_bytes = count * self.sequence_length * np.dtype(np.uint32).itemsize
+            expected_bytes = count * self.sequence_length * self.dtype.itemsize
             if path.stat().st_size != expected_bytes:
                 raise ValueError(
                     f"token shard size mismatch for {path}: expected {expected_bytes} bytes, "
@@ -65,7 +67,7 @@ class TokenShardDataset(Dataset[dict[str, torch.Tensor]]):
         path, count = self.shards[shard_index]
         array = self._arrays.get(path)
         if array is None:
-            array = np.memmap(path, mode="r", dtype=np.uint32, shape=(count, self.sequence_length))
+            array = np.memmap(path, mode="r", dtype=self.dtype, shape=(count, self.sequence_length))
             self._arrays[path] = array
         tokens = torch.from_numpy(np.asarray(array[index - previous]).astype(np.int64, copy=True))
         return {"input_ids": tokens, "loss_mask": torch.ones_like(tokens, dtype=torch.bool)}

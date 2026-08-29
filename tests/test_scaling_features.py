@@ -11,10 +11,11 @@ import torch
 
 from datasets.filters import CorpusFilter
 from datasets.token_shards import TokenShardDataset
-from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores
+from evaluation.benchmarks import BenchmarkCase, normalize_answer, score_answer, summarize_scores
 from inference.paged_kv_cache import PagedKVCache, PrefixCache
 from model.gpt import MiniGPT
 from post_training.dpo import DPOLoss, sequence_log_probabilities
+from scripts.evaluate_domains import aggregate_domain_metrics
 from serving.batching import DynamicBatcher
 from training.distributed import DistributedContext, DistributedTrainer
 from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
@@ -90,12 +91,13 @@ def test_corpus_filter_redacts_validated_structured_pii_and_credentials() -> Non
     assert corpus_filter.stats.credential_redactions == 1
 
 
-def test_binary_token_shard_dataset(tmp_path) -> None:
-    values = np.arange(24, dtype=np.uint32).reshape(3, 8)
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint32])
+def test_binary_token_shard_dataset(tmp_path, dtype) -> None:
+    values = np.arange(24, dtype=dtype).reshape(3, 8)
     values.tofile(tmp_path / "tokens-00000.bin")
     (tmp_path / "manifest.json").write_text(json.dumps({
         "format": "gopi-token-shards-v1",
-        "dtype": "uint32",
+        "dtype": np.dtype(dtype).name,
         "sequence_length": 8,
         "shards": [{"file": "tokens-00000.bin", "sequences": 3}],
     }))
@@ -195,6 +197,27 @@ def test_benchmark_scoring_by_category() -> None:
     case = BenchmarkCase("math", "2+2", ("4",), ("5",))
     results = [(case, score_answer("The answer is 4.", case))]
     assert summarize_scores(results) == {"cases": 1, "accuracy": 1.0, "accuracy_math": 1.0}
+
+
+def test_benchmark_normalization_and_scoring_support_unicode_scripts() -> None:
+    assert normalize_answer("উত্তর: ঢাকা!") == "উত্তর ঢাকা"
+    assert normalize_answer("उत्तर: नई दिल्ली।") == "उत्तर नई दिल्ली"
+    assert score_answer(
+        "বাংলাদেশের রাজধানী ঢাকা।",
+        BenchmarkCase("bengali", "", ("ঢাকা",)),
+    ) == 1.0
+
+
+def test_domain_metrics_are_aggregated_by_token_count() -> None:
+    metrics = aggregate_domain_metrics({
+        "english": {"loss": 2.0, "cross_entropy": 2.0, "z_loss": 0.0, "tokens": 10, "batches": 1},
+        "bengali": {"loss": 4.0, "cross_entropy": 4.0, "z_loss": 0.0, "tokens": 30, "batches": 2},
+    })
+    assert metrics["loss"] == pytest.approx(3.5)
+    assert metrics["cross_entropy"] == pytest.approx(3.5)
+    assert metrics["perplexity"] == pytest.approx(np.exp(3.5))
+    assert metrics["tokens"] == 40
+    assert metrics["batches"] == 3
 
 
 def test_default_single_process_distributed_behavior_is_unchanged() -> None:

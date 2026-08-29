@@ -133,7 +133,7 @@ class Generator:
         stop_sequences = stop or []
 
         logits, raw_cache = self._prefill(prompt_ids)
-        cache = KVCache(raw_cache)
+        cache = KVCache(raw_cache, capacity=self.max_positions)
         for _ in range(limit):
             next_logits = logits[:, -1, :]
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
@@ -430,7 +430,7 @@ class Generator:
         all_ids, generated = list(prompt_ids), []
         emitted_text = ""
         logits, raw_cache = self._prefill(prompt_ids)
-        cache = KVCache(raw_cache)
+        cache = KVCache(raw_cache, capacity=self.max_positions)
         finish_reason = "length"
         for _ in range(min(max_tokens, self.max_positions - len(prompt_ids))):
             next_logits = logits[:, -1, :]

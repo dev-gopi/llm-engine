@@ -84,7 +84,7 @@ def test_text_dataset_rejects_unusable_records_instead_of_skipping() -> None:
         TextDataset([{"unsupported": "value"}], tokenizer(), max_length=16)
 
 
-def test_truncated_user_turn_does_not_supervise_synthetic_eos() -> None:
+def test_truncated_user_turn_does_not_inject_synthetic_eos() -> None:
     dataset = TextDataset(
         [{"messages": [{"role": "user", "content": "a" * 100}]}],
         tokenizer(),
@@ -92,8 +92,38 @@ def test_truncated_user_turn_does_not_supervise_synthetic_eos() -> None:
     )
 
     example = dataset[0]
-    assert example["input_ids"][-1].item() == tokenizer().token_to_id("<|eos|>")
+    assert example["input_ids"][-1].item() != tokenizer().token_to_id("<|eos|>")
     assert not example["loss_mask"][-1].item()
+
+
+def test_truncated_assistant_turn_keeps_content_instead_of_eos() -> None:
+    dataset = TextDataset(
+        [{"messages": [
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "a" * 100},
+        ]}],
+        tokenizer(),
+        max_length=32,
+    )
+
+    example = dataset[0]
+    assert example["input_ids"][-1].item() != tokenizer().token_to_id("<|eos|>")
+    assert example["loss_mask"][-1].item()
+
+
+def test_complete_example_retains_real_eos() -> None:
+    dataset = TextDataset(
+        [{"messages": [
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "answer"},
+        ]}],
+        tokenizer(),
+        max_length=128,
+    )
+
+    example = dataset[0]
+    assert example["input_ids"][-1].item() == tokenizer().token_to_id("<|eos|>")
+    assert example["loss_mask"][-1].item()
 
 
 def test_lazy_jsonl_reports_malformed_record_location_without_substitution(tmp_path) -> None:

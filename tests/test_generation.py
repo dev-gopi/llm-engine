@@ -11,6 +11,7 @@ from serving.backend import ConfiguredModelBackend
 from serving.schemas import GenerateRequest
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
+from model.kv_cache import StaticLayerKVCache
 from training.checkpoint import save_checkpoint
 
 
@@ -19,6 +20,24 @@ def make_tokenizer() -> Tokenizer:
     vocab = {piece: index for index, piece in enumerate(pieces)}
     specials = {piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
     return Tokenizer(vocab, special_tokens=specials)
+
+
+def test_static_kv_cache_appends_without_reallocating_storage() -> None:
+    initial_key = torch.randn(1, 2, 3, 4)
+    initial_value = torch.randn(1, 2, 3, 4)
+    cache = StaticLayerKVCache(initial_key, initial_value, capacity=8)
+    key_pointer = cache.key.data_ptr()
+    value_pointer = cache.value.data_ptr()
+    next_key = torch.randn(1, 2, 1, 4)
+    next_value = torch.randn(1, 2, 1, 4)
+
+    keys, values = cache.append(next_key, next_value)
+
+    assert cache.key.data_ptr() == key_pointer
+    assert cache.value.data_ptr() == value_pointer
+    assert cache.length == 4
+    torch.testing.assert_close(keys[:, :, :3], initial_key)
+    torch.testing.assert_close(values[:, :, 3:], next_value)
 
 
 class PredictBThenEos(nn.Module):

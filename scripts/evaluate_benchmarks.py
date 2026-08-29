@@ -14,6 +14,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores
 from inference.generator import Generator
 from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
@@ -57,15 +58,14 @@ def main() -> None:
     device = resolve_device(args.device)
     tokenizer = Tokenizer.load(args.tokenizer)
     model_config = load_yaml(args.model_config)
-    if tokenizer.vocab_size != int(model_config["vocab_size"]):
-        parser.error(
-            f"tokenizer vocabulary ({tokenizer.vocab_size}) does not match "
-            f"model vocabulary ({model_config['vocab_size']})"
-        )
+    try:
+        model_config = adapt_config_to_tokenizer(model_config, tokenizer)
+    except ValueError as error:
+        parser.error(str(error))
     model = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(
         args.checkpoint, model, map_location=device, use_ema=True,
-        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+        **checkpoint_tokenizer_options(tokenizer),
     )
     generator = Generator(model, tokenizer, device=device)
     scored = []
@@ -75,7 +75,10 @@ def main() -> None:
         score = score_answer(result.text, case)
         scored.append((case, score))
         details.append({"category": case.category, "prompt": case.prompt, "answer": result.text, "score": score})
-    print(json.dumps({"summary": summarize_scores(scored), "results": details}, indent=2))
+    print(json.dumps(
+        {"summary": summarize_scores(scored), "results": details},
+        indent=2, ensure_ascii=False,
+    ))
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from inference.context import format_system_prompt
 from inference.generator import Generator
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from serving.backend import ConfiguredModelBackend
 from serving.schemas import GenerateRequest
 from tokenizer.encoder import Tokenizer
@@ -51,8 +52,10 @@ def main() -> None:
     model_config = load_yaml(args.model_config)
     inference_config = load_yaml(args.inference_config)
     tokenizer = Tokenizer.load(args.tokenizer)
-    if tokenizer.vocab_size != int(model_config["vocab_size"]):
-        parser.error("tokenizer vocabulary does not match model vocab_size")
+    try:
+        model_config = adapt_config_to_tokenizer(model_config, tokenizer)
+    except ValueError as error:
+        parser.error(str(error))
 
     checkpoint_path = args.checkpoint
     if checkpoint_path is None:
@@ -72,8 +75,8 @@ def main() -> None:
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(
-        checkpoint_path, model, map_location=device,
-        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+        checkpoint_path, model, map_location=device, use_ema=True,
+        **checkpoint_tokenizer_options(tokenizer),
     )
 
     response_format = args.response_format or str(inference_config.get("response_format", "plain"))

@@ -22,6 +22,7 @@ from mcp.client import MCPClient, MCPTool
 from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, relevant_tools, tool_result_context, tool_selection_prompt
 from datasets.preprocessor import format_messages
 from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
@@ -187,17 +188,13 @@ class ConfiguredModelBackend:
             attention_heads=int(config["heads"]),
             kv_heads=int(config.get("kv_heads", config["heads"])),
         )
-        if int(config["vocab_size"]) != tokenizer.vocab_size:
-            raise ValueError(
-                f"model vocabulary ({config['vocab_size']}) does not match "
-                f"tokenizer vocabulary ({tokenizer.vocab_size})"
-            )
+        config = adapt_config_to_tokenizer(config, tokenizer)
 
         try:
             model = MiniGPT.from_config(config, device=device)
             load_checkpoint(
                 self.checkpoint_path, model, map_location=device, use_ema=True,
-                expected_tokenizer_fingerprint=tokenizer.fingerprint,
+                **checkpoint_tokenizer_options(tokenizer),
             )
         except RuntimeError as error:
             # Retry with the other v2 hardware profile if architecture selection was wrong.
@@ -205,15 +202,11 @@ class ConfiguredModelBackend:
             if alt_config_path.exists():
                 logger.info("Retrying checkpoint load with alternate config: %s", alt_config_path)
                 alt_config = load_yaml(alt_config_path)
-                if int(alt_config["vocab_size"]) != tokenizer.vocab_size:
-                    raise ValueError(
-                        f"alternate model vocabulary ({alt_config['vocab_size']}) does not "
-                        f"match tokenizer vocabulary ({tokenizer.vocab_size})"
-                    )
+                alt_config = adapt_config_to_tokenizer(alt_config, tokenizer)
                 model = MiniGPT.from_config(alt_config, device=device)
                 load_checkpoint(
                     self.checkpoint_path, model, map_location=device, use_ema=True,
-                    expected_tokenizer_fingerprint=tokenizer.fingerprint,
+                    **checkpoint_tokenizer_options(tokenizer),
                 )
                 self.model_config = alt_config_path
                 config = alt_config

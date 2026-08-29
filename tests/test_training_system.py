@@ -78,6 +78,32 @@ def test_checkpoint_skips_empty_disabled_scaler_state(tmp_path) -> None:
     load_checkpoint(path, model, scaler=FreshEnabledScaler())
 
 
+def test_evaluator_uses_bf16_autocast_and_restores_training_mode() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    model.train()
+    observed = []
+    original_forward = model.forward
+
+    def recording_forward(*args, **kwargs):
+        observed.append(torch.is_autocast_enabled("cpu"))
+        return original_forward(*args, **kwargs)
+
+    model.forward = recording_forward
+    metrics = Evaluator(model, device="cpu", mixed_precision="bf16").evaluate(make_loader())
+
+    assert observed and all(observed)
+    assert metrics["tokens"] == 5
+    assert model.training
+
+
+def test_evaluator_validates_and_falls_back_from_cpu_fp16() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    assert Evaluator(model, device="cpu", mixed_precision="fp16").mixed_precision == "none"
+    import pytest
+    with pytest.raises(ValueError, match="mixed_precision"):
+        Evaluator(model, mixed_precision="fp8")
+
+
 def test_early_stopping_tracks_best_validation_epoch() -> None:
     class FixedEvaluator:
         def __init__(self):
@@ -167,6 +193,31 @@ def test_checkpoint_loads_verified_append_only_vocabulary_extension(tmp_path) ->
     torch.testing.assert_close(extended.tok.weight[:16], original.tok.weight)
     torch.testing.assert_close(extended.tok.weight[16:], new_rows)
     assert extended.head.weight is extended.tok.weight
+
+
+def test_checkpoint_expands_ema_for_append_only_vocabulary(tmp_path) -> None:
+    original = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    ema = EMA(original, decay=0.9)
+    expected_prefix = ema.shadow["tok.embedding.weight"].clone()
+    path = save_checkpoint(
+        tmp_path / "model.pt", original, ema=ema,
+        metadata={"tokenizer_fingerprint": "base-tokenizer"},
+    )
+    extended = MiniGPT(vocab_size=19, dim=8, layers=1, heads=2, max_pos=8)
+    expected_new_rows = extended.tok.weight[16:].detach().clone()
+
+    load_checkpoint(
+        path,
+        extended,
+        use_ema=True,
+        expected_tokenizer_fingerprint="extended-tokenizer",
+        compatible_tokenizer_fingerprints={"base-tokenizer"},
+        allow_vocab_extension=True,
+        restore_rng=False,
+    )
+
+    torch.testing.assert_close(extended.tok.weight[:16], expected_prefix)
+    torch.testing.assert_close(extended.tok.weight[16:], expected_new_rows)
 
 
 def test_checkpoint_rng_state_loading(tmp_path) -> None:

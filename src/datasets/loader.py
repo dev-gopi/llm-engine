@@ -70,15 +70,10 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
                     loss_mask = [True] * len(identifiers)
             except (TypeError, ValueError) as error:
                 raise ValueError(f"invalid dataset record at index {record_index}: {error}") from error
+            # Keep the last retained content token when an example is too long.
+            # Injecting EOS at this boundary would teach the model that an
+            # incomplete text or assistant response is a valid stopping point.
             identifiers, loss_mask = identifiers[:max_length], loss_mask[:max_length]
-            if add_eos and len(identifiers) == max_length:
-                eos = tokenizer.token_to_id("<|eos|>")
-                if eos is not None:
-                    identifiers[-1] = eos
-                    # Preserve the role mask. If truncation lands inside a user
-                    # or system turn, supervising this synthetic EOS would teach
-                    # the model to stop instead of producing an assistant reply.
-                    loss_mask[-1] = bool(loss_mask[-1])
             if len(identifiers) >= drop_shorter_than:
                 self.examples.append(torch.tensor(identifiers, dtype=torch.long))
                 self.loss_masks.append(torch.tensor(loss_mask, dtype=torch.bool))

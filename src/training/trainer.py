@@ -90,21 +90,22 @@ class Trainer:
         attention_mask = None
         loss_mask = None
         is_batch = isinstance(inputs, Mapping)
+        non_blocking = self.device.type == "cuda"
         if is_batch:
             batch = inputs
-            token_ids = batch["input_ids"].to(self.device)
-            targets = batch["labels"].to(self.device)
+            token_ids = batch["input_ids"].to(self.device, non_blocking=non_blocking)
+            targets = batch["labels"].to(self.device, non_blocking=non_blocking)
             attention_mask = batch.get("attention_mask")
             loss_mask = batch.get("loss_mask")
             if attention_mask is not None:
-                attention_mask = attention_mask.to(self.device)
+                attention_mask = attention_mask.to(self.device, non_blocking=non_blocking)
             if loss_mask is not None:
-                loss_mask = loss_mask.to(self.device)
+                loss_mask = loss_mask.to(self.device, non_blocking=non_blocking)
         else:
-            token_ids = inputs.to(self.device)
+            token_ids = inputs.to(self.device, non_blocking=non_blocking)
             if targets is None:
                 raise ValueError("targets are required when inputs is a tensor")
-            targets = targets.to(self.device)
+            targets = targets.to(self.device, non_blocking=non_blocking)
         with torch.autocast(device_type=self.device.type, dtype=self.autocast_dtype, enabled=self.mixed_precision != "none"):
             logits = self.model(token_ids, attention_mask=attention_mask) if attention_mask is not None else self.model(token_ids)
             if isinstance(logits, tuple):

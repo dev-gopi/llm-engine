@@ -10,13 +10,42 @@ import torch.distributed as dist
 from torch import Tensor, nn
 
 from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
+from utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class Evaluator:
-    def __init__(self, model: nn.Module, *, loss_fn: CausalLanguageModelLoss | None = None, device: str | torch.device = "cpu") -> None:
+    def __init__(
+        self,
+        model: nn.Module,
+        *,
+        loss_fn: CausalLanguageModelLoss | None = None,
+        device: str | torch.device = "cpu",
+        mixed_precision: str = "none",
+    ) -> None:
         self.model = model
         self.device = torch.device(device)
         self.loss_fn = loss_fn or CausalLanguageModelLoss(shift_labels=True, reduction="mean")
+        if mixed_precision not in {"none", "fp16", "bf16"}:
+            raise ValueError("mixed_precision must be none, fp16, or bf16")
+        if mixed_precision == "fp16" and self.device.type != "cuda":
+            logger.warning(
+                "FP16 evaluation requires CUDA; falling back to full precision on %s",
+                self.device.type,
+            )
+            mixed_precision = "none"
+        if mixed_precision == "bf16" and self.device.type == "cuda" and not torch.cuda.is_bf16_supported():
+            raise ValueError("BF16 evaluation requires a BF16-capable CUDA device")
+        if mixed_precision != "none" and self.device.type not in {"cpu", "cuda"}:
+            logger.warning(
+                "mixed-precision evaluation is not enabled for %s; falling back to full precision",
+                self.device.type,
+            )
+            mixed_precision = "none"
+        self.mixed_precision = mixed_precision
+        self.autocast_dtype = torch.float16 if mixed_precision == "fp16" else torch.bfloat16
 
     @torch.inference_mode()
     def evaluate(self, dataloader: Iterable[Mapping[str, Tensor]], *, max_batches: int | None = None) -> dict[str, float | int]:
@@ -27,22 +56,28 @@ class Evaluator:
         z_loss_sum = 0.0
         token_count = 0
         batch_count = 0
+        non_blocking = self.device.type == "cuda"
         try:
             for batch_count, batch in enumerate(dataloader, 1):
                 if max_batches is not None and batch_count > max_batches:
                     batch_count -= 1
                     break
-                inputs = batch["input_ids"].to(self.device)
-                labels = batch["labels"].to(self.device)
+                inputs = batch["input_ids"].to(self.device, non_blocking=non_blocking)
+                labels = batch["labels"].to(self.device, non_blocking=non_blocking)
                 attention_mask = batch.get("attention_mask")
                 loss_mask = batch.get("loss_mask")
                 if attention_mask is not None:
-                    attention_mask = attention_mask.to(self.device)
+                    attention_mask = attention_mask.to(self.device, non_blocking=non_blocking)
                 if loss_mask is not None:
-                    loss_mask = loss_mask.to(self.device)
-                output = self.model(inputs, attention_mask=attention_mask) if attention_mask is not None else self.model(inputs)
-                logits = output[0] if isinstance(output, tuple) else output
-                details = self.loss_fn(logits, labels, loss_mask=loss_mask, return_details=True)
+                    loss_mask = loss_mask.to(self.device, non_blocking=non_blocking)
+                with torch.autocast(
+                    device_type=self.device.type,
+                    dtype=self.autocast_dtype,
+                    enabled=self.mixed_precision != "none",
+                ):
+                    output = self.model(inputs, attention_mask=attention_mask) if attention_mask is not None else self.model(inputs)
+                    logits = output[0] if isinstance(output, tuple) else output
+                    details = self.loss_fn(logits, labels, loss_mask=loss_mask, return_details=True)
                 if not isinstance(details, LanguageModelLossOutput):
                     raise RuntimeError("loss function did not return detailed metrics")
                 loss_sum += float(details.loss) * details.token_count

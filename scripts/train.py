@@ -191,7 +191,12 @@ def main() -> None:
     evaluator = None
     if config.get("validation_files"):
         validation_loader = build_loader(config["validation_files"], tokenizer, config, shuffle=False, rank=distributed.rank, world_size=distributed.world_size)
-        evaluator = Evaluator(training_model, loss_fn=loss_fn, device=distributed.device)
+        evaluator = Evaluator(
+            training_model,
+            loss_fn=loss_fn,
+            device=distributed.device,
+            mixed_precision=precision,
+        )
 
     def checkpoint_callback(current: Trainer, epoch: int) -> None:
         if distributed_checkpoints:

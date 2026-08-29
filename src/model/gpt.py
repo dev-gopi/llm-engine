@@ -14,6 +14,7 @@ from torch import Tensor
 from utils.logger import get_logger
 
 from .attention import KeyValueCache
+from .kv_cache import StaticLayerKVCache
 from .config import normalize_model_config
 from .embedding import TokenEmbedding
 from .layer_norm import build_normalization
@@ -181,13 +182,24 @@ class MiniGPT(nn.Module):
         cached_length = 0
         if past_key_values:
             for cache in past_key_values:
+                if isinstance(cache, StaticLayerKVCache):
+                    continue
                 if not isinstance(cache, tuple) or len(cache) != 2:
                     raise TypeError("each past_key_values entry must be a (key, value) tuple")
                 if any(not isinstance(tensor, Tensor) or tensor.ndim != 4 for tensor in cache):
                     raise ValueError("cached keys and values must have four dimensions")
-            cached_length = past_key_values[0][0].shape[2]
+            cached_length = (
+                past_key_values[0].length
+                if isinstance(past_key_values[0], StaticLayerKVCache)
+                else past_key_values[0][0].shape[2]
+            )
             if any(
-                cache[0].shape[2] != cached_length or cache[1].shape[2] != cached_length
+                (cache.length if isinstance(cache, StaticLayerKVCache) else cache[0].shape[2])
+                != cached_length
+                or (
+                    not isinstance(cache, StaticLayerKVCache)
+                    and cache[1].shape[2] != cached_length
+                )
                 for cache in past_key_values
             ):
                 raise ValueError("all cached keys and values must have the same sequence length")

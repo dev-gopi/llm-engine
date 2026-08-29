@@ -18,6 +18,7 @@ from inference.context import ConversationMemory, format_system_prompt
 from inference.generator import Generator
 from inference.web_search import SearchResult, build_search_prompt, search_brave, search_searxng
 from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
@@ -44,11 +45,15 @@ def main() -> None:
     model_config = load_yaml(args.model_config)
     inference_config = load_yaml(args.inference_config)
     tokenizer = Tokenizer.load(args.tokenizer)
+    try:
+        model_config = adapt_config_to_tokenizer(model_config, tokenizer)
+    except ValueError as error:
+        parser.error(str(error))
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(
-        args.checkpoint, model, map_location=device,
-        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+        args.checkpoint, model, map_location=device, use_ema=True,
+        **checkpoint_tokenizer_options(tokenizer),
     )
     generator = Generator(model, tokenizer, device=device)
 

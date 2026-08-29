@@ -12,6 +12,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
 from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from model.loss import CausalLanguageModelLoss
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
@@ -39,8 +40,10 @@ def main() -> None:
         )
     model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
     tokenizer = Tokenizer.load(args.tokenizer)
-    if tokenizer.vocab_size != int(model_config["vocab_size"]):
-        parser.error("tokenizer vocabulary does not match model vocab_size")
+    try:
+        model_config = adapt_config_to_tokenizer(model_config, tokenizer)
+    except ValueError as error:
+        parser.error(str(error))
     max_seq_len = int(config.get("max_sequence_length", 0))
     max_pos = int(model_config.get("max_position", 0))
     if max_seq_len > max_pos:
@@ -52,11 +55,16 @@ def main() -> None:
     model = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(
         args.checkpoint, model, map_location=device, use_ema=True,
-        expected_tokenizer_fingerprint=tokenizer.fingerprint,
+        **checkpoint_tokenizer_options(tokenizer),
     )
     paths = args.dataset or config.get("validation_files") or config["train_files"]
     loader = build_loader(paths, tokenizer, config, shuffle=False)
-    metrics = Evaluator(model, loss_fn=CausalLanguageModelLoss.from_config(config), device=device).evaluate(
+    metrics = Evaluator(
+        model,
+        loss_fn=CausalLanguageModelLoss.from_config(config),
+        device=device,
+        mixed_precision=str(config.get("mixed_precision", "none")),
+    ).evaluate(
         loader, max_batches=args.max_batches
     )
     print(json.dumps(metrics, indent=2))
