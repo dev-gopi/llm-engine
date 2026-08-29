@@ -31,9 +31,9 @@ from utils.logger import configure_logging
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt")
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
-    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
+    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.v2.yaml"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--max-tokens", type=int)
@@ -57,16 +57,16 @@ def main() -> None:
     checkpoint_path = args.checkpoint
     if checkpoint_path is None:
         for candidate in (
-            Path("checkpoints/finetuning/best.pt"),
-            Path("checkpoints/latest/model.pt"),
-            Path("checkpoints/latest/best.pt"),
-            Path("checkpoints/pretraining/best.pt"),
+            Path("checkpoints/v2-training/best.pt"),
+            Path("checkpoints/v2-training/latest.pt"),
+            Path("checkpoints/v2-pretraining/best.pt"),
+            Path("checkpoints/v2-pretraining/latest.pt"),
         ):
             if candidate.exists():
                 checkpoint_path = candidate
                 break
         if checkpoint_path is None:
-            checkpoint_path = Path("checkpoints/latest/model.pt")
+            checkpoint_path = Path("checkpoints/v2-pretraining/best.pt")
 
     print(f"Loading checkpoint: {checkpoint_path}")
     device = resolve_device(args.device)

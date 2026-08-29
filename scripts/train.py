@@ -41,11 +41,11 @@ logger = get_logger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
     parser.add_argument("--training-config", type=Path, default=Path("configs/training.gpu.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
-    parser.add_argument("--output", type=Path, default=Path("checkpoints/latest/model.pt"))
-    parser.add_argument("--best-output", type=Path, default=Path("checkpoints/best/model.pt"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    parser.add_argument("--output", type=Path, default=Path("checkpoints/v2-training/latest.pt"))
+    parser.add_argument("--best-output", type=Path, default=Path("checkpoints/v2-training/best.pt"))
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--init-from", type=Path, help="load model weights only for a new training stage")
     parser.add_argument("--epochs", type=int)
@@ -60,7 +60,7 @@ def main() -> None:
         parser.error(
             "the selected GPU training profile requires CUDA, but PyTorch cannot access a GPU. "
             "Fix the NVIDIA driver until `nvidia-smi` works, or explicitly select "
-            "--model-config configs/model.cpu.yaml --training-config configs/training.cpu.yaml"
+            "--model-config configs/model.v2.cpu.yaml --training-config configs/training.cpu.yaml"
         )
     if precision == "bf16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
         parser.error(

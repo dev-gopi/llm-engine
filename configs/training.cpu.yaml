@@ -12,18 +12,52 @@ lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
+samples_per_epoch: 100000
+dataset_weights:
+  tinystories: 0.25
+  wikitext_103: 0.25
+  ultrachat_200k: 0.09
+  helpsteer: 0.05
+  openorca: 0.06
+  gsm8k: 0.04
+  core_chat: 0.01
+  code_instructions: 0.06
+  general_qa: 0.05
+  safety_alignment: 0.04
+  writing_editing: 0.04
+  multilingual_bn_hi: 0.02
+  multilingual_hi: 0.02
+  tool_calling: 0.02
 train_files:
   - data/processed/tinystories/train.jsonl
   - data/processed/wikitext_103/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/helpsteer/train.jsonl
   - data/processed/openorca/train.jsonl
+  - data/processed/gsm8k/train.jsonl
+  - data/processed/core_chat/train.jsonl
+  - data/processed/code_instructions/train.jsonl
+  - data/processed/general_qa/train.jsonl
+  - data/processed/safety_alignment/train.jsonl
+  - data/processed/writing_editing/train.jsonl
+  - data/processed/multilingual_bn_hi/train.jsonl
+  - data/processed/multilingual_hi/train.jsonl
+  - data/processed/tool_calling/train.jsonl
 validation_files:
   - data/processed/tinystories/validation.jsonl
   - data/processed/wikitext_103/validation.jsonl
   - data/processed/ultrachat_200k/validation.jsonl
   - data/processed/helpsteer/validation.jsonl
   - data/processed/openorca/validation.jsonl
+  - data/processed/gsm8k/validation.jsonl
+  - data/processed/core_chat/validation.jsonl
+  - data/processed/code_instructions/validation.jsonl
+  - data/processed/general_qa/validation.jsonl
+  - data/processed/safety_alignment/validation.jsonl
+  - data/processed/writing_editing/validation.jsonl
+  - data/processed/multilingual_bn_hi/validation.jsonl
+  - data/processed/multilingual_hi/validation.jsonl
+  - data/processed/tool_calling/validation.jsonl
 learning_rate: 0.0001
 weight_decay: 0.01
 beta1: 0.9

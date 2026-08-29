@@ -42,9 +42,9 @@ def export_model(model: MiniGPT, output: Path, export_format: str, *, sequence_l
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
-    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/latest/model.pt"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/v2-pretraining/best.pt"))
     parser.add_argument("--format", choices=("safetensors", "torch_export", "onnx"), default="safetensors")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sequence-length", type=int, default=16)

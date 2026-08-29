@@ -196,7 +196,7 @@ def train_command(args: argparse.Namespace) -> None:
         ),
         progress=report,
     )
-    output_dir = args.output or Path(config.get("output_dir", "data/tokenizer"))
+    output_dir = args.output or Path(config.get("output_dir", "data/tokenizer-v2"))
     artifact = tokenizer.save(output_dir)
     print(
         json.dumps(
@@ -222,7 +222,7 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     train_parser = subparsers.add_parser("train", help="train and save tokenizer artifacts")
-    train_parser.add_argument("--config", type=Path, default=Path("configs/tokenizer.yaml"))
+    train_parser.add_argument("--config", type=Path, default=Path("configs/tokenizer.v2.yaml"))
     train_parser.add_argument("--source", action="append", help="override source glob; repeatable")
     train_parser.add_argument("--output", type=Path)
     train_parser.add_argument("--vocab-size", type=int)
@@ -231,7 +231,7 @@ def parse_args() -> argparse.Namespace:
 
     inspect_parser = subparsers.add_parser("inspect", help="encode and decode sample text")
     inspect_parser.add_argument("text")
-    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
+    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
     inspect_parser.add_argument("--add-bos", action="store_true")
     inspect_parser.add_argument("--add-eos", action="store_true")
     inspect_parser.set_defaults(handler=inspect_command)

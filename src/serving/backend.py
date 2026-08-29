@@ -59,9 +59,9 @@ class ConfiguredModelBackend:
     def __init__(
         self,
         *,
-        model_config: str | Path = "configs/model.cpu.yaml",
-        tokenizer_path: str | Path = "data/tokenizer",
-        checkpoint_path: str | Path = "checkpoints/latest/model.pt",
+        model_config: str | Path = "configs/model.v2.cpu.yaml",
+        tokenizer_path: str | Path = "data/tokenizer-v2",
+        checkpoint_path: str | Path = "checkpoints/v2-pretraining/best.pt",
         device: str = "auto",
         session_store_path: str | Path | None = None,
         system_prompt: str = "You are Gopi, a helpful assistant.",
@@ -106,11 +106,10 @@ class ConfiguredModelBackend:
             # Optional compatibility fallback is restricted to known paths;
             # never load an arbitrary recently modified checkpoint.
             candidates = [
-                Path("checkpoints/finetuning/best.pt"),
-                Path("checkpoints/finetuning/latest.pt"),
-                Path("checkpoints/latest/model.pt"),
-                Path("checkpoints/latest/best.pt"),
-                Path("checkpoints/pretraining/best.pt"),
+                Path("checkpoints/v2-training/best.pt"),
+                Path("checkpoints/v2-training/latest.pt"),
+                Path("checkpoints/v2-pretraining/best.pt"),
+                Path("checkpoints/v2-pretraining/latest.pt"),
             ]
             for fallback in candidates:
                 if fallback.exists():
@@ -201,8 +200,8 @@ class ConfiguredModelBackend:
                 expected_tokenizer_fingerprint=tokenizer.fingerprint,
             )
         except RuntimeError as error:
-            # Fallback to alternative model configs (e.g. model.gpu.yaml) if architecture mismatch occurs
-            alt_config_path = Path("configs/model.gpu.yaml") if self.model_config.name == "model.cpu.yaml" else Path("configs/model.cpu.yaml")
+            # Retry with the other v2 hardware profile if architecture selection was wrong.
+            alt_config_path = Path("configs/model.v2.gpu.yaml") if self.model_config.name == "model.v2.cpu.yaml" else Path("configs/model.v2.cpu.yaml")
             if alt_config_path.exists():
                 logger.info("Retrying checkpoint load with alternate config: %s", alt_config_path)
                 alt_config = load_yaml(alt_config_path)
@@ -725,15 +724,15 @@ class ConfiguredModelBackend:
             await asyncio.sleep(0)
 
 def _configured_from_environment(*, device: str | None = None) -> ConfiguredModelBackend:
-    inference_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.yaml"))
+    inference_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.v2.yaml"))
     inference = load_yaml(inference_path) if inference_path.is_file() else {}
     serving = inference.get("serving", {})
     if not isinstance(serving, dict):
         raise ValueError("inference serving configuration must be a mapping")
     return ConfiguredModelBackend(
-        model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.cpu.yaml"))),
-        tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer"))),
-        checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/latest/model.pt"))),
+        model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.v2.cpu.yaml"))),
+        tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer-v2"))),
+        checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/v2-pretraining/best.pt"))),
         device=device or os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
         session_store_path=os.getenv("GOPI_SESSION_STORE", str(serving.get("session_store_path", "data/cache/sessions.sqlite"))),
         system_prompt=str(inference.get("system_prompt", "You are Gopi, a helpful assistant.")),

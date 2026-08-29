@@ -1,7 +1,8 @@
 type: byte_level_bpe
-vocab_size: 50000
-min_frequency: 2
-max_training_bytes: 536870912
+vocab_size: 32000
+min_frequency: 3
+max_training_bytes: 1073741824
+source_sampling: balanced_bytes
 output_dir: data/tokenizer
 special_tokens:
   - <|pad|>
@@ -17,3 +18,12 @@ sources:
   - data/processed/helpsteer/train.jsonl
   - data/processed/openorca/train.jsonl
   - data/processed/ultrachat_200k/train.jsonl
+  - data/processed/gsm8k/train.jsonl
+  - data/processed/core_chat/train.jsonl
+  - data/processed/code_instructions/train.jsonl
+  - data/processed/general_qa/train.jsonl
+  - data/processed/safety_alignment/train.jsonl
+  - data/processed/writing_editing/train.jsonl
+  - data/processed/multilingual_bn_hi/train.jsonl
+  - data/processed/multilingual_hi/train.jsonl
+  - data/processed/tool_calling/train.jsonl
