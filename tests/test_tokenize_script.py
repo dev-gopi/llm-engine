@@ -1,6 +1,7 @@
 import json
 
-from scripts.tokenize import iter_corpus
+from scripts.tokenize import discover_extension_tokens, iter_corpus
+from tokenizer.trainer import BPETokenizerTrainer
 
 
 def _write_jsonl(path, texts):
@@ -53,3 +54,18 @@ def test_iter_corpus_balances_contributed_bytes(tmp_path):
     # After the first source contributes a large document, the smaller second
     # source catches up before the first source is read again.
     assert texts == ["a" * 10, "b", "b2", "b3", "a2"]
+
+
+def test_extension_discovery_selects_frequent_expensive_multilingual_tokens():
+    tokenizer = BPETokenizerTrainer(vocab_size=263, min_frequency=2).train(
+        ["simple text"] * 10
+    )
+    tokens = discover_extension_tokens(
+        tokenizer,
+        [" বাংলা বাংলা বাংলা 👨‍👩‍👧‍👦", " বাংলা 👨‍👩‍👧‍👦"],
+        max_new_tokens=2,
+        min_frequency=2,
+        min_existing_tokens=3,
+    )
+    assert " বাংলা" in tokens
+    assert "👨‍👩‍👧‍👦" in tokens

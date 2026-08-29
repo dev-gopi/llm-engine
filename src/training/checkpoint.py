@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import random
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,8 @@ def load_checkpoint(
     use_ema: bool = False,
     restore_rng: bool = True,
     expected_tokenizer_fingerprint: str | None = None,
+    compatible_tokenizer_fingerprints: Collection[str] = (),
+    allow_vocab_extension: bool = False,
 ) -> dict[str, Any]:
     source = Path(path)
     if not source.is_file():
@@ -80,12 +83,15 @@ def load_checkpoint(
         expected_tokenizer_fingerprint is not None
         and saved_fingerprint is not None
         and saved_fingerprint != expected_tokenizer_fingerprint
+        and saved_fingerprint not in compatible_tokenizer_fingerprints
     ):
         raise ValueError(
             "checkpoint tokenizer fingerprint does not match the selected tokenizer; "
-            "use the tokenizer that trained this checkpoint or retrain from scratch"
+            "use the tokenizer that trained this checkpoint or a verified append-only extension"
         )
     state = payload.get("model", payload)
+    if allow_vocab_extension:
+        state = _expand_vocabulary_state(state, model.state_dict())
     try:
         model.load_state_dict(state, strict=strict)
     except RuntimeError as err:
@@ -151,6 +157,33 @@ def load_checkpoint(
         "sampler": payload.get("sampler", {}),
         "ema_applied": bool(use_ema and payload.get("ema")),
     }
+
+
+_VOCABULARY_PARAMETERS = ("tok.embedding.weight", "head.weight", "head.bias")
+
+
+def _expand_vocabulary_state(
+    saved_state: dict[str, Any], target_state: dict[str, Any]
+) -> dict[str, Any]:
+    """Pad checkpoint vocabulary tensors with the model's initialized rows."""
+    expanded = dict(saved_state)
+    for name, saved in saved_state.items():
+        normalized = name.removeprefix("module.")
+        if normalized not in _VOCABULARY_PARAMETERS or name not in target_state:
+            continue
+        target = target_state[name]
+        if not isinstance(saved, torch.Tensor) or saved.shape == target.shape:
+            continue
+        if (
+            saved.ndim != target.ndim
+            or saved.shape[1:] != target.shape[1:]
+            or saved.shape[0] >= target.shape[0]
+        ):
+            continue
+        replacement = target.detach().clone()
+        replacement[: saved.shape[0]].copy_(saved.to(replacement.device))
+        expanded[name] = replacement
+    return expanded
 
 
 def _numpy_rng_state() -> dict[str, Any]:

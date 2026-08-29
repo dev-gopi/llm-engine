@@ -91,6 +91,30 @@ def test_training_is_deterministic():
     assert first.bpe.merges == second.bpe.merges
 
 
+def test_append_only_extension_preserves_ids_and_records_lineage(tokenizer: Tokenizer, tmp_path):
+    original_mapping = dict(tokenizer.vocab)
+    extended = tokenizer.extend(["hyperdomainterm", " বাংলা"])
+
+    assert extended.vocab_size > tokenizer.vocab_size
+    assert all(extended.vocab[token] == identifier for token, identifier in original_mapping.items())
+    assert tokenizer.fingerprint in extended.compatible_base_fingerprints
+    assert extended.base_vocab_size == tokenizer.vocab_size
+    assert len(extended.encode("hyperdomainterm")) == 1
+    assert extended.decode(extended.encode(" বাংলা")) == " বাংলা"
+
+    restored = Tokenizer.load(extended.save(tmp_path))
+    assert restored.fingerprint == extended.fingerprint
+    assert restored.compatible_base_fingerprints == extended.compatible_base_fingerprints
+
+
+def test_append_only_extension_supports_phrases_and_rejects_specials(tokenizer: Tokenizer):
+    extended = tokenizer.extend(["two words", "👨‍👩‍👧‍👦"])
+    assert len(extended.encode("two words")) == 1
+    assert len(extended.encode("👨‍👩‍👧‍👦")) == 1
+    with pytest.raises(ValueError, match="special token"):
+        tokenizer.extend(["<|eos|>"])
+
+
 def test_invalid_configuration_and_ids(tokenizer: Tokenizer):
     with pytest.raises(ValueError, match="at least"):
         BPETokenizerTrainer(vocab_size=len(DEFAULT_SPECIAL_TOKENS) + 255)

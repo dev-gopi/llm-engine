@@ -15,11 +15,12 @@ import argparse
 import glob
 import heapq
 import json
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Iterable, Iterator
 from typing import Any
 
 import pyarrow.parquet as pq
+import regex
 import yaml
 
 from tokenizer.encoder import Tokenizer
@@ -217,6 +218,96 @@ def inspect_command(args: argparse.Namespace) -> None:
     print(json.dumps({"ids": identifiers, "decoded": tokenizer.decode(identifiers)}, ensure_ascii=False))
 
 
+_EXTENSION_WORD = regex.compile(r"\p{L}[\p{L}\p{M}\p{N}_'’\-]{2,}")
+_GRAPHEME = regex.compile(r"\X")
+_PICTOGRAPH = regex.compile(r"\p{Extended_Pictographic}")
+
+
+def discover_extension_tokens(
+    tokenizer: Tokenizer,
+    texts: Iterable[str],
+    *,
+    max_new_tokens: int,
+    min_frequency: int,
+    min_existing_tokens: int = 3,
+    max_scan_bytes: int | None = None,
+) -> list[str]:
+    """Select frequent words/emoji that are expensive under the base tokenizer."""
+    if max_new_tokens < 1 or min_frequency < 1 or min_existing_tokens < 2:
+        raise ValueError("extension discovery limits must be positive")
+    frequencies: Counter[str] = Counter()
+    scanned_bytes = 0
+    for text in texts:
+        encoded_size = len(text.encode("utf-8"))
+        if max_scan_bytes is not None and scanned_bytes + encoded_size > max_scan_bytes:
+            break
+        scanned_bytes += encoded_size
+        for match in _EXTENSION_WORD.finditer(text):
+            word = match.group(0)
+            if match.start() > 0 and text[match.start() - 1] == " ":
+                word = " " + word
+            frequencies[word] += 1
+        for match in _GRAPHEME.finditer(text):
+            grapheme = match.group(0)
+            if _PICTOGRAPH.search(grapheme):
+                frequencies[grapheme] += 1
+
+    ranked: list[tuple[int, int, str]] = []
+    for token, frequency in frequencies.items():
+        if frequency < min_frequency or token in tokenizer.added_tokens:
+            continue
+        existing_length = len(tokenizer.encode(token))
+        if existing_length < min_existing_tokens:
+            continue
+        ranked.append((frequency * (existing_length - 1), frequency, token))
+    ranked.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    return [token for _, _, token in ranked[:max_new_tokens]]
+
+
+def extend_command(args: argparse.Namespace) -> None:
+    config = load_config(args.config) if args.config else {}
+    extension_config = config.get("extension", {})
+    if extension_config and not isinstance(extension_config, dict):
+        raise ValueError("tokenizer extension configuration must be a mapping")
+    tokenizer_path = args.tokenizer or Path(
+        extension_config.get("base_tokenizer", config.get("output_dir", "data/tokenizer-v2"))
+    )
+    tokenizer = Tokenizer.load(tokenizer_path)
+    requested = list(args.token or ())
+    if args.tokens_file:
+        requested.extend(
+            line.rstrip("\r\n")
+            for line in args.tokens_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+    sources = args.source or extension_config.get("sources", ())
+    if sources:
+        requested.extend(discover_extension_tokens(
+            tokenizer,
+            iter_corpus(sources, sampling=str(extension_config.get("source_sampling", "balanced_bytes"))),
+            max_new_tokens=int(extension_config.get("max_new_tokens", 2000)),
+            min_frequency=int(extension_config.get("min_frequency", 5)),
+            min_existing_tokens=int(extension_config.get("min_existing_tokens", 3)),
+            max_scan_bytes=extension_config.get("max_scan_bytes"),
+        ))
+    if not requested:
+        raise ValueError("provide tokens directly or configure extension.sources")
+    extended = tokenizer.extend(requested)
+    tokenizer_dir = tokenizer_path.parent if tokenizer_path.name == "tokenizer.json" else tokenizer_path
+    output = args.output or Path(extension_config.get(
+        "output_dir", tokenizer_dir.with_name(f"{tokenizer_dir.name}-extended")
+    ))
+    artifact = extended.save(output)
+    print(json.dumps({
+        "artifact": str(artifact),
+        "base_fingerprint": tokenizer.fingerprint,
+        "fingerprint": extended.fingerprint,
+        "old_vocab_size": tokenizer.vocab_size,
+        "new_vocab_size": extended.vocab_size,
+        "added_vocab_size": extended.vocab_size - tokenizer.vocab_size,
+    }, indent=2))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -235,6 +326,20 @@ def parse_args() -> argparse.Namespace:
     inspect_parser.add_argument("--add-bos", action="store_true")
     inspect_parser.add_argument("--add-eos", action="store_true")
     inspect_parser.set_defaults(handler=inspect_command)
+
+    extend_parser = subparsers.add_parser(
+        "extend", help="append tokens while preserving all existing token IDs"
+    )
+    extend_parser.add_argument("--config", type=Path, help="configuration containing an extension section")
+    extend_parser.add_argument("--tokenizer", type=Path)
+    extend_parser.add_argument("--source", action="append", help="dataset glob to scan; repeatable")
+    extend_parser.add_argument("--token", action="append", help="token text; repeatable")
+    extend_parser.add_argument("--tokens-file", type=Path, help="UTF-8 file with one token per line")
+    extend_parser.add_argument(
+        "--output", type=Path,
+        help="output directory (defaults to <tokenizer>-extended; pass the input path for in-place)",
+    )
+    extend_parser.set_defaults(handler=extend_command)
     return parser.parse_args()
 
 

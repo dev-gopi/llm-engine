@@ -78,8 +78,23 @@ def main() -> None:
     distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
     atexit.register(DistributedTrainer.shutdown)
     tokenizer = Tokenizer.load(args.tokenizer)
-    if tokenizer.vocab_size != int(model_config["vocab_size"]):
-        parser.error("tokenizer vocabulary does not match model vocab_size")
+    configured_vocab_size = int(model_config["vocab_size"])
+    if tokenizer.vocab_size != configured_vocab_size:
+        if (
+            tokenizer.base_vocab_size == configured_vocab_size
+            and tokenizer.vocab_size > configured_vocab_size
+        ):
+            model_config = dict(model_config)
+            model_config["vocab_size"] = tokenizer.vocab_size
+            logger.info(
+                "Using append-only tokenizer extension: resizing vocabulary from %d to %d",
+                configured_vocab_size, tokenizer.vocab_size,
+            )
+        else:
+            parser.error(
+                "tokenizer vocabulary does not match model vocab_size and is not a "
+                "verified append-only extension of that vocabulary"
+            )
     max_seq_len = int(config.get("max_sequence_length", 0))
     max_pos = int(model_config.get("max_position", 0))
     if max_seq_len > max_pos:
@@ -98,6 +113,8 @@ def main() -> None:
             use_ema=False,
             restore_rng=False,
             expected_tokenizer_fingerprint=tokenizer.fingerprint,
+            compatible_tokenizer_fingerprints=tokenizer.compatible_base_fingerprints,
+            allow_vocab_extension=bool(tokenizer.compatible_base_fingerprints),
         )
     strategy = str(config.get("distributed_strategy", "ddp"))
     distributed_checkpoints = strategy.startswith("fsdp") or str(

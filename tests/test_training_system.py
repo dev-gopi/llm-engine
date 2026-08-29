@@ -146,6 +146,29 @@ def test_checkpoint_rejects_different_same_size_tokenizer(tmp_path) -> None:
         )
 
 
+def test_checkpoint_loads_verified_append_only_vocabulary_extension(tmp_path) -> None:
+    original = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(
+        tmp_path / "model.pt", original,
+        metadata={"tokenizer_fingerprint": "base-tokenizer"},
+    )
+    extended = MiniGPT(vocab_size=19, dim=8, layers=1, heads=2, max_pos=8)
+    new_rows = extended.tok.weight[16:].detach().clone()
+
+    load_checkpoint(
+        path,
+        extended,
+        expected_tokenizer_fingerprint="extended-tokenizer",
+        compatible_tokenizer_fingerprints={"base-tokenizer"},
+        allow_vocab_extension=True,
+        restore_rng=False,
+    )
+
+    torch.testing.assert_close(extended.tok.weight[:16], original.tok.weight)
+    torch.testing.assert_close(extended.tok.weight[16:], new_rows)
+    assert extended.head.weight is extended.tok.weight
+
+
 def test_checkpoint_rng_state_loading(tmp_path) -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     path = save_checkpoint(tmp_path / "rng.pt", model)

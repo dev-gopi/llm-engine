@@ -520,6 +520,37 @@ changes token IDs and therefore requires model training to restart from
 scratch. New checkpoints record a tokenizer fingerprint and reject a different
 same-size tokenizer during training and inference.
 
+After pretraining, do not retrain the tokenizer merely to add domain terms.
+Create an append-only extension instead; existing IDs and BPE merge priorities
+remain unchanged, while Bengali/Hindi text, emoji sequences, phrases, and code
+literals can receive new IDs:
+
+```bash
+.venv/bin/python scripts/tokenize.py extend \
+  --tokenizer data/tokenizer-v2 \
+  --output data/tokenizer-v2-extended \
+  --token " বাংলা" \
+  --token "domainTerm" \
+  --token "👨‍👩‍👧‍👦"
+```
+
+For a larger list, use `--tokens-file new-tokens.txt` (one UTF-8 token per
+line). By default the command also writes to a sibling `-extended` directory,
+leaving the base tokenizer intact. It records the base fingerprint and appends IDs without moving
+old ones. Start continued pretraining as a new optimizer stage with
+`--init-from`, not `--resume`; the loader copies all checkpoint vocabulary rows
+and randomly initializes only the appended rows. When the model YAML still has
+the base vocabulary size, `scripts/train.py` recognizes verified tokenizer
+lineage and selects the extended size automatically.
+
+The v2 configuration also defines bounded automatic discovery across the new
+emoji, Bengali, Hindi/Hinglish, and coding datasets. It ranks frequent terms by
+the number of existing tokens they replace and appends at most 2,000 IDs:
+
+```bash
+.venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.v2.yaml
+```
+
 Run staged GPU training with separate checkpoints:
 
 ```bash

@@ -75,10 +75,78 @@ class Tokenizer:
             "merges": list(self.bpe.merges),
             "special_tokens": sorted(self.special_tokens.items()),
         }
+        if self.added_tokens:
+            payload["added_tokens"] = list(self.added_tokens)
         encoded = json.dumps(
             payload, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+    @property
+    def compatible_base_fingerprints(self) -> frozenset[str]:
+        """Tokenizer fingerprints whose ID mappings are preserved as a prefix."""
+        extension = self.metadata.get("extension", {})
+        ancestors = extension.get("compatible_base_fingerprints", ())
+        if not isinstance(ancestors, list) or not all(isinstance(item, str) for item in ancestors):
+            return frozenset()
+        return frozenset(ancestors)
+
+    @property
+    def base_vocab_size(self) -> int | None:
+        extension = self.metadata.get("extension", {})
+        value = extension.get("base_vocab_size")
+        return value if isinstance(value, int) and value > 0 else None
+
+    @property
+    def added_tokens(self) -> tuple[str, ...]:
+        extension = self.metadata.get("extension", {})
+        values = extension.get("added_token_texts", ())
+        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+            return ()
+        return tuple(values)
+
+    def extend(self, tokens: Iterable[str]) -> "Tokenizer":
+        """Return an append-only BPE extension while preserving every existing ID.
+
+        Added tokens are matched explicitly before ordinary regex/BPE encoding.
+        This supports scripts with combining marks, emoji sequences, phrases,
+        and code literals without changing existing merge priorities.
+        """
+        vocab = dict(self.vocab)
+        added_texts = list(self.added_tokens)
+        added_pieces: list[str] = []
+
+        for text in tokens:
+            if not isinstance(text, str) or not text:
+                raise ValueError("extension tokens must be non-empty strings")
+            if text in self.special_tokens:
+                raise ValueError(f"special token cannot be added as an ordinary token: {text!r}")
+            if text in added_texts:
+                continue
+            piece = "".join(BYTE_ENCODER[value] for value in text.encode("utf-8"))
+            if piece not in vocab:
+                vocab[piece] = len(vocab)
+                added_pieces.append(piece)
+            added_texts.append(text)
+
+        ancestors = [self.fingerprint, *sorted(self.compatible_base_fingerprints)]
+        metadata = dict(self.metadata)
+        metadata["extension"] = {
+            "base_fingerprint": self.fingerprint,
+            "base_vocab_size": self.base_vocab_size or self.vocab_size,
+            "parent_vocab_size": self.vocab_size,
+            "compatible_base_fingerprints": list(dict.fromkeys(ancestors)),
+            "added_vocab_size": len(vocab) - self.vocab_size,
+            "added_tokens": added_pieces,
+            "added_token_texts": added_texts,
+        }
+        return Tokenizer(
+            vocab,
+            self.bpe.merges,
+            special_tokens=self.special_tokens,
+            pattern=self.pattern,
+            metadata=metadata,
+        )
 
     def token_to_id(self, token: str) -> int | None:
         return self.vocab.get(token)
@@ -122,6 +190,26 @@ class Tokenizer:
         return identifiers
 
     def _encode_ordinary(self, text: str) -> list[int]:
+        identifiers: list[int] = []
+        chunks = [text]
+        if self.added_tokens:
+            added_pattern = re.compile(
+                "(" + "|".join(
+                    re.escape(token) for token in sorted(self.added_tokens, key=len, reverse=True)
+                ) + ")"
+            )
+            chunks = added_pattern.split(text)
+        for chunk in chunks:
+            if not chunk:
+                continue
+            if chunk in self.added_tokens:
+                piece = "".join(BYTE_ENCODER[value] for value in chunk.encode("utf-8"))
+                identifiers.append(self.vocab[piece])
+                continue
+            identifiers.extend(self._encode_bpe_chunk(chunk))
+        return identifiers
+
+    def _encode_bpe_chunk(self, text: str) -> list[int]:
         identifiers: list[int] = []
         for match in self._pattern.finditer(text):
             symbols = tuple(BYTE_ENCODER[value] for value in match.group(0).encode("utf-8"))
