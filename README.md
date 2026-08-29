@@ -487,6 +487,7 @@ Configuration is divided by responsibility:
 | `configs/training.cpu.yaml` | Combined CPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, 5 epochs |
 | `configs/training.gpu.yaml` | Combined GPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, `mixed_precision: fp16`, 5 epochs |
 | `configs/tokenizer.yaml` | Byte-level BPE tokenizer training setup | `vocab_size: 50000`, `min_frequency: 2`, `special_tokens`, sources list |
+| `configs/tokenizer.v2.yaml` | V2 base-tokenizer training and append-only extension setup | `vocab_size: 32000`, balanced source sampling, extension sources and discovery limits |
 | `configs/inference.yaml` | Assistant identity, sampling, and API serving defaults | `bot_name: Gopi`, temperature, top_k/p, context_memory, sqlite session path, concurrency & rate limits |
 
 Training code must not read inference settings, and inference code must not
@@ -536,8 +537,8 @@ literals can receive new IDs:
 
 For a larger list, use `--tokens-file new-tokens.txt` (one UTF-8 token per
 line). By default the command also writes to a sibling `-extended` directory,
-leaving the base tokenizer intact. It records the base fingerprint and appends IDs without moving
-old ones. Start continued pretraining as a new optimizer stage with
+leaving the base tokenizer intact. It records the base fingerprint and appends
+IDs without moving old ones. Start continued pretraining as a new optimizer stage with
 `--init-from`, not `--resume`; the loader copies all checkpoint vocabulary rows
 and randomly initializes only the appended rows. When the model YAML still has
 the base vocabulary size, `scripts/train.py` recognizes verified tokenizer
@@ -550,6 +551,31 @@ the number of existing tokens they replace and appends at most 2,000 IDs:
 ```bash
 .venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.v2.yaml
 ```
+
+`max_scan_bytes` bounds how much source text is inspected, `min_frequency`
+removes rare candidates, `min_existing_tokens` requires a candidate to replace
+at least that many base-tokenizer IDs, and `max_new_tokens` caps vocabulary
+growth. Dataset files remain training inputs through the fine-tuning profiles;
+extension discovery only improves their tokenization efficiency.
+
+Continue from the pretrained weights into new checkpoint files. Do not replace
+the original tokenizer or pretraining checkpoints:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/pretraining.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2-extended \
+  --init-from checkpoints/v2-pretraining/best.pt \
+  --output checkpoints/v2-continued/latest.pt \
+  --best-output checkpoints/v2-continued/best.pt
+```
+
+The resulting model vocabulary is `32000 + added_vocab_size`. The model loader
+derives that size from verified tokenizer lineage, copies rows `0..31999`
+exactly, initializes only appended embedding/output rows, and preserves tied
+input/output weights.
 
 Run staged GPU training with separate checkpoints:
 
