@@ -805,7 +805,7 @@ After every manifest exists, start packed SFT as a new optimizer stage:
   --model-config configs/model.v2.gpu.yaml \
   --training-config configs/finetuning.v2.packed.gpu.yaml \
   --tokenizer data/tokenizer-v2-extended \
-  --init-from checkpoints/v2-pretraining/best-weighted.pt \
+  --init-from checkpoints/v2-pretraining/best.pt \
   --output checkpoints/v2-finetuning-packed/latest.pt \
   --best-output checkpoints/v2-finetuning-packed/best.pt
 ```
@@ -885,7 +885,7 @@ trusting a token-count aggregate dominated by the larger validation split:
   --model-config configs/model.v2.gpu.yaml \
   --training-config configs/pretraining.v2.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-pretraining/best-weighted.pt \
+  --checkpoint checkpoints/v2-pretraining/best.pt \
   --device cuda
 ```
 
