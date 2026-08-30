@@ -221,6 +221,7 @@ class Trainer:
             raise ValueError("epochs must be positive")
         history: list[dict[str, float | int]] = []
         for epoch in range(self.current_epoch, epochs):
+            improved_during_epoch = False
             batch_sampler = getattr(dataloader, "batch_sampler", None)
             if hasattr(batch_sampler, "set_epoch"):
                 batch_sampler.set_epoch(epoch)
@@ -268,6 +269,13 @@ class Trainer:
                         int(metrics.get("batches", 0)),
                     )
                     history.append({"epoch": epoch + 1, "step": self.global_step, **metrics})
+                    validation_loss = float(metrics["loss"])
+                    if validation_loss < self.best_validation_loss - early_stopping_min_delta:
+                        self.best_validation_loss = validation_loss
+                        self.epochs_without_improvement = 0
+                        improved_during_epoch = True
+                        if best_checkpoint_callback:
+                            best_checkpoint_callback(self, epoch)
                 if optimizer_stepped and stop_requested and stop_requested():
                     if checkpoint_callback:
                         checkpoint_callback(self, epoch)
@@ -306,9 +314,10 @@ class Trainer:
                 if validation_loss < self.best_validation_loss - early_stopping_min_delta:
                     self.best_validation_loss = validation_loss
                     self.epochs_without_improvement = 0
+                    improved_during_epoch = True
                     if best_checkpoint_callback:
                         best_checkpoint_callback(self, epoch)
-                else:
+                elif not improved_during_epoch:
                     self.epochs_without_improvement += 1
             history.append(epoch_record)
             if self.stopped_early:
