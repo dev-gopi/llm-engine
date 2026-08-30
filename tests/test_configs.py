@@ -27,3 +27,19 @@ def test_all_model_and_training_profiles_are_complete() -> None:
             assert required_training <= config.keys(), path
             assert config["distributed_strategy"] in {"ddp", "fsdp", "fsdp_hybrid", "none"}
             assert config["checkpoint_format"] in {"single_file", "distributed"}
+
+
+def test_v2_gpu_finetuning_profile_targets_balanced_quality() -> None:
+    config = load_yaml(CONFIGS / "finetuning.v2.gpu.yaml")
+    weights = config["dataset_weights"]
+
+    assert sum(weights.values()) == 1.0
+    assert config["mixed_precision"] == "fp16"
+    assert config["grad_scaler_initial_scale"] == 1024
+    assert config["grad_scaler_growth_interval"] == 20000
+    assert config["max_sequence_length"] == 384
+    assert config["label_smoothing"] == 0.0
+    assert weights["gsm8k"] >= 0.12
+    assert sum(weights[name] for name in (
+        "multilingual_bn_hi", "bangla_qa", "bangla_reading_qa",
+    )) >= 0.14
