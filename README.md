@@ -482,6 +482,12 @@ Configuration is divided by responsibility:
 | `configs/pretraining.gpu.yaml` | GPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 10 epochs |
 | `configs/finetuning.cpu.yaml` | CPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 256`, effective batch 32, 3 epochs |
 | `configs/finetuning.gpu.yaml` | Memory-safe 4 GB GPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 1`, `max_sequence_length: 256`, effective batch 32, gradient checkpointing, `mixed_precision: fp16`, 3 epochs |
+| `configs/pretraining.v2.packed.cpu.yaml` | CPU v2 pretraining from memory-mapped token shards | TinyStories/WikiText 35/65 weighted validation, 256-token packed sequences |
+| `configs/pretraining.v2.packed.gpu.yaml` | GPU v2 pretraining from memory-mapped token shards | Same objective and weights as JSONL v2, FP16, runtime tokenization removed |
+| `configs/finetuning.v2.cpu.yaml` | Quality-balanced CPU v2 SFT | Chat, factual, reasoning, Bengali, Hindi, and coding; response-only loss |
+| `configs/finetuning.v2.gpu.yaml` | Quality-balanced GPU v2 SFT | 384-token sequences and BF16 on verified-capable GPUs |
+| `configs/finetuning.v2.packed.cpu.yaml` | CPU v2 SFT from response-masked shards | Same quality mixture with runtime tokenization removed |
+| `configs/finetuning.v2.packed.gpu.yaml` | GPU v2 SFT from response-masked shards | 384-token packed sequences, BF16, weighted domain validation |
 | `configs/dpo.v2.cpu.yaml` | Single-device CPU preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/dpo.v2.gpu.yaml` | Single-GPU FP16 preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/training.cpu.yaml` | Combined CPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, 5 epochs |
@@ -757,6 +763,58 @@ continued-pretraining stage with fresh optimizer/scheduler state. Exact resume
 within the packed stage can subsequently use
 `--resume checkpoints/v2-packed-continued/latest.pt`.
 
+The packed CPU profile reads the same 256-token manifests:
+
+```bash
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.cpu.yaml \
+  --training-config configs/pretraining.v2.packed.cpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --init-from checkpoints/v2-pretraining-cpu/best.pt \
+  --output checkpoints/v2-packed-continued-cpu/latest.pt \
+  --best-output checkpoints/v2-packed-continued-cpu/best.pt
+```
+
+For SFT, ordinary causal shards are incorrect because they would optimize
+system and user prompt tokens. Build train and validation data with
+`--objective response_only`; every shard then has a parallel binary loss mask
+that supervises assistant tokens only. Use the exact tokenizer selected for
+fine-tuning because manifests enforce its fingerprint:
+
+```bash
+for split in train validation; do
+  for dataset in \
+    ultrachat_200k helpsteer openorca gsm8k core_chat \
+    code_instructions general_qa safety_alignment writing_editing \
+    multilingual_bn_hi multilingual_hi tool_calling emoji_chat \
+    bangla_qa bangla_reading_qa hindi_history_qa hinglish_chat code_alpaca; do
+    .venv/bin/python scripts/build_token_shards.py \
+      "data/processed/$dataset/$split.jsonl" \
+      --tokenizer data/tokenizer-v2-extended \
+      --output "data/shards/finetuning-v2/$split/$dataset" \
+      --sequence-length 384 --sequences-per-shard 8192 \
+      --objective response_only --workers 4
+  done
+done
+```
+
+After every manifest exists, start packed SFT as a new optimizer stage:
+
+```bash
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/finetuning.v2.packed.gpu.yaml \
+  --tokenizer data/tokenizer-v2-extended \
+  --init-from checkpoints/v2-pretraining/best-weighted.pt \
+  --output checkpoints/v2-finetuning-packed/latest.pt \
+  --best-output checkpoints/v2-finetuning-packed/best.pt
+```
+
+Do not resume a JSONL SFT run into packed data because packing changes sequence
+and sampler boundaries. Use `configs/finetuning.v2.packed.cpu.yaml` with
+`configs/model.v2.cpu.yaml` for the CPU equivalent. Both packed SFT profiles
+consume the same 384-token manifests.
+
 ### Preference training and capability evaluation
 
 `src/post_training` provides validated preference data, response-only scoring,
@@ -799,6 +857,7 @@ Hindi, coding, GSM8K, and chat data:
 
 ```bash
 python scripts/evaluate_domains.py \
+  --domains configs/evaluation.v2.finetuning.yaml \
   --checkpoint checkpoints/v2-finetuning/best.pt \
   --device cuda
 ```
@@ -816,6 +875,25 @@ python scripts/evaluate_benchmarks.py \
 
 These small generation cases are regression smoke tests, not replacements for
 larger human-reviewed or established task benchmarks.
+
+During pretraining, evaluate TinyStories and WikiText independently instead of
+trusting a token-count aggregate dominated by the larger validation split:
+
+```bash
+.venv/bin/python scripts/evaluate_domains.py \
+  --domains configs/evaluation.v2.pretraining.yaml \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/pretraining.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --checkpoint checkpoints/v2-pretraining/best-weighted.pt \
+  --device cuda
+```
+
+V2 training profiles combine fixed domain results using their configured
+`validation_weights`; this dataset-weighted score selects the best checkpoint
+while every domain remains visible in logs. `validation_metric_name` versions
+the score definition, so resuming an older token-weighted checkpoint resets an
+incompatible best-loss baseline exactly once.
 
 ### Scalable serving
 

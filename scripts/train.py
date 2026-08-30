@@ -188,9 +188,25 @@ def main() -> None:
             train_loader.batch_sampler.load_state_dict(sampler_state)
 
     validation_loader = None
+    validation_weights = None
     evaluator = None
     if config.get("validation_files"):
-        validation_loader = build_loader(config["validation_files"], tokenizer, config, shuffle=False, rank=distributed.rank, world_size=distributed.world_size)
+        validation_domains = config.get("validation_domains")
+        if validation_domains:
+            if not isinstance(validation_domains, dict):
+                parser.error("validation_domains must be a mapping")
+            validation_loader = {
+                str(domain): build_loader(
+                    paths, tokenizer, config, shuffle=False,
+                    rank=distributed.rank, world_size=distributed.world_size,
+                )
+                for domain, paths in validation_domains.items()
+            }
+            validation_weights = config.get("validation_weights")
+            if not isinstance(validation_weights, dict):
+                parser.error("validation_weights must be provided with validation_domains")
+        else:
+            validation_loader = build_loader(config["validation_files"], tokenizer, config, shuffle=False, rank=distributed.rank, world_size=distributed.world_size)
         evaluator = Evaluator(
             training_model,
             loss_fn=loss_fn,
@@ -254,6 +270,7 @@ def main() -> None:
     history = trainer.fit(
         train_loader, epochs=epochs, evaluator=evaluator,
         validation_dataloader=validation_loader,
+        validation_weights=validation_weights,
         log_every=int(config.get("log_every", 10)),
         evaluate_every=config.get("evaluate_every"),
         checkpoint_every=config.get("checkpoint_every"),
@@ -261,6 +278,7 @@ def main() -> None:
         best_checkpoint_callback=best_checkpoint_callback,
         early_stopping_patience=config.get("early_stopping_patience"),
         early_stopping_min_delta=float(config.get("early_stopping_min_delta", 0.0)),
+        validation_metric_name=config.get("validation_metric_name"),
         stop_requested=lambda: preemption.should_stop(distributed.device),
     )
     final_epoch = int(history[-1]["epoch"]) - 1 if history else trainer.current_epoch - 1

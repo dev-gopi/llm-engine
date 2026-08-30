@@ -1,5 +1,7 @@
+import math
 from unittest.mock import patch
 
+import pytest
 import torch
 from torch.utils.data import DataLoader
 
@@ -11,7 +13,7 @@ from optim.ema import EMA
 from optim.scheduler import Scheduler
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed import DistributedTrainer
-from training.evaluator import Evaluator
+from training.evaluator import Evaluator, aggregate_domain_metrics
 from training.trainer import Trainer
 
 
@@ -104,6 +106,25 @@ def test_evaluator_validates_and_falls_back_from_cpu_fp16() -> None:
         Evaluator(model, mixed_precision="fp8")
 
 
+def test_domain_validation_uses_explicit_capability_weights() -> None:
+    metrics = aggregate_domain_metrics({
+        "tinystories": {
+            "loss": 1.5, "cross_entropy": 1.4, "z_loss": 1.0,
+            "perplexity": 0.0, "tokens": 1000, "batches": 10,
+        },
+        "wikitext_103": {
+            "loss": 3.5, "cross_entropy": 3.4, "z_loss": 3.0,
+            "perplexity": 0.0, "tokens": 10, "batches": 2,
+        },
+    }, {"tinystories": 0.35, "wikitext_103": 0.65})
+
+    assert metrics["loss"] == pytest.approx(2.8)
+    assert metrics["cross_entropy"] == pytest.approx(2.7)
+    assert metrics["perplexity"] == pytest.approx(math.exp(2.7))
+    assert metrics["tokens"] == 1010
+    assert metrics["batches"] == 12
+
+
 def test_early_stopping_tracks_best_validation_epoch() -> None:
     class FixedEvaluator:
         def __init__(self):
@@ -182,6 +203,33 @@ def test_best_checkpoint_keeps_small_improvement_below_early_stopping_delta() ->
     assert saved_losses == [2.0, 1.9995]
     assert trainer.best_validation_loss == 1.9995
     assert trainer.early_stopping_best_loss == 2.0
+
+
+def test_changed_validation_metric_resets_incompatible_best_baseline() -> None:
+    class FixedEvaluator:
+        def evaluate(self, _loader):
+            return {"loss": 2.8, "cross_entropy": 2.7, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    trainer = Trainer(model, optimizer)
+    trainer.best_validation_loss = 1.6
+    trainer.early_stopping_best_loss = 1.6
+    saved = []
+
+    trainer.fit(
+        make_loader(), epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), log_every=0,
+        validation_metric_name="dataset_weighted_v1",
+        best_checkpoint_callback=lambda current, _epoch: saved.append(
+            current.best_validation_loss
+        ),
+    )
+
+    assert saved == [2.8]
+    assert trainer.best_validation_loss == 2.8
+    assert trainer.validation_metric_name == "dataset_weighted_v1"
 
 
 def test_resumed_epoch_loss_uses_batches_processed_after_resume() -> None:

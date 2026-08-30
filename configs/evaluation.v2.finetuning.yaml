@@ -1,0 +1,24 @@
+domains:
+  english:
+    - data/processed/helpsteer/validation.jsonl
+    - data/processed/openorca/validation.jsonl
+    - data/processed/general_qa/validation.jsonl
+    - data/processed/writing_editing/validation.jsonl
+    - data/processed/safety_alignment/validation.jsonl
+  bengali:
+    - data/processed/bangla_qa/validation.jsonl
+    - data/processed/bangla_reading_qa/validation.jsonl
+    - data/processed/multilingual_bn_hi/validation.jsonl
+  hindi:
+    - data/processed/hindi_history_qa/validation.jsonl
+    - data/processed/multilingual_hi/validation.jsonl
+    - data/processed/hinglish_chat/validation.jsonl
+  coding:
+    - data/processed/code_instructions/validation.jsonl
+    - data/processed/code_alpaca/validation.jsonl
+  gsm8k:
+    - data/processed/gsm8k/validation.jsonl
+  chat:
+    - data/processed/ultrachat_200k/validation.jsonl
+    - data/processed/core_chat/validation.jsonl
+    - data/processed/emoji_chat/validation.jsonl

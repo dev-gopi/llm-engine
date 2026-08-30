@@ -8,30 +8,34 @@ dataset_governance:
 max_sequence_length: 128
 num_workers: 2
 pin_memory: false
+persistent_workers: true
+prefetch_factor: 2
 lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
 samples_per_epoch: 100000
 dataset_weights:
-  ultrachat_200k: 0.18
-  helpsteer: 0.10
-  openorca: 0.12
-  gsm8k: 0.08
+  # Quality-balanced SFT mixture: chat 25%, factual 25%, reasoning 13%,
+  # code 10%, Bengali 14%, Hindi/Hinglish 7%, and safety/tools 6%.
+  ultrachat_200k: 0.15
+  helpsteer: 0.08
+  openorca: 0.13
+  gsm8k: 0.13
   core_chat: 0.02
-  code_instructions: 0.12
-  general_qa: 0.10
-  safety_alignment: 0.08
-  writing_editing: 0.08
-  multilingual_bn_hi: 0.04
+  code_instructions: 0.07
+  general_qa: 0.12
+  safety_alignment: 0.025
+  writing_editing: 0.015
+  multilingual_bn_hi: 0.05
   multilingual_hi: 0.04
-  tool_calling: 0.04
-  emoji_chat: 0.002
-  bangla_qa: 0.03
-  bangla_reading_qa: 0.03
-  hindi_history_qa: 0.01
-  hinglish_chat: 0.005
-  code_alpaca: 0.05
+  tool_calling: 0.015
+  emoji_chat: 0.005
+  bangla_qa: 0.05
+  bangla_reading_qa: 0.04
+  hindi_history_qa: 0.02
+  hinglish_chat: 0.01
+  code_alpaca: 0.03
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/helpsteer/train.jsonl
@@ -70,7 +74,39 @@ validation_files:
   - data/processed/hindi_history_qa/validation.jsonl
   - data/processed/hinglish_chat/validation.jsonl
   - data/processed/code_alpaca/validation.jsonl
-learning_rate: 0.00005
+validation_domains:
+    english:
+      - data/processed/helpsteer/validation.jsonl
+      - data/processed/openorca/validation.jsonl
+      - data/processed/general_qa/validation.jsonl
+      - data/processed/writing_editing/validation.jsonl
+      - data/processed/safety_alignment/validation.jsonl
+    bengali:
+      - data/processed/bangla_qa/validation.jsonl
+      - data/processed/bangla_reading_qa/validation.jsonl
+      - data/processed/multilingual_bn_hi/validation.jsonl
+    hindi:
+      - data/processed/hindi_history_qa/validation.jsonl
+      - data/processed/multilingual_hi/validation.jsonl
+      - data/processed/hinglish_chat/validation.jsonl
+    coding:
+      - data/processed/code_instructions/validation.jsonl
+      - data/processed/code_alpaca/validation.jsonl
+    gsm8k:
+      - data/processed/gsm8k/validation.jsonl
+    chat:
+      - data/processed/ultrachat_200k/validation.jsonl
+      - data/processed/core_chat/validation.jsonl
+      - data/processed/emoji_chat/validation.jsonl
+validation_weights:
+  english: 0.15
+  bengali: 0.14
+  hindi: 0.07
+  coding: 0.10
+  gsm8k: 0.13
+  chat: 0.41
+validation_metric_name: dataset_weighted_sft_domains_v1
+learning_rate: 0.00003
 weight_decay: 0.01
 beta1: 0.9
 beta2: 0.95
@@ -89,7 +125,8 @@ evaluate_every: null
 early_stopping_patience: 2
 early_stopping_min_delta: 0.001
 ignore_index: -100
-label_smoothing: 0.03
+# label_smoothing: 0.3
+label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean

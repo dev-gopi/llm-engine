@@ -16,6 +16,31 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def aggregate_domain_metrics(
+    domains: Mapping[str, Mapping[str, float | int]],
+    weights: Mapping[str, float],
+) -> dict[str, float | int]:
+    """Aggregate fixed domain evaluations with explicit capability weights."""
+    if not domains:
+        raise ValueError("domain evaluation results cannot be empty")
+    missing = set(domains) - set(weights)
+    if missing:
+        raise ValueError(f"validation weights missing domains: {sorted(missing)}")
+    selected = {name: float(weights[name]) for name in domains}
+    if any(weight < 0 for weight in selected.values()) or not any(selected.values()):
+        raise ValueError("validation weights must contain a positive non-negative weight")
+    total_weight = sum(selected.values())
+    aggregate: dict[str, float | int] = {}
+    for key in ("loss", "cross_entropy", "z_loss"):
+        aggregate[key] = sum(
+            float(domains[name][key]) * weight for name, weight in selected.items()
+        ) / total_weight
+    aggregate["perplexity"] = math.exp(min(float(aggregate["cross_entropy"]), 80.0))
+    aggregate["tokens"] = sum(int(metrics["tokens"]) for metrics in domains.values())
+    aggregate["batches"] = sum(int(metrics["batches"]) for metrics in domains.values())
+    return aggregate
+
+
 class Evaluator:
     def __init__(
         self,

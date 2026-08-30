@@ -109,6 +109,24 @@ def test_binary_token_shard_dataset(tmp_path, dtype) -> None:
         TokenShardDataset(tmp_path / "manifest.json")
 
 
+def test_binary_token_shard_preserves_response_only_loss_mask(tmp_path) -> None:
+    np.arange(8, dtype=np.uint16).tofile(tmp_path / "tokens.bin")
+    expected = np.asarray([[0, 0, 0, 0, 1, 1, 1, 1]], dtype=np.uint8)
+    expected.tofile(tmp_path / "loss-mask.bin")
+    (tmp_path / "manifest.json").write_text(json.dumps({
+        "format": "gopi-token-shards-v1",
+        "dtype": "uint16",
+        "sequence_length": 8,
+        "objective": "response_only",
+        "shards": [{
+            "file": "tokens.bin", "loss_mask_file": "loss-mask.bin", "sequences": 1,
+        }],
+    }))
+
+    item = TokenShardDataset(tmp_path / "manifest.json")[0]
+    torch.testing.assert_close(item["loss_mask"], torch.from_numpy(expected[0]).bool())
+
+
 def test_token_shard_cli_does_not_shadow_standard_library_tokenize() -> None:
     completed = subprocess.run(
         [sys.executable, "scripts/build_token_shards.py", "--help"],

@@ -21,7 +21,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from datasets.filters import CorpusFilter
-from datasets.loader import iter_records
+from datasets.loader import TextDataset, iter_records
 from datasets.preprocessor import record_to_text
 from tokenizer.encoder import Tokenizer
 
@@ -40,12 +40,25 @@ def _encode_document(text: str) -> list[int]:
     return _WORKER_TOKENIZER.encode(text, add_bos=True, add_eos=True, allowed_special="all")
 
 
+def _encode_response_record(record: dict) -> tuple[list[int], list[bool]]:
+    if _WORKER_TOKENIZER is None:
+        raise RuntimeError("tokenizer worker was not initialized")
+    messages = record.get("messages")
+    if not isinstance(messages, list):
+        raise ValueError("response-only packed records must contain messages")
+    return TextDataset._encode_chat(messages, _WORKER_TOKENIZER, True, True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="+", type=Path)
     parser.add_argument("--tokenizer", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sequence-length", type=int, default=2048)
+    parser.add_argument(
+        "--objective", choices=("causal", "response_only"), default="causal",
+        help="response_only stores assistant-token loss masks for supervised fine-tuning",
+    )
     parser.add_argument("--sequences-per-shard", type=int, default=8192)
     parser.add_argument(
         "--workers", type=int, default=1,
@@ -107,7 +120,9 @@ def main() -> None:
     )
     args.output.mkdir(parents=True, exist_ok=True)
     buffer: list[int] = []
+    mask_buffer: list[bool] = []
     sequences: list[list[int]] = []
+    mask_sequences: list[list[bool]] = []
     shards: list[dict[str, int | str]] = []
 
     def flush() -> None:
@@ -115,8 +130,14 @@ def main() -> None:
             return
         name = f"tokens-{len(shards):05d}.bin"
         np.asarray(sequences, dtype=dtype).tofile(args.output / name)
-        shards.append({"file": name, "sequences": len(sequences)})
+        item: dict[str, int | str] = {"file": name, "sequences": len(sequences)}
+        if args.objective == "response_only":
+            mask_name = f"loss-mask-{len(shards):05d}.bin"
+            np.asarray(mask_sequences, dtype=np.uint8).tofile(args.output / mask_name)
+            item["loss_mask_file"] = mask_name
+        shards.append(item)
         sequences.clear()
+        mask_sequences.clear()
 
     def filtered_texts() -> Iterable[str]:
         for path in args.inputs:
@@ -125,11 +146,27 @@ def main() -> None:
                 if text is not None:
                     yield text
 
+    def filtered_records() -> Iterable[dict]:
+        for path in args.inputs:
+            for record in iter_records(path):
+                text = corpus_filter.apply(record_to_text(record))
+                if text is not None:
+                    yield record
+
     if args.workers == 1:
-        encoded_documents: Iterable[list[int]] = (
-            tokenizer.encode(text, add_bos=True, add_eos=True, allowed_special="all")
-            for text in filtered_texts()
-        )
+        if args.objective == "response_only":
+            encoded_documents = (
+                TextDataset._encode_chat(record["messages"], tokenizer, True, True)
+                for record in filtered_records()
+            )
+        else:
+            encoded_documents = (
+                (identifiers, [True] * len(identifiers))
+                for identifiers in (
+                    tokenizer.encode(text, add_bos=True, add_eos=True, allowed_special="all")
+                    for text in filtered_texts()
+                )
+            )
         pool = None
     else:
         pool = mp.Pool(
@@ -137,14 +174,23 @@ def main() -> None:
             initializer=_initialize_tokenizer_worker,
             initargs=(str(args.tokenizer),),
         )
-        encoded_documents = pool.imap(_encode_document, filtered_texts(), chunksize=32)
+        if args.objective == "response_only":
+            encoded_documents = pool.imap(_encode_response_record, filtered_records(), chunksize=32)
+        else:
+            encoded_documents = (
+                (identifiers, [True] * len(identifiers))
+                for identifiers in pool.imap(_encode_document, filtered_texts(), chunksize=32)
+            )
 
     try:
-        for identifiers in encoded_documents:
+        for identifiers, loss_mask in encoded_documents:
             buffer.extend(identifiers)
+            mask_buffer.extend(loss_mask)
             while len(buffer) >= args.sequence_length:
                 sequences.append(buffer[:args.sequence_length])
+                mask_sequences.append(mask_buffer[:args.sequence_length])
                 del buffer[:args.sequence_length]
+                del mask_buffer[:args.sequence_length]
                 if len(sequences) >= args.sequences_per_shard:
                     flush()
     finally:
@@ -158,6 +204,7 @@ def main() -> None:
         "sequence_length": args.sequence_length,
         "tokenizer_vocab_size": tokenizer.vocab_size,
         "tokenizer_fingerprint": tokenizer.fingerprint,
+        "objective": args.objective,
         "filter_config": {
             "english_only": args.english_only,
             "redact_pii": not args.keep_pii,

@@ -13,6 +13,7 @@ from torch import Tensor
 
 from model.loss import CausalLanguageModelLoss
 from optim.ema import EMA
+from training.evaluator import aggregate_domain_metrics
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,6 +47,7 @@ class Trainer:
         self.batch_in_epoch = 0
         self.best_validation_loss = float("inf")
         self.early_stopping_best_loss = float("inf")
+        self.validation_metric_name: str | None = None
         self.epochs_without_improvement = 0
         self.stopped_early = False
         self.tokens_processed = 0
@@ -209,6 +211,7 @@ class Trainer:
         epochs: int,
         evaluator=None,
         validation_dataloader=None,
+        validation_weights: Mapping[str, float] | None = None,
         log_every: int = 10,
         evaluate_every: int | None = None,
         checkpoint_every: int | None = None,
@@ -216,11 +219,54 @@ class Trainer:
         best_checkpoint_callback=None,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
+        validation_metric_name: str | None = None,
         stop_requested=None,
-    ) -> list[dict[str, float | int]]:
+    ) -> list[dict[str, object]]:
         if epochs < 1:
             raise ValueError("epochs must be positive")
-        history: list[dict[str, float | int]] = []
+        if (
+            validation_metric_name is not None
+            and validation_metric_name != self.validation_metric_name
+        ):
+            logger.info(
+                "validation metric changed from %r to %r; resetting best-loss baseline",
+                self.validation_metric_name, validation_metric_name,
+            )
+            self.validation_metric_name = validation_metric_name
+            self.best_validation_loss = float("inf")
+            self.early_stopping_best_loss = float("inf")
+            self.epochs_without_improvement = 0
+        history: list[dict[str, object]] = []
+
+        def evaluate_validation() -> tuple[dict[str, float | int], dict[str, dict[str, float | int]]]:
+            if isinstance(validation_dataloader, Mapping):
+                if validation_weights is None:
+                    raise ValueError("validation_weights are required for domain validation loaders")
+                domains = {
+                    str(name): evaluator.evaluate(loader)
+                    for name, loader in validation_dataloader.items()
+                }
+                return aggregate_domain_metrics(domains, validation_weights), domains
+            return evaluator.evaluate(validation_dataloader), {}
+
+        def log_validation(epoch: int, metrics: Mapping[str, float | int], domains) -> None:
+            for domain, domain_metrics in domains.items():
+                logger.info(
+                    "validation_domain=%s epoch=%d step=%d loss=%.6f cross_entropy=%.6f "
+                    "perplexity=%.4f tokens=%d batches=%d",
+                    domain, epoch + 1, self.global_step,
+                    float(domain_metrics["loss"]), float(domain_metrics["cross_entropy"]),
+                    float(domain_metrics["perplexity"]), int(domain_metrics["tokens"]),
+                    int(domain_metrics["batches"]),
+                )
+            logger.info(
+                "validation epoch=%d step=%d loss=%.6f cross_entropy=%.6f perplexity=%.4f tokens=%d batches=%d",
+                epoch + 1, self.global_step, float(metrics["loss"]),
+                float(metrics.get("cross_entropy", float("nan"))),
+                float(metrics.get("perplexity", float("nan"))),
+                int(metrics.get("tokens", 0)), int(metrics.get("batches", 0)),
+            )
+
         for epoch in range(self.current_epoch, epochs):
             improved_during_epoch = False
             batch_sampler = getattr(dataloader, "batch_sampler", None)
@@ -258,18 +304,12 @@ class Trainer:
                 if optimizer_stepped and checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
                     checkpoint_callback(self, epoch)
                 if optimizer_stepped and evaluate_every and evaluator and validation_dataloader and self.global_step % evaluate_every == 0:
-                    metrics = evaluator.evaluate(validation_dataloader)
-                    logger.info(
-                        "validation epoch=%d step=%d loss=%.6f cross_entropy=%.6f perplexity=%.4f tokens=%d batches=%d",
-                        epoch + 1,
-                        self.global_step,
-                        float(metrics["loss"]),
-                        float(metrics.get("cross_entropy", float("nan"))),
-                        float(metrics.get("perplexity", float("nan"))),
-                        int(metrics.get("tokens", 0)),
-                        int(metrics.get("batches", 0)),
-                    )
-                    history.append({"epoch": epoch + 1, "step": self.global_step, **metrics})
+                    metrics, domains = evaluate_validation()
+                    log_validation(epoch, metrics, domains)
+                    history.append({
+                        "epoch": epoch + 1, "step": self.global_step, **metrics,
+                        **({"domains": domains} if domains else {}),
+                    })
                     validation_loss = float(metrics["loss"])
                     if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
                         self.early_stopping_best_loss = validation_loss
@@ -290,7 +330,7 @@ class Trainer:
             self.batch_in_epoch = 0
             if hasattr(batch_sampler, "set_start_batch"):
                 batch_sampler.set_start_batch(0)
-            epoch_record: dict[str, float | int] = {
+            epoch_record: dict[str, object] = {
                 "epoch": epoch + 1,
                 "step": self.global_step,
                 "train_loss": running_loss / max(running_batches, 1),
@@ -302,17 +342,11 @@ class Trainer:
                 "nonfinite_updates": self.nonfinite_updates,
             }
             if evaluator and validation_dataloader:
-                epoch_record.update(evaluator.evaluate(validation_dataloader))
-                logger.info(
-                    "validation epoch=%d step=%d loss=%.6f cross_entropy=%.6f perplexity=%.4f tokens=%d batches=%d",
-                    epoch + 1,
-                    self.global_step,
-                    float(epoch_record["loss"]),
-                    float(epoch_record.get("cross_entropy", float("nan"))),
-                    float(epoch_record.get("perplexity", float("nan"))),
-                    int(epoch_record.get("tokens", 0)),
-                    int(epoch_record.get("batches", 0)),
-                )
+                metrics, domains = evaluate_validation()
+                epoch_record.update(metrics)
+                if domains:
+                    epoch_record["domains"] = domains
+                log_validation(epoch, metrics, domains)
                 validation_loss = float(epoch_record["loss"])
                 if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
                     self.early_stopping_best_loss = validation_loss
@@ -336,7 +370,7 @@ class Trainer:
                 break
         return history
 
-    def state_dict(self) -> dict[str, int | float | bool]:
+    def state_dict(self) -> dict[str, int | float | bool | str | None]:
         return {
             "global_step": self.global_step,
             "micro_step": self.micro_step,
@@ -344,6 +378,7 @@ class Trainer:
             "batch_in_epoch": self.batch_in_epoch,
             "best_validation_loss": self.best_validation_loss,
             "early_stopping_best_loss": self.early_stopping_best_loss,
+            "validation_metric_name": self.validation_metric_name,
             "epochs_without_improvement": self.epochs_without_improvement,
             "stopped_early": self.stopped_early,
             "tokens_processed": self.tokens_processed,
@@ -352,7 +387,7 @@ class Trainer:
             "last_gradient_norm": self.last_gradient_norm,
         }
 
-    def load_state_dict(self, state: Mapping[str, int | float | bool]) -> None:
+    def load_state_dict(self, state: Mapping[str, int | float | bool | str | None]) -> None:
         self.global_step = int(state.get("global_step", self.global_step))
         self.micro_step = int(state.get("micro_step", 0))
         self.current_epoch = int(state.get("current_epoch", 0))
@@ -361,6 +396,8 @@ class Trainer:
         self.early_stopping_best_loss = float(
             state.get("early_stopping_best_loss", self.best_validation_loss)
         )
+        metric_name = state.get("validation_metric_name")
+        self.validation_metric_name = str(metric_name) if metric_name is not None else None
         self.epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
         self.stopped_early = bool(state.get("stopped_early", False))
         self.tokens_processed = int(state.get("tokens_processed", 0))
