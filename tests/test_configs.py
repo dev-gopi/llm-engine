@@ -34,9 +34,9 @@ def test_v2_gpu_finetuning_profile_targets_balanced_quality() -> None:
     weights = config["dataset_weights"]
 
     assert sum(weights.values()) == 1.0
-    assert config["mixed_precision"] == "fp16"
-    assert config["grad_scaler_initial_scale"] == 1024
-    assert config["grad_scaler_growth_interval"] == 20000
+    assert config["mixed_precision"] == "bf16"
+    assert "grad_scaler_initial_scale" not in config
+    assert "grad_scaler_growth_interval" not in config
     assert config["max_sequence_length"] == 384
     assert config["label_smoothing"] == 0.0
     assert weights["gsm8k"] >= 0.12

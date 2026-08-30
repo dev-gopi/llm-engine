@@ -1,0 +1,5 @@
+domains:
+  tinystories:
+    - data/processed/tinystories/validation.jsonl
+  wikitext_103:
+    - data/processed/wikitext_103/validation.jsonl

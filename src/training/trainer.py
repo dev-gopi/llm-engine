@@ -45,6 +45,7 @@ class Trainer:
         self.current_epoch = 0
         self.batch_in_epoch = 0
         self.best_validation_loss = float("inf")
+        self.early_stopping_best_loss = float("inf")
         self.epochs_without_improvement = 0
         self.stopped_early = False
         self.tokens_processed = 0
@@ -270,10 +271,12 @@ class Trainer:
                     )
                     history.append({"epoch": epoch + 1, "step": self.global_step, **metrics})
                     validation_loss = float(metrics["loss"])
-                    if validation_loss < self.best_validation_loss - early_stopping_min_delta:
-                        self.best_validation_loss = validation_loss
+                    if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
+                        self.early_stopping_best_loss = validation_loss
                         self.epochs_without_improvement = 0
                         improved_during_epoch = True
+                    if validation_loss < self.best_validation_loss:
+                        self.best_validation_loss = validation_loss
                         if best_checkpoint_callback:
                             best_checkpoint_callback(self, epoch)
                 if optimizer_stepped and stop_requested and stop_requested():
@@ -311,13 +314,15 @@ class Trainer:
                     int(epoch_record.get("batches", 0)),
                 )
                 validation_loss = float(epoch_record["loss"])
-                if validation_loss < self.best_validation_loss - early_stopping_min_delta:
-                    self.best_validation_loss = validation_loss
+                if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
+                    self.early_stopping_best_loss = validation_loss
                     self.epochs_without_improvement = 0
                     improved_during_epoch = True
+                if validation_loss < self.best_validation_loss:
+                    self.best_validation_loss = validation_loss
                     if best_checkpoint_callback:
                         best_checkpoint_callback(self, epoch)
-                elif not improved_during_epoch:
+                if not improved_during_epoch:
                     self.epochs_without_improvement += 1
             history.append(epoch_record)
             if self.stopped_early:
@@ -338,6 +343,7 @@ class Trainer:
             "current_epoch": self.current_epoch,
             "batch_in_epoch": self.batch_in_epoch,
             "best_validation_loss": self.best_validation_loss,
+            "early_stopping_best_loss": self.early_stopping_best_loss,
             "epochs_without_improvement": self.epochs_without_improvement,
             "stopped_early": self.stopped_early,
             "tokens_processed": self.tokens_processed,
@@ -352,6 +358,9 @@ class Trainer:
         self.current_epoch = int(state.get("current_epoch", 0))
         self.batch_in_epoch = int(state.get("batch_in_epoch", 0))
         self.best_validation_loss = float(state.get("best_validation_loss", float("inf")))
+        self.early_stopping_best_loss = float(
+            state.get("early_stopping_best_loss", self.best_validation_loss)
+        )
         self.epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
         self.stopped_early = bool(state.get("stopped_early", False))
         self.tokens_processed = int(state.get("tokens_processed", 0))
