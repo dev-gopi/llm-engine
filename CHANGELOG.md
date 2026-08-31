@@ -13,6 +13,8 @@ the version in `pyproject.toml`; it has not yet declared a stable public API.
 - Added a non-root Docker image, CPU/GPU Compose deployment, TLS Nginx reverse
   proxy, trusted-host checks, security headers, protected metrics, and
   production documentation controls.
+- Run Compose serving with the host UID/GID for read-only private model mounts,
+  and separate the public proxy edge network from the internal API network.
 - Added domain-specific pretraining and fine-tuning evaluation workflows.
 - Added packed token shards, mixed-precision evaluation, consistent EMA,
   nonblocking data transfers, persistent workers, GQA, and KV-cache generation

@@ -16,6 +16,7 @@ from serving.runtime import (
 )
 from serving.schemas import FinishReason, GenerateRequest
 from serving.websocket import generate_stream
+from serving.backend import _load_mcp_config
 
 
 class FakeBackend:
@@ -493,6 +494,17 @@ def test_settings_load_yaml_and_environment_override(tmp_path, monkeypatch):
     assert loaded.max_concurrency == 7
     assert loaded.queue_timeout_seconds == 2.5
     assert loaded.generation_timeout_seconds == 30
+
+
+def test_mcp_can_be_explicitly_disabled_for_minimal_deployment(monkeypatch):
+    monkeypatch.setenv("GOPI_MCP_ENABLED", "false")
+    assert _load_mcp_config() == {"enabled": False}
+
+
+def test_invalid_mcp_enabled_override_is_rejected(monkeypatch):
+    monkeypatch.setenv("GOPI_MCP_ENABLED", "sometimes")
+    with pytest.raises(ValueError, match="boolean"):
+        _load_mcp_config()
 
 
 def test_websocket_rejects_disallowed_browser_origin():

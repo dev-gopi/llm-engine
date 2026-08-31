@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
+    user: "${GOPI_UID:-1000}:${GOPI_GID:-1000}"
     env_file:
       - path: .env.production
         required: false
@@ -22,6 +23,7 @@ services:
       GOPI_ALLOWED_HOSTS: ${GOPI_ALLOWED_HOSTS:-localhost,127.0.0.1,gopi.local,api}
       GOPI_CORS_ORIGINS: ${GOPI_CORS_ORIGINS:-https://localhost:8443}
       GOPI_DOCS_ENABLED: ${GOPI_DOCS_ENABLED:-false}
+      GOPI_MCP_ENABLED: ${GOPI_MCP_ENABLED:-false}
       GOPI_PROTECT_METRICS: "true"
       GOPI_FORWARDED_ALLOW_IPS: "*"
       GOPI_MAX_CONCURRENCY: ${GOPI_MAX_CONCURRENCY:-1}
@@ -29,7 +31,7 @@ services:
     volumes:
       - ./data/tokenizer-v2:/app/data/tokenizer-v2:ro
       - ${GOPI_CHECKPOINT_DIR:-./checkpoints/v2-dpo}:/app/checkpoints:ro
-      - gopi-cache:/app/data/cache
+      - ./data/cache:/app/data/cache
     expose:
       - "8000"
     networks:
@@ -55,6 +57,7 @@ services:
       - ./deploy/certs:/etc/nginx/certs:ro
     networks:
       - backend
+      - edge
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -73,6 +76,4 @@ services:
 networks:
   backend:
     internal: true
-
-volumes:
-  gopi-cache:
+  edge:

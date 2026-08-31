@@ -1,5 +1,8 @@
 services:
   api:
+    build:
+      args:
+        TORCH_INDEX_URL: https://pypi.org/simple
     environment:
       GOPI_DEVICE: cuda
     gpus: all

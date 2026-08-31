@@ -35,6 +35,9 @@ export GOPI_MODEL_CONFIG='configs/model.v2.gpu.yaml'
 export GOPI_TOKENIZER_PATH='data/tokenizer-v2'
 export GOPI_INFERENCE_CONFIG='configs/inference.v2.yaml'
 export GOPI_DEVICE='cuda'
+export GOPI_MCP_ENABLED='false'
+export GOPI_UID="$(id -u)"
+export GOPI_GID="$(id -g)"
 export GOPI_MODEL_NAME='gopi-v2'
 export GOPI_MAX_CONCURRENCY='1'
 export GOPI_REQUESTS_PER_MINUTE='30'
@@ -51,7 +54,12 @@ cp .env.production.example .env.production
 
 Replace `GOPI_API_KEY` with at least 32 random characters. `.env.production` is
 ignored by Git; the example file is safe to commit because it contains no real
-secret.
+secret. On Linux, set `GOPI_UID` and `GOPI_GID` to the output of `id -u` and
+`id -g`; this lets the non-root API process read host-mounted tokenizer and
+checkpoint files without making those model artifacts world-readable.
+MCP is disabled by default in Compose because the minimal image does not ship
+Node/`npx` or external MCP servers. Build and review those dependencies before
+setting `GOPI_MCP_ENABLED=true`.
 
 ## 4. Start and verify
 
@@ -130,6 +138,11 @@ Start GPU serving with the NVIDIA container runtime installed:
 docker compose --env-file .env.production \
   -f compose.yaml -f compose.gpu.yaml up --build -d
 ```
+
+The base image installs PyTorch from the official CPU-only wheel index to avoid
+downloading CUDA libraries for CPU serving. The GPU Compose override selects
+the CUDA-enabled PyPI wheel and therefore produces a substantially larger first
+build.
 
 For public deployment, replace `deploy/certs/server.crt` and `server.key` with
 files issued by a trusted CA and remove `--insecure` from client commands.

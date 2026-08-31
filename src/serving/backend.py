@@ -782,6 +782,13 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
 
 
 def _load_mcp_config() -> dict:
+    enabled_override = os.getenv("GOPI_MCP_ENABLED")
+    if enabled_override is not None:
+        normalized = enabled_override.strip().lower()
+        if normalized in {"0", "false", "no", "off"}:
+            return {"enabled": False}
+        if normalized not in {"1", "true", "yes", "on"}:
+            raise ValueError("GOPI_MCP_ENABLED must be a boolean value")
     path = Path(os.getenv("GOPI_MCP_CONFIG", "configs/mcp.yaml"))
     if not path.is_file():
         return {}

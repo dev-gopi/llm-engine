@@ -113,6 +113,7 @@ The server returns an `X-Request-ID` response header and accepts a safe
 | `GOPI_CORS_ORIGINS` | Comma-separated trusted browser origins |
 | `GOPI_ALLOWED_HOSTS` | Comma-separated accepted HTTP Host names |
 | `GOPI_DOCS_ENABLED` | Enable Swagger, ReDoc, and OpenAPI routes |
+| `GOPI_MCP_ENABLED` | Explicitly disable or enable configured MCP servers |
 | `GOPI_PROTECT_METRICS` | Require bearer authentication for `/metrics` |
 | `GOPI_FORWARDED_ALLOW_IPS` | Trusted reverse-proxy addresses for forwarded headers |
 | `GOPI_MAX_CONCURRENCY` | Maximum active generations |
