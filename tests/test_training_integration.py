@@ -57,6 +57,7 @@ def test_trainer_tracks_observability_metrics() -> None:
     assert torch.isfinite(torch.tensor(trainer.last_gradient_norm))
     assert trainer.last_gradient_norm > 0
     assert trainer.peak_memory_mb == 0
+    assert trainer.gpu_memory_mb == (0.0, 0.0, 0.0)
     assert trainer.nonfinite_updates == 0
 
 

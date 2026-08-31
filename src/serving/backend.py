@@ -273,7 +273,9 @@ class ConfiguredModelBackend:
         )
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
-        prompt = ConfiguredModelBackend._format_new_conversation(self, system_prompt, user_prompt)
+        prompt = ConfiguredModelBackend._format_request_conversation(
+            self, request, system_prompt, user_prompt
+        )
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
@@ -357,7 +359,9 @@ class ConfiguredModelBackend:
             user_prompt = await self._augment_with_mcp(request, user_prompt)
             response_format = request.response_format or self.response_format
             system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
-            prompt = self._format_new_conversation(system_prompt, user_prompt)
+            prompt = self._format_request_conversation(
+                request, system_prompt, user_prompt
+            )
             if memory:
                 memory.set_system_prompt(system_prompt)
                 memory.add("user", user_prompt)
@@ -513,7 +517,9 @@ class ConfiguredModelBackend:
         user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
-        prompt = ConfiguredModelBackend._format_new_conversation(self, system_prompt, user_prompt)
+        prompt = ConfiguredModelBackend._format_request_conversation(
+            self, request, system_prompt, user_prompt
+        )
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
@@ -695,6 +701,40 @@ class ConfiguredModelBackend:
         return format_messages(
             [{"role": "system", "content": COMPACT_SAFETY_PROMPT}, {"role": "user", "content": user_prompt}],
             add_generation_prompt=True,
+        )
+
+    def _format_request_conversation(
+        self, request: GenerateRequest, system_prompt: str, user_prompt: str,
+    ) -> str:
+        """Render OpenAI chat history when supplied by the compatibility API."""
+        chat_messages = request._chat_messages
+        if not chat_messages:
+            return ConfiguredModelBackend._format_new_conversation(
+                self, system_prompt, user_prompt
+            )
+        messages = [{"role": "system", "content": system_prompt}, *chat_messages]
+        prompt = format_messages(messages, add_generation_prompt=True)
+        prompt_ids = self.generator.tokenizer.encode(
+            prompt, add_bos=True, allowed_special="all"
+        )
+        if len(prompt_ids) < getattr(self.generator, "max_positions", float("inf")):
+            return prompt
+        # Remove the oldest non-system turns until the request fits. This makes
+        # OpenAI-compatible UIs robust when they resend their entire history.
+        trimmed = list(chat_messages)
+        while len(trimmed) > 1:
+            trimmed.pop(0)
+            candidate = format_messages(
+                [{"role": "system", "content": system_prompt}, *trimmed],
+                add_generation_prompt=True,
+            )
+            candidate_ids = self.generator.tokenizer.encode(
+                candidate, add_bos=True, allowed_special="all"
+            )
+            if len(candidate_ids) < getattr(self.generator, "max_positions", float("inf")):
+                return candidate
+        return ConfiguredModelBackend._format_new_conversation(
+            self, system_prompt, user_prompt
         )
 
     def _validate_prompt(self, prompt: str) -> list[int]:

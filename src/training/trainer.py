@@ -193,6 +193,18 @@ class Trainer:
             return 0.0
         return torch.cuda.max_memory_allocated(self.device) / (1024 * 1024)
 
+    @property
+    def gpu_memory_mb(self) -> tuple[float, float, float]:
+        """Return current allocated, reserved, and total CUDA memory in MiB."""
+        if self.device.type != "cuda" or not torch.cuda.is_available():
+            return (0.0, 0.0, 0.0)
+        divisor = 1024 * 1024
+        return (
+            torch.cuda.memory_allocated(self.device) / divisor,
+            torch.cuda.memory_reserved(self.device) / divisor,
+            torch.cuda.get_device_properties(self.device).total_memory / divisor,
+        )
+
     def flush_gradients(self) -> None:
         remainder = self.micro_step % self.gradient_accumulation_steps
         if remainder:
@@ -237,6 +249,11 @@ class Trainer:
             self.early_stopping_best_loss = float("inf")
             self.epochs_without_improvement = 0
         history: list[dict[str, object]] = []
+        # The loader is created at full epoch length; resume skipping is applied
+        # below through batch_sampler.set_start_batch(). Do not add the saved
+        # offset here or resumed progress would count those batches twice.
+        batches_per_epoch = len(dataloader)
+        total_batches = max(1, batches_per_epoch * epochs)
 
         def evaluate_validation() -> tuple[dict[str, float | int], dict[str, dict[str, float | int]]]:
             if isinstance(validation_dataloader, Mapping):
@@ -292,12 +309,27 @@ class Trainer:
                 if optimizer_stepped and log_every and self.global_step % log_every == 0:
                     current_loss = window_loss / max(window_batches, 1)
                     avg_loss = running_loss / max(running_batches, 1)
+                    completed_batches = min(
+                        total_batches, epoch * batches_per_epoch + batch_index
+                    )
+                    progress = completed_batches / total_batches
+                    elapsed_seconds = self.training_seconds
+                    eta_seconds = (
+                        elapsed_seconds * (1.0 - progress) / progress
+                        if progress > 0 else float("inf")
+                    )
+                    allocated_mb, reserved_mb, total_mb = self.gpu_memory_mb
                     logger.info(
                         "epoch=%d step=%d loss=%.6f lr=%.8g grad_norm=%.4f tokens=%d "
-                        "tokens_per_second=%.1f peak_memory_mb=%.1f nonfinite_updates=%d (avg=%.6f)",
+                        "tokens_per_second=%.1f progress=%.2f%% elapsed_seconds=%.0f "
+                        "eta_seconds=%.0f best_validation_loss=%.6f peak_memory_mb=%.1f "
+                        "gpu_memory_mb=%.1f/%.1f/%.1f nonfinite_updates=%d (avg=%.6f)",
                         epoch + 1, self.global_step, current_loss, self.learning_rate,
                         self.last_gradient_norm, self.tokens_processed, self.tokens_per_second,
-                        self.peak_memory_mb, self.nonfinite_updates, avg_loss,
+                        progress * 100.0, elapsed_seconds, eta_seconds,
+                        self.best_validation_loss, self.peak_memory_mb,
+                        allocated_mb, reserved_mb, total_mb,
+                        self.nonfinite_updates, avg_loss,
                     )
                     window_loss = 0.0
                     window_batches = 0
@@ -316,7 +348,13 @@ class Trainer:
                         self.epochs_without_improvement = 0
                         improved_during_epoch = True
                     if validation_loss < self.best_validation_loss:
+                        previous_best = self.best_validation_loss
                         self.best_validation_loss = validation_loss
+                        logger.info(
+                            "new_best_validation step=%d previous_loss=%.6f loss=%.6f metric=%s",
+                            self.global_step, previous_best, validation_loss,
+                            self.validation_metric_name or "validation_loss",
+                        )
                         if best_checkpoint_callback:
                             best_checkpoint_callback(self, epoch)
                 if optimizer_stepped and stop_requested and stop_requested():
@@ -353,7 +391,13 @@ class Trainer:
                     self.epochs_without_improvement = 0
                     improved_during_epoch = True
                 if validation_loss < self.best_validation_loss:
+                    previous_best = self.best_validation_loss
                     self.best_validation_loss = validation_loss
+                    logger.info(
+                        "new_best_validation step=%d previous_loss=%.6f loss=%.6f metric=%s",
+                        self.global_step, previous_best, validation_loss,
+                        self.validation_metric_name or "validation_loss",
+                    )
                     if best_checkpoint_callback:
                         best_checkpoint_callback(self, epoch)
                 if not improved_during_epoch:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import time
 import uuid
@@ -11,10 +12,11 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Security, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.security import HTTPBearer
 from utils.config import load_yaml
 from utils.logger import get_logger
 
@@ -34,6 +36,9 @@ from .schemas import (
     GenerateRequest,
     GenerateResponse,
     HealthResponse,
+    OpenAIChatCompletionRequest,
+    OpenAIModel,
+    OpenAIModelList,
     TokenUsage,
 )
 from .websocket import router as websocket_router
@@ -44,6 +49,28 @@ SERVICE_NAME = "gopi-llm"
 SERVICE_VERSION = "0.1.0"
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 logger = get_logger(__name__)
+OPENAPI_BEARER = HTTPBearer(
+    auto_error=False,
+    description="Optional bearer token configured through GOPI_API_KEY.",
+)
+OPENAPI_TAGS = [
+    {
+        "name": "health",
+        "description": "Liveness and model-readiness checks.",
+    },
+    {
+        "name": "generation",
+        "description": "Validated text generation with optional sessions and tools.",
+    },
+    {
+        "name": "openai-compatible",
+        "description": "OpenAI Chat Completions compatibility for third-party UIs.",
+    },
+    {
+        "name": "operations",
+        "description": "Metrics and authenticated model lifecycle operations.",
+    },
+]
 
 
 @dataclass(frozen=True)
@@ -133,10 +160,24 @@ def create_app(
 
     application = FastAPI(
         title="Gopi LLM API",
+        summary="Local inference API for the Gopi v2 language model",
+        description=(
+            "Generate text with Gopi through REST or WebSocket streaming. "
+            "When GOPI_API_KEY is configured, send `Authorization: Bearer <key>` "
+            "to `/v1/*` REST endpoints."
+        ),
         version=SERVICE_VERSION,
         lifespan=lifespan,
         docs_url="/docs",
-        redoc_url=None,
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+        openapi_tags=OPENAPI_TAGS,
+        swagger_ui_parameters={
+            "displayRequestDuration": True,
+            "filter": True,
+            "persistAuthorization": False,
+            "tryItOutEnabled": True,
+        },
     )
     application.state.runtime = runtime
     application.state.settings = settings
@@ -227,6 +268,7 @@ def create_app(
     @application.post(
         "/v1/generate",
         response_model=GenerateResponse,
+        dependencies=[Security(OPENAPI_BEARER)],
         responses={
             429: {"model": ErrorResponse},
             503: {"model": ErrorResponse},
@@ -252,7 +294,97 @@ def create_app(
             ),
         )
 
-    @application.post("/v1/admin/reload", tags=["operations"])
+    @application.get(
+        "/v1/models",
+        response_model=OpenAIModelList,
+        tags=["openai-compatible"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def list_openai_models() -> OpenAIModelList:
+        return OpenAIModelList(data=[OpenAIModel(
+            id=settings.model_name,
+            created=0,
+        )])
+
+    @application.post(
+        "/v1/chat/completions",
+        tags=["openai-compatible"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def openai_chat_completions(request: OpenAIChatCompletionRequest):
+        try:
+            generation_request = request.generation_request(settings.model_name)
+        except ValueError as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+        completion_id = f"chatcmpl-{uuid.uuid4().hex}"
+        created = int(time.time())
+        if request.stream:
+            async def events():
+                start = {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": settings.model_name,
+                    "choices": [{
+                        "index": 0, "delta": {"role": "assistant"},
+                        "finish_reason": None,
+                    }],
+                }
+                yield f"data: {json.dumps(start, ensure_ascii=False)}\n\n"
+                finish_reason = "stop"
+                async for event in runtime.stream(generation_request):
+                    if event.token:
+                        chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": settings.model_name,
+                            "choices": [{
+                                "index": 0, "delta": {"content": event.token},
+                                "finish_reason": None,
+                            }],
+                        }
+                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                    if event.finish_reason is not None:
+                        finish_reason = event.finish_reason.value
+                done = {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": settings.model_name,
+                    "choices": [{
+                        "index": 0, "delta": {},
+                        "finish_reason": finish_reason,
+                    }],
+                }
+                yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(events(), media_type="text/event-stream")
+
+        result = await runtime.generate(generation_request)
+        return {
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created,
+            "model": settings.model_name,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": result.text},
+                "finish_reason": result.finish_reason.value,
+            }],
+            "usage": {
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.prompt_tokens + result.completion_tokens,
+            },
+        }
+
+    @application.post(
+        "/v1/admin/reload",
+        tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
     async def reload_model(request: Request):
         if not settings.api_key:
             return _error_response(

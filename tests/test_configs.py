@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from model.config import estimate_model_size
 from utils.config import load_yaml
 
@@ -27,6 +29,11 @@ def test_all_model_and_training_profiles_are_complete() -> None:
             assert required_training <= config.keys(), path
             assert config["distributed_strategy"] in {"ddp", "fsdp", "fsdp_hybrid", "none"}
             assert config["checkpoint_format"] in {"single_file", "distributed"}
+            for key in ("dataset_weights", "validation_weights"):
+                if key in config:
+                    assert sum(float(value) for value in config[key].values()) == pytest.approx(1.0), (
+                        path, key
+                    )
 
 
 def test_v2_gpu_finetuning_profile_targets_balanced_quality() -> None:

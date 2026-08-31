@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, StringConstraints, field_validator
 
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -23,6 +23,7 @@ class FinishReason(str, Enum):
 
 
 class GenerateRequest(StrictSchema):
+    _chat_messages: list[dict[str, str]] | None = PrivateAttr(default=None)
     prompt: NonEmptyText = Field(max_length=131_072)
     session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
     mode: Literal["balanced", "creative", "precise", "coding"] = "balanced"
@@ -118,3 +119,66 @@ class StreamErrorEvent(StrictSchema):
     type: Literal["error"] = "error"
     id: str | None = None
     error: ErrorDetail
+
+
+class OpenAIChatMessage(StrictSchema):
+    role: Literal["system", "user", "assistant"]
+    content: NonEmptyText
+    name: str | None = Field(default=None, max_length=128)
+
+
+class OpenAIChatCompletionRequest(BaseModel):
+    """Supported subset of the OpenAI Chat Completions request."""
+
+    model_config = ConfigDict(extra="ignore")
+    model: NonEmptyText
+    messages: list[OpenAIChatMessage] = Field(min_length=1, max_length=256)
+    stream: bool = False
+    max_tokens: int | None = Field(default=None, ge=1, le=8_192)
+    max_completion_tokens: int | None = Field(default=None, ge=1, le=8_192)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0, allow_inf_nan=False)
+    top_p: float = Field(default=0.9, gt=0.0, le=1.0, allow_inf_nan=False)
+    stop: str | list[str] | None = None
+    seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
+    user: str | None = Field(default=None, max_length=128)
+
+    @field_validator("messages")
+    @classmethod
+    def require_user_message(cls, messages: list[OpenAIChatMessage]) -> list[OpenAIChatMessage]:
+        if not any(message.role == "user" for message in messages):
+            raise ValueError("messages must contain at least one user message")
+        return messages
+
+    def generation_request(self, expected_model: str) -> GenerateRequest:
+        if self.model != expected_model:
+            raise ValueError(f"unknown model: {self.model}")
+        maximum = self.max_completion_tokens or self.max_tokens or 128
+        stops = [self.stop] if isinstance(self.stop, str) else list(self.stop or [])
+        latest_user = next(
+            message.content for message in reversed(self.messages) if message.role == "user"
+        )
+        request = GenerateRequest(
+            prompt=latest_user,
+            max_tokens=maximum,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            seed=self.seed,
+            stop=stops,
+        )
+        request._chat_messages = [
+            {"role": message.role, "content": message.content}
+            for message in self.messages
+        ]
+        return request
+
+
+class OpenAIModel(StrictSchema):
+    id: str
+    object: Literal["model"] = "model"
+    created: int
+    owned_by: str = "gopi"
+
+
+class OpenAIModelList(StrictSchema):
+    object: Literal["list"] = "list"
+    data: list[OpenAIModel]

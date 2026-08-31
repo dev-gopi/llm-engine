@@ -149,6 +149,25 @@ def test_browser_playground_is_served():
     assert "mcp_server:" in script.text
 
 
+def test_swagger_redoc_and_openapi_schema_are_served():
+    app = create_app(FakeBackend(), settings=settings())
+    swagger = request(app, "GET", "/docs")
+    redoc = request(app, "GET", "/redoc")
+    schema = request(app, "GET", "/openapi.json")
+
+    assert swagger.status_code == 200
+    assert "Swagger UI" in swagger.text
+    assert redoc.status_code == 200
+    assert "ReDoc" in redoc.text
+    assert schema.status_code == 200
+    payload = schema.json()
+    assert payload["info"]["title"] == "Gopi LLM API"
+    assert "/v1/generate" in payload["paths"]
+    assert payload["paths"]["/v1/generate"]["post"]["tags"] == ["generation"]
+    assert payload["paths"]["/v1/generate"]["post"]["security"]
+    assert "HTTPBearer" in payload["components"]["securitySchemes"]
+
+
 def test_rest_generation_response_and_request_id():
     response = request(
         create_app(FakeBackend(), settings=settings()),
@@ -166,6 +185,77 @@ def test_rest_generation_response_and_request_id():
     assert payload["text"] == "Gopi: hello"
     assert payload["finish_reason"] == "stop"
     assert payload["usage"]["total_tokens"] == 5
+
+
+def test_openai_model_discovery_and_chat_completion():
+    class HistoryBackend(FakeBackend):
+        async def generate(self, request):
+            assert request._chat_messages == [
+                {"role": "system", "content": "Answer briefly."},
+                {"role": "user", "content": "hello"},
+            ]
+            return await super().generate(request)
+
+    app = create_app(HistoryBackend(), settings=settings())
+    models = request(app, "GET", "/v1/models")
+    response = request(
+        app,
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "gopi-test",
+            "messages": [
+                {"role": "system", "content": "Answer briefly."},
+                {"role": "user", "content": "hello"},
+            ],
+            "max_tokens": 10,
+            "temperature": 0.2,
+        },
+    )
+
+    assert models.status_code == 200
+    assert models.json()["data"][0]["id"] == "gopi-test"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["object"] == "chat.completion"
+    assert payload["choices"][0]["message"] == {
+        "role": "assistant", "content": "Gopi: hello",
+    }
+    assert payload["usage"]["total_tokens"] == 5
+
+
+def test_openai_chat_completion_streams_sse():
+    response = request(
+        create_app(FakeBackend(), settings=settings()),
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "gopi-test",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert '"role": "assistant"' in response.text
+    assert '"content": "Go"' in response.text
+    assert '"content": "pi"' in response.text
+    assert "data: [DONE]" in response.text
+
+
+def test_openai_chat_completion_rejects_unknown_model():
+    response = request(
+        create_app(FakeBackend(), settings=settings()),
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "not-installed",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_generation_request"
 
 
 def test_invalid_request_returns_structured_error():

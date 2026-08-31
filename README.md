@@ -22,6 +22,17 @@ can evolve independently as the model grows.
 
 ## Quick start
 
+New users should follow these end-to-end guides:
+
+- [V2 training guide](docs/V2_TRAINING_GUIDE.md) — collect datasets, prepare the
+  tokenizer, pretrain, fine-tune, run DPO, evaluate, and export.
+- [V2 usage guide](docs/V2_USAGE_GUIDE.md) — generate from the CLI, chat in the
+  terminal, use the browser UI and API, stream responses, and run exported
+  models.
+- [V2 capabilities and scaling guide](docs/V2_CAPABILITIES_AND_SCALING.md) —
+  understand realistic uses, limitations, model sizes, and the path from 54.4M
+  toward the provided 1B, 7B, and 30B architecture targets.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -93,8 +104,11 @@ The current model is a flexible, modern GPT-style network featuring:
 7. Causal Dot-Product Attention with cached causal masking and PyTorch SDPA integration
 8. Vocabulary projection head with optional weight tying
 
-Architecture values live in model configurations like [`configs/model.gpu.yaml`](configs/model.gpu.yaml) (full model) or [`configs/model.cpu.yaml`](configs/model.cpu.yaml) (compact model), keeping
-the model implementation independent from experiment size.
+Architecture values live in model configurations. The active v2 paths use
+[`configs/model.v2.gpu.yaml`](configs/model.v2.gpu.yaml) for the 54.4M-parameter
+GPU model and [`configs/model.v2.cpu.yaml`](configs/model.v2.cpu.yaml) for the
+15.8M-parameter compact CPU model. The unversioned files remain available for
+legacy v1 experiments.
 
 ### Token embedding matrix
 
@@ -105,10 +119,12 @@ vocabulary resizing, hardware-aligned vocabulary padding, and weight sharing
 with the language-model output projection. Device and floating-point dtype can
 be selected at construction time.
 
-With the GPU configuration (`configs/model.gpu.yaml`), the matrix contains `50,000 × 256 = 12.8M`
-parameters (the CPU configuration currently uses the same embedding dimensions). Its initialization and behavior are controlled by
+With the active v2 GPU configuration, the embedding matrix contains
+`32,000 × 512 = 16.384M` parameters and is tied to the language-model output
+projection. The v2 CPU profile uses `32,000 × 256 = 8.192M`. Initialization and behavior are controlled by
 `padding_idx`, `initializer_range`, `scale_embeddings`, and
-`freeze_embeddings` in model configuration files like [`configs/model.gpu.yaml`](configs/model.gpu.yaml).
+`freeze_embeddings` in files such as
+[`configs/model.v2.gpu.yaml`](configs/model.v2.gpu.yaml).
 
 ### Causal self-attention
 
@@ -150,7 +166,9 @@ branch supports independent residual dropout and configurable residual scaling.
 The project provides a bias-configurable LayerNorm matching PyTorch's reference
 equation and an RMSNorm alternative with float32 accumulation for FP16/BF16
 inputs. Normalization type, epsilon, bias, residual layout, dropout, and scale
-are configured in model configuration files (e.g. [`configs/model.gpu.yaml`](configs/model.gpu.yaml) or [`configs/model.cpu.yaml`](configs/model.cpu.yaml)). A final LayerNorm
+are configured in model configuration files (for example,
+[`configs/model.v2.gpu.yaml`](configs/model.v2.gpu.yaml) or
+[`configs/model.v2.cpu.yaml`](configs/model.v2.cpu.yaml)). A final normalization
 is applied before the language-model output head.
 
 ### Causal language-model loss
@@ -179,6 +197,8 @@ GET  /health/live
 GET  /health/ready
 POST /v1/generate
 WS   /v1/generate/stream
+GET  /v1/models
+POST /v1/chat/completions
 ```
 
 Generation requests accept `response_format: "plain"` (the default) or
@@ -203,8 +223,23 @@ sampling parameters, stop an active request, and display token usage. When API
 key authentication is enabled, use non-streaming mode because browser
 WebSockets cannot attach the required `Authorization` header.
 
-Serving defaults come from [`configs/inference.yaml`](configs/inference.yaml)
-and can be overridden with `GOPI_MODEL_NAME`, `GOPI_BOT_NAME`,
+Interactive Swagger documentation is served at `http://127.0.0.1:8000/docs`,
+ReDoc at `http://127.0.0.1:8000/redoc`, and the raw OpenAPI schema at
+`http://127.0.0.1:8000/openapi.json`.
+
+`/v1/models` and `/v1/chat/completions` provide text-only OpenAI Chat
+Completions compatibility for third-party clients such as Open WebUI. Both JSON
+and SSE streaming are supported. Configure the client base URL as
+`http://HOST:8000/v1`, select model `gopi-v2`, and provide `GOPI_API_KEY` as its
+API key. See the v2 usage guide for limits and a complete example.
+
+V2 serving defaults come from
+[`configs/inference.v2.yaml`](configs/inference.v2.yaml). Set
+`GOPI_CHECKPOINT_PATH=checkpoints/v2-dpo/best.pt` (or the best SFT checkpoint)
+when serving the final assistant; the file's conservative default points to the
+pretraining checkpoint. Model, tokenizer, and runtime settings can be overridden
+with `GOPI_MODEL_CONFIG`, `GOPI_TOKENIZER_PATH`, `GOPI_CHECKPOINT_PATH`,
+`GOPI_DEVICE`, `GOPI_MODEL_NAME`, `GOPI_BOT_NAME`,
 `GOPI_MAX_CONCURRENCY`, `GOPI_QUEUE_TIMEOUT_SECONDS`,
 `GOPI_GENERATION_TIMEOUT_SECONDS`, and `GOPI_CORS_ORIGINS`.
 Set `GOPI_API_KEY` to require bearer authentication and
@@ -293,7 +328,7 @@ explicit prompt while keeping `mcp: true`:
 ## Assistant identity
 
 The assistant is named **Gopi**. Its default identity is configured in
-[`configs/inference.yaml`](configs/inference.yaml):
+[`configs/inference.v2.yaml`](configs/inference.v2.yaml):
 
 ```yaml
 bot_name: Gopi
@@ -475,34 +510,37 @@ Configuration is divided by responsibility:
 
 | File | Responsibility | Key Parameters |
 | --- | --- | --- |
-| `configs/model.cpu.yaml` | Compact model for CPU development and fresh training | `hidden_size: 256`, `layers: 6`, `heads: 8`, `max_position: 512`, `ffn_hidden_size: 1024` |
-| `configs/model.gpu.yaml` | Legacy 50K-vocabulary GPU architecture for fresh v1 training | `hidden_size: 256`, `layers: 8`, `heads: 8`, `max_position: 512`, `ffn_hidden_size: 1024` |
-| `configs/pretraining.cpu.yaml` | CPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 256`, effective batch 8, 10 epochs |
-| `configs/pretraining.gpu.yaml` | GPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 10 epochs |
-| `configs/finetuning.cpu.yaml` | CPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 256`, effective batch 32, 3 epochs |
-| `configs/finetuning.gpu.yaml` | Memory-safe 4 GB GPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 1`, `max_sequence_length: 256`, effective batch 32, gradient checkpointing, `mixed_precision: fp16`, 3 epochs |
+| `configs/model.v2.cpu.yaml` | Active compact v2 CPU architecture | 15.8M parameters, 32K vocabulary, hidden size 256, 8 layers, GQA, RoPE, RMSNorm, SwiGLU |
+| `configs/model.v2.gpu.yaml` | Active laptop-GPU v2 architecture | 54.4M parameters, 32K vocabulary, hidden size 512, 10 layers, GQA, RoPE, RMSNorm, SwiGLU |
+| `configs/pretraining.v2.cpu.yaml` | Active CPU v2 pretraining | TinyStories/WikiText 35/65, 128 tokens, effective batch 32, 3 epochs, FP32 |
+| `configs/pretraining.v2.gpu.yaml` | Active GPU v2 pretraining | TinyStories/WikiText 35/65, 256 tokens, effective batch 32, FP16, 3 epochs |
+| `configs/pretraining.v2.continued.gpu.yaml` | Optional WikiText-heavy new training stage | TinyStories/WikiText 15/85, one epoch, separate metric and checkpoints |
 | `configs/pretraining.v2.packed.cpu.yaml` | CPU v2 pretraining from memory-mapped token shards | TinyStories/WikiText 35/65 weighted validation, 256-token packed sequences |
 | `configs/pretraining.v2.packed.gpu.yaml` | GPU v2 pretraining from memory-mapped token shards | Same objective and weights as JSONL v2, FP16, runtime tokenization removed |
 | `configs/finetuning.v2.cpu.yaml` | Quality-balanced CPU v2 SFT | Chat, factual, reasoning, Bengali, Hindi, and coding; response-only loss |
-| `configs/finetuning.v2.gpu.yaml` | Quality-balanced GPU v2 SFT | 384-token sequences and BF16 on verified-capable GPUs |
+| `configs/finetuning.v2.gpu.yaml` | Active quality-balanced GPU v2 SFT | 18 datasets, 500K samples/epoch, 384 tokens, effective batch 32, BF16, 3 epochs |
 | `configs/finetuning.v2.packed.cpu.yaml` | CPU v2 SFT from response-masked shards | Same quality mixture with runtime tokenization removed |
 | `configs/finetuning.v2.packed.gpu.yaml` | GPU v2 SFT from response-masked shards | 384-token packed sequences, BF16, weighted domain validation |
 | `configs/dpo.v2.cpu.yaml` | Single-device CPU preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/dpo.v2.gpu.yaml` | Single-GPU FP16 preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
-| `configs/training.cpu.yaml` | Combined CPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, 5 epochs |
-| `configs/training.gpu.yaml` | Combined GPU profile across retained datasets | TinyStories + WikiText + UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, effective batch 32, `mixed_precision: fp16`, 5 epochs |
-| `configs/tokenizer.yaml` | Byte-level BPE tokenizer training setup | `vocab_size: 50000`, `min_frequency: 2`, `special_tokens`, sources list |
 | `configs/tokenizer.v2.yaml` | V2 base-tokenizer training and append-only extension setup | `vocab_size: 32000`, balanced source sampling, extension sources and discovery limits |
-| `configs/inference.yaml` | Assistant identity, sampling, and API serving defaults | `bot_name: Gopi`, temperature, top_k/p, context_memory, sqlite session path, concurrency & rate limits |
+| `configs/evaluation.v2.pretraining.yaml` | Pretraining domain evaluation | TinyStories and WikiText reported independently |
+| `configs/evaluation.v2.finetuning.yaml` | SFT domain evaluation | English, Bengali, Hindi, coding, GSM8K, and chat |
+| `configs/inference.v2.yaml` | Active v2 inference and serving defaults | Gopi identity, sampling, context memory, model paths, concurrency, cache, and rate limits |
+
+Legacy v1 profiles remain under the unversioned `model.*`, `pretraining.*`,
+`finetuning.*`, `training.*`, `tokenizer.yaml`, and `inference.yaml` names. New
+v2 work should use the explicit `.v2.` files and the guides linked in Quick
+start.
 
 Training code must not read inference settings, and inference code must not
 depend on the training package.
 
 ### From-scratch v2 model
 
-The v2 profiles preserve the original trained model while providing a stronger
-from-scratch path for memory-constrained hardware. The GPU architecture uses a
-32K vocabulary, rotary positions, RMSNorm,
+The v2 profiles provide the active from-scratch path for memory-constrained
+hardware. The 54.4M-parameter GPU architecture uses a 32K vocabulary, 512
+hidden dimensions, 10 layers, rotary positions, RMSNorm,
 SwiGLU, grouped-query attention, tied embeddings, and gradient checkpointing.
 It does not load or depend on third-party pretrained weights.
 
@@ -568,8 +606,8 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   --training-config configs/pretraining.v2.gpu.yaml \
   --tokenizer data/tokenizer-v2-extended \
   --init-from checkpoints/v2-pretraining/best.pt \
-  --output checkpoints/v2-continued/latest.pt \
-  --best-output checkpoints/v2-continued/best.pt
+  --output checkpoints/v2-tokenizer-extended/latest.pt \
+  --best-output checkpoints/v2-tokenizer-extended/best.pt
 ```
 
 The resulting model vocabulary is `32000 + added_vocab_size`. The model loader
@@ -597,15 +635,17 @@ python scripts/train.py \
 ```
 
 The v2 pretraining corpus uses complete bounded WikiText chunks instead of
-silently truncating each article. Fine-tuning adds MIT-licensed GSM8K reasoning
-examples and a deterministic project-owned core behavior set alongside
-UltraChat, HelpSteer, and OpenOrca. These additions improve data coverage but do
-not make a small from-scratch model equivalent to a billion-parameter model.
+silently truncating each article. Base pretraining runs three epochs with a
+35/65 TinyStories/WikiText objective. The optional
+`configs/pretraining.v2.continued.gpu.yaml` stage runs once with a 15/85 mix and
+must write separate checkpoints. SFT samples 500,000 examples per epoch across
+18 chat, factual, reasoning, coding, Bengali, Hindi/Hinglish, safety, tool, and
+emoji datasets. These additions improve data coverage but do not make a small
+from-scratch model equivalent to a billion-parameter model.
 
 ### Large-model architecture profiles
 
-The current v1 and v2 configurations remain unchanged. Optional architecture
-targets are provided as `configs/model.future.1b.yaml`,
+Optional architecture targets are provided as `configs/model.future.1b.yaml`,
 `configs/model.future.7b.yaml`, and `configs/model.future.30b.yaml`. They verify
 that model dimensions, GQA, SwiGLU, RoPE, and long context are configuration
 driven; they are not laptop training profiles and do not include the distributed
@@ -745,7 +785,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   --model-config configs/model.v2.gpu.yaml \
   --training-config configs/pretraining.v2.packed.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
-  --init-from checkpoints/v2-pretraining/latest.pt \
+  --init-from checkpoints/v2-pretraining/best.pt \
   --epochs 1 \
   --output checkpoints/v2-packed-continued/latest.pt \
   --best-output checkpoints/v2-packed-continued/best.pt
@@ -824,9 +864,15 @@ python scripts/prepare_helpsteer_preferences.py
 ```
 
 ```bash
-python scripts/train_dpo.py \
+.venv/bin/python scripts/train_dpo.py \
+  --model-config configs/model.v2.gpu.yaml \
   --training-config configs/dpo.v2.gpu.yaml \
-  --reference-checkpoint checkpoints/v2-finetuning/best.pt
+  --tokenizer data/tokenizer-v2 \
+  --reference-checkpoint checkpoints/v2-finetuning/best.pt \
+  --init-from checkpoints/v2-finetuning/best.pt \
+  --output checkpoints/v2-dpo/latest.pt \
+  --best-output checkpoints/v2-dpo/best.pt \
+  --device cuda
 ```
 
 `--init-from` can initialize the policy from another compatible checkpoint;
@@ -916,29 +962,31 @@ torchrun --standalone --nproc-per-node=2 scripts/validate_distributed.py \
 
 ## Commands
 
-The command-line workflows are:
+The primary v2 command-line entry points are:
 
 ```bash
-python scripts/tokenize.py train
-python scripts/train.py
-python scripts/train_dpo.py --reference-checkpoint checkpoints/v2-finetuning/best.pt
-python scripts/evaluate.py
-python scripts/generate.py "Hello Gopi"
-python scripts/export.py --format safetensors
-python scripts/serve.py
-python scripts/capabilities.py
-python scripts/inspect_model.py configs/model.v2.gpu.yaml
-python scripts/evaluate_benchmarks.py --checkpoint checkpoints/v2-finetuning/best.pt
-python scripts/audit_datasets.py --training-config configs/pretraining.v2.gpu.yaml --stage pretraining
+.venv/bin/python scripts/capabilities.py
+.venv/bin/python scripts/tokenize.py train --config configs/tokenizer.v2.yaml
+.venv/bin/python scripts/train.py --model-config configs/model.v2.gpu.yaml --training-config configs/pretraining.v2.gpu.yaml --tokenizer data/tokenizer-v2
+.venv/bin/python scripts/train_dpo.py --training-config configs/dpo.v2.gpu.yaml --reference-checkpoint checkpoints/v2-finetuning/best.pt --init-from checkpoints/v2-finetuning/best.pt
+.venv/bin/python scripts/evaluate_domains.py --domains configs/evaluation.v2.finetuning.yaml --checkpoint checkpoints/v2-finetuning/best.pt --device cuda
+.venv/bin/python scripts/generate.py "Hello Gopi" --checkpoint checkpoints/v2-dpo/best.pt --device cuda
+.venv/bin/python scripts/export.py --checkpoint checkpoints/v2-dpo/best.pt --format safetensors
+.venv/bin/python scripts/serve.py --host 127.0.0.1 --port 8000
 ```
 
 Training settings, dataset paths, checkpoint frequency, optimizer, scheduler,
-and EMA behavior are controlled by configuration files such as `configs/training.cpu.yaml` or `configs/training.gpu.yaml`. Training resumes
-with `python scripts/train.py --resume checkpoints/latest/model.pt`.
+and EMA behavior are controlled by the selected YAML profile. Resume only the
+same stage from its `latest.pt`; initialize a different stage from the previous
+stage's `best.pt`. Exact commands are maintained in the v2 training and usage
+guides.
 `mixed_precision` accepts `none`, `bf16`, or CUDA-only `fp16`, while
 `gradient_accumulation_steps` controls effective batch size.
 Training logs and epoch history include learning rate, gradient norm, processed
-tokens, token throughput, peak CUDA memory, and skipped non-finite updates.
+tokens, token throughput, total progress, elapsed time, ETA, best validation
+loss, peak CUDA memory, current allocated/reserved/total GPU memory, and skipped
+non-finite updates. New validation minima emit a separate
+`new_best_validation` event.
 These observability counters are preserved by resumable single-file checkpoints.
 
 ### First small training run
@@ -948,19 +996,26 @@ model and a single pretraining epoch. The configured inputs are TinyStories and
 WikiText, so the required processed files must exist first:
 
 ```bash
-python scripts/train.py --model-config configs/model.cpu.yaml \
-  --training-config configs/pretraining.cpu.yaml --epochs 1
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.cpu.yaml \
+  --training-config configs/pretraining.v2.cpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --epochs 1 \
+  --output checkpoints/v2-cpu-smoke/latest.pt \
+  --best-output checkpoints/v2-cpu-smoke/best.pt
 ```
 
-This profile uses two examples per batch, 256-token sequences and four-step
-gradient accumulation. It writes the final checkpoint to
-`checkpoints/latest/model.pt`.
+This profile uses a micro-batch of one, 128-token sequences, 32-step gradient
+accumulation, and FP32.
 
 Evaluate a bounded sample without loading the full dataset into memory:
 
 ```bash
-python scripts/evaluate.py --model-config configs/model.cpu.yaml \
-  --training-config configs/pretraining.cpu.yaml \
+.venv/bin/python scripts/evaluate.py \
+  --model-config configs/model.v2.cpu.yaml \
+  --training-config configs/pretraining.v2.cpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --checkpoint checkpoints/v2-cpu-smoke/best.pt \
   --dataset data/processed/tinystories/validation.jsonl \
   --max-batches 25 --device cpu
 ```
@@ -968,9 +1023,11 @@ python scripts/evaluate.py --model-config configs/model.cpu.yaml \
 Then verify checkpoint loading and autoregressive generation:
 
 ```bash
-python scripts/generate.py "Hello, my name is" \
-  --model-config configs/model.cpu.yaml --device cpu \
-  --max-tokens 40 --temperature 0.8 --seed 42
+.venv/bin/python scripts/generate.py "Hello, my name is" \
+  --model-config configs/model.v2.cpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --checkpoint checkpoints/v2-cpu-smoke/best.pt \
+  --device cpu --raw --max-tokens 40 --temperature 0.8 --seed 42
 ```
 
 A model trained from scratch on this tiny dataset for one epoch will generally
@@ -981,14 +1038,8 @@ without EMA transparently uses its ordinary model weights. With
 `ema_decay: 0.999`, EMA metrics can lag behind the ordinary model weights during
 such a short run.
 
-The small profile uses a held-out validation split, saves the best validation
-checkpoint to `checkpoints/best/model.pt`, and stops after five epochs without
-a meaningful validation improvement. To make the best checkpoint available for default serving or generation, copy `best.pt`:
-
-```bash
-mkdir -p checkpoints/latest
-cp checkpoints/best/model.pt checkpoints/latest/model.pt
-```
+The small run uses held-out validation and writes recovery and best checkpoints
+to the explicit `v2-cpu-smoke` paths above.
 
 ### Two-stage CPU training
 
@@ -996,68 +1047,60 @@ Start a fresh general-language checkpoint on TinyStories and WikiText. This is
 a large CPU job and can take a long time:
 
 ```bash
-python scripts/train.py --model-config configs/model.cpu.yaml \
-  --training-config configs/pretraining.cpu.yaml \
-  --output checkpoints/pretraining/latest.pt \
-  --best-output checkpoints/pretraining/best.pt
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.cpu.yaml \
+  --training-config configs/pretraining.v2.cpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --output checkpoints/v2-pretraining-cpu/latest.pt \
+  --best-output checkpoints/v2-pretraining-cpu/best.pt
 ```
 
-Initialize a new optimizer and fine-tune the best pretrained weights on
-UltraChat, HelpSteer, and OpenOrca:
+Initialize a new optimizer and fine-tune the best pretrained weights with the
+quality-balanced v2 SFT mixture:
 
 ```bash
-python scripts/train.py --model-config configs/model.cpu.yaml \
-  --training-config configs/finetuning.cpu.yaml \
-  --init-from checkpoints/pretraining/best.pt \
-  --output checkpoints/finetuning/latest.pt \
-  --best-output checkpoints/finetuning/best.pt
-```
-
-To use the best fine-tuned model for default serving and generation, copy the best checkpoint to `checkpoints/latest/model.pt`:
-
-```bash
-mkdir -p checkpoints/latest
-cp checkpoints/finetuning/best.pt checkpoints/latest/model.pt
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.cpu.yaml \
+  --training-config configs/finetuning.v2.cpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --init-from checkpoints/v2-pretraining-cpu/best.pt \
+  --output checkpoints/v2-finetuning-cpu/latest.pt \
+  --best-output checkpoints/v2-finetuning-cpu/best.pt
 ```
 
 Use `--resume` only to continue the same training stage with its optimizer,
 scheduler, sampler, random-number, and early-stopping state. Use `--init-from`
 to transfer model weights into a new stage with a fresh optimizer and schedule.
 
-For a CUDA GPU, use the full model with the conservative FP16 profiles:
+For a CUDA laptop GPU, use the active v2 profiles. Pretraining uses FP16 and
+SFT uses BF16 on a verified-capable GPU:
 
 ```bash
-python scripts/train.py --model-config configs/model.gpu.yaml \
-  --training-config configs/pretraining.gpu.yaml \
-  --output checkpoints/pretraining-gpu/latest.pt \
-  --best-output checkpoints/pretraining-gpu/best.pt
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/pretraining.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --output checkpoints/v2-pretraining/latest.pt \
+  --best-output checkpoints/v2-pretraining/best.pt
 
-python scripts/train.py --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.gpu.yaml \
-  --init-from checkpoints/pretraining-gpu/best.pt \
-  --output checkpoints/finetuning-gpu/latest.pt \
-  --best-output checkpoints/finetuning-gpu/best.pt
-
-mkdir -p checkpoints/latest
-cp checkpoints/finetuning-gpu/best.pt checkpoints/latest/model.pt
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/finetuning.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2 \
+  --init-from checkpoints/v2-pretraining/best.pt \
+  --output checkpoints/v2-finetuning/latest.pt \
+  --best-output checkpoints/v2-finetuning/best.pt
 ```
 
-These profiles use a micro-batch of two 512-token sequences and accumulate 16
-micro-batches for an effective batch size of 32. Reduce `batch_size` to one if
-CUDA runs out of memory. On GPUs with native BF16 support, changing
-`mixed_precision` from `fp16` to `bf16` usually improves numerical robustness.
-
-For a broader CPU experiment using every configured dataset, use:
-
-```bash
-python scripts/train.py --model-config configs/model.cpu.yaml \
-  --training-config configs/training.cpu.yaml --epochs 1
-```
+The GPU pretraining profile uses micro-batch two, 256-token sequences, and
+16-step accumulation. The GPU SFT profile uses micro-batch one, 384-token
+sequences, and 32-step accumulation. Do not change precision or tokenizer while
+resuming an existing stage.
 
 Run the test suite with:
 
 ```bash
-pytest -q
+.venv/bin/python -m pytest
 ```
 
 ## Current implementation status

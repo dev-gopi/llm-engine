@@ -20,6 +20,9 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 import pyarrow.parquet as pq
 
 DEFAULT_BOT_NAME = "Gopi"
+PREFERENCE_SCORE_FIELDS = (
+    "helpfulness", "correctness", "coherence", "complexity", "verbosity",
+)
 
 
 def normalize_conversation(messages: list, system_msg: dict[str, str]) -> list[dict[str, str]] | None:
@@ -177,8 +180,25 @@ def download_and_convert_dataset(
                             if row.get("role") or not isinstance(text, str) or not text.strip():
                                 continue
                             record["text"] = text.strip()
+                        scores = {
+                            field: row[field]
+                            for field in PREFERENCE_SCORE_FIELDS
+                            if row.get(field) is not None
+                        }
+                        if scores:
+                            record["scores"] = scores
                         if full_dataset:
-                            split_key = record.get("messages", record.get("text", ""))
+                            messages_for_split = record.get("messages")
+                            if scores and isinstance(messages_for_split, list):
+                                # Keep every rated candidate for one prompt in the
+                                # same split so DPO pairing remains possible and
+                                # prompts cannot leak across train and validation.
+                                split_key = [
+                                    message for message in messages_for_split
+                                    if message.get("role") != "assistant"
+                                ]
+                            else:
+                                split_key = messages_for_split or record.get("text", "")
                             fingerprint = hashlib.sha256(json.dumps(split_key, sort_keys=True, ensure_ascii=False).encode()).digest()[0]
                             split_name = "validation" if fingerprint < 13 else "test" if fingerprint < 26 else "train"
                             streams[split_name].write(json.dumps(record, ensure_ascii=False) + "\n")
