@@ -94,3 +94,19 @@ def test_dataset_audit_cli_returns_machine_readable_failure(tmp_path) -> None:
     payload = json.loads(completed.stdout)
     assert payload["status"] == "failed"
     assert payload["findings"][0]["code"] == "missing_manifest"
+
+
+def test_dataset_audit_cli_inherits_governance_stage_from_config(tmp_path) -> None:
+    data_path, _ = write_dataset(tmp_path, allowed_stages=["sft"])
+    config_path = tmp_path / "training.yaml"
+    config_path.write_text(
+        "dataset_governance:\n  stage: sft\n  commercial_use: false\n"
+        f"train_files:\n  - {data_path}\nvalidation_files: []\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [sys.executable, "scripts/audit_datasets.py", "--training-config", str(config_path)],
+        cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert json.loads(completed.stdout)["status"] == "passed"

@@ -13,9 +13,12 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
 import torch
+import yaml
 from safetensors.torch import save_model
 
 from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
+from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
 
@@ -51,17 +54,25 @@ def main() -> None:
     args = parser.parse_args()
     suffixes = {"safetensors": ".safetensors", "torch_export": ".pt2", "onnx": ".onnx"}
     output = args.output or Path("exports") / args.format / f"gopi{suffixes[args.format]}"
-    config = load_yaml(args.model_config)
+    if not args.tokenizer.exists():
+        parser.error(f"tokenizer does not exist: {args.tokenizer}")
+    tokenizer = Tokenizer.load(args.tokenizer)
+    try:
+        config = adapt_config_to_tokenizer(load_yaml(args.model_config), tokenizer)
+    except ValueError as error:
+        parser.error(str(error))
     model = MiniGPT.from_config(config, device="cpu")
-    load_checkpoint(args.checkpoint, model, use_ema=True)
+    load_checkpoint(
+        args.checkpoint, model, use_ema=True,
+        **checkpoint_tokenizer_options(tokenizer),
+    )
     artifact = export_model(model, output, args.format, sequence_length=args.sequence_length)
     destination_config = artifact.parent / "model.yaml"
-    shutil.copy2(args.model_config, destination_config)
-    if args.tokenizer.exists():
-        destination_tokenizer = artifact.parent / "tokenizer"
-        if destination_tokenizer.exists():
-            shutil.rmtree(destination_tokenizer)
-        shutil.copytree(args.tokenizer, destination_tokenizer)
+    destination_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    destination_tokenizer = artifact.parent / "tokenizer"
+    if destination_tokenizer.exists():
+        shutil.rmtree(destination_tokenizer)
+    shutil.copytree(args.tokenizer, destination_tokenizer)
     print(json.dumps({"artifact": str(artifact), "model_config": str(destination_config)}, indent=2))
 
 

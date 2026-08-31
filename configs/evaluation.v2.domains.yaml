@@ -22,3 +22,10 @@ domains:
     - data/processed/ultrachat_200k/validation.jsonl
     - data/processed/core_chat/validation.jsonl
     - data/processed/emoji_chat/validation.jsonl
+weights:
+  english: 0.15
+  bengali: 0.14
+  hindi: 0.07
+  coding: 0.10
+  gsm8k: 0.13
+  chat: 0.41

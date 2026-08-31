@@ -16,8 +16,8 @@ distributed_backend: null
 checkpoint_format: single_file
 samples_per_epoch: 100000
 dataset_weights:
-  # Quality-balanced SFT mixture: chat 25%, factual 25%, reasoning 13%,
-  # code 10%, Bengali 14%, Hindi/Hinglish 7%, and safety/tools 6%.
+  # Exact source-group totals: chat 17.5%, factual/general 33%, reasoning 13%,
+  # code 10%, Bengali 14%, Hindi/Hinglish 7%, and safety/tools/writing 5.5%.
   ultrachat_200k: 0.15
   helpsteer: 0.08
   openorca: 0.13

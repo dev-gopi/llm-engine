@@ -1,0 +1,10 @@
+schema_version: 1
+name: No Robots processed writing data
+source: HuggingFaceH4/no_robots
+version: local-chat-conversion-v1
+license:
+  identifier: LicenseRef-Unverified-Upstream
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages: [sft]
+privacy_review: unreviewed

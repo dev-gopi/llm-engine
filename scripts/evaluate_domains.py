@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -18,23 +17,9 @@ from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_opt
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from training.data import build_loader
-from training.evaluator import Evaluator
+from training.evaluator import Evaluator, aggregate_domain_metrics
 from utils.config import load_yaml
 from utils.device import resolve_device
-
-
-def aggregate_domain_metrics(results: dict[str, dict[str, float | int]]) -> dict[str, float | int]:
-    """Combine domain metrics without allowing small domains to dominate."""
-    total_tokens = sum(int(metrics["tokens"]) for metrics in results.values())
-    aggregate: dict[str, float | int] = {}
-    for key in ("loss", "cross_entropy", "z_loss"):
-        aggregate[key] = sum(
-            float(metrics[key]) * int(metrics["tokens"]) for metrics in results.values()
-        ) / max(total_tokens, 1)
-    aggregate["perplexity"] = math.exp(min(float(aggregate["cross_entropy"]), 80.0))
-    aggregate["tokens"] = total_tokens
-    aggregate["batches"] = sum(int(metrics["batches"]) for metrics in results.values())
-    return aggregate
 
 
 def main() -> None:
@@ -52,6 +37,9 @@ def main() -> None:
     domains = domain_config.get("domains")
     if not isinstance(domains, dict) or not domains:
         parser.error("domain configuration must contain a non-empty domains mapping")
+    weights = domain_config.get("weights")
+    if not isinstance(weights, dict):
+        parser.error("domain configuration must contain an explicit weights mapping")
     training_config = load_yaml(args.training_config)
     tokenizer = Tokenizer.load(args.tokenizer)
     try:
@@ -78,7 +66,10 @@ def main() -> None:
         loader = build_loader(paths, tokenizer, training_config, shuffle=False)
         results[str(domain)] = evaluator.evaluate(loader, max_batches=args.max_batches)
 
-    aggregate = aggregate_domain_metrics(results)
+    try:
+        aggregate = aggregate_domain_metrics(results, weights)
+    except ValueError as error:
+        parser.error(str(error))
     print(json.dumps({"aggregate": aggregate, "domains": results}, indent=2, ensure_ascii=False))
 
 

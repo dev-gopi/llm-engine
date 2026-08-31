@@ -12,8 +12,11 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
+import torch
+
 from datasets.governance import enforce_dataset_governance
 from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from optim.adamw import adamw_from_config
 from optim.scheduler import Scheduler
 from post_training.dpo import DPOTrainer
@@ -60,8 +63,10 @@ def main() -> None:
     if mixed_precision == "bf16" and device.type == "cuda" and not torch.cuda.is_bf16_supported():
         parser.error("the selected DPO profile requires BF16, but this GPU does not support it")
     tokenizer = Tokenizer.load(args.tokenizer)
-    if tokenizer.vocab_size != int(model_config["vocab_size"]):
-        parser.error("tokenizer vocabulary does not match model vocab_size")
+    try:
+        model_config = adapt_config_to_tokenizer(model_config, tokenizer)
+    except ValueError as error:
+        parser.error(str(error))
     if int(config["max_sequence_length"]) > int(model_config["max_position"]):
         parser.error("DPO max_sequence_length exceeds the model context length")
 
@@ -69,13 +74,13 @@ def main() -> None:
     reference = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(
         args.reference_checkpoint, reference, map_location=device, use_ema=True,
-        restore_rng=False, expected_tokenizer_fingerprint=tokenizer.fingerprint,
+        restore_rng=False, **checkpoint_tokenizer_options(tokenizer),
     )
     if not args.resume:
         load_checkpoint(
             args.init_from or args.reference_checkpoint, policy, map_location=device,
             use_ema=True, restore_rng=False,
-            expected_tokenizer_fingerprint=tokenizer.fingerprint,
+            **checkpoint_tokenizer_options(tokenizer),
         )
     train_loader = build_preference_loader(
         config["train_files"], tokenizer, max_length=int(config["max_sequence_length"]),
@@ -99,7 +104,7 @@ def main() -> None:
         state = load_checkpoint(
             args.resume, policy, optimizer=optimizer, scheduler=scheduler,
             scaler=trainer.scaler, map_location=device,
-            expected_tokenizer_fingerprint=tokenizer.fingerprint,
+            **checkpoint_tokenizer_options(tokenizer),
         )
         trainer.load_state_dict(state.get("trainer", {}))
 

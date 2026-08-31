@@ -226,14 +226,14 @@ def test_benchmark_normalization_and_scoring_support_unicode_scripts() -> None:
     ) == 1.0
 
 
-def test_domain_metrics_are_aggregated_by_token_count() -> None:
+def test_domain_metrics_use_explicit_capability_weights() -> None:
     metrics = aggregate_domain_metrics({
         "english": {"loss": 2.0, "cross_entropy": 2.0, "z_loss": 0.0, "tokens": 10, "batches": 1},
         "bengali": {"loss": 4.0, "cross_entropy": 4.0, "z_loss": 0.0, "tokens": 30, "batches": 2},
-    })
-    assert metrics["loss"] == pytest.approx(3.5)
-    assert metrics["cross_entropy"] == pytest.approx(3.5)
-    assert metrics["perplexity"] == pytest.approx(np.exp(3.5))
+    }, {"english": 0.75, "bengali": 0.25})
+    assert metrics["loss"] == pytest.approx(2.5)
+    assert metrics["cross_entropy"] == pytest.approx(2.5)
+    assert metrics["perplexity"] == pytest.approx(np.exp(2.5))
     assert metrics["tokens"] == 40
     assert metrics["batches"] == 3
 
