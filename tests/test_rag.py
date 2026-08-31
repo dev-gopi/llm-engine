@@ -86,6 +86,20 @@ def test_backend_includes_text_attachments_as_untrusted_context() -> None:
     assert results == []
 
 
+def test_oversized_retrieval_prompt_is_trimmed_to_model_context() -> None:
+    class DenseTokenizer:
+        def encode(self, text, **kwargs):
+            return list(text)
+
+    backend = ConfiguredModelBackend()
+    backend.generator = SimpleNamespace(tokenizer=DenseTokenizer(), max_positions=160)
+    prompt = backend._format_new_conversation(
+        "You are a helpful assistant.", "retrieved Bengali context " * 40
+    )
+    assert len(backend.generator.tokenizer.encode(prompt)) < 160
+    assert "Reference context truncated" in prompt
+
+
 def test_html_ingestion_and_partial_word_retrieval(tmp_path) -> None:
     source = tmp_path / "guide.html"
     source.write_text("<h1>বাংলা নির্দেশিকা</h1><p>Internationalization guide</p>", encoding="utf-8")

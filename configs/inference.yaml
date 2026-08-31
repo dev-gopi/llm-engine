@@ -18,6 +18,14 @@ web_search:
   timeout_seconds: 10
   temperature: 0.2
   top_k: 20
+rag:
+  enabled: true
+  default_enabled: false
+  index_path: data/rag/index.sqlite
+  top_k: 1
+  min_score: 0.01
+  chunk_char_limit: 180
+  attachment_char_limit: 300
 serving:
   model_name: gopi
   model_config: configs/model.gpu.yaml

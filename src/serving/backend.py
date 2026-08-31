@@ -768,18 +768,48 @@ class ConfiguredModelBackend:
         return "".join(pieces).strip()
 
     def _format_new_conversation(self, system_prompt: str, user_prompt: str) -> str:
-        prompt = format_messages(
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            add_generation_prompt=True,
-        )
-        prompt_ids = self.generator.tokenizer.encode(prompt, add_bos=True, allowed_special="all")
-        if len(prompt_ids) < getattr(self.generator, "max_positions", float("inf")):
+        maximum = int(getattr(self.generator, "max_positions", 0))
+
+        def render(system: str, user: str) -> tuple[str, int]:
+            candidate = format_messages(
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                add_generation_prompt=True,
+            )
+            identifiers = self.generator.tokenizer.encode(
+                candidate, add_bos=True, allowed_special="all"
+            )
+            return candidate, len(identifiers)
+
+        prompt, length = render(system_prompt, user_prompt)
+        if maximum < 2 or length < maximum:
             return prompt
-        logger.warning("System prompt exceeds this model's context; using compact safety prompt")
-        return format_messages(
-            [{"role": "system", "content": COMPACT_SAFETY_PROMPT}, {"role": "user", "content": user_prompt}],
-            add_generation_prompt=True,
-        )
+
+        # Retrieval and attached text can be much more token-dense than their
+        # character count (especially for non-Latin scripts). Keep the longest
+        # prefix that fits instead of rejecting an otherwise valid request.
+        marker = "\n[Reference context truncated to fit the model.]"
+        low, high = 0, len(user_prompt)
+        fitted: str | None = None
+        while low <= high:
+            midpoint = (low + high) // 2
+            candidate, candidate_length = render(
+                system_prompt, user_prompt[:midpoint].rstrip() + marker
+            )
+            if candidate_length < maximum:
+                fitted = candidate
+                low = midpoint + 1
+            else:
+                high = midpoint - 1
+        if fitted is not None:
+            logger.warning(
+                "User/reference context truncated from %d tokens to fit model context %d",
+                length, maximum,
+            )
+            return fitted
+
+        logger.warning("System prompt leaves no room for truncation marker; using compact safety prompt")
+        compact, _ = render(COMPACT_SAFETY_PROMPT, user_prompt)
+        return compact
 
     def _format_request_conversation(
         self, request: GenerateRequest, system_prompt: str, user_prompt: str,
