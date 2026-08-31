@@ -249,10 +249,13 @@ class Trainer:
             self.early_stopping_best_loss = float("inf")
             self.epochs_without_improvement = 0
         history: list[dict[str, object]] = []
-        # The loader is created at full epoch length; resume skipping is applied
-        # below through batch_sampler.set_start_batch(). Do not add the saved
-        # offset here or resumed progress would count those batches twice.
-        batches_per_epoch = len(dataloader)
+        batch_sampler = getattr(dataloader, "batch_sampler", None)
+        # A resumable sampler reports only its remaining batches from __len__.
+        # Progress and ETA need the full epoch length, independent of that
+        # resume offset. Other iterable loaders retain their ordinary length.
+        batches_per_epoch = int(
+            getattr(batch_sampler, "total_batches", len(dataloader))
+        )
         total_batches = max(1, batches_per_epoch * epochs)
 
         def evaluate_validation() -> tuple[dict[str, float | int], dict[str, dict[str, float | int]]]:
@@ -286,7 +289,6 @@ class Trainer:
 
         for epoch in range(self.current_epoch, epochs):
             improved_during_epoch = False
-            batch_sampler = getattr(dataloader, "batch_sampler", None)
             if hasattr(batch_sampler, "set_epoch"):
                 batch_sampler.set_epoch(epoch)
             if hasattr(batch_sampler, "set_start_batch"):

@@ -86,10 +86,15 @@ class Sampler(TorchSampler[list[int]]):
         yield from batches[self.start_batch :]
 
     def __len__(self) -> int:
+        return max(0, self.total_batches - self.start_batch)
+
+    @property
+    def total_batches(self) -> int:
+        """Return the full epoch length, independent of a resume offset."""
         total = self.num_samples if self.shuffle and (self.sampling_weights is not None or self.sampling_groups) else len(self.lengths)
         examples = total // self.world_size if self.drop_last else math.ceil(total / self.world_size)
         batches = examples // self.batch_size if self.drop_last else math.ceil(examples / self.batch_size)
-        return max(0, batches - self.start_batch)
+        return batches
 
     def state_dict(self) -> dict[str, int]:
         return {"epoch": self.epoch, "start_batch": self.start_batch}

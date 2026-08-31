@@ -53,8 +53,11 @@ def test_sampler_shards_ranks_without_overlap() -> None:
 
 def test_sampler_resume_skips_completed_batches() -> None:
     sampler = Sampler(list(range(8)), 2, shuffle=False)
+    assert sampler.total_batches == 4
     sampler.load_state_dict({"epoch": 3, "start_batch": 2})
     assert list(sampler) == [[4, 5], [6, 7]]
+    assert len(sampler) == 2
+    assert sampler.total_batches == 4
 
 
 def test_weighted_sampler_uses_bounded_deterministic_epoch() -> None:

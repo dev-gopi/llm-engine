@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from datasets.collator import Collator
+from datasets.sampler import Sampler
 from model.gpt import MiniGPT
 from model.loss import CausalLanguageModelLoss
 from optim.adamw import build_adamw
@@ -250,6 +251,36 @@ def test_resumed_epoch_loss_uses_batches_processed_after_resume() -> None:
 
     assert history[-1]["train_loss"] == 3.0
     assert [call.args[-1] for call in log_info.call_args_list] == [2.0, 3.0]
+
+
+def test_resumed_progress_uses_full_epoch_length() -> None:
+    class ResumeLoader:
+        def __init__(self):
+            self.batch_sampler = Sampler(list(range(200)), 2, shuffle=False)
+            self.batch_sampler.set_start_batch(50)
+
+        def __len__(self):
+            return len(self.batch_sampler)
+
+        def __iter__(self):
+            yield {}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    trainer.current_epoch = 2
+    trainer.batch_in_epoch = 50
+
+    def train_step(_batch):
+        trainer.global_step += 1
+        return 2.0
+
+    trainer.train_step = train_step
+    with patch("training.trainer.logger.info") as log_info:
+        trainer.fit(ResumeLoader(), epochs=3, log_every=1)
+
+    progress_percent = log_info.call_args_list[0].args[8]
+    assert progress_percent == pytest.approx(251 / 300 * 100)
+    assert progress_percent < 100
 
 
 def test_checkpoint_architecture_mismatch_error(tmp_path) -> None:
