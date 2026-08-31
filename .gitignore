@@ -28,6 +28,8 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.production.example
+deploy/certs/
 
 # Datasets and generated caches
 data/raw/*

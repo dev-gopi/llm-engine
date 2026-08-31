@@ -32,6 +32,15 @@ New users should follow these end-to-end guides:
 - [V2 capabilities and scaling guide](docs/V2_CAPABILITIES_AND_SCALING.md) —
   understand realistic uses, limitations, model sizes, and the path from 54.4M
   toward the provided 1B, 7B, and 30B architecture targets.
+- [Troubleshooting guide](docs/TROUBLESHOOTING.md) — diagnose CUDA memory,
+  non-finite gradients, tokenizer/checkpoint, validation, and serving failures.
+- [Dataset formats](docs/DATASET_FORMATS.md) — required JSONL schemas for
+  pretraining, SFT, DPO, and domain evaluation.
+- [API reference](docs/API_REFERENCE.md) — native and OpenAI-compatible HTTP
+  endpoints, authentication, request fields, streaming, and errors.
+- [Deployment guide](docs/DEPLOYMENT.md) — run the local service safely behind
+  authentication, TLS, a reverse proxy, and an optional third-party UI.
+- [Changelog](CHANGELOG.md) — user-visible project changes by release.
 
 ```bash
 python3 -m venv .venv
@@ -62,6 +71,21 @@ exit status 2 while retaining the JSON report.
 
 The v2 GPU profile is the recommended from-scratch laptop path. The 1B/7B/30B
 files are architecture targets, not profiles for a 4 GB GPU.
+
+Production-style local HTTPS serving is available through Docker Compose and
+the included Nginx reverse proxy:
+
+```bash
+cp .env.production.example .env.production
+# Replace GOPI_API_KEY in .env.production before continuing.
+./deploy/generate_dev_certs.sh
+docker compose --env-file .env.production up --build -d
+curl --insecure https://localhost:8443/health/ready
+```
+
+The generated certificate is for local development only. See the
+[deployment guide](docs/DEPLOYMENT.md) for GPU serving, trusted TLS
+certificates, authentication, proxy, and security requirements.
 
 ## Repository structure
 

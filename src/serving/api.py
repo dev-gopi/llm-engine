@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Security, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer
 from utils.config import load_yaml
@@ -73,6 +74,34 @@ OPENAPI_TAGS = [
 ]
 
 
+def _environment_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
+def _add_security_headers(response: Response, *, is_https: bool) -> None:
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; frame-ancestors 'none'; object-src 'none'; "
+        "base-uri 'self'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "connect-src 'self' ws: wss:"
+    )
+    if is_https:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+
 @dataclass(frozen=True)
 class ServingSettings:
     model_name: str = "gopi"
@@ -85,6 +114,9 @@ class ServingSettings:
     requests_per_minute: int = 0
     rate_limit_store_path: str | None = None
     continuous_streams: int = 0
+    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "test", "testserver")
+    docs_enabled: bool = True
+    protect_metrics: bool = False
 
     def __post_init__(self) -> None:
         if self.max_concurrency < 1:
@@ -95,6 +127,8 @@ class ServingSettings:
             raise ValueError("rate and stream limits cannot be negative")
         if not self.model_name.strip() or not self.bot_name.strip():
             raise ValueError("model_name and bot_name cannot be empty")
+        if not self.allowed_hosts or any(not host.strip() for host in self.allowed_hosts):
+            raise ValueError("allowed_hosts must contain non-empty host names")
 
     @classmethod
     def from_environment(cls) -> "ServingSettings":
@@ -111,6 +145,11 @@ class ServingSettings:
                 "GOPI_CORS_ORIGINS", ",".join(serving.get("cors_origins", []))
             ).split(",")
             if origin.strip()
+        )
+        allowed_hosts = tuple(
+            host.strip()
+            for host in os.getenv("GOPI_ALLOWED_HOSTS", "127.0.0.1,localhost,test,testserver").split(",")
+            if host.strip()
         )
         return cls(
             model_name=os.getenv("GOPI_MODEL_NAME", str(serving.get("model_name", "gopi"))),
@@ -135,6 +174,9 @@ class ServingSettings:
             requests_per_minute=int(os.getenv("GOPI_REQUESTS_PER_MINUTE", str(serving.get("requests_per_minute", 0)))),
             rate_limit_store_path=os.getenv("GOPI_RATE_LIMIT_STORE") or serving.get("rate_limit_store_path"),
             continuous_streams=int(os.getenv("GOPI_CONTINUOUS_STREAMS", str(serving.get("continuous_streams", 0)))),
+            allowed_hosts=allowed_hosts,
+            docs_enabled=_environment_flag("GOPI_DOCS_ENABLED", True),
+            protect_metrics=_environment_flag("GOPI_PROTECT_METRICS", False),
         )
 
 
@@ -168,9 +210,9 @@ def create_app(
         ),
         version=SERVICE_VERSION,
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if settings.docs_enabled else None,
+        redoc_url="/redoc" if settings.docs_enabled else None,
+        openapi_url="/openapi.json" if settings.docs_enabled else None,
         openapi_tags=OPENAPI_TAGS,
         swagger_ui_parameters={
             "displayRequestDuration": True,
@@ -188,13 +230,15 @@ def create_app(
     )
     application.state.rate_limiter = rate_limiter
 
+    application.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.allowed_hosts))
+
     if settings.cors_origins:
         application.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
             allow_credentials=False,
             allow_methods=["GET", "POST"],
-            allow_headers=["Content-Type", "X-Request-ID"],
+            allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
             expose_headers=["X-Request-ID"],
         )
 
@@ -203,21 +247,27 @@ def create_app(
         supplied = request.headers.get("X-Request-ID", "")
         request_id = supplied if REQUEST_ID_PATTERN.fullmatch(supplied) else uuid.uuid4().hex
         request.state.request_id = request_id
-        if request.url.path.startswith("/v1/"):
+        protected_path = request.url.path.startswith("/v1/") or (
+            settings.protect_metrics and request.url.path == "/metrics"
+        )
+        if protected_path:
             if settings.api_key:
                 supplied_key = request.headers.get("Authorization", "").removeprefix("Bearer ")
                 if not secrets.compare_digest(supplied_key, settings.api_key):
                     response = _error_response(request, "unauthorized", "valid bearer token required", 401)
                     response.headers["X-Request-ID"] = request_id
+                    _add_security_headers(response, is_https=request.url.scheme == "https")
                     return response
             if settings.requests_per_minute > 0:
                 identity = request.client.host if request.client else "unknown"
                 if not await rate_limiter.allow(identity):
                     response = _error_response(request, "rate_limit_exceeded", "request rate limit exceeded", 429)
                     response.headers["X-Request-ID"] = request_id
+                    _add_security_headers(response, is_https=request.url.scheme == "https")
                     return response
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        _add_security_headers(response, is_https=request.url.scheme == "https")
         return response
 
     @application.exception_handler(RequestValidationError)

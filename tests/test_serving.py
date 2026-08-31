@@ -168,6 +168,54 @@ def test_swagger_redoc_and_openapi_schema_are_served():
     assert "HTTPBearer" in payload["components"]["securitySchemes"]
 
 
+def test_production_security_headers_and_trusted_hosts():
+    app = create_app(FakeBackend(), settings=settings(allowed_hosts=("safe.example",)))
+    blocked = request(app, "GET", "/health/live", headers={"Host": "evil.example"})
+    accepted = request(app, "GET", "/health/live", headers={"Host": "safe.example"})
+
+    assert blocked.status_code == 400
+    assert accepted.status_code == 200
+    assert accepted.headers["x-content-type-options"] == "nosniff"
+    assert accepted.headers["x-frame-options"] == "DENY"
+    assert accepted.headers["referrer-policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in accepted.headers["content-security-policy"]
+
+
+def test_docs_can_be_disabled_and_metrics_can_require_authentication():
+    app = create_app(
+        FakeBackend(),
+        settings=settings(api_key="secret", docs_enabled=False, protect_metrics=True),
+    )
+
+    assert request(app, "GET", "/docs").status_code == 404
+    assert request(app, "GET", "/openapi.json").status_code == 404
+    assert request(app, "GET", "/metrics").status_code == 401
+    response = request(
+        app, "GET", "/metrics", headers={"Authorization": "Bearer secret"}
+    )
+    assert response.status_code == 200
+
+
+def test_cors_preflight_allows_bearer_authorization_for_trusted_origin():
+    app = create_app(
+        FakeBackend(), settings=settings(cors_origins=("https://ui.example",))
+    )
+    response = request(
+        app,
+        "OPTIONS",
+        "/v1/generate",
+        headers={
+            "Origin": "https://ui.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://ui.example"
+    assert "Authorization" in response.headers["access-control-allow-headers"]
+
+
 def test_rest_generation_response_and_request_id():
     response = request(
         create_app(FakeBackend(), settings=settings()),

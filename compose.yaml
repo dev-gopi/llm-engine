@@ -1,0 +1,78 @@
+name: gopi-llm
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      GOPI_DEVICE: ${GOPI_DEVICE:-cpu}
+      GOPI_MODEL_CONFIG: /app/configs/model.v2.gpu.yaml
+      GOPI_INFERENCE_CONFIG: /app/configs/inference.v2.yaml
+      GOPI_TOKENIZER_PATH: /app/data/tokenizer-v2
+      GOPI_CHECKPOINT_PATH: /app/checkpoints/best.pt
+      GOPI_SESSION_STORE: /app/data/cache/sessions.sqlite
+      GOPI_RATE_LIMIT_STORE: /app/data/cache/rate-limits.sqlite
+      GOPI_API_KEY: ${GOPI_API_KEY:?set GOPI_API_KEY in .env.production or the shell}
+      GOPI_ALLOWED_HOSTS: ${GOPI_ALLOWED_HOSTS:-localhost,127.0.0.1,gopi.local,api}
+      GOPI_CORS_ORIGINS: ${GOPI_CORS_ORIGINS:-https://localhost:8443}
+      GOPI_DOCS_ENABLED: ${GOPI_DOCS_ENABLED:-false}
+      GOPI_PROTECT_METRICS: "true"
+      GOPI_FORWARDED_ALLOW_IPS: "*"
+      GOPI_MAX_CONCURRENCY: ${GOPI_MAX_CONCURRENCY:-1}
+      GOPI_REQUESTS_PER_MINUTE: ${GOPI_REQUESTS_PER_MINUTE:-30}
+    volumes:
+      - ./data/tokenizer-v2:/app/data/tokenizer-v2:ro
+      - ${GOPI_CHECKPOINT_DIR:-./checkpoints/v2-dpo}:/app/checkpoints:ro
+      - gopi-cache:/app/data/cache
+    expose:
+      - "8000"
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,noexec,nosuid,nodev
+
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${GOPI_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    networks:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m,nosuid,nodev
+      - /var/run:size=1m,nosuid,nodev
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  gopi-cache:
