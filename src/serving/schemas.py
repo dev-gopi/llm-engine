@@ -22,6 +22,12 @@ class FinishReason(str, Enum):
     ERROR = "error"
 
 
+class TextAttachment(StrictSchema):
+    name: NonEmptyText = Field(max_length=255, pattern=r"^[^/\\\x00]+$")
+    content: str = Field(min_length=1, max_length=262_144)
+    media_type: Literal["text/plain", "text/markdown", "application/json", "text/x-code"] = "text/plain"
+
+
 class GenerateRequest(StrictSchema):
     _chat_messages: list[dict[str, str]] | None = PrivateAttr(default=None)
     prompt: NonEmptyText = Field(max_length=131_072)
@@ -33,6 +39,7 @@ class GenerateRequest(StrictSchema):
     response_format: Literal["plain", "markdown"] | None = None
     web_search: bool = False
     rag: bool = False
+    attachments: list[TextAttachment] = Field(default_factory=list, max_length=8)
     max_tokens: int = Field(default=128, ge=1, le=8_192)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, allow_inf_nan=False)
     top_k: int = Field(default=40, ge=0, le=100_000)
@@ -75,6 +82,25 @@ class GenerateResponse(StrictSchema):
     text: str
     finish_reason: FinishReason
     usage: TokenUsage
+
+
+class WorkspaceAction(StrictSchema):
+    type: Literal["read", "search", "edit", "patch", "test", "git"]
+    path: str = Field(default="", max_length=1024)
+    query: str = Field(default="", max_length=4096)
+    content: str = Field(default="", max_length=262_144)
+    expected_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    apply: bool = False
+    preset: Literal["unit", "all"] = "unit"
+    operation: Literal["status", "diff", "diff_staged", "log"] = "status"
+
+
+class WorkspaceAgentRequest(StrictSchema):
+    actions: list[WorkspaceAction] = Field(min_length=1, max_length=8)
+
+
+class WorkspaceAgentResponse(StrictSchema):
+    results: list[dict]
 
 
 class HealthResponse(StrictSchema):

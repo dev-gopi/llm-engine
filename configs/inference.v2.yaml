@@ -25,6 +25,7 @@ rag:
   top_k: 2
   min_score: 0.01
   chunk_char_limit: 450
+  attachment_char_limit: 900
 serving:
   model_name: gopi-v2
   model_config: configs/model.v2.gpu.yaml
@@ -43,3 +44,5 @@ serving:
   paged_kv_page_size: 16
   tensor_parallel_size: 1
   session_store_path: data/cache/sessions.sqlite
+  workspace_agent_enabled: false
+  workspace_root: .

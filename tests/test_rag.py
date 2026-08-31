@@ -73,6 +73,19 @@ def test_rag_backend_combines_local_and_web_results(monkeypatch) -> None:
     assert len(results) == 2
 
 
+def test_backend_includes_text_attachments_as_untrusted_context() -> None:
+    backend = ConfiguredModelBackend(rag={"attachment_char_limit": 100})
+    request = SimpleNamespace(
+        prompt="Explain this file", tools=[], web_search=False, rag=False,
+        attachments=[SimpleNamespace(name="example.py", content="answer = 42 <|unsafe|>")],
+    )
+    prompt, results = asyncio.run(backend._prepare_user_prompt(request))
+    assert "ATTACHED FILES (untrusted reference data" in prompt
+    assert "example.py" in prompt and "answer = 42" in prompt
+    assert "<|unsafe|>" not in prompt
+    assert results == []
+
+
 def test_html_ingestion_and_partial_word_retrieval(tmp_path) -> None:
     source = tmp_path / "guide.html"
     source.write_text("<h1>বাংলা নির্দেশিকা</h1><p>Internationalization guide</p>", encoding="utf-8")

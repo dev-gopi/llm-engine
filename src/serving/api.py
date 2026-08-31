@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import json
 import re
+import subprocess
 import time
 import uuid
 import secrets
@@ -16,6 +17,7 @@ from fastapi import FastAPI, Request, Security, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer
 from utils.config import load_yaml
@@ -41,7 +43,10 @@ from .schemas import (
     OpenAIModel,
     OpenAIModelList,
     TokenUsage,
+    WorkspaceAgentRequest,
+    WorkspaceAgentResponse,
 )
+from .workspace import WorkspaceService
 from .websocket import router as websocket_router
 from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
 
@@ -117,6 +122,8 @@ class ServingSettings:
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "test", "testserver")
     docs_enabled: bool = True
     protect_metrics: bool = False
+    workspace_agent_enabled: bool = False
+    workspace_root: str = "."
 
     def __post_init__(self) -> None:
         if self.max_concurrency < 1:
@@ -177,6 +184,13 @@ class ServingSettings:
             allowed_hosts=allowed_hosts,
             docs_enabled=_environment_flag("GOPI_DOCS_ENABLED", True),
             protect_metrics=_environment_flag("GOPI_PROTECT_METRICS", False),
+            workspace_agent_enabled=_environment_flag(
+                "GOPI_WORKSPACE_AGENT_ENABLED",
+                bool(serving.get("workspace_agent_enabled", False)),
+            ),
+            workspace_root=os.getenv(
+                "GOPI_WORKSPACE_ROOT", str(serving.get("workspace_root", "."))
+            ),
         )
 
 
@@ -223,6 +237,12 @@ def create_app(
     )
     application.state.runtime = runtime
     application.state.settings = settings
+    workspace = (
+        WorkspaceService(Path(settings.workspace_root))
+        if settings.workspace_agent_enabled
+        else None
+    )
+    application.state.workspace = workspace
     rate_limiter = (
         SQLiteRateLimiter(settings.rate_limit_store_path, settings.requests_per_minute)
         if settings.rate_limit_store_path
@@ -447,6 +467,35 @@ def create_app(
             )
         version = await callback()
         return {"status": "reloaded", "version": version}
+
+    @application.post(
+        "/v1/workspace/actions",
+        response_model=WorkspaceAgentResponse,
+        tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def workspace_actions(
+        payload: WorkspaceAgentRequest, request: Request
+    ) -> WorkspaceAgentResponse | JSONResponse:
+        if workspace is None:
+            return _error_response(
+                request,
+                "workspace_agent_disabled",
+                "enable GOPI_WORKSPACE_AGENT_ENABLED to use workspace actions",
+                403,
+            )
+        if not settings.api_key:
+            return _error_response(
+                request,
+                "workspace_auth_required",
+                "configure GOPI_API_KEY before enabling workspace actions",
+                403,
+            )
+        try:
+            results = await run_in_threadpool(workspace.execute, payload.actions)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+        return WorkspaceAgentResponse(results=results)
 
     ui_directory = Path(__file__).resolve().parents[2] / "ui"
     if ui_directory.is_dir():

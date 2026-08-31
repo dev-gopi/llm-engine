@@ -146,6 +146,7 @@ def test_browser_playground_is_served():
     assert "Gopi Playground" in response.text
     assert 'src="app.js"' in response.text
     assert 'id="mcpTool"' in response.text
+    assert 'id="attachments"' in response.text
     script = request(create_app(FakeBackend(), settings=settings()), "GET", "/ui/app.js")
     assert "mcp_server:" in script.text
 
@@ -167,6 +168,43 @@ def test_swagger_redoc_and_openapi_schema_are_served():
     assert payload["paths"]["/v1/generate"]["post"]["tags"] == ["generation"]
     assert payload["paths"]["/v1/generate"]["post"]["security"]
     assert "HTTPBearer" in payload["components"]["securitySchemes"]
+
+
+def test_workspace_agent_is_disabled_by_default():
+    app = create_app(FakeBackend(), settings=settings())
+    response = request(app, "POST", "/v1/workspace/actions", json={
+        "actions": [{"type": "read", "path": "README.md"}]
+    })
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "workspace_agent_disabled"
+
+
+def test_authenticated_workspace_agent_reads_files(tmp_path, monkeypatch):
+    async def run_immediately(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr("serving.api.run_in_threadpool", run_immediately)
+    (tmp_path / "example.txt").write_text("hello workspace\n", encoding="utf-8")
+    configured = settings(
+        api_key="secret", workspace_agent_enabled=True, workspace_root=str(tmp_path)
+    )
+    app = create_app(FakeBackend(), settings=configured)
+    response = request(
+        app, "POST", "/v1/workspace/actions",
+        headers={"Authorization": "Bearer secret"},
+        json={"actions": [{"type": "read", "path": "example.txt"}]},
+    )
+    assert response.status_code == 200
+    assert response.json()["results"][0]["result"]["content"] == "hello workspace\n"
+
+
+def test_generate_request_validates_text_attachments():
+    request_model = GenerateRequest(prompt="review", attachments=[{
+        "name": "example.py", "content": "print('ok')", "media_type": "text/x-code"
+    }])
+    assert request_model.attachments[0].name == "example.py"
+    with pytest.raises(ValueError):
+        GenerateRequest(prompt="review", attachments=[{"name": "../secret", "content": "x"}])
 
 
 def test_production_security_headers_and_trusted_hosts():

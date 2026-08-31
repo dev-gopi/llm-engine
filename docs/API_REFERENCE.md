@@ -44,7 +44,11 @@ the application or reverse-proxy layer.
 - `max_tokens`, `temperature`, `top_k`, `top_p`, and
   `repetition_penalty`;
 - optional `seed`, `stop`, `session_id`, `response_format`, local `tools`,
-  `web_search`, `rag`, and MCP settings.
+  `web_search`, `rag`, MCP settings, and `attachments`.
+
+Each attachment has `name`, UTF-8 `content`, and an optional text `media_type`.
+The request permits at most eight attachments of 256 KiB each. They are treated
+as untrusted reference text, not executable instructions.
 
 Example:
 
@@ -110,6 +114,26 @@ data: [DONE]
 The native WebSocket interface is documented by the running OpenAPI-adjacent
 usage guide; see [V2_USAGE_GUIDE.md](V2_USAGE_GUIDE.md).
 
+## Workspace agent
+
+The optional `POST /v1/workspace/actions` endpoint executes up to eight ordered,
+bounded actions. Set `GOPI_WORKSPACE_AGENT_ENABLED=true`, configure an explicit
+`GOPI_WORKSPACE_ROOT`, and set `GOPI_API_KEY` before starting the server.
+
+```bash
+curl -s http://127.0.0.1:8000/v1/workspace/actions \
+  -H 'Authorization: Bearer replace-with-a-long-random-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"actions":[{"type":"search","query":"class Generator"},{"type":"read","path":"src/inference/generator.py"}]}'
+```
+
+Supported actions are `read`, `search`, `edit`, `patch`, `test`, and `git`.
+Edits and patches default to `apply: false`, returning a reviewable preview.
+Overwriting an existing file additionally requires the SHA-256 returned by a
+fresh `read` action. Tests are restricted to `unit` and `all`; Git is restricted
+to `status`, `diff`, `diff_staged`, and `log`. Absolute paths, path traversal,
+arbitrary commands, deletion patches, staging, and commits are not exposed.
+
 ## Errors and request IDs
 
 Errors use an object containing `code`, `message`, and optional `request_id`.
@@ -141,6 +165,8 @@ The server returns an `X-Request-ID` response header and accepts a safe
 | `GOPI_GENERATION_TIMEOUT_SECONDS` | Generation time limit |
 | `GOPI_REQUESTS_PER_MINUTE` | Per-client rate limit; zero disables it |
 | `GOPI_RATE_LIMIT_STORE` | Optional SQLite rate-limit state path |
+| `GOPI_WORKSPACE_AGENT_ENABLED` | Enable authenticated workspace actions; disabled by default |
+| `GOPI_WORKSPACE_ROOT` | Filesystem root available to workspace actions |
 
 Treat configuration behavior as versioned API behavior and inspect `/docs` for
 the exact schema of the currently running build.

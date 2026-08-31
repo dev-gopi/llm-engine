@@ -10,6 +10,7 @@ const elements = {
   temperatureValue: $("temperatureValue"), topK: $("topK"), topP: $("topP"),
   repetitionPenalty: $("repetitionPenalty"), seed: $("seed"), reset: $("resetButton"),
   responseFormat: $("responseFormat"), webSearch: $("webSearch"),
+  attachments: $("attachments"),
   chatMode: $("chatMode"), modeDescription: $("modeDescription"),
   calculatorTool: $("calculatorTool"), datetimeTool: $("datetimeTool"),
   searchTool: $("searchTool"), ragTool: $("ragTool"), mcpTool: $("mcpTool"), mcpServer: $("mcpServer"), toolCount: $("toolCount")
@@ -44,6 +45,14 @@ function requestPayload() {
     mcp: elements.mcpTool.checked,
     mcp_server: elements.mcpTool.checked ? (elements.mcpServer.value.trim() || "filesystem") : null
   };
+}
+async function readAttachments() {
+  const files = [...elements.attachments.files];
+  if (files.length > 8) throw new Error("Attach no more than 8 files.");
+  return Promise.all(files.map(async (file) => {
+    if (file.size > 262144) throw new Error(`${file.name} exceeds 256KB.`);
+    return { name: file.name, content: await file.text(), media_type: "text/plain" };
+  }));
 }
 function showError(message = "") { elements.error.textContent = message; elements.error.hidden = !message; }
 function setBusy(busy) {
@@ -202,8 +211,11 @@ elements.form.addEventListener("submit", async (event) => {
   if (generationInProgress) return;
   const prompt = elements.prompt.value.trim(); if (!prompt) return;
   generationInProgress = true;
-  const payload = requestPayload(); payload.prompt = prompt; showError(); addMessage("user", prompt);
-  const target = addMessage("assistant", ""); elements.prompt.value = ""; elements.prompt.style.height = ""; setBusy(true);
+  const payload = requestPayload(); payload.prompt = prompt;
+  try { payload.attachments = await readAttachments(); }
+  catch (error) { generationInProgress = false; showError(error.message); return; }
+  showError(); addMessage("user", prompt);
+  const target = addMessage("assistant", ""); elements.prompt.value = ""; elements.attachments.value = ""; elements.prompt.style.height = ""; setBusy(true);
   try { elements.stream.checked ? await generateStream(payload, target) : await generateRest(payload, target); }
   catch (error) { if (error.name !== "AbortError") showError(error.message); if (!target.dataset.rawText) setMessage(target, "Generation stopped."); }
   finally { generationInProgress = false; activeController = null; activeSocket = null; setBusy(false); saveTranscript(); elements.prompt.focus(); }

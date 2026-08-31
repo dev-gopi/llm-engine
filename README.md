@@ -227,6 +227,9 @@ POST /v1/chat/completions
 
 Generation requests accept `response_format: "plain"` (the default) or
 `response_format: "markdown"`. The browser playground exposes the same setting.
+The native endpoint and playground also accept up to eight UTF-8 text/code
+attachments (256 KiB each). Attachment text is bounded before it enters the
+model prompt and is explicitly marked as untrusted reference data.
 They also accept `mode: "balanced"`, `"creative"`, `"precise"`, or `"coding"`;
 the playground mode picker starts a fresh conversation whenever the mode changes.
 The `tools` array supports `"calculator"` and `"datetime"`, and the playground
@@ -324,6 +327,14 @@ Set `GOPI_API_KEY` to require bearer authentication and
 `GOPI_REQUESTS_PER_MINUTE` to enforce the built-in per-process safety limit.
 The `/metrics` endpoint exposes request, failure, concurrency, and generation
 time counters for scraping or gateway integration.
+
+An optional authenticated workspace endpoint supports bounded coding-agent
+operations: repository read/search, previewed hash-checked edits, checked
+patches, allowlisted pytest presets, and read-only Git status/diff/log. Enable
+it only for a trusted local workspace with `GOPI_WORKSPACE_AGENT_ENABLED=true`
+and `GOPI_WORKSPACE_ROOT=/absolute/project/path`. It is disabled by default,
+requires `GOPI_API_KEY`, provides no arbitrary shell, and never stages or
+commits changes. See [the API reference](docs/API_REFERENCE.md#workspace-agent).
 
 Serving can reuse exact prompt-prefill KV state through a bounded prefix cache
 and fixed-page allocator. `continuous_streams` multiplexes active token streams;

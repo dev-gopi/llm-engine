@@ -97,6 +97,9 @@
             </div>
             <label for="prompt" class="sr-only">Message</label>
             <textarea id="prompt" rows="3" maxlength="131072" required placeholder="Ask Gopi something…"></textarea>
+            <label>Attach text/code files <small>(up to 8 files, 256KB each)</small>
+              <input id="attachments" type="file" multiple accept="text/*,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.md,.csv">
+            </label>
             <div class="composer-footer">
               <span id="usage">No generation yet</span>
               <div>
