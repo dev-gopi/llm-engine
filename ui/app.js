@@ -12,7 +12,7 @@ const elements = {
   responseFormat: $("responseFormat"), webSearch: $("webSearch"),
   chatMode: $("chatMode"), modeDescription: $("modeDescription"),
   calculatorTool: $("calculatorTool"), datetimeTool: $("datetimeTool"),
-  searchTool: $("searchTool"), mcpTool: $("mcpTool"), mcpServer: $("mcpServer"), toolCount: $("toolCount")
+  searchTool: $("searchTool"), ragTool: $("ragTool"), mcpTool: $("mcpTool"), mcpServer: $("mcpServer"), toolCount: $("toolCount")
 };
 const settingsKey = "gopi-playground-settings";
 const transcriptKey = "gopi-playground-transcript";
@@ -40,6 +40,7 @@ function requestPayload() {
     mode: elements.chatMode.value,
     tools: [elements.calculatorTool.checked && "calculator", elements.datetimeTool.checked && "datetime"].filter(Boolean),
     response_format: elements.responseFormat.value, web_search: elements.webSearch.checked || elements.searchTool.checked,
+    rag: elements.ragTool.checked,
     mcp: elements.mcpTool.checked,
     mcp_server: elements.mcpTool.checked ? (elements.mcpServer.value.trim() || "filesystem") : null
   };
@@ -174,7 +175,7 @@ function saveSettings() {
     repetitionPenalty: elements.repetitionPenalty.value, seed: elements.seed.value,
     responseFormat: elements.responseFormat.value, webSearch: elements.webSearch.checked,
     chatMode: elements.chatMode.value, calculatorTool: elements.calculatorTool.checked,
-    datetimeTool: elements.datetimeTool.checked, searchTool: elements.searchTool.checked,
+    datetimeTool: elements.datetimeTool.checked, searchTool: elements.searchTool.checked, ragTool: elements.ragTool.checked,
     mcpTool: elements.mcpTool.checked, mcpServer: elements.mcpServer.value
   }));
 }
@@ -185,7 +186,7 @@ function loadSettings() {
   }
   if (saved.stream !== undefined) elements.stream.checked = saved.stream;
   if (saved.webSearch !== undefined) elements.webSearch.checked = saved.webSearch;
-  for (const key of ["calculatorTool", "datetimeTool", "searchTool", "mcpTool"]) {
+  for (const key of ["calculatorTool", "datetimeTool", "searchTool", "ragTool", "mcpTool"]) {
     if (saved[key] !== undefined) elements[key].checked = saved[key];
   }
   elements.maxTokensValue.value = elements.maxTokens.value; elements.temperatureValue.value = elements.temperature.value;
@@ -193,7 +194,7 @@ function loadSettings() {
   updateToolCount();
 }
 function updateToolCount() {
-  const count = [elements.calculatorTool, elements.datetimeTool, elements.searchTool, elements.mcpTool].filter((tool) => tool.checked).length;
+  const count = [elements.calculatorTool, elements.datetimeTool, elements.searchTool, elements.ragTool, elements.mcpTool].filter((tool) => tool.checked).length;
   elements.toolCount.textContent = count; elements.toolCount.hidden = count === 0;
 }
 elements.form.addEventListener("submit", async (event) => {
@@ -224,7 +225,7 @@ elements.clear.addEventListener("click", () => {
   elements.usage.textContent = "New conversation"; showError(); elements.prompt.focus();
 });
 elements.health.addEventListener("click", checkHealth);
-[elements.calculatorTool, elements.datetimeTool, elements.searchTool, elements.mcpTool].forEach((tool) => {
+[elements.calculatorTool, elements.datetimeTool, elements.searchTool, elements.ragTool, elements.mcpTool].forEach((tool) => {
   tool.addEventListener("change", () => { updateToolCount(); saveSettings(); });
 });
 elements.chatMode.addEventListener("change", () => {
@@ -245,7 +246,7 @@ elements.reset.addEventListener("click", () => {
   elements.topP.value = "0.9"; elements.repetitionPenalty.value = "1.2"; elements.seed.value = "";
   elements.responseFormat.value = "plain"; elements.webSearch.checked = false;
   elements.chatMode.value = "balanced"; elements.modeDescription.textContent = modeDescriptions.balanced;
-  elements.calculatorTool.checked = false; elements.datetimeTool.checked = false; elements.searchTool.checked = false;
+  elements.calculatorTool.checked = false; elements.datetimeTool.checked = false; elements.searchTool.checked = false; elements.ragTool.checked = false;
   elements.mcpTool.checked = false; elements.mcpServer.value = "filesystem"; updateToolCount();
   elements.maxTokensValue.value = "128"; elements.temperatureValue.value = "0.7"; saveSettings();
 });

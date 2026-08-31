@@ -35,6 +35,7 @@ deploy/certs/
 data/raw/*
 data/processed/*
 data/cache/*
+data/rag/*
 data/shards/*
 data/tokenizer/*
 data/tokenizer-v2/*
@@ -45,6 +46,7 @@ data/processed/*/*
 !data/processed/*/README.md
 !data/processed/*/dataset-manifest.yaml
 !data/cache/.gitkeep
+!data/rag/.gitkeep
 !data/shards/.gitkeep
 !data/tokenizer/.gitkeep
 !data/tokenizer-v2/.gitkeep

@@ -18,6 +18,13 @@ web_search:
   timeout_seconds: 10
   temperature: 0.2
   top_k: 20
+rag:
+  enabled: false
+  default_enabled: false
+  index_path: data/rag/index.json
+  top_k: 2
+  min_score: 0.01
+  chunk_char_limit: 450
 serving:
   model_name: gopi-v2
   model_config: configs/model.v2.gpu.yaml

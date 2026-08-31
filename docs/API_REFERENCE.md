@@ -43,8 +43,8 @@ the application or reverse-proxy layer.
 - `mode`: `balanced`, `creative`, `precise`, or `coding`;
 - `max_tokens`, `temperature`, `top_k`, `top_p`, and
   `repetition_penalty`;
-- optional `seed`, `stop`, `session_id`, `response_format`, local `tools`, and
-  MCP settings.
+- optional `seed`, `stop`, `session_id`, `response_format`, local `tools`,
+  `web_search`, `rag`, and MCP settings.
 
 Example:
 
@@ -57,6 +57,25 @@ curl -s http://127.0.0.1:8000/v1/generate \
 
 The response contains generated `text`, `finish_reason`, and prompt/completion
 token usage.
+
+## Local-document RAG
+
+Build and enable the persistent retrieval index:
+
+```bash
+.venv/bin/pip install -e '.[rag]'  # needed only when ingesting PDF files
+.venv/bin/python scripts/build_rag_index.py documents/ --output data/rag/index.json
+```
+
+Set `rag.enabled: true` under `configs/inference.v2.yaml`, restart the server,
+and call the native endpoint with `"rag": true`. Alternatively prefix a prompt
+with `/rag`; this also works through OpenAI-compatible chat clients. The server
+uses lexical BM25 retrieval, does not send documents to an external service,
+limits context per chunk, labels retrieved content as untrusted, and appends
+`document://...#chunk-N` citations. Set both `rag` and `web_search` to `true`,
+or prefix the question with `/hybrid`, to combine local and current web
+sources. Supported local formats are TXT, Markdown, HTML, CSV/TSV, JSON/JSONL,
+YAML, and PDF.
 
 ## OpenAI-compatible routes
 
@@ -109,6 +128,7 @@ The server returns an `X-Request-ID` response header and accepts a safe
 | `GOPI_DEVICE` | `cpu`, `cuda`, or supported device |
 | `GOPI_MODEL_NAME` | API-visible model ID |
 | `GOPI_BOT_NAME` | Assistant display name |
+| `GOPI_RAG_INDEX` | Local persistent RAG index path |
 | `GOPI_API_KEY` | Optional bearer secret |
 | `GOPI_CORS_ORIGINS` | Comma-separated trusted browser origins |
 | `GOPI_ALLOWED_HOSTS` | Comma-separated accepted HTTP Host names |

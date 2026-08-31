@@ -16,6 +16,7 @@ from inference.generator import BatchedGenerationState, Generator
 from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
+from inference.rag import RagIndex, build_rag_prompt
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from mcp.client import MCPClient, MCPTool
@@ -69,6 +70,7 @@ class ConfiguredModelBackend:
         response_format: str | None = None,
         context_tokens: int = 1536,
         web_search: dict | None = None,
+        rag: dict | None = None,
         prefix_cache_capacity: int = 0,
         paged_kv_pages: int = 0,
         paged_kv_page_size: int = 16,
@@ -86,6 +88,8 @@ class ConfiguredModelBackend:
         self.response_format = response_format
         self.context_tokens = context_tokens
         self.web_search = web_search or {}
+        self.rag_config = rag or {}
+        self.rag_index: RagIndex | None = None
         self.prefix_cache_capacity = prefix_cache_capacity
         self.paged_kv_pages = paged_kv_pages
         self.paged_kv_page_size = paged_kv_page_size
@@ -137,6 +141,7 @@ class ConfiguredModelBackend:
         await asyncio.gather(*(client.close() for client in self.mcp_clients.values()))
         self.mcp_clients.clear()
         self.mcp_tools.clear()
+        self.rag_index = None
         self.generator = None
 
     async def _startup_mcp(self) -> None:
@@ -228,6 +233,15 @@ class ConfiguredModelBackend:
                 max_tokens=min(self.context_tokens, model.max_positions),
                 system_prompt=self.system_prompt,
             )
+        rag_path = Path(os.getenv(
+            "GOPI_RAG_INDEX", str(self.rag_config.get("index_path", "data/rag/index.json"))
+        ))
+        if bool(self.rag_config.get("enabled", False)):
+            if rag_path.is_file():
+                self.rag_index = RagIndex.load(rag_path)
+                logger.info("Loaded RAG index %s with %d chunks", rag_path, len(self.rag_index.chunks))
+            else:
+                logger.warning("RAG is enabled but index does not exist: %s", rag_path)
         logger.info("Successfully loaded model checkpoint %s using config %s on %s", self.checkpoint_path, self.model_config, device)
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
@@ -573,40 +587,84 @@ class ConfiguredModelBackend:
         if slash_datetime and "datetime" not in selected_tools:
             selected_tools.append("datetime")
         slash_search = raw_prompt.lower() == "/search" or raw_prompt.lower().startswith("/search ")
-        if not request.web_search and not slash_search:
+        slash_rag = raw_prompt.lower() == "/rag" or raw_prompt.lower().startswith("/rag ")
+        slash_hybrid = raw_prompt.lower() == "/hybrid" or raw_prompt.lower().startswith("/hybrid ")
+        rag_config = getattr(self, "rag_config", {})
+        use_web_search = bool(getattr(request, "web_search", False) or slash_search or slash_hybrid)
+        use_rag = bool(
+            getattr(request, "rag", False) or slash_rag or slash_hybrid
+            or rag_config.get("default_enabled", False)
+        )
+        prefix_length = 8 if slash_hybrid else 7 if slash_search else 4 if slash_rag else 0
+        query = raw_prompt[prefix_length:].strip() if prefix_length else raw_prompt
+        if (use_web_search or use_rag) and not query:
+            raise ValueError("retrieval query cannot be empty")
+        if not use_rag and not use_web_search:
             return tool_context(raw_prompt, selected_tools), []
-        query = raw_prompt[7:].strip() if slash_search else raw_prompt
-        if not query:
-            raise ValueError("search query cannot be empty")
+        rag_results = []
+        if use_rag:
+            rag_index = getattr(self, "rag_index", None)
+            if rag_index is None:
+                if not use_web_search:
+                    raise ValueError("RAG index is not loaded; build it with scripts/build_rag_index.py")
+                logger.warning("Hybrid retrieval is continuing without the unavailable RAG index")
+            else:
+                rag_results = await asyncio.to_thread(
+                    rag_index.search,
+                    query,
+                    top_k=int(rag_config.get("top_k", 3)),
+                    min_score=float(rag_config.get("min_score", 0.01)),
+                )
+        if not use_web_search:
+            if not rag_results:
+                return None, []
+            return build_rag_prompt(
+                query, rag_results, char_limit=int(rag_config.get("chunk_char_limit", 600))
+            ), rag_results
         config = self.web_search
         provider = os.getenv("GOPI_SEARCH_PROVIDER", str(config.get("provider", "searxng"))).lower()
         maximum = int(config.get("max_results", 3))
         timeout = float(config.get("timeout_seconds", 10.0))
-        if provider == "searxng":
-            results = await asyncio.to_thread(
-                search_searxng,
-                query,
-                max_results=maximum,
-                timeout=timeout,
-                endpoint=os.getenv("GOPI_SEARXNG_URL", str(config.get("searxng_endpoint", "http://localhost:8080/search"))),
-            )
-        elif provider == "brave":
-            results = await asyncio.to_thread(
-                search_brave,
-                query,
-                os.getenv("GOPI_SEARCH_API_KEY", ""),
-                max_results=maximum,
-                timeout=timeout,
-                endpoint=str(config.get("brave_endpoint", "https://api.search.brave.com/res/v1/web/search")),
-            )
-        else:
-            raise ValueError(f"unsupported search provider: {provider}")
+        try:
+            if provider == "searxng":
+                web_results = await asyncio.to_thread(
+                    search_searxng,
+                    query,
+                    max_results=maximum,
+                    timeout=timeout,
+                    endpoint=os.getenv("GOPI_SEARXNG_URL", str(config.get("searxng_endpoint", "http://localhost:8080/search"))),
+                )
+            elif provider == "brave":
+                web_results = await asyncio.to_thread(
+                    search_brave,
+                    query,
+                    os.getenv("GOPI_SEARCH_API_KEY", ""),
+                    max_results=maximum,
+                    timeout=timeout,
+                    endpoint=str(config.get("brave_endpoint", "https://api.search.brave.com/res/v1/web/search")),
+                )
+            else:
+                raise ValueError(f"unsupported search provider: {provider}")
+        except (OSError, TimeoutError, ValueError):
+            if not rag_results:
+                raise
+            logger.warning("Hybrid retrieval is continuing without web results", exc_info=True)
+            web_results = []
+        results = [*rag_results, *web_results]
         if not results:
             return None, []
-        search_prompt = build_search_prompt(
-            query,
-            results,
-            description_char_limit=int(config.get("description_char_limit", 200)),
+        search_prompt = (
+            build_rag_prompt(
+                query, results,
+                char_limit=min(
+                    int(rag_config.get("chunk_char_limit", 600)),
+                    int(config.get("description_char_limit", 200)),
+                ),
+            )
+            if rag_results else build_search_prompt(
+                query, web_results,
+                description_char_limit=int(config.get("description_char_limit", 200)),
+            )
         )
         local_context = tool_context(raw_prompt, selected_tools)
         if local_context != raw_prompt:
@@ -772,6 +830,7 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         response_format=os.getenv("GOPI_RESPONSE_FORMAT", str(inference.get("response_format", "plain"))),
         context_tokens=int((inference.get("context_memory") or {}).get("max_tokens", 1536)),
         web_search=inference.get("web_search") if isinstance(inference.get("web_search"), dict) else {},
+        rag=inference.get("rag") if isinstance(inference.get("rag"), dict) else {},
         prefix_cache_capacity=int(serving.get("prefix_cache_capacity", 0)),
         paged_kv_pages=int(serving.get("paged_kv_pages", 0)),
         paged_kv_page_size=int(serving.get("paged_kv_page_size", 16)),

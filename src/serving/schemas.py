@@ -32,6 +32,7 @@ class GenerateRequest(StrictSchema):
     mcp_server: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
     response_format: Literal["plain", "markdown"] | None = None
     web_search: bool = False
+    rag: bool = False
     max_tokens: int = Field(default=128, ge=1, le=8_192)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, allow_inf_nan=False)
     top_k: int = Field(default=40, ge=0, le=100_000)

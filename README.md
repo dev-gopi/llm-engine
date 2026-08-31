@@ -235,6 +235,52 @@ offers those alongside web search and allowlisted MCP servers in its Tools menu.
 Set `web_search: true` (or prefix the prompt with `/search`) to retrieve SearXNG
 or Brave results before generation. The response always includes source URLs.
 
+Local-document RAG is also available. Build an index from text, Markdown,
+HTML, CSV/TSV, JSON/JSONL, YAML, or PDF files (PDF support uses the optional
+`rag` dependency):
+
+Copy your knowledge files into `documents/` first; the repository includes a
+small README there so the command can be tested immediately.
+
+```bash
+.venv/bin/pip install -e '.[rag]'
+.venv/bin/python scripts/build_rag_index.py docs/ \
+  --output data/rag/index.json
+```
+
+For broad project coverage plus private documents, use:
+
+```bash
+.venv/bin/python scripts/build_rag_index.py README.md docs/ documents/ \
+  --output data/rag/index.json
+```
+
+Download a bounded, attributable multilingual Wikipedia RAG corpus (10,000
+articles each from Simple English, Bengali, and Hindi by default):
+
+```bash
+.venv/bin/python scripts/download_rag_dataset.py
+```
+
+The downloader streams Parquet row groups, deletes temporary shards, checks
+free disk space, and records the Wikimedia snapshot and CC BY-SA/GFDL license
+metadata. Because a large JSON/BM25 index can require substantial RAM, stop
+training before indexing the downloaded corpus on a memory-constrained machine:
+
+```bash
+.venv/bin/python scripts/build_rag_index.py README.md docs/ documents/ \
+  data/rag/wikipedia/ --output data/rag/index.json
+```
+
+Set `rag.enabled: true` in `configs/inference.v2.yaml`, restart the server, and
+send `{"prompt":"What does the guide say?","rag":true}` to `/v1/generate`.
+The `/rag What does the guide say?` shortcut works with the native API,
+OpenAI-compatible chat UIs, and the browser playground. Retrieved text is
+treated as untrusted, answers are instructed to cite `[1]`, and responses show
+document/chunk sources. Enable both `web_search` and `rag`, or use `/hybrid`,
+to combine current web results with private local knowledge in one grounded
+prompt.
+
 Start the server with:
 
 ```bash

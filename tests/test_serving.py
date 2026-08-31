@@ -454,6 +454,7 @@ def test_request_defaults_match_local_inference_profile():
     assert request_model.repetition_penalty == 1.1
     assert request_model.response_format is None
     assert request_model.web_search is False
+    assert request_model.rag is False
 
 
 def test_request_accepts_supported_response_formats():
