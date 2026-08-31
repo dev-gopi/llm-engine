@@ -262,6 +262,14 @@ articles each from Simple English, Bengali, and Hindi by default):
 .venv/bin/python scripts/download_rag_dataset.py
 ```
 
+Add general English coverage without replacing previously downloaded language
+files or manifest counts:
+
+```bash
+.venv/bin/python scripts/download_rag_dataset.py \
+  --languages en --articles-per-language 20000
+```
+
 The downloader streams Parquet row groups, deletes temporary shards, checks
 free disk space, and records the Wikimedia snapshot and CC BY-SA/GFDL license
 metadata. Because a large JSON/BM25 index can require substantial RAM, stop

@@ -23,6 +23,24 @@ SNAPSHOT = "20231101"
 DEFAULT_LANGUAGES = ("simple", "bn", "hi")
 
 
+def merged_manifest(manifest_path: Path, counts: dict[str, int]) -> dict:
+    """Preserve previously downloaded languages when extending a corpus."""
+    existing_counts = {}
+    if manifest_path.is_file():
+        try:
+            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if existing.get("dataset") == DATASET and existing.get("snapshot") == SNAPSHOT:
+                existing_counts = dict(existing.get("languages") or {})
+        except (OSError, ValueError, TypeError):
+            existing_counts = {}
+    return {
+        "dataset": DATASET,
+        "snapshot": SNAPSHOT,
+        "license": ["CC-BY-SA-3.0", "GFDL"],
+        "languages": {**existing_counts, **counts},
+    }
+
+
 def parquet_urls(language: str, *, timeout: float = 30.0) -> list[str]:
     endpoint = (
         f"https://huggingface.co/api/datasets/{DATASET}/parquet/"
@@ -107,13 +125,9 @@ def main() -> None:
             timeout=args.timeout,
         )
         print(f"Prepared {language}: {counts[language]} articles", flush=True)
-    manifest = {
-        "dataset": DATASET,
-        "snapshot": SNAPSHOT,
-        "license": ["CC-BY-SA-3.0", "GFDL"],
-        "languages": counts,
-    }
-    (args.output_dir / "manifest.json").write_text(
+    manifest_path = args.output_dir / "manifest.json"
+    manifest = merged_manifest(manifest_path, counts)
+    manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(json.dumps({"output_dir": str(args.output_dir), **manifest}, indent=2))
