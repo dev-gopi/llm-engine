@@ -245,14 +245,14 @@ small README there so the command can be tested immediately.
 ```bash
 .venv/bin/pip install -e '.[rag]'
 .venv/bin/python scripts/build_rag_index.py docs/ \
-  --output data/rag/index.json
+  --output data/rag/index.sqlite
 ```
 
 For broad project coverage plus private documents, use:
 
 ```bash
 .venv/bin/python scripts/build_rag_index.py README.md docs/ documents/ \
-  --output data/rag/index.json
+  --output data/rag/index.sqlite
 ```
 
 Download a bounded, attributable multilingual Wikipedia RAG corpus (10,000
@@ -272,12 +272,12 @@ files or manifest counts:
 
 The downloader streams Parquet row groups, deletes temporary shards, checks
 free disk space, and records the Wikimedia snapshot and CC BY-SA/GFDL license
-metadata. Because a large JSON/BM25 index can require substantial RAM, stop
-training before indexing the downloaded corpus on a memory-constrained machine:
+metadata. SQLite FTS5 indexing also streams chunks to disk, so the complete
+corpus does not need to fit in RAM:
 
 ```bash
 .venv/bin/python scripts/build_rag_index.py README.md docs/ documents/ \
-  data/rag/wikipedia/ --output data/rag/index.json
+  data/rag/wikipedia/ --output data/rag/index.sqlite
 ```
 
 Set `rag.enabled: true` in `configs/inference.v2.yaml`, restart the server, and

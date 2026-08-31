@@ -64,13 +64,13 @@ Build and enable the persistent retrieval index:
 
 ```bash
 .venv/bin/pip install -e '.[rag]'  # needed only when ingesting PDF files
-.venv/bin/python scripts/build_rag_index.py documents/ --output data/rag/index.json
+.venv/bin/python scripts/build_rag_index.py documents/ --output data/rag/index.sqlite
 ```
 
 Set `rag.enabled: true` under `configs/inference.v2.yaml`, restart the server,
 and call the native endpoint with `"rag": true`. Alternatively prefix a prompt
 with `/rag`; this also works through OpenAI-compatible chat clients. The server
-uses lexical BM25 retrieval, does not send documents to an external service,
+uses disk-backed SQLite FTS5/BM25 retrieval, does not send documents to an external service,
 limits context per chunk, labels retrieved content as untrusted, and appends
 `document://...#chunk-N` citations. Set both `rag` and `web_search` to `true`,
 or prefix the question with `/hybrid`, to combine local and current web

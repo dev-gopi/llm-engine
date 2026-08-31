@@ -4,7 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from inference.rag import DocumentChunk, RagIndex, build_chunks, build_rag_prompt, chunk_text
+from inference.rag import (
+    DocumentChunk, RagIndex, SQLiteRagIndex, build_chunks, build_rag_prompt, chunk_text,
+)
 from inference.web_search import SearchResult
 from serving.backend import ConfiguredModelBackend
 
@@ -108,3 +110,23 @@ def test_chunk_parameters_are_validated() -> None:
 def test_missing_document_path_has_actionable_error(tmp_path) -> None:
     with pytest.raises(FileNotFoundError, match="Create it and add supported documents"):
         build_chunks([tmp_path / "missing"])
+
+
+def test_sqlite_index_builds_and_searches_without_loading_corpus(tmp_path) -> None:
+    source = tmp_path / "knowledge.jsonl"
+    source.write_text(
+        json.dumps({"title": "Refund", "url": "https://example.com/refund", "text": "Refunds take thirty days."}) + "\n"
+        + json.dumps({"title": "বাংলা", "url": "https://example.com/bn", "text": "বাংলাদেশ দক্ষিণ এশিয়ার একটি দেশ।"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    index = SQLiteRagIndex.build([source], tmp_path / "index.sqlite", chunk_chars=200)
+    assert index.count == 2
+    assert index.search("refund")[0].title == "Refund"
+    assert index.search("বাংলাদেশ")[0].title == "বাংলা"
+
+
+def test_sqlite_search_ignores_common_question_words(tmp_path) -> None:
+    source = tmp_path / "knowledge.md"
+    source.write_text("বাংলা ভাষা বাংলাদেশের প্রধান ভাষা।", encoding="utf-8")
+    index = SQLiteRagIndex.build([source], tmp_path / "index.sqlite", chunk_chars=200)
+    assert index.search("বাংলা ভাষা কী?")

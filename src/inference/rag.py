@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import math
 import re
+import sqlite3
 import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 from urllib.parse import quote
 
 
@@ -132,10 +133,10 @@ def read_document(path: str | Path) -> str:
     return source.read_text(encoding="utf-8")
 
 
-def build_chunks(
+def iter_chunks(
     paths: Iterable[str | Path], *, chunk_chars: int = 900, overlap_chars: int = 120
-) -> list[DocumentChunk]:
-    chunks: list[DocumentChunk] = []
+) -> Iterator[DocumentChunk]:
+    found = False
     for raw_path in paths:
         path = Path(raw_path)
         if not path.exists():
@@ -171,14 +172,22 @@ def build_chunks(
                         for index, value in enumerate(
                             chunk_text(text, chunk_chars=chunk_chars, overlap_chars=overlap_chars), 1
                         ):
-                            chunks.append(DocumentChunk(source_name, value, index, title))
+                            found = True
+                            yield DocumentChunk(source_name, value, index, title)
                 continue
             for index, text in enumerate(
                 chunk_text(read_document(file_path), chunk_chars=chunk_chars, overlap_chars=overlap_chars), 1
             ):
-                chunks.append(DocumentChunk(str(file_path.resolve()), text, index))
-    if not chunks:
+                found = True
+                yield DocumentChunk(str(file_path.resolve()), text, index)
+    if not found:
         raise ValueError("no non-empty supported documents were found")
+
+
+def build_chunks(
+    paths: Iterable[str | Path], *, chunk_chars: int = 900, overlap_chars: int = 120
+) -> list[DocumentChunk]:
+    return list(iter_chunks(paths, chunk_chars=chunk_chars, overlap_chars=overlap_chars))
     return chunks
 
 
@@ -250,6 +259,126 @@ class RagIndex:
         return cls(DocumentChunk(**chunk) for chunk in payload["chunks"])
 
 
+class SQLiteRagIndex:
+    """Disk-backed FTS5 index for corpora too large to fit in memory."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        if not self.path.is_file():
+            raise FileNotFoundError(f"RAG index not found: {self.path}")
+        with sqlite3.connect(self.path) as connection:
+            version = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'version'"
+            ).fetchone()
+            if version is None or int(version[0]) != INDEX_VERSION:
+                raise ValueError(f"unsupported or invalid SQLite RAG index: {self.path}")
+
+    @property
+    def count(self) -> int:
+        with sqlite3.connect(self.path) as connection:
+            return int(connection.execute("SELECT count(*) FROM chunks").fetchone()[0])
+
+    def search(self, query: str, *, top_k: int = 3, min_score: float = 0.01) -> list[RetrievalResult]:
+        if top_k < 1:
+            raise ValueError("top_k must be positive")
+        words = [term for term in _terms(query) if not term.startswith("~")]
+        if not words:
+            return []
+        stopwords = {
+            "the", "and", "for", "from", "how", "what", "when", "where", "who", "why",
+            "are", "is", "was", "were", "this", "that", "with", "into", "can", "does",
+            "का", "की", "के", "और", "क्या", "है", "हैं", "একটি", "এবং", "কি", "কী",
+        }
+        selected = list(dict.fromkeys(
+            word for word in words if len(word) > 2 and word not in stopwords
+        )) or list(dict.fromkeys(words))
+        selected = sorted(selected, key=len, reverse=True)[:6]
+
+        def token(word: str) -> str:
+            escaped = word.replace('"', '""')
+            return f'"{escaped}"*' if len(word) >= 5 else f'"{escaped}"'
+
+        expressions = [" AND ".join(token(word) for word in selected)]
+        if len(selected) > 1:
+            expressions.append(" OR ".join(token(word) for word in selected[:3]))
+        with sqlite3.connect(self.path) as connection:
+            rows = []
+            for expression in expressions:
+                rows = connection.execute(
+                    "SELECT source, title, chunk, text, bm25(chunks) AS rank "
+                    "FROM chunks WHERE chunks MATCH ? ORDER BY rank LIMIT ?",
+                    (expression, top_k),
+                ).fetchall()
+                if rows:
+                    break
+        results = []
+        for source, title, chunk, text, rank in rows:
+            url = (
+                f"{source}#chunk-{chunk}" if str(source).startswith(("https://", "http://"))
+                else f"document://{quote(Path(source).name)}#chunk-{chunk}"
+            )
+            results.append(RetrievalResult(
+                title=title or Path(source).name,
+                url=url,
+                description=text,
+                score=max(float(-rank), min_score),
+            ))
+        return results
+
+    @classmethod
+    def build(
+        cls,
+        paths: Iterable[str | Path],
+        destination: str | Path,
+        *,
+        chunk_chars: int = 900,
+        overlap_chars: int = 120,
+        batch_size: int = 1000,
+    ) -> "SQLiteRagIndex":
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        target = Path(destination)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(target.suffix + ".tmp")
+        temporary.unlink(missing_ok=True)
+        try:
+            with sqlite3.connect(temporary) as connection:
+                connection.execute("PRAGMA journal_mode=OFF")
+                connection.execute("PRAGMA synchronous=OFF")
+                connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                connection.execute(
+                    "CREATE VIRTUAL TABLE chunks USING fts5("
+                    "source UNINDEXED, title UNINDEXED, chunk UNINDEXED, text, "
+                    "tokenize='unicode61 remove_diacritics 0')"
+                )
+                connection.execute(
+                    "INSERT INTO metadata(key, value) VALUES ('version', ?)",
+                    (str(INDEX_VERSION),),
+                )
+                pending = []
+                for item in iter_chunks(
+                    paths, chunk_chars=chunk_chars, overlap_chars=overlap_chars
+                ):
+                    pending.append((item.source, item.title, item.chunk, item.text))
+                    if len(pending) >= batch_size:
+                        connection.executemany(
+                            "INSERT INTO chunks(source, title, chunk, text) VALUES (?, ?, ?, ?)", pending
+                        )
+                        connection.commit()
+                        pending.clear()
+                if pending:
+                    connection.executemany(
+                        "INSERT INTO chunks(source, title, chunk, text) VALUES (?, ?, ?, ?)", pending
+                    )
+                connection.execute("INSERT INTO chunks(chunks) VALUES ('optimize')")
+                connection.commit()
+            temporary.replace(target)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        return cls(target)
+
+
 def build_rag_prompt(query: str, results: list[RetrievalResult], *, char_limit: int = 600) -> str:
     if char_limit < 1:
         raise ValueError("char_limit must be positive")
@@ -266,6 +395,6 @@ def build_rag_prompt(query: str, results: list[RetrievalResult], *, char_limit: 
 
 
 __all__ = [
-    "DocumentChunk", "RagIndex", "RetrievalResult", "build_chunks", "build_rag_prompt",
-    "chunk_text", "read_document",
+    "DocumentChunk", "RagIndex", "SQLiteRagIndex", "RetrievalResult", "build_chunks",
+    "build_rag_prompt", "chunk_text", "iter_chunks", "read_document",
 ]

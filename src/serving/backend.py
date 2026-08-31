@@ -16,7 +16,7 @@ from inference.generator import BatchedGenerationState, Generator
 from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
-from inference.rag import RagIndex, build_rag_prompt
+from inference.rag import RagIndex, SQLiteRagIndex, build_rag_prompt
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from mcp.client import MCPClient, MCPTool
@@ -234,12 +234,17 @@ class ConfiguredModelBackend:
                 system_prompt=self.system_prompt,
             )
         rag_path = Path(os.getenv(
-            "GOPI_RAG_INDEX", str(self.rag_config.get("index_path", "data/rag/index.json"))
+            "GOPI_RAG_INDEX", str(self.rag_config.get("index_path", "data/rag/index.sqlite"))
         ))
         if bool(self.rag_config.get("enabled", False)):
             if rag_path.is_file():
-                self.rag_index = RagIndex.load(rag_path)
-                logger.info("Loaded RAG index %s with %d chunks", rag_path, len(self.rag_index.chunks))
+                self.rag_index = (
+                    SQLiteRagIndex(rag_path)
+                    if rag_path.suffix.lower() in {".sqlite", ".db"}
+                    else RagIndex.load(rag_path)
+                )
+                count = getattr(self.rag_index, "count", len(getattr(self.rag_index, "chunks", [])))
+                logger.info("Loaded RAG index %s with %d chunks", rag_path, count)
             else:
                 logger.warning("RAG is enabled but index does not exist: %s", rag_path)
         logger.info("Successfully loaded model checkpoint %s using config %s on %s", self.checkpoint_path, self.model_config, device)
