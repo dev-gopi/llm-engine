@@ -477,7 +477,6 @@ Configuration is divided by responsibility:
 | --- | --- | --- |
 | `configs/model.cpu.yaml` | Compact model for CPU development and fresh training | `hidden_size: 256`, `layers: 6`, `heads: 8`, `max_position: 512`, `ffn_hidden_size: 1024` |
 | `configs/model.gpu.yaml` | Legacy 50K-vocabulary GPU architecture for fresh v1 training | `hidden_size: 256`, `layers: 8`, `heads: 8`, `max_position: 512`, `ffn_hidden_size: 1024` |
-| `configs/model.v2.384.gpu.yaml` | Compatibility architecture for `checkpoints/finetuning/*.pt` | `hidden_size: 384`, `layers: 10`, `heads: 6`, `max_position: 512`, `ffn_hidden_size: 1536` |
 | `configs/pretraining.cpu.yaml` | CPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 256`, effective batch 8, 10 epochs |
 | `configs/pretraining.gpu.yaml` | GPU pretraining profile | TinyStories + WikiText, `batch_size: 2`, `max_sequence_length: 512`, effective batch 32, `mixed_precision: fp16`, 10 epochs |
 | `configs/finetuning.cpu.yaml` | CPU supervised fine-tuning profile | UltraChat + HelpSteer + OpenOrca, `batch_size: 2`, `max_sequence_length: 256`, effective batch 32, 3 epochs |
@@ -506,11 +505,6 @@ from-scratch path for memory-constrained hardware. The GPU architecture uses a
 32K vocabulary, rotary positions, RMSNorm,
 SwiGLU, grouped-query attention, tied embeddings, and gradient checkpointing.
 It does not load or depend on third-party pretrained weights.
-
-The current `model.v2.gpu.yaml` profile uses 512 hidden dimensions. Existing
-`checkpoints/finetuning/*.pt` artifacts were trained with the original
-384-dimensional profile and must use `configs/model.v2.384.gpu.yaml` with the
-dedicated `data/tokenizer-v2` tokenizer.
 
 Prepare the dedicated tokenizer before training v2. This intentionally creates
 `data/tokenizer-v2` and does not overwrite the tokenizer used by v1 checkpoints:
