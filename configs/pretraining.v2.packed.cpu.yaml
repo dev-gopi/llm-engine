@@ -13,6 +13,7 @@ prefetch_factor: 2
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
+samples_per_epoch: 100000
 train_files:
   - data/shards/pretraining-v2/train/tinystories/manifest.json
   - data/shards/pretraining-v2/train/wikitext_103/manifest.json

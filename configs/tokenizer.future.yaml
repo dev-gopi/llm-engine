@@ -1,0 +1,37 @@
+# From-scratch multilingual tokenizer profile. This tokenizer is intentionally
+# incompatible with existing 32k/34k checkpoints and requires new pretraining.
+type: byte_level_bpe
+vocab_size: 36000
+min_frequency: 3
+max_training_bytes: 2147483648
+source_sampling: balanced_bytes
+output_dir: data/tokenizer-36k
+special_tokens:
+  - <|pad|>
+  - <|unk|>
+  - <|bos|>
+  - <|eos|>
+  - <|system|>
+  - <|user|>
+  - <|assistant|>
+sources:
+  - data/processed/tinystories/train.jsonl
+  - data/processed/wikitext_103/train.jsonl
+  - data/processed/helpsteer/train.jsonl
+  - data/processed/openorca/train.jsonl
+  - data/processed/ultrachat_200k/train.jsonl
+  - data/processed/gsm8k/train.jsonl
+  - data/processed/core_chat/train.jsonl
+  - data/processed/code_instructions/train.jsonl
+  - data/processed/general_qa/train.jsonl
+  - data/processed/safety_alignment/train.jsonl
+  - data/processed/writing_editing/train.jsonl
+  - data/processed/multilingual_bn_hi/train.jsonl
+  - data/processed/multilingual_hi/train.jsonl
+  - data/processed/tool_calling/train.jsonl
+  - data/processed/emoji_chat/train.jsonl
+  - data/processed/bangla_qa/train.jsonl
+  - data/processed/bangla_reading_qa/train.jsonl
+  - data/processed/hindi_history_qa/train.jsonl
+  - data/processed/hinglish_chat/train.jsonl
+  - data/processed/code_alpaca/train.jsonl
