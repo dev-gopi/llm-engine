@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 
 script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -397,14 +398,25 @@ async def watch_report(args: argparse.Namespace) -> None:
     reader = IncrementalLogReader(args.log, raw_tail_lines=args.raw_tail_lines)
     monitor = SystemMonitor(args.parent_pid, max_points=args.telemetry_points)
     interval = max(args.watch_seconds, 0.25)
+    last_line_count = -1
+    last_telemetry_at = 0.0
     while True:
         if args.parent_pid and not _pid_is_running(args.parent_pid):
             print("parent training process exited; report watcher stopping", flush=True)
             return
         parsed = await asyncio.to_thread(reader.refresh)
-        await asyncio.to_thread(monitor.sample)
+        now = time.monotonic()
+        telemetry_due = not monitor.history or now - last_telemetry_at >= args.telemetry_seconds
+        log_changed = parsed["line_count"] != last_line_count
+        if telemetry_due:
+            await asyncio.to_thread(monitor.sample)
+            last_telemetry_at = now
+        if not log_changed and not telemetry_due:
+            await asyncio.sleep(interval)
+            continue
         report = await asyncio.to_thread(build_report, args, parsed, monitor.history)
         await asyncio.to_thread(write_atomic, args.output, report)
+        last_line_count = parsed["line_count"]
         print(
             f"updated {args.output}: {len(report['training'])} training points, "
             f"{len(report['validation'])} validations",
@@ -439,7 +451,12 @@ def write_atomic(path: Path, report: dict[str, Any]) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(report, stream, indent=2, ensure_ascii=False, allow_nan=False)
+            # Compact output substantially reduces disk writes during long live runs.
+            # The dashboard parses JSON directly, so whitespace provides no value here.
+            json.dump(
+                report, stream, ensure_ascii=False, allow_nan=False,
+                separators=(",", ":"),
+            )
             stream.write("\n")
         os.replace(temporary, path)
     except BaseException:
@@ -464,8 +481,12 @@ def main() -> None:
         help="maximum live CPU/RAM/GPU samples retained in report JSON",
     )
     parser.add_argument(
-        "--watch-seconds", type=float, default=1.0,
-        help="asynchronous refresh interval (default: 1 second; zero runs once)",
+        "--telemetry-seconds", type=float, default=5.0,
+        help="CPU/RAM/GPU sampling interval (default: 5 seconds)",
+    )
+    parser.add_argument(
+        "--watch-seconds", type=float, default=5.0,
+        help="asynchronous refresh interval (default: 5 seconds; zero runs once)",
     )
     parser.add_argument(
         "--parent-pid", type=int,
@@ -478,6 +499,8 @@ def main() -> None:
         parser.error("--watch-seconds must be non-negative")
     if args.telemetry_points < 1:
         parser.error("--telemetry-points must be positive")
+    if args.telemetry_seconds <= 0:
+        parser.error("--telemetry-seconds must be positive")
     if args.watch_seconds > 0:
         try:
             asyncio.run(watch_report(args))

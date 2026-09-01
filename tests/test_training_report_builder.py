@@ -38,6 +38,7 @@ def test_atomic_json_output_is_valid(tmp_path) -> None:
     destination = tmp_path / "report.json"
     MODULE.write_atomic(destination, {"value": 1})
     assert json.loads(destination.read_text()) == {"value": 1}
+    assert destination.read_text() == '{"value":1}\n'
 
 
 def test_incremental_reader_only_appends_new_complete_lines(tmp_path) -> None:

@@ -64,6 +64,8 @@ def _start_reporter(args: argparse.Namespace) -> subprocess.Popen | None:
         "--latest-checkpoint", str(args.output),
         "--best-checkpoint", str(args.best_output),
         "--watch-seconds", str(args.report_refresh_seconds),
+        "--telemetry-seconds", str(args.report_telemetry_seconds),
+        "--telemetry-points", str(args.report_telemetry_points),
         "--parent-pid", str(os.getpid()),
     ]
     try:
@@ -99,7 +101,9 @@ def main() -> None:
         help="append training logs for the standalone live report viewer",
     )
     parser.add_argument("--report-json", type=Path, default=Path("reports/training_report.json"))
-    parser.add_argument("--report-refresh-seconds", type=float, default=1.0)
+    parser.add_argument("--report-refresh-seconds", type=float, default=5.0)
+    parser.add_argument("--report-telemetry-seconds", type=float, default=5.0)
+    parser.add_argument("--report-telemetry-points", type=int, default=3600)
     parser.add_argument(
         "--no-live-report", action="store_true",
         help="do not launch the isolated JSON report watcher",
@@ -112,6 +116,10 @@ def main() -> None:
     logger.info("Appending standalone report data to %s", args.log_file)
     if args.report_refresh_seconds <= 0:
         parser.error("--report-refresh-seconds must be positive")
+    if args.report_telemetry_seconds <= 0:
+        parser.error("--report-telemetry-seconds must be positive")
+    if args.report_telemetry_points < 1:
+        parser.error("--report-telemetry-points must be positive")
     _start_reporter(args)
     model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
     precision = str(config.get("mixed_precision", "none"))

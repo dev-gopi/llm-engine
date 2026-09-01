@@ -784,7 +784,7 @@ does not stop training. It exits automatically when its parent training
 process ends.
 
 The reporter incrementally reads only newly appended complete log lines and
-atomically refreshes `reports/training_report.json` once per second. This JSON
+atomically refreshes `reports/training_report.json` every five seconds. This JSON
 contains compact training history, aggregate and per-domain validation,
 checkpoint file metadata, warnings, configuration snapshots, and derived
 progress analysis. The analysis classifies the latest trend as `improving`,
@@ -824,7 +824,11 @@ quality). The independent reporter also samples live CPU utilization, system
 and training-process RAM, GPU utilization, VRAM, temperature, power draw,
 power limit, and fan speed. NVIDIA fields gracefully show as unavailable when
 `nvidia-smi` or a particular sensor is unsupported. Up to 3,600 telemetry
-samples are retained by default and can be changed with `--telemetry-points`.
+samples are retained by default. Hardware is sampled every five seconds while
+the log is still checked every report-refresh interval. The reporter writes
+compact JSON atomically and skips writes when neither logs nor telemetry have
+changed, reducing disk and external-drive activity. Use `--telemetry-points`
+and `--telemetry-seconds` to tune retention and sampling frequency.
 Query
 parameters can select another
 JSON file or browser refresh interval:
@@ -838,12 +842,14 @@ Useful training options are:
 ```text
 --log-file logs/experiment-2.log
 --report-json reports/experiment-2.json
---report-refresh-seconds 2
+--report-refresh-seconds 5
+--report-telemetry-seconds 5
+--report-telemetry-points 3600
 --no-live-report
 ```
 
 The last option disables automatic reporter startup. The builder can also run
-independently; it watches once per second by default, while
+independently; it watches every five seconds by default, while
 `--watch-seconds 0` performs a single conversion:
 
 ```bash
