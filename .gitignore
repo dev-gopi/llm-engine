@@ -70,6 +70,11 @@ runs/
 wandb/
 mlruns/
 
+# Generated live-training reports and graph artifacts
+reports/*
+!reports/training_report.html
+artifacts/
+
 # Model and tensor artifacts
 *.ckpt
 *.pt

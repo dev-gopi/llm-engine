@@ -44,3 +44,13 @@ def test_invalid_seed_and_log_level() -> None:
         set_seed(-1)
     with pytest.raises(ValueError, match="logging level"):
         configure_logging("not-a-level")
+
+
+def test_logging_can_append_to_a_report_file(tmp_path) -> None:
+    destination = tmp_path / "training.log"
+    configure_logging("INFO", log_file=destination)
+    logger = get_logger("file-test")
+    logger.info("report marker")
+    for handler in logger.parent.handlers if logger.parent else ():
+        handler.flush()
+    assert "report marker" in destination.read_text(encoding="utf-8")

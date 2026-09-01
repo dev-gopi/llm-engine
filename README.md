@@ -773,6 +773,79 @@ grown checkpoint has demonstrated better held-out and generation quality.
 After continued pretraining stabilizes, run SFT again with a separate v3
 fine-tuning profile before optional DPO.
 
+### Live training report
+
+`scripts/train.py` appends its existing structured log messages to
+`logs/training.log` by default and launches `scripts/build_training_report.py`
+as an isolated subprocess on rank zero. Training does not wait for report
+parsing or JSON generation. The reporter does not import the trainer, load
+model tensors, use GPU memory, or modify checkpoints; failure of the reporter
+does not stop training. It exits automatically when its parent training
+process ends.
+
+The reporter incrementally reads only newly appended complete log lines and
+atomically refreshes `reports/training_report.json` once per second. This JSON
+contains compact training history, aggregate and per-domain validation,
+checkpoint file metadata, warnings, configuration snapshots, and derived
+progress analysis. The analysis classifies the latest trend as `improving`,
+`plateau`, `worsening`, or `waiting_for_validation`, with absolute and
+percentage changes for overall loss, recent validation, perplexity, training
+loss, and each validation domain.
+
+Run training normally; no `tee` command or separate report-builder command is
+required:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.55m-source.yaml \
+  --training-config configs/finetuning.v2.gpu.yaml \
+  --tokenizer data/tokenizer-v2-extended \
+  --resume checkpoints/v2-finetuning/latest.pt \
+  --output checkpoints/v2-finetuning/latest.pt \
+  --best-output checkpoints/v2-finetuning/best.pt
+```
+
+Serve the static viewer from a second terminal:
+
+```bash
+.venv/bin/python -m http.server 8000 --directory reports
+```
+
+Open `http://localhost:8000/training_report.html`. The page loads
+`training_report.json` by default and refreshes every five seconds. It displays
+training and validation loss, per-domain loss, perplexity, learning rate,
+gradient norm, throughput, memory/checkpoint details, improvement tables,
+warnings, and the recent raw log tail. Query parameters can select another
+JSON file or browser refresh interval:
+
+```text
+http://localhost:8000/training_report.html?data=experiment-2.json&refresh=1000
+```
+
+Useful training options are:
+
+```text
+--log-file logs/experiment-2.log
+--report-json reports/experiment-2.json
+--report-refresh-seconds 2
+--no-live-report
+```
+
+The last option disables automatic reporter startup. The builder can also run
+independently; it watches once per second by default, while
+`--watch-seconds 0` performs a single conversion:
+
+```bash
+.venv/bin/python scripts/build_training_report.py \
+  --log logs/experiment-2.log \
+  --output reports/experiment-2.json
+```
+
+Only `reports/training_report.html` is version-controlled. Generated report
+JSON, sample data, raw logs, and graph artifacts are ignored by Git and remain
+local to the experiment.
+
 Run staged GPU training with separate checkpoints:
 
 ```bash

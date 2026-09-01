@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gopi Training Report</title>
+  <style>
+    :root { color-scheme: dark; --bg:#07111f; --card:#0f1d30; --line:#263950; --text:#e7eef8; --muted:#91a4ba; --blue:#4f9cf9; --red:#fb7185; --green:#34d399; }
+    * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--text); font:14px Inter,system-ui,sans-serif }
+    header { padding:24px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:20px; align-items:center }
+    h1,h2 { margin:0 } h1 { font-size:24px } h2 { font-size:16px; margin-bottom:14px }
+    .muted { color:var(--muted) } main { padding:22px; max-width:1500px; margin:auto }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:16px }
+    .card,.panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px }
+    .card .value { font-size:24px; font-weight:700; margin-top:8px }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(480px,1fr)); gap:16px; margin-bottom:16px }
+    svg { width:100%; height:330px; background:#0a1728; border-radius:8px }
+    table { border-collapse:collapse; width:100% } th,td { padding:9px; border-bottom:1px solid var(--line); text-align:right }
+    th:first-child,td:first-child { text-align:left } th { color:var(--muted) }
+    pre { white-space:pre-wrap; max-height:430px; overflow:auto; background:#06101c; padding:14px; border-radius:8px; color:#cbd5e1 }
+    button,.file { border:1px solid var(--line); background:#162942; color:var(--text); padding:9px 12px; border-radius:8px; cursor:pointer }
+    input[type=file] { max-width:230px } .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+    .ok { color:var(--green) } .bad { color:var(--red) }
+    .verdict { font-size:20px; font-weight:800; padding:12px 16px; border-radius:9px; display:inline-block }
+    .improving { color:#052e20; background:#6ee7b7 }.plateau { color:#422006; background:#fcd34d }.worsening { color:#450a0a; background:#fda4af }.waiting_for_validation { color:#172033; background:#cbd5e1 }
+    .positive { color:var(--green) }.negative { color:var(--red) }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>Gopi training report</h1><div id="status" class="muted">Loading training_report.json…</div></div>
+    <div class="controls"><button id="refresh">Refresh</button><button id="sample">Load sample</button><label class="file">Load JSON <input id="file" type="file" accept="application/json"></label></div>
+  </header>
+  <main>
+    <section id="cards" class="cards"></section>
+    <section class="panel" style="margin-bottom:16px"><h2>Improvement verdict</h2><div id="verdict"></div><div id="improvement-summary" style="margin-top:14px"></div></section>
+    <section class="grid">
+      <div class="panel"><h2>Training loss</h2><svg id="training-chart"></svg></div>
+      <div class="panel"><h2>Validation loss</h2><svg id="validation-chart"></svg></div>
+    </section>
+    <section class="grid">
+      <div class="panel"><h2>Validation perplexity</h2><svg id="perplexity-chart"></svg></div>
+      <div class="panel"><h2>Learning rate</h2><svg id="lr-chart"></svg></div>
+      <div class="panel"><h2>Gradient norm</h2><svg id="gradient-chart"></svg></div>
+      <div class="panel"><h2>Training throughput</h2><svg id="throughput-chart"></svg></div>
+    </section>
+    <section class="grid">
+      <div class="panel"><h2>Checkpoint details</h2><div id="checkpoints"></div></div>
+      <div class="panel"><h2>Latest domain validation</h2><div id="domains"></div></div>
+    </section>
+    <section class="panel" style="margin-bottom:16px"><h2>Validation history</h2><div id="validation-table"></div></section>
+    <section class="panel" style="margin-bottom:16px"><h2>Per-domain improvement</h2><div id="domain-improvement"></div></section>
+    <section class="panel" style="margin-bottom:16px"><h2>Warnings and errors</h2><pre id="warnings"></pre></section>
+    <section class="panel"><h2>Training log tail</h2><pre id="logs"></pre></section>
+  </main>
+  <script>
+    const query = new URLSearchParams(location.search);
+    const DATA_URL = query.get('data') || 'training_report.json';
+    const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 5000));
+    const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
+    const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
+    const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    let manual = false;
+
+    function lineChart(svg, series) {
+      const width=760,height=330,left=58,right=18,top=24,bottom=42;
+      const points=series.flatMap(s=>s.points).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
+      if (!points.length) { svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No data yet</text>'; return; }
+      let minX=Math.min(...points.map(p=>p[0])),maxX=Math.max(...points.map(p=>p[0]));
+      let minY=Math.min(...points.map(p=>p[1])),maxY=Math.max(...points.map(p=>p[1]));
+      if(minX===maxX)maxX++; if(minY===maxY){minY=Math.max(0,minY-.05);maxY+=.05} const pad=Math.max((maxY-minY)*.12,.000001); minY=Math.max(0,minY-pad);maxY+=pad;
+      const x=v=>left+(v-minX)/(maxX-minX)*(width-left-right), y=v=>height-bottom-(v-minY)/(maxY-minY)*(height-top-bottom);
+      let out=`<rect width="${width}" height="${height}" fill="#0a1728"/>`;
+      for(let i=0;i<6;i++){const yy=top+i*(height-top-bottom)/5,val=maxY-i*(maxY-minY)/5;out+=`<line x1="${left}" y1="${yy}" x2="${width-right}" y2="${yy}" stroke="#263950"/><text x="${left-8}" y="${yy+4}" text-anchor="end" fill="#91a4ba" font-size="11">${val.toFixed(3)}</text>`}
+      out+=`<line x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}" stroke="#60758d"/><text x="${left}" y="${height-13}" fill="#91a4ba">${fmt(minX,0)}</text><text x="${width-right}" y="${height-13}" text-anchor="end" fill="#91a4ba">${fmt(maxX,0)}</text>`;
+      series.forEach((s,i)=>{const path=s.points.map((p,j)=>`${j?'L':'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');out+=`<path d="${path}" fill="none" stroke="${s.color||colors[i%colors.length]}" stroke-width="${s.width||2.5}"/><text x="${left+i*110}" y="16" fill="${s.color||colors[i%colors.length]}" font-size="11">${esc(s.name)}</text>`});
+      svg.setAttribute('viewBox',`0 0 ${width} ${height}`); svg.innerHTML=out;
+    }
+
+    function table(headers, rows) { return `<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table>`; }
+
+    function render(data) {
+      const train=data.training||[], vals=data.validation||[], latest=train.at(-1)||{}, validation=vals.at(-1)||{};
+      const analysis=data.analysis||deriveAnalysis(train,vals), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
+      document.getElementById('status').textContent=`Updated ${data.generated_at||'—'} · ${data.line_count||0} log lines`;
+      const cards=[['Step',latest.step],['Progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Training loss',latest.loss],['Best validation',best],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second],['ETA',latest.eta_seconds!=null?fmt(latest.eta_seconds/3600,1)+' h':'—'],['Non-finite updates',latest.nonfinite_updates]];
+      document.getElementById('cards').innerHTML=cards.map(([k,v])=>`<div class="card"><div class="muted">${k}</div><div class="value">${fmt(v)}</div></div>`).join('');
+      const verdict=analysis.verdict||'waiting_for_validation';
+      document.getElementById('verdict').innerHTML=`<span class="verdict ${esc(verdict)}">${esc(verdict.replaceAll('_',' ').toUpperCase())}</span>`;
+      const ov=analysis.overall_validation_loss||{},rv=analysis.recent_validation_loss||{},pp=analysis.overall_perplexity||{},tl=analysis.training_loss||{};
+      document.getElementById('improvement-summary').innerHTML=table(['Measurement','First','Latest','Absolute improvement','Improvement %'],[
+        ['Validation loss',fmt(ov.first),fmt(ov.latest),delta(ov.absolute_improvement),percent(ov.percent_improvement)],
+        ['Latest validation interval',fmt(rv.first),fmt(rv.latest),delta(rv.absolute_improvement),percent(rv.percent_improvement)],
+        ['Perplexity',fmt(pp.first),fmt(pp.latest),delta(pp.absolute_improvement),percent(pp.percent_improvement)],
+        ['Training average loss',fmt(tl.first),fmt(tl.latest),delta(tl.absolute_improvement),percent(tl.percent_improvement)]
+      ]);
+      lineChart(document.getElementById('training-chart'),[{name:'window loss',points:train.map(v=>[v.step,v.loss]),color:'#4f9cf9'},{name:'average loss',points:train.filter(v=>v.avg!=null).map(v=>[v.step,v.avg]),color:'#34d399'}]);
+      const domainNames=[...new Set(vals.flatMap(v=>Object.keys(v.domains||{})))];
+      lineChart(document.getElementById('validation-chart'),[{name:'overall',points:vals.map(v=>[v.step,v.loss]),color:'#fff',width:4},...domainNames.map((name,i)=>({name,points:vals.filter(v=>v.domains?.[name]).map(v=>[v.step,v.domains[name].loss]),color:colors[i%colors.length]}))]);
+      lineChart(document.getElementById('perplexity-chart'),[{name:'overall',points:vals.filter(v=>v.perplexity!=null).map(v=>[v.step,v.perplexity]),color:'#fff',width:4},...domainNames.map((name,i)=>({name,points:vals.filter(v=>v.domains?.[name]?.perplexity!=null).map(v=>[v.step,v.domains[name].perplexity]),color:colors[i%colors.length]}))]);
+      lineChart(document.getElementById('lr-chart'),[{name:'learning rate',points:train.filter(v=>v.lr!=null).map(v=>[v.step,v.lr]),color:'#fbbf24'}]);
+      lineChart(document.getElementById('gradient-chart'),[{name:'gradient norm',points:train.filter(v=>v.grad_norm!=null).map(v=>[v.step,v.grad_norm]),color:'#a78bfa'}]);
+      lineChart(document.getElementById('throughput-chart'),[{name:'tokens / second',points:train.filter(v=>v.tokens_per_second!=null).map(v=>[v.step,v.tokens_per_second]),color:'#22d3ee'}]);
+      document.getElementById('checkpoints').innerHTML=table(['Checkpoint','Status','Size','Modified','Validation'],Object.entries(data.checkpoints||{}).map(([name,c])=>[esc(name),`<span class="${c.exists?'ok':'bad'}">${c.exists?'available':'missing'}</span>`,c.size_mb!=null?fmt(c.size_mb,2)+' MB':'—',esc(c.modified_at||'—'),fmt(c.validation?.loss)]));
+      document.getElementById('domains').innerHTML=table(['Domain','Loss','Cross entropy','Perplexity','Tokens'],Object.entries(validation.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
+      document.getElementById('validation-table').innerHTML=table(['Step','Epoch','Loss','Cross entropy','Perplexity','Tokens'],vals.map(v=>[fmt(v.step,0),fmt(v.epoch,0),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
+      document.getElementById('domain-improvement').innerHTML=table(['Domain','First loss','Latest loss','Loss improvement','Improvement %','Perplexity improvement %'],Object.entries(analysis.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss?.first),fmt(v.loss?.latest),delta(v.loss?.absolute_improvement),percent(v.loss?.percent_improvement),percent(v.perplexity?.percent_improvement)]));
+      document.getElementById('warnings').textContent=(data.warnings||[]).join('\n')||'No warnings or errors captured.';
+      document.getElementById('logs').textContent=(data.raw_log_tail||[]).join('\n');
+    }
+
+    function delta(value){if(value==null)return '—';const cls=value>=0?'positive':'negative';return `<span class="${cls}">${value>=0?'+':''}${fmt(value,6)}</span>`}
+    function percent(value){if(value==null)return '—';const cls=value>=0?'positive':'negative';return `<span class="${cls}">${value>=0?'+':''}${fmt(value,2)}%</span>`}
+    function change(first,last){if(first==null||last==null)return {};const absolute=first-last;return {first,latest:last,absolute_improvement:absolute,percent_improvement:first?absolute/Math.abs(first)*100:null}}
+    function deriveAnalysis(train,vals){
+      const overall=change(vals[0]?.loss,vals.at(-1)?.loss),recent=change(vals.at(-2)?.loss,vals.at(-1)?.loss),perplexity=change(vals[0]?.perplexity,vals.at(-1)?.perplexity);
+      const amount=recent.absolute_improvement,verdict=amount==null?'waiting_for_validation':amount>=.001?'improving':amount>-.001?'plateau':'worsening';
+      const names=[...new Set(vals.flatMap(v=>Object.keys(v.domains||{})))],domains={};names.forEach(name=>{const rows=vals.filter(v=>v.domains?.[name]).map(v=>v.domains[name]);domains[name]={loss:change(rows[0]?.loss,rows.at(-1)?.loss),perplexity:change(rows[0]?.perplexity,rows.at(-1)?.perplexity)}});
+      return {verdict,overall_validation_loss:overall,recent_validation_loss:recent,overall_perplexity:perplexity,training_loss:change(train[0]?.avg??train[0]?.loss,train.at(-1)?.avg??train.at(-1)?.loss),domains};
+    }
+
+    async function load() { if(manual)return; try { const response=await fetch(`${DATA_URL}?t=${Date.now()}`,{cache:'no-store'}); if(!response.ok)throw new Error(response.statusText); render(await response.json()); } catch(error) { document.getElementById('status').textContent=`Cannot fetch ${DATA_URL}. Serve this folder over HTTP or choose a JSON file. ${error}`; } }
+    document.getElementById('refresh').onclick=()=>{manual=false;load()};
+    document.getElementById('sample').onclick=async()=>{manual=true;const response=await fetch('training_report.sample.json',{cache:'no-store'});render(await response.json())};
+    document.getElementById('file').onchange=async event=>{const file=event.target.files[0];if(file){manual=true;render(JSON.parse(await file.text()))}};
+    load(); setInterval(load,REFRESH_MS);
+  </script>
+</body>
+</html>

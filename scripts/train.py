@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import atexit
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -39,6 +41,49 @@ load_dotenv()
 logger = get_logger(__name__)
 
 
+def _stop_reporter(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
+def _start_reporter(args: argparse.Namespace) -> subprocess.Popen | None:
+    if args.no_live_report or int(os.getenv("RANK", "0")) != 0:
+        return None
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("build_training_report.py")),
+        "--log", str(args.log_file),
+        "--output", str(args.report_json),
+        "--model-config", str(args.model_config),
+        "--training-config", str(args.training_config),
+        "--latest-checkpoint", str(args.output),
+        "--best-checkpoint", str(args.best_output),
+        "--watch-seconds", str(args.report_refresh_seconds),
+        "--parent-pid", str(os.getpid()),
+    ]
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as error:
+        logger.warning("Could not start standalone live reporter: %s", error)
+        return None
+    atexit.register(_stop_reporter, process)
+    logger.info(
+        "Started standalone live reporter pid=%d json=%s",
+        process.pid, args.report_json,
+    )
+    return process
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
@@ -49,11 +94,25 @@ def main() -> None:
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--init-from", type=Path, help="load model weights only for a new training stage")
     parser.add_argument("--epochs", type=int)
+    parser.add_argument(
+        "--log-file", type=Path, default=Path("logs/training.log"),
+        help="append training logs for the standalone live report viewer",
+    )
+    parser.add_argument("--report-json", type=Path, default=Path("reports/training_report.json"))
+    parser.add_argument("--report-refresh-seconds", type=float, default=1.0)
+    parser.add_argument(
+        "--no-live-report", action="store_true",
+        help="do not launch the isolated JSON report watcher",
+    )
     args = parser.parse_args()
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
 
-    configure_logging()
+    configure_logging(log_file=args.log_file)
+    logger.info("Appending standalone report data to %s", args.log_file)
+    if args.report_refresh_seconds <= 0:
+        parser.error("--report-refresh-seconds must be positive")
+    _start_reporter(args)
     model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
     precision = str(config.get("mixed_precision", "none"))
     if precision == "fp16" and not torch.cuda.is_available():

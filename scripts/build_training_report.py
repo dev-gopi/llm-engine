@@ -1,0 +1,326 @@
+"""Build or continuously refresh standalone JSON data for the training report viewer."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+from datetime import datetime, timezone
+import json
+import math
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+from typing import Any
+
+script_directory = os.path.dirname(os.path.realpath(__file__))
+sys.path[:] = [entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory]
+
+from utils.config import load_yaml
+
+
+KEY_VALUE = re.compile(r"([a-zA-Z_]+)=([^\s]+)")
+
+
+def _value(text: str) -> Any:
+    text = text.strip("(),%")
+    if text in {"inf", "+inf", "-inf", "nan"}:
+        return None
+    try:
+        return float(text) if any(char in text for char in ".eE") else int(text)
+    except ValueError:
+        return text
+
+
+def _fields(message: str) -> dict[str, Any]:
+    return {key: _value(value) for key, value in KEY_VALUE.findall(message)}
+
+
+def _empty_parsed() -> dict[str, Any]:
+    return {
+        "training": [], "validation": [], "best_updates": [], "warnings": [],
+        "raw_log_tail": [], "line_count": 0,
+    }
+
+
+def _append_lines(
+    parsed: dict[str, Any],
+    lines: list[str],
+    pending_domains: dict[tuple[int, int], dict[str, dict[str, Any]]],
+    *,
+    raw_tail_lines: int,
+) -> None:
+    for line in lines:
+        parsed["line_count"] += 1
+        message = line.rsplit(" | ", 1)[-1]
+        timestamp = line.split(" | ", 1)[0] if " | " in line else None
+        if "validation_domain=" in message:
+            values = _fields(message)
+            key = (int(values.get("epoch", 0)), int(values.get("step", 0)))
+            domain = str(values.pop("validation_domain"))
+            values["timestamp"] = timestamp
+            pending_domains.setdefault(key, {})[domain] = values
+        elif message.startswith("validation epoch="):
+            values = _fields(message)
+            key = (int(values.get("epoch", 0)), int(values.get("step", 0)))
+            values["timestamp"] = timestamp
+            values["domains"] = pending_domains.pop(key, {})
+            parsed["validation"].append(values)
+        elif "new_best_validation" in message:
+            values = _fields(message)
+            values["timestamp"] = timestamp
+            parsed["best_updates"].append(values)
+        elif "epoch=" in message and "tokens_per_second=" in message and "loss=" in message:
+            values = _fields(message)
+            values["timestamp"] = timestamp
+            parsed["training"].append(values)
+        elif "WARNING" in line or "ERROR" in line:
+            parsed["warnings"].append(line)
+    if raw_tail_lines > 0:
+        parsed["raw_log_tail"].extend(lines)
+        del parsed["raw_log_tail"][:-raw_tail_lines]
+
+
+def parse_training_log(path: str | Path, *, raw_tail_lines: int = 1000) -> dict[str, Any]:
+    """Parse trainer INFO lines without importing or interacting with training code."""
+    lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    parsed = _empty_parsed()
+    _append_lines(parsed, lines, {}, raw_tail_lines=raw_tail_lines)
+    return parsed
+
+
+class IncrementalLogReader:
+    """Tail only newly appended bytes and retain parsed history in this process."""
+
+    def __init__(self, path: Path, *, raw_tail_lines: int) -> None:
+        self.path = path
+        self.raw_tail_lines = raw_tail_lines
+        self.offset = 0
+        self.partial = b""
+        self.parsed = _empty_parsed()
+        self.pending_domains: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
+
+    def refresh(self) -> dict[str, Any]:
+        size = self.path.stat().st_size
+        if size < self.offset:
+            # A restarted run truncated or replaced the log.
+            self.offset = 0
+            self.partial = b""
+            self.parsed = _empty_parsed()
+            self.pending_domains = {}
+        with self.path.open("rb") as stream:
+            stream.seek(self.offset)
+            chunk = stream.read()
+        self.offset += len(chunk)
+        if not chunk:
+            return self.parsed
+        pieces = (self.partial + chunk).split(b"\n")
+        self.partial = pieces.pop()
+        lines = [piece.rstrip(b"\r").decode("utf-8", errors="replace") for piece in pieces]
+        _append_lines(
+            self.parsed, lines, self.pending_domains,
+            raw_tail_lines=self.raw_tail_lines,
+        )
+        return self.parsed
+
+
+def checkpoint_details(path: str | Path, validation: list[dict[str, Any]], *, best: bool) -> dict[str, Any]:
+    checkpoint = Path(path)
+    details: dict[str, Any] = {"path": str(checkpoint), "exists": checkpoint.is_file()}
+    if checkpoint.is_file():
+        stat = checkpoint.stat()
+        details.update({
+            "size_bytes": stat.st_size,
+            "size_mb": round(stat.st_size / 1024**2, 2),
+            "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        })
+    if validation:
+        selected = min(validation, key=lambda item: float(item["loss"])) if best else validation[-1]
+        details["validation"] = selected
+    return details
+
+
+def _change(first: float | int | None, latest: float | int | None) -> dict[str, Any]:
+    if first is None or latest is None:
+        return {"first": first, "latest": latest, "absolute_improvement": None, "percent_improvement": None}
+    improvement = float(first) - float(latest)
+    percent = improvement / abs(float(first)) * 100.0 if float(first) else None
+    return {
+        "first": first,
+        "latest": latest,
+        "absolute_improvement": improvement,
+        "percent_improvement": percent,
+    }
+
+
+def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Calculate lower-is-better improvements and runtime health summaries."""
+    training, validation = parsed["training"], parsed["validation"]
+    overall = _change(
+        validation[0].get("loss") if validation else None,
+        validation[-1].get("loss") if validation else None,
+    )
+    recent = _change(
+        validation[-2].get("loss") if len(validation) > 1 else None,
+        validation[-1].get("loss") if validation else None,
+    )
+    perplexity = _change(
+        validation[0].get("perplexity") if validation else None,
+        validation[-1].get("perplexity") if validation else None,
+    )
+    domains: dict[str, Any] = {}
+    domain_names = sorted({name for item in validation for name in item.get("domains", {})})
+    for name in domain_names:
+        records = [item["domains"][name] for item in validation if name in item.get("domains", {})]
+        domains[name] = {
+            "loss": _change(records[0].get("loss"), records[-1].get("loss")),
+            "perplexity": _change(records[0].get("perplexity"), records[-1].get("perplexity")),
+            "observations": len(records),
+        }
+    improvement = recent.get("absolute_improvement")
+    if improvement is None:
+        verdict = "waiting_for_validation"
+    elif improvement >= 0.001:
+        verdict = "improving"
+    elif improvement > -0.001:
+        verdict = "plateau"
+    else:
+        verdict = "worsening"
+    throughput = [float(item["tokens_per_second"]) for item in training if item.get("tokens_per_second") is not None]
+    gradients = [float(item["grad_norm"]) for item in training if item.get("grad_norm") is not None]
+    memory = [float(item["peak_memory_mb"]) for item in training if item.get("peak_memory_mb") is not None]
+    train_metric = "avg" if training and training[0].get("avg") is not None else "loss"
+    return {
+        "verdict": verdict,
+        "overall_validation_loss": overall,
+        "recent_validation_loss": recent,
+        "overall_perplexity": perplexity,
+        "training_loss": _change(
+            training[0].get(train_metric) if training else None,
+            training[-1].get(train_metric) if training else None,
+        ),
+        "domains": domains,
+        "runtime": {
+            "training_points": len(training),
+            "validation_points": len(validation),
+            "average_tokens_per_second": sum(throughput) / len(throughput) if throughput else None,
+            "minimum_tokens_per_second": min(throughput) if throughput else None,
+            "maximum_tokens_per_second": max(throughput) if throughput else None,
+            "average_gradient_norm": sum(gradients) / len(gradients) if gradients else None,
+            "maximum_gradient_norm": max(gradients) if gradients else None,
+            "peak_memory_mb": max(memory) if memory else None,
+            "nonfinite_updates": training[-1].get("nonfinite_updates") if training else None,
+            "current_learning_rate": training[-1].get("lr") if training else None,
+            "tokens_processed": training[-1].get("tokens") if training else None,
+            "elapsed_seconds": training[-1].get("elapsed_seconds") if training else None,
+            "eta_seconds": training[-1].get("eta_seconds") if training else None,
+        },
+    }
+
+
+def build_report(args: argparse.Namespace, parsed: dict[str, Any] | None = None) -> dict[str, Any]:
+    parsed = parsed or parse_training_log(args.log, raw_tail_lines=args.raw_tail_lines)
+    report = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_log": str(args.log),
+        "model_config_path": str(args.model_config),
+        "training_config_path": str(args.training_config),
+        "model_config": load_yaml(args.model_config),
+        "training_config": load_yaml(args.training_config),
+        "checkpoints": {
+            "latest": checkpoint_details(args.latest_checkpoint, parsed["validation"], best=False),
+            "best": checkpoint_details(args.best_checkpoint, parsed["validation"], best=True),
+        },
+        "analysis": analyze_progress(parsed),
+        **parsed,
+    }
+    return _finite(report)
+
+
+async def watch_report(args: argparse.Namespace) -> None:
+    """Refresh JSON asynchronously while file reads run off the event loop."""
+    reader = IncrementalLogReader(args.log, raw_tail_lines=args.raw_tail_lines)
+    interval = max(args.watch_seconds, 0.25)
+    while True:
+        if args.parent_pid and os.getppid() != args.parent_pid:
+            print("parent training process exited; report watcher stopping", flush=True)
+            return
+        parsed = await asyncio.to_thread(reader.refresh)
+        report = await asyncio.to_thread(build_report, args, parsed)
+        await asyncio.to_thread(write_atomic, args.output, report)
+        print(
+            f"updated {args.output}: {len(report['training'])} training points, "
+            f"{len(report['validation'])} validations",
+            flush=True,
+        )
+        await asyncio.sleep(interval)
+
+
+def _finite(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _finite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_finite(item) for item in value]
+    return value
+
+
+def write_atomic(path: Path, report: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(report, stream, indent=2, ensure_ascii=False, allow_nan=False)
+            stream.write("\n")
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--log", type=Path, default=Path("logs/training.log"),
+        help="training console log to parse (matches train.py default)",
+    )
+    parser.add_argument("--output", type=Path, default=Path("reports/training_report.json"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
+    parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.v2.gpu.yaml"))
+    parser.add_argument("--latest-checkpoint", type=Path, default=Path("checkpoints/v2-finetuning/latest.pt"))
+    parser.add_argument("--best-checkpoint", type=Path, default=Path("checkpoints/v2-finetuning/best.pt"))
+    parser.add_argument("--raw-tail-lines", type=int, default=1000)
+    parser.add_argument(
+        "--watch-seconds", type=float, default=1.0,
+        help="asynchronous refresh interval (default: 1 second; zero runs once)",
+    )
+    parser.add_argument(
+        "--parent-pid", type=int,
+        help="stop automatically when this direct parent process exits",
+    )
+    args = parser.parse_args()
+    if not args.log.is_file():
+        parser.error(f"training log not found: {args.log}")
+    if args.watch_seconds < 0:
+        parser.error("--watch-seconds must be non-negative")
+    if args.watch_seconds > 0:
+        try:
+            asyncio.run(watch_report(args))
+        except KeyboardInterrupt:
+            print("report watcher stopped", flush=True)
+        return
+    else:
+        report = build_report(args)
+        write_atomic(args.output, report)
+        print(
+            f"updated {args.output}: {len(report['training'])} training points, "
+            f"{len(report['validation'])} validations",
+            flush=True,
+        )
+
+
+if __name__ == "__main__":
+    main()
