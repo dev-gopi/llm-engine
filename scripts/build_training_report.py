@@ -184,6 +184,22 @@ def parse_training_log(path: str | Path, *, raw_tail_lines: int = 1000) -> dict[
     return parsed
 
 
+def normalize_history(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Sort histories and keep the latest record for restarted/duplicate steps."""
+    normalized = dict(parsed)
+    for name in ("training", "validation"):
+        records: dict[tuple[int, int], dict[str, Any]] = {}
+        for item in parsed.get(name, []):
+            key = (int(item.get("epoch", 0)), int(item.get("step", 0)))
+            records[key] = item
+        normalized[name] = [records[key] for key in sorted(records)]
+    best_updates: dict[int, dict[str, Any]] = {}
+    for item in parsed.get("best_updates", []):
+        best_updates[int(item.get("step", 0))] = item
+    normalized["best_updates"] = [best_updates[key] for key in sorted(best_updates)]
+    return normalized
+
+
 class IncrementalLogReader:
     """Tail only newly appended bytes and retain parsed history in this process."""
 
@@ -368,7 +384,9 @@ def build_report(
     parsed: dict[str, Any] | None = None,
     telemetry: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    parsed = parsed or parse_training_log(args.log, raw_tail_lines=args.raw_tail_lines)
+    parsed = normalize_history(
+        parsed or parse_training_log(args.log, raw_tail_lines=args.raw_tail_lines)
+    )
     report = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),

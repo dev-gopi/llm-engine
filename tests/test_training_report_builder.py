@@ -55,6 +55,31 @@ def test_incremental_reader_only_appends_new_complete_lines(tmp_path) -> None:
     assert reader.refresh()["line_count"] == 2
 
 
+def test_normalize_history_sorts_and_replaces_restarted_steps() -> None:
+    parsed = {
+        "training": [
+            {"epoch": 1, "step": 50, "loss": 3.0},
+            {"epoch": 1, "step": 25, "loss": 3.2},
+            {"epoch": 1, "step": 50, "loss": 2.8},
+        ],
+        "validation": [
+            {"epoch": 1, "step": 100, "loss": 2.7},
+            {"epoch": 1, "step": 100, "loss": 2.6},
+        ],
+        "best_updates": [
+            {"step": 100, "loss": 2.7},
+            {"step": 100, "loss": 2.6},
+        ],
+    }
+
+    normalized = MODULE.normalize_history(parsed)
+
+    assert [item["step"] for item in normalized["training"]] == [25, 50]
+    assert normalized["training"][-1]["loss"] == 2.8
+    assert normalized["validation"][0]["loss"] == 2.6
+    assert normalized["best_updates"][0]["loss"] == 2.6
+
+
 def test_progress_analysis_reports_overall_and_domain_improvement() -> None:
     parsed = {
         "training": [
