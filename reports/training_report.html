@@ -14,7 +14,9 @@
     .card,.panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px }
     .card .value { font-size:24px; font-weight:700; margin-top:8px }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(480px,1fr)); gap:16px; margin-bottom:16px }
-    svg { width:100%; height:330px; background:#0a1728; border-radius:8px }
+    .chart-scroll { width:100%; overflow-x:auto; overflow-y:hidden; scrollbar-color:#60758d #0a1728; padding-bottom:4px }
+    svg { display:block; width:100%; height:330px; max-width:none; background:#0a1728; border-radius:8px }
+    .chart-axis { position:sticky; left:0; z-index:3; float:left; width:58px!important; min-width:58px; margin-right:-58px; border-radius:8px 0 0 8px }
     table { border-collapse:collapse; width:100% } th,td { padding:9px; border-bottom:1px solid var(--line); text-align:right }
     th:first-child,td:first-child { text-align:left } th { color:var(--muted) }
     pre { white-space:pre-wrap; max-height:430px; overflow:auto; background:#06101c; padding:14px; border-radius:8px; color:#cbd5e1 }
@@ -35,21 +37,21 @@
     <section id="cards" class="cards"></section>
     <section class="panel" style="margin-bottom:16px"><h2>Live system resources</h2><div id="system-resources"></div></section>
     <section class="grid">
-      <div class="panel"><h2>CPU and RAM utilization</h2><svg id="system-chart"></svg></div>
-      <div class="panel"><h2>GPU utilization and VRAM</h2><svg id="gpu-chart"></svg></div>
-      <div class="panel"><h2>GPU temperature</h2><svg id="gpu-temperature-chart"></svg></div>
-      <div class="panel"><h2>GPU power</h2><svg id="gpu-power-chart"></svg></div>
+      <div class="panel"><h2>CPU and RAM utilization</h2><div class="chart-scroll"><svg id="system-chart"></svg></div></div>
+      <div class="panel"><h2>GPU utilization and VRAM</h2><div class="chart-scroll"><svg id="gpu-chart"></svg></div></div>
+      <div class="panel"><h2>GPU temperature</h2><div class="chart-scroll"><svg id="gpu-temperature-chart"></svg></div></div>
+      <div class="panel"><h2>GPU power</h2><div class="chart-scroll"><svg id="gpu-power-chart"></svg></div></div>
     </section>
     <section class="panel" style="margin-bottom:16px"><h2>Improvement verdict</h2><div id="verdict"></div><div id="improvement-summary" style="margin-top:14px"></div></section>
     <section class="grid">
-      <div class="panel"><h2>Training loss</h2><svg id="training-chart"></svg></div>
-      <div class="panel"><h2>Validation loss</h2><svg id="validation-chart"></svg></div>
+      <div class="panel"><h2>Training loss</h2><div class="chart-scroll"><svg id="training-chart"></svg></div></div>
+      <div class="panel"><h2>Validation loss</h2><div class="chart-scroll"><svg id="validation-chart"></svg></div></div>
     </section>
     <section class="grid">
-      <div class="panel"><h2>Validation perplexity</h2><svg id="perplexity-chart"></svg></div>
-      <div class="panel"><h2>Learning rate</h2><svg id="lr-chart"></svg></div>
-      <div class="panel"><h2>Gradient norm</h2><svg id="gradient-chart"></svg></div>
-      <div class="panel"><h2>Training throughput</h2><svg id="throughput-chart"></svg></div>
+      <div class="panel"><h2>Validation perplexity</h2><div class="chart-scroll"><svg id="perplexity-chart"></svg></div></div>
+      <div class="panel"><h2>Learning rate</h2><div class="chart-scroll"><svg id="lr-chart"></svg></div></div>
+      <div class="panel"><h2>Gradient norm</h2><div class="chart-scroll"><svg id="gradient-chart"></svg></div></div>
+      <div class="panel"><h2>Training throughput</h2><div class="chart-scroll"><svg id="throughput-chart"></svg></div></div>
     </section>
     <section class="grid">
       <div class="panel"><h2>Checkpoint details</h2><div id="checkpoints"></div></div>
@@ -84,18 +86,28 @@
     let manual = false;
 
     function lineChart(svg, series) {
-      const width=760,height=330,left=58,right=18,top=24,bottom=42;
+      const scroller=svg.parentElement;
+      const followLatest=!scroller.dataset.rendered || scroller.scrollWidth-scroller.clientWidth-scroller.scrollLeft<48;
+      const pointCount=Math.max(0,...series.map(value=>value.points.length));
+      const width=Math.max(760,Math.min(30000,pointCount*10+76)),height=330,left=58,right=18,top=24,bottom=42;
+      svg.style.width=`${width}px`;
+      let axis=scroller.querySelector('.chart-axis');
+      if(!axis){axis=document.createElementNS('http://www.w3.org/2000/svg','svg');axis.classList.add('chart-axis');scroller.insertBefore(axis,svg)}
+      axis.setAttribute('viewBox',`0 0 ${left} ${height}`);
       const points=series.flatMap(s=>s.points).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
-      if (!points.length) { svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No data yet</text>'; return; }
+      if (!points.length) { axis.innerHTML='';svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No data yet</text>'; return; }
       let minX=Math.min(...points.map(p=>p[0])),maxX=Math.max(...points.map(p=>p[0]));
       let minY=Math.min(...points.map(p=>p[1])),maxY=Math.max(...points.map(p=>p[1]));
       if(minX===maxX)maxX++; if(minY===maxY){minY=Math.max(0,minY-.05);maxY+=.05} const pad=Math.max((maxY-minY)*.12,.000001); minY=Math.max(0,minY-pad);maxY+=pad;
       const x=v=>left+(v-minX)/(maxX-minX)*(width-left-right), y=v=>height-bottom-(v-minY)/(maxY-minY)*(height-top-bottom);
       let out=`<rect width="${width}" height="${height}" fill="#0a1728"/>`;
-      for(let i=0;i<6;i++){const yy=top+i*(height-top-bottom)/5,val=maxY-i*(maxY-minY)/5;out+=`<line x1="${left}" y1="${yy}" x2="${width-right}" y2="${yy}" stroke="#263950"/><text x="${left-8}" y="${yy+4}" text-anchor="end" fill="#91a4ba" font-size="11">${axisFmt(val)}</text>`}
+      let axisOut=`<rect width="${left}" height="${height}" fill="#0a1728"/>`;
+      for(let i=0;i<6;i++){const yy=top+i*(height-top-bottom)/5,val=maxY-i*(maxY-minY)/5;out+=`<line x1="${left}" y1="${yy}" x2="${width-right}" y2="${yy}" stroke="#263950"/>`;axisOut+=`<text x="${left-8}" y="${yy+4}" text-anchor="end" fill="#91a4ba" font-size="11">${axisFmt(val)}</text>`}
       out+=`<line x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}" stroke="#60758d"/><text x="${left}" y="${height-13}" fill="#91a4ba">${fmt(minX,0)}</text><text x="${width-right}" y="${height-13}" text-anchor="end" fill="#91a4ba">${fmt(maxX,0)}</text>`;
       series.forEach((s,i)=>{const path=s.points.map((p,j)=>`${j?'L':'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');out+=`<path d="${path}" fill="none" stroke="${s.color||colors[i%colors.length]}" stroke-width="${s.width||2.5}"/><text x="${left+i*110}" y="16" fill="${s.color||colors[i%colors.length]}" font-size="11">${esc(s.name)}</text>`});
-      svg.setAttribute('viewBox',`0 0 ${width} ${height}`); svg.innerHTML=out;
+      axis.innerHTML=axisOut;svg.setAttribute('viewBox',`0 0 ${width} ${height}`); svg.innerHTML=out;
+      scroller.dataset.rendered='true';
+      if(followLatest)requestAnimationFrame(()=>{scroller.scrollLeft=scroller.scrollWidth-scroller.clientWidth});
     }
 
     function table(headers, rows) { return `<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table>`; }
