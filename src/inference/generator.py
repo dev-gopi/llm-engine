@@ -56,6 +56,9 @@ class BatchedGenerationState:
 class Generator:
     """Generate text from a decoder-only model using bounded context windows."""
 
+    DEFAULT_REPETITION_PENALTY = 1.1
+    DEFAULT_NO_REPEAT_NGRAM_SIZE = 3
+
     def __init__(
         self,
         model: nn.Module,
@@ -104,7 +107,8 @@ class Generator:
         temperature: float = 0.8,
         top_k: int = 40,
         top_p: float = 1.0,
-        repetition_penalty: float = 1.0,
+        repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
+        no_repeat_ngram_size: int = DEFAULT_NO_REPEAT_NGRAM_SIZE,
         seed: int | None = None,
         stop: list[str] | None = None,
         allow_special_tokens: bool = False,
@@ -113,6 +117,7 @@ class Generator:
             raise ValueError("max_tokens must be positive")
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
+        self._validate_no_repeat_ngram_size(no_repeat_ngram_size)
         prompt_ids = self.tokenizer.encode(
             prompt, add_bos=True, allowed_special="all" if allow_special_tokens else ()
         )
@@ -137,6 +142,7 @@ class Generator:
         for _ in range(limit):
             next_logits = logits[:, -1, :]
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
+            self._apply_no_repeat_ngram(next_logits, all_ids, no_repeat_ngram_size)
             next_id = int(
                 self.sampler(
                     next_logits, temperature=temperature, top_k=top_k,
@@ -224,10 +230,13 @@ class Generator:
         for index, state in enumerate(states):
             options = state.options
             logits = state.logits[:, -1, :].clone()
-            penalty = float(options.get("repetition_penalty", 1.0))
+            penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
+            ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
             if penalty <= 0:
                 raise ValueError("repetition_penalty must be positive")
+            self._validate_no_repeat_ngram_size(ngram_size)
             self._apply_repetition_penalty(logits, set(state.all_ids), penalty)
+            self._apply_no_repeat_ngram(logits, state.all_ids, ngram_size)
             token_id = int(self.sampler(
                 logits, temperature=float(options.get("temperature", .8)),
                 top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
@@ -330,9 +339,11 @@ class Generator:
         max_tokens = int(options.get("max_tokens", 128))
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
-        penalty = float(options.get("repetition_penalty", 1.0))
+        penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
+        ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
         if penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
+        self._validate_no_repeat_ngram_size(ngram_size)
         encoded = [self.tokenizer.encode(
             prompt, add_bos=True,
             allowed_special="all" if options.get("allow_special_tokens", False) else (),
@@ -364,6 +375,7 @@ class Generator:
                 for row, original_index in enumerate(active):
                     row_logits = logits[row:row + 1, -1, :].clone()
                     self._apply_repetition_penalty(row_logits, set(all_ids[row]), penalty)
+                    self._apply_no_repeat_ngram(row_logits, all_ids[row], ngram_size)
                     token_id = int(self.sampler(
                         row_logits, temperature=float(options.get("temperature", .8)),
                         top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
@@ -412,11 +424,13 @@ class Generator:
         temperature = float(options.get("temperature", 0.8))
         top_k = int(options.get("top_k", 40))
         top_p = float(options.get("top_p", 1.0))
-        repetition_penalty = float(options.get("repetition_penalty", 1.0))
+        repetition_penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
+        ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
+        self._validate_no_repeat_ngram_size(ngram_size)
         stop_sequences = options.get("stop") or []
         prompt_ids = self.tokenizer.encode(
             prompt, add_bos=True,
@@ -435,6 +449,7 @@ class Generator:
         for _ in range(min(max_tokens, self.max_positions - len(prompt_ids))):
             next_logits = logits[:, -1, :]
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
+            self._apply_no_repeat_ngram(next_logits, all_ids, ngram_size)
             token_id = int(self.sampler(next_logits, temperature=temperature, top_k=top_k, top_p=top_p, generator=random).item())
             if self.eos_token_id is not None and token_id == self.eos_token_id:
                 finish_reason = "stop"
@@ -479,6 +494,27 @@ class Generator:
         indices = torch.tensor(sorted(used), device=logits.device)
         selected = logits[:, indices]
         logits[:, indices] = torch.where(selected < 0, selected * penalty, selected / penalty)
+
+    @staticmethod
+    def _validate_no_repeat_ngram_size(ngram_size: int) -> None:
+        if ngram_size < 0:
+            raise ValueError("no_repeat_ngram_size must be non-negative")
+
+    @staticmethod
+    def _apply_no_repeat_ngram(
+        logits: torch.Tensor, token_ids: list[int], ngram_size: int
+    ) -> None:
+        """Ban tokens that would recreate an n-gram already in the sequence."""
+        if ngram_size == 0 or len(token_ids) + 1 < ngram_size:
+            return
+        prefix_size = ngram_size - 1
+        prefix = token_ids[-prefix_size:] if prefix_size else []
+        banned: set[int] = set()
+        for start in range(len(token_ids) - ngram_size + 1):
+            if token_ids[start:start + prefix_size] == prefix:
+                banned.add(token_ids[start + prefix_size])
+        if banned:
+            logits[:, torch.tensor(sorted(banned), device=logits.device)] = -torch.inf
 
     @staticmethod
     def _trim_stop(text: str, stop_sequences: list[str]) -> str:

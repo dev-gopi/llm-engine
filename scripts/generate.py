@@ -46,6 +46,8 @@ def main() -> None:
         help="maximum number of tokens to generate",
     )
     parser.add_argument("--temperature", type=float)
+    parser.add_argument("--repetition-penalty", type=float)
+    parser.add_argument("--no-repeat-ngram-size", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--raw", action="store_true", help="Do not wrap prompt in chat template")
     parser.add_argument("--response-format", choices=("plain", "markdown"))
@@ -185,7 +187,14 @@ def main() -> None:
         temperature=(args.temperature if args.temperature is not None else float(inference_config.get("temperature", 0.8))),
         top_k=int(inference_config.get("top_k", 40)),
         top_p=float(inference_config.get("top_p", 1.0)),
-        repetition_penalty=float(inference_config.get("repetition_penalty", 1.0)),
+        repetition_penalty=(
+            args.repetition_penalty if args.repetition_penalty is not None
+            else float(inference_config.get("repetition_penalty", 1.1))
+        ),
+        no_repeat_ngram_size=(
+            args.no_repeat_ngram_size if args.no_repeat_ngram_size is not None
+            else int(inference_config.get("no_repeat_ngram_size", 3))
+        ),
         seed=args.seed,
         allow_special_tokens=True,
     )

@@ -97,6 +97,17 @@ def test_all_generation_modes_validate_unsafe_options() -> None:
         list(generator.stream("a", max_tokens=0))
     with pytest.raises(ValueError, match="repetition_penalty"):
         generator.generate_batch(["a"], repetition_penalty=0)
+    with pytest.raises(ValueError, match="no_repeat_ngram_size"):
+        generator.generate("a", no_repeat_ngram_size=-1)
+
+
+def test_no_repeat_ngram_bans_only_tokens_that_complete_a_duplicate() -> None:
+    logits = torch.zeros((1, 8))
+
+    Generator._apply_no_repeat_ngram(logits, [1, 2, 3, 1, 2], 3)
+
+    assert torch.isneginf(logits[0, 3])
+    assert torch.isfinite(logits[0, 2])
 
 
 def test_generator_reuses_prefix_cache_without_repeating_prefill() -> None:

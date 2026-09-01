@@ -45,6 +45,7 @@ class GenerateRequest(StrictSchema):
     top_k: int = Field(default=40, ge=0, le=100_000)
     top_p: float = Field(default=0.9, gt=0.0, le=1.0, allow_inf_nan=False)
     repetition_penalty: float = Field(default=1.1, ge=0.1, le=2.0, allow_inf_nan=False)
+    no_repeat_ngram_size: int = Field(default=3, ge=0, le=16)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     stop: list[str] = Field(default_factory=list, max_length=16)
 

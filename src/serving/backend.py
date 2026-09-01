@@ -287,7 +287,9 @@ class ConfiguredModelBackend:
         options = dict(
             max_tokens=request.max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p,
-            repetition_penalty=request.repetition_penalty, seed=request.seed, stop=request.stop,
+            repetition_penalty=request.repetition_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            seed=request.seed, stop=request.stop,
             allow_special_tokens=True,
         )
         response_format = request.response_format or getattr(self, "response_format", None)
@@ -390,7 +392,8 @@ class ConfiguredModelBackend:
             options = dict(
                 max_tokens=request.max_tokens, temperature=request.temperature,
                 top_k=request.top_k, top_p=request.top_p,
-                repetition_penalty=request.repetition_penalty, seed=request.seed,
+                repetition_penalty=request.repetition_penalty,
+                no_repeat_ngram_size=request.no_repeat_ngram_size, seed=request.seed,
                 stop=request.stop, allow_special_tokens=True,
             )
             state.generation = self.generator.start_batched_stream(prompt, **options)
@@ -550,7 +553,9 @@ class ConfiguredModelBackend:
         pieces: list[str] = []
         options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
                        top_k=request.top_k, top_p=request.top_p,
-                       repetition_penalty=request.repetition_penalty, seed=request.seed, stop=request.stop,
+                       repetition_penalty=request.repetition_penalty,
+                       no_repeat_ngram_size=request.no_repeat_ngram_size,
+                       seed=request.seed, stop=request.stop,
                        allow_special_tokens=True)
         async for step in self._stream_steps(prompt, options):
             if step.finish_reason is not None:
@@ -712,7 +717,8 @@ class ConfiguredModelBackend:
                 decision = await self._generate_once(planning_prompt, {
                     "max_tokens": planning_tokens,
                     "temperature": 0.0, "top_k": 1, "top_p": 1.0,
-                    "repetition_penalty": 1.0, "seed": request.seed, "stop": [],
+                    "repetition_penalty": 1.1, "no_repeat_ngram_size": 3,
+                    "seed": request.seed, "stop": [],
                     "allow_special_tokens": True,
                 })
             except ValueError as error:

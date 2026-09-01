@@ -36,6 +36,8 @@ def main() -> None:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--max-tokens", type=int)
     parser.add_argument("--temperature", type=float)
+    parser.add_argument("--repetition-penalty", type=float)
+    parser.add_argument("--no-repeat-ngram-size", type=int)
     parser.add_argument("--response-format", choices=("plain", "markdown"))
     args = parser.parse_args()
 
@@ -183,7 +185,14 @@ def main() -> None:
             ),
             top_k=int(search_config.get("top_k", 20)) if search_results else int(inference_config.get("top_k", 40)),
             top_p=float(inference_config.get("top_p", 0.9)),
-            repetition_penalty=float(inference_config.get("repetition_penalty", 1.1)),
+            repetition_penalty=(
+                args.repetition_penalty if args.repetition_penalty is not None
+                else float(inference_config.get("repetition_penalty", 1.1))
+            ),
+            no_repeat_ngram_size=(
+                args.no_repeat_ngram_size if args.no_repeat_ngram_size is not None
+                else int(inference_config.get("no_repeat_ngram_size", 3))
+            ),
         )
         print(f"Gopi: {result.text.strip()}")
         if search_results:

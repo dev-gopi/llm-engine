@@ -46,6 +46,8 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top-k", type=int, default=40)
     parser.add_argument("--top-p", type=float, default=1.0)
+    parser.add_argument("--repetition-penalty", type=float, default=1.1)
+    parser.add_argument("--no-repeat-ngram-size", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -78,6 +80,8 @@ def main() -> None:
         temperature=args.temperature,
         top_k=args.top_k,
         top_p=args.top_p,
+        repetition_penalty=args.repetition_penalty,
+        no_repeat_ngram_size=args.no_repeat_ngram_size,
         seed=args.seed,
         allow_special_tokens=True,
     )

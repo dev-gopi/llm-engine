@@ -20,12 +20,21 @@ def normalize_answer(text: str) -> str:
 
 
 def score_answer(answer: str, case: BenchmarkCase) -> float:
-    normalized = normalize_answer(answer)
-    expected = [normalize_answer(value) for value in case.expected]
-    forbidden = [normalize_answer(value) for value in case.forbidden]
-    if any(value and value in normalized for value in forbidden):
+    answer_tokens = normalize_answer(answer).split()
+    expected = [normalize_answer(value).split() for value in case.expected]
+    forbidden = [normalize_answer(value).split() for value in case.forbidden]
+    if any(_contains_tokens(answer_tokens, value) for value in forbidden if value):
         return 0.0
-    return float(any(value and value in normalized for value in expected))
+    return float(any(_contains_tokens(answer_tokens, value) for value in expected if value))
+
+
+def _contains_tokens(tokens: list[str], phrase: list[str]) -> bool:
+    """Return whether a normalized token phrase occurs contiguously."""
+    width = len(phrase)
+    return width > 0 and any(
+        tokens[index : index + width] == phrase
+        for index in range(len(tokens) - width + 1)
+    )
 
 
 def summarize_scores(results: list[tuple[BenchmarkCase, float]]) -> dict[str, float | int]:

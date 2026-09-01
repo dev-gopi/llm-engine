@@ -226,6 +226,12 @@ def test_benchmark_normalization_and_scoring_support_unicode_scripts() -> None:
     ) == 1.0
 
 
+def test_benchmark_scoring_respects_token_boundaries() -> None:
+    case = BenchmarkCase("knowledge", "freezing point", ("0",))
+    assert score_answer("The answer is 0 degrees.", case) == 1.0
+    assert score_answer("The answer is 100 degrees.", case) == 0.0
+
+
 def test_domain_metrics_use_explicit_capability_weights() -> None:
     metrics = aggregate_domain_metrics({
         "english": {"loss": 2.0, "cross_entropy": 2.0, "z_loss": 0.0, "tokens": 10, "batches": 1},
