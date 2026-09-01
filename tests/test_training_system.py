@@ -177,6 +177,36 @@ def test_periodic_validation_saves_best_checkpoint_immediately() -> None:
     assert trainer.best_validation_loss == 2.0
 
 
+def test_periodic_latest_checkpoint_contains_same_step_validation_state() -> None:
+    class FixedEvaluator:
+        def __init__(self):
+            self.losses = iter([2.0, 2.1])
+
+        def evaluate(self, _loader):
+            loss = next(self.losses)
+            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    trainer = Trainer(model, optimizer)
+    latest_states = []
+
+    trainer.fit(
+        make_loader(), epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), log_every=0,
+        evaluate_every=1, checkpoint_every=1,
+        checkpoint_callback=lambda current, _epoch: latest_states.append(
+            current.state_dict()
+        ),
+        validation_metric_name="dataset_weighted_v1",
+    )
+
+    assert latest_states[0]["best_validation_loss"] == 2.0
+    assert latest_states[0]["early_stopping_best_loss"] == 2.0
+    assert latest_states[0]["validation_metric_name"] == "dataset_weighted_v1"
+
+
 def test_best_checkpoint_keeps_small_improvement_below_early_stopping_delta() -> None:
     class FixedEvaluator:
         def __init__(self):

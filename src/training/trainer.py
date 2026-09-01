@@ -335,8 +335,6 @@ class Trainer:
                     )
                     window_loss = 0.0
                     window_batches = 0
-                if optimizer_stepped and checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
-                    checkpoint_callback(self, epoch)
                 if optimizer_stepped and evaluate_every and evaluator and validation_dataloader and self.global_step % evaluate_every == 0:
                     metrics, domains = evaluate_validation()
                     log_validation(epoch, metrics, domains)
@@ -359,6 +357,12 @@ class Trainer:
                         )
                         if best_checkpoint_callback:
                             best_checkpoint_callback(self, epoch)
+                # When validation and checkpoint intervals coincide, persist
+                # the newly updated best/early-stopping state in latest.pt.
+                # Saving first would resume with the stale pre-validation
+                # baseline (often infinity for a new training stage).
+                if optimizer_stepped and checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
+                    checkpoint_callback(self, epoch)
                 if optimizer_stepped and stop_requested and stop_requested():
                     if checkpoint_callback:
                         checkpoint_callback(self, epoch)
