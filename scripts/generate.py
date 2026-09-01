@@ -31,13 +31,20 @@ from utils.logger import configure_logging
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("prompt")
+    parser.add_argument("prompt", nargs="?", help="text to generate a response for")
+    parser.add_argument(
+        "--prompt", dest="prompt_option",
+        help="text to generate a response for (alternative to the positional prompt)",
+    )
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
     parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.v2.yaml"))
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--max-tokens", type=int)
+    parser.add_argument(
+        "--max-tokens", "--max-new-tokens", dest="max_tokens", type=int,
+        help="maximum number of tokens to generate",
+    )
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--raw", action="store_true", help="Do not wrap prompt in chat template")
@@ -47,6 +54,11 @@ def main() -> None:
     parser.add_argument("--mcp-server", help="Restrict MCP routing to one configured server")
     parser.add_argument("--mcp-config", type=Path, default=Path("configs/mcp.yaml"))
     args = parser.parse_args()
+    if args.prompt is not None and args.prompt_option is not None:
+        parser.error("provide the prompt either positionally or with --prompt, not both")
+    args.prompt = args.prompt_option if args.prompt_option is not None else args.prompt
+    if args.prompt is None:
+        parser.error("a prompt is required (positionally or with --prompt)")
 
     configure_logging()
     model_config = load_yaml(args.model_config)
