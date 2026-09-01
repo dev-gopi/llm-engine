@@ -834,7 +834,7 @@ parameters can select another
 JSON file or browser refresh interval:
 
 ```text
-http://localhost:8000/training_report.html?data=experiment-2.json&refresh=1000
+http://localhost:8000/training_report.html?data=experiment-2.json&sample=training_report.sample.json&refresh=5000
 ```
 
 Useful training options are:

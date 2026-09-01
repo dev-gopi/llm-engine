@@ -72,6 +72,7 @@
   <script>
     const query = new URLSearchParams(location.search);
     const DATA_URL = query.get('data') || 'training_report.json';
+    const SAMPLE_URL = query.get('sample') || 'training_report.sample.json';
     const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 5000));
     const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
     const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
@@ -187,7 +188,7 @@
 
     async function load() { if(manual)return; try { const response=await fetch(`${DATA_URL}?t=${Date.now()}`,{cache:'no-store'}); if(!response.ok)throw new Error(response.statusText); render(await response.json()); } catch(error) { document.getElementById('status').textContent=`Cannot fetch ${DATA_URL}. Serve this folder over HTTP or choose a JSON file. ${error}`; } }
     document.getElementById('refresh').onclick=()=>{manual=false;load()};
-    document.getElementById('sample').onclick=async()=>{manual=true;const response=await fetch('training_report.sample.json',{cache:'no-store'});render(await response.json())};
+    document.getElementById('sample').onclick=async()=>{manual=true;try{const response=await fetch(`${SAMPLE_URL}?t=${Date.now()}`,{cache:'no-store'});if(!response.ok)throw new Error(response.statusText);render(await response.json())}catch(error){document.getElementById('status').textContent=`Cannot fetch ${SAMPLE_URL}: ${error}`}};
     document.getElementById('file').onchange=async event=>{const file=event.target.files[0];if(file){manual=true;render(JSON.parse(await file.text()))}};
     load(); setInterval(load,REFRESH_MS);
   </script>
