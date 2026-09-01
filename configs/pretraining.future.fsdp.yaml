@@ -10,6 +10,8 @@ dataset_governance:
 max_sequence_length: 2048
 num_workers: 4
 pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
 lazy_dataset: true
 distributed_strategy: fsdp
 distributed_backend: nccl

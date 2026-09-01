@@ -8,6 +8,8 @@ dataset_governance:
 max_sequence_length: 512
 num_workers: 4
 pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
 lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
@@ -58,6 +60,39 @@ validation_files:
   - data/processed/multilingual_bn_hi/validation.jsonl
   - data/processed/multilingual_hi/validation.jsonl
   - data/processed/tool_calling/validation.jsonl
+validation_domains:
+  tinystories:
+    - data/processed/tinystories/validation.jsonl
+  wikitext_103:
+    - data/processed/wikitext_103/validation.jsonl
+  english:
+    - data/processed/helpsteer/validation.jsonl
+    - data/processed/openorca/validation.jsonl
+    - data/processed/general_qa/validation.jsonl
+    - data/processed/writing_editing/validation.jsonl
+    - data/processed/safety_alignment/validation.jsonl
+  bengali:
+    - data/processed/multilingual_bn_hi/validation.jsonl
+  hindi:
+    - data/processed/multilingual_hi/validation.jsonl
+  coding:
+    - data/processed/code_instructions/validation.jsonl
+    - data/processed/tool_calling/validation.jsonl
+  gsm8k:
+    - data/processed/gsm8k/validation.jsonl
+  chat:
+    - data/processed/ultrachat_200k/validation.jsonl
+    - data/processed/core_chat/validation.jsonl
+validation_weights:
+  tinystories: 0.25
+  wikitext_103: 0.25
+  english: 0.24
+  bengali: 0.02
+  hindi: 0.02
+  coding: 0.08
+  gsm8k: 0.04
+  chat: 0.10
+validation_metric_name: dataset_weighted_mixed_domains_v1
 learning_rate: 0.0001
 weight_decay: 0.01
 beta1: 0.9
@@ -67,6 +102,8 @@ fused_optimizer: false
 gradient_clip_norm: 1.0
 gradient_accumulation_steps: 32
 mixed_precision: fp16
+grad_scaler_initial_scale: 1024
+grad_scaler_growth_interval: 20000
 lr_schedule: cosine
 warmup_ratio: 0.03
 min_lr_ratio: 0.1

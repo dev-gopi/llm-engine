@@ -8,6 +8,8 @@ dataset_governance:
 max_sequence_length: 256
 num_workers: 2
 pin_memory: false
+persistent_workers: true
+prefetch_factor: 2
 lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
@@ -52,6 +54,33 @@ validation_files:
   - data/processed/multilingual_bn_hi/validation.jsonl
   - data/processed/multilingual_hi/validation.jsonl
   - data/processed/tool_calling/validation.jsonl
+validation_domains:
+  english:
+    - data/processed/helpsteer/validation.jsonl
+    - data/processed/openorca/validation.jsonl
+    - data/processed/general_qa/validation.jsonl
+    - data/processed/writing_editing/validation.jsonl
+    - data/processed/safety_alignment/validation.jsonl
+  bengali:
+    - data/processed/multilingual_bn_hi/validation.jsonl
+  hindi:
+    - data/processed/multilingual_hi/validation.jsonl
+  coding:
+    - data/processed/code_instructions/validation.jsonl
+    - data/processed/tool_calling/validation.jsonl
+  gsm8k:
+    - data/processed/gsm8k/validation.jsonl
+  chat:
+    - data/processed/ultrachat_200k/validation.jsonl
+    - data/processed/core_chat/validation.jsonl
+validation_weights:
+  english: 0.48
+  bengali: 0.04
+  hindi: 0.04
+  coding: 0.16
+  gsm8k: 0.08
+  chat: 0.20
+validation_metric_name: dataset_weighted_sft_legacy_domains_v1
 learning_rate: 0.00005
 weight_decay: 0.01
 beta1: 0.9
@@ -72,6 +101,6 @@ early_stopping_patience: 2
 early_stopping_min_delta: 0.001
 ignore_index: -100
 label_smoothing: 0.05
-z_loss_coefficient: 0.0
+z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
