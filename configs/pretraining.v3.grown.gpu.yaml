@@ -1,0 +1,60 @@
+batch_size: 1
+epochs: 3
+seed: 42
+dataset_governance:
+  policy: warn
+  stage: pretraining
+  commercial_use: false
+max_sequence_length: 256
+num_workers: 1
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+lazy_dataset: true
+distributed_strategy: ddp
+distributed_backend: null
+checkpoint_format: single_file
+samples_per_epoch: 500000
+train_files:
+  - data/processed/tinystories/train.jsonl
+  - data/processed/wikitext_103/train.jsonl
+dataset_weights:
+  tinystories: 0.20
+  wikitext_103: 0.80
+validation_files:
+  - data/processed/tinystories/validation.jsonl
+  - data/processed/wikitext_103/validation.jsonl
+validation_domains:
+  tinystories:
+    - data/processed/tinystories/validation.jsonl
+  wikitext_103:
+    - data/processed/wikitext_103/validation.jsonl
+validation_weights:
+  tinystories: 0.20
+  wikitext_103: 0.80
+validation_metric_name: dataset_weighted_grown_v3_tinystories_20_wikitext_80_v1
+learning_rate: 0.00005
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 0.00000001
+fused_optimizer: false
+gradient_clip_norm: 1.0
+gradient_accumulation_steps: 32
+mixed_precision: fp16
+grad_scaler_initial_scale: 1024
+grad_scaler_growth_interval: 20000
+lr_schedule: cosine
+warmup_ratio: 0.05
+min_lr_ratio: 0.1
+ema_decay: 0.999
+log_every: 25
+checkpoint_every: 1000
+evaluate_every: 2000
+early_stopping_patience: 3
+early_stopping_min_delta: 0.001
+ignore_index: -100
+label_smoothing: 0.0
+z_loss_coefficient: 0.0001
+shift_labels: true
+loss_reduction: mean

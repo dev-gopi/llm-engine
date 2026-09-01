@@ -1,0 +1,31 @@
+# Second append-only extension: preserve all existing 34k token IDs and add
+# up to 2,000 new tokens. Do not replace this with a from-scratch tokenizer.
+type: byte_level_bpe
+vocab_size: 36000
+extension:
+  base_tokenizer: data/tokenizer-v2-extended
+  output_dir: data/tokenizer-v2-extended-36k
+  max_new_tokens: 2000
+  min_frequency: 5
+  min_existing_tokens: 3
+  max_scan_bytes: 536870912
+  source_sampling: balanced_bytes
+  sources:
+    - data/processed/ultrachat_200k/train.jsonl
+    - data/processed/helpsteer/train.jsonl
+    - data/processed/openorca/train.jsonl
+    - data/processed/gsm8k/train.jsonl
+    - data/processed/core_chat/train.jsonl
+    - data/processed/code_instructions/train.jsonl
+    - data/processed/general_qa/train.jsonl
+    - data/processed/safety_alignment/train.jsonl
+    - data/processed/writing_editing/train.jsonl
+    - data/processed/multilingual_bn_hi/train.jsonl
+    - data/processed/multilingual_hi/train.jsonl
+    - data/processed/tool_calling/train.jsonl
+    - data/processed/emoji_chat/train.jsonl
+    - data/processed/bangla_qa/train.jsonl
+    - data/processed/bangla_reading_qa/train.jsonl
+    - data/processed/hindi_history_qa/train.jsonl
+    - data/processed/hinglish_chat/train.jsonl
+    - data/processed/code_alpaca/train.jsonl

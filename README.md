@@ -601,11 +601,14 @@ Configuration is divided by responsibility:
 | --- | --- | --- |
 | `configs/model.v2.cpu.yaml` | Active compact v2 CPU architecture | 15.8M parameters, 32K vocabulary, hidden size 256, 8 layers, GQA, RoPE, RMSNorm, SwiGLU |
 | `configs/model.v2.gpu.yaml` | Active laptop-GPU v2 architecture | 54.4M parameters, 32K vocabulary, hidden size 512, 10 layers, GQA, RoPE, RMSNorm, SwiGLU |
+| `configs/model.v2.55m-source.yaml` | Frozen source shape for checkpoint growth | Original v2 GPU shape: 32K base vocabulary, hidden size 512, 10 layers |
+| `configs/model.v3.gpu.yaml` | Grown laptop-GPU architecture | 79.3M parameters, 36K vocabulary, hidden size 512, 16 layers |
 | `configs/pretraining.v2.cpu.yaml` | Active CPU v2 pretraining | TinyStories/WikiText 35/65, 128 tokens, effective batch 32, 3 epochs, FP32 |
 | `configs/pretraining.v2.gpu.yaml` | Active GPU v2 pretraining | TinyStories/WikiText 35/65, 256 tokens, effective batch 32, FP16, 3 epochs |
 | `configs/pretraining.v2.continued.gpu.yaml` | Optional WikiText-heavy new training stage | TinyStories/WikiText 15/85, one epoch, separate metric and checkpoints |
 | `configs/pretraining.v2.packed.cpu.yaml` | CPU v2 pretraining from memory-mapped token shards | TinyStories/WikiText 35/65 weighted validation, 256-token packed sequences |
 | `configs/pretraining.v2.packed.gpu.yaml` | GPU v2 pretraining from memory-mapped token shards | Same objective and weights as JSONL v2, FP16, runtime tokenization removed |
+| `configs/pretraining.v3.grown.gpu.yaml` | Continued pretraining after 55M-to-79M growth | Batch 1, effective batch 32, FP16, 500K samples/epoch, fresh optimizer |
 | `configs/finetuning.v2.cpu.yaml` | Quality-balanced CPU v2 SFT | Chat, factual, reasoning, Bengali, Hindi, and coding; response-only loss |
 | `configs/finetuning.v2.gpu.yaml` | Active quality-balanced GPU v2 SFT | 18 datasets, 500K samples/epoch, 384 tokens, effective batch 32, BF16, 3 epochs |
 | `configs/finetuning.v2.packed.cpu.yaml` | CPU v2 SFT from response-masked shards | Same quality mixture with runtime tokenization removed |
@@ -613,6 +616,7 @@ Configuration is divided by responsibility:
 | `configs/dpo.v2.cpu.yaml` | Single-device CPU preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/dpo.v2.gpu.yaml` | Single-GPU FP16 preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/tokenizer.v2.yaml` | V2 base-tokenizer training and append-only extension setup | `vocab_size: 32000`, balanced source sampling, extension sources and discovery limits |
+| `configs/tokenizer.v3.extension.yaml` | Second verified append-only extension | Preserves the current 34K IDs and discovers up to 2,000 additional tokens |
 | `configs/evaluation.v2.pretraining.yaml` | Pretraining domain evaluation | TinyStories and WikiText reported independently |
 | `configs/evaluation.v2.finetuning.yaml` | SFT domain evaluation | English, Bengali, Hindi, coding, GSM8K, and chat |
 | `configs/inference.v2.yaml` | Active v2 inference and serving defaults | Gopi identity, sampling, context memory, model paths, concurrency, cache, and rate limits |
@@ -703,6 +707,71 @@ The resulting model vocabulary is `32000 + added_vocab_size`. The model loader
 derives that size from verified tokenizer lineage, copies rows `0..31999`
 exactly, initializes only appended embedding/output rows, and preserves tied
 input/output weights.
+
+### Grow the 55M v2 checkpoint to the 79M v3 model
+
+This optional workflow reuses a trained 10-layer v2 GPU model while adding six
+transformer layers and extending its vocabulary from 34K to 36K. It is not a
+normal resume: `scripts/grow_checkpoint.py` creates a new model checkpoint with
+a fresh training state. It copies layers `0..9` and vocabulary rows `0..33999`
+exactly, mean-initializes the new vocabulary rows, and makes layers `10..15`
+identity-like by zeroing their attention and feed-forward output projections.
+The new blocks therefore disturb the learned residual stream as little as
+possible before continued pretraining.
+
+Keep the original tokenizer and checkpoint. The 36K tokenizer must be a second
+append-only extension of `data/tokenizer-v2-extended`; a newly trained 36K
+tokenizer is not compatible because it can assign different IDs.
+
+First create the verified 34K-to-36K tokenizer extension:
+
+```bash
+.venv/bin/python scripts/tokenize.py extend \
+  --config configs/tokenizer.v3.extension.yaml
+```
+
+Confirm that the command reports an old vocabulary size of 34,000 and a new
+size of 36,000. If discovery finds fewer than 2,000 acceptable tokens, do not
+run the converter with a 36K target configuration; adjust the extension corpus
+or use a target model configuration matching the actual tokenizer size.
+
+Convert the selected v2 fine-tuning checkpoint on CPU:
+
+```bash
+.venv/bin/python scripts/grow_checkpoint.py \
+  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --source-model-config configs/model.v2.55m-source.yaml \
+  --target-model-config configs/model.v3.gpu.yaml \
+  --source-tokenizer data/tokenizer-v2-extended \
+  --target-tokenizer data/tokenizer-v2-extended-36k \
+  --output checkpoints/v3-grown/init.pt
+```
+
+The converter rejects unrelated tokenizers, shrinking vocabularies, targets
+that are not deeper, and incompatible hidden dimensions. It intentionally does
+not copy optimizer, scheduler, scaler, sampler, or EMA state. Pass `--use-ema`
+only when the EMA weights are deliberately preferred over the live checkpoint
+weights.
+
+Continue causal-language-model pretraining with a fresh optimizer:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v3.gpu.yaml \
+  --training-config configs/pretraining.v3.grown.gpu.yaml \
+  --tokenizer data/tokenizer-v2-extended-36k \
+  --init-from checkpoints/v3-grown/init.pt \
+  --output checkpoints/v3-pretraining/latest.pt \
+  --best-output checkpoints/v3-pretraining/best.pt
+```
+
+The 4 GB GPU profile uses batch size 1, gradient accumulation 32, FP16,
+gradient checkpointing, a `5e-5` peak learning rate, and a 5% warmup. Watch
+validation loss and `nonfinite_updates`; retain the original v2 model until the
+grown checkpoint has demonstrated better held-out and generation quality.
+After continued pretraining stabilizes, run SFT again with a separate v3
+fine-tuning profile before optional DPO.
 
 Run staged GPU training with separate checkpoints:
 
