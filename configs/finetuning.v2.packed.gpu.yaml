@@ -91,6 +91,7 @@ validation_domains:
     coding:
       - data/shards/finetuning-v2/validation/code_instructions/manifest.json
       - data/shards/finetuning-v2/validation/code_alpaca/manifest.json
+      - data/shards/finetuning-v2/validation/tool_calling/manifest.json
     gsm8k:
       - data/shards/finetuning-v2/validation/gsm8k/manifest.json
     chat:
@@ -104,7 +105,7 @@ validation_weights:
   coding: 0.10
   gsm8k: 0.13
   chat: 0.41
-validation_metric_name: dataset_weighted_sft_domains_v1
+validation_metric_name: dataset_weighted_sft_domains_v2
 learning_rate: 0.00003
 weight_decay: 0.01
 beta1: 0.9

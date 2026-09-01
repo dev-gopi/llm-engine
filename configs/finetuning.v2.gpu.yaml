@@ -92,6 +92,7 @@ validation_domains:
     coding:
       - data/processed/code_instructions/validation.jsonl
       - data/processed/code_alpaca/validation.jsonl
+      - data/processed/tool_calling/validation.jsonl
     gsm8k:
       - data/processed/gsm8k/validation.jsonl
     chat:
@@ -105,7 +106,7 @@ validation_weights:
   coding: 0.10
   gsm8k: 0.13
   chat: 0.41
-validation_metric_name: dataset_weighted_sft_domains_v1
+validation_metric_name: dataset_weighted_sft_domains_v2
 learning_rate: 0.00003
 weight_decay: 0.01
 beta1: 0.9

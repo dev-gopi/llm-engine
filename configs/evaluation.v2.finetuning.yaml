@@ -16,6 +16,7 @@ domains:
   coding:
     - data/processed/code_instructions/validation.jsonl
     - data/processed/code_alpaca/validation.jsonl
+    - data/processed/tool_calling/validation.jsonl
   gsm8k:
     - data/processed/gsm8k/validation.jsonl
   chat:
