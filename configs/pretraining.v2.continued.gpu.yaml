@@ -18,8 +18,8 @@ train_files:
   - data/processed/tinystories/train.jsonl
   - data/processed/wikitext_103/train.jsonl
 dataset_weights:
-  tinystories: 0.25
-  wikitext_103: 0.75
+  tinystories: 0.20
+  wikitext_103: 0.80
 validation_files:
   - data/processed/tinystories/validation.jsonl
   - data/processed/wikitext_103/validation.jsonl
@@ -29,9 +29,9 @@ validation_domains:
   wikitext_103:
     - data/processed/wikitext_103/validation.jsonl
 validation_weights:
-  tinystories: 0.25
-  wikitext_103: 0.75
-validation_metric_name: dataset_weighted_tinystories_25_wikitext_75_v1
+  tinystories: 0.20
+  wikitext_103: 0.80
+validation_metric_name: dataset_weighted_tinystories_20_wikitext_80_v1
 learning_rate: 0.00001
 weight_decay: 0.1
 beta1: 0.9
