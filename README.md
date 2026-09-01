@@ -820,7 +820,12 @@ warnings, and the recent raw log tail. It also highlights possible overfitting,
 ranks domains by current validation loss, compares latest and best validation
 checkpoints, summarizes the run, and identifies additional evaluations that
 are not available from trainer logs (dataset quality, fixed-prompt generation
-quality, and detailed GPU utilization/temperature/power telemetry). Query
+quality). The independent reporter also samples live CPU utilization, system
+and training-process RAM, GPU utilization, VRAM, temperature, power draw,
+power limit, and fan speed. NVIDIA fields gracefully show as unavailable when
+`nvidia-smi` or a particular sensor is unsupported. Up to 3,600 telemetry
+samples are retained by default and can be changed with `--telemetry-points`.
+Query
 parameters can select another
 JSON file or browser refresh interval:
 

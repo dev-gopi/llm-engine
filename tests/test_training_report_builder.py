@@ -1,6 +1,8 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -86,3 +88,39 @@ def test_progress_analysis_detects_overfitting_signal() -> None:
     assert analysis["overfitting"]["status"] == "risk_detected"
     assert analysis["checkpoint_comparison"]["best_step"] == 10
     assert analysis["checkpoint_comparison"]["latest_minus_best"] == pytest.approx(0.2)
+
+
+def test_pid_check_accepts_a_live_process_and_rejects_missing_process() -> None:
+    assert MODULE._pid_is_running(os.getpid()) is True
+    assert MODULE._pid_is_running(2**31 - 1) is False
+
+
+def test_system_monitor_collects_cpu_ram_and_process_memory() -> None:
+    monitor = MODULE.SystemMonitor(os.getpid(), max_points=2)
+    monitor.sample()
+    sample = monitor.sample()
+
+    assert sample["cpu_percent"] is not None
+    assert 0 <= sample["cpu_percent"] <= 100
+    assert sample["ram_total_mb"] > 0
+    assert sample["ram_used_mb"] >= 0
+    assert sample["process_rss_mb"] > 0
+    assert len(monitor.history) == 2
+
+
+def test_gpu_monitor_parses_nvidia_smi_and_handles_na(monkeypatch) -> None:
+    output = "0, NVIDIA RTX, 72, 1906, 4096, 63, 22.5, 60, [N/A]\n"
+    monkeypatch.setattr(
+        MODULE.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=output),
+    )
+
+    gpu = MODULE.SystemMonitor._gpus()[0]
+
+    assert gpu["name"] == "NVIDIA RTX"
+    assert gpu["utilization_percent"] == 72
+    assert gpu["memory_used_mb"] == 1906
+    assert gpu["temperature_c"] == 63
+    assert gpu["power_draw_w"] == 22.5
+    assert gpu["fan_percent"] is None

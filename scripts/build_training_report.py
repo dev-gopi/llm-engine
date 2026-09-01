@@ -10,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 from typing import Any
@@ -21,6 +22,98 @@ from utils.config import load_yaml
 
 
 KEY_VALUE = re.compile(r"([a-zA-Z_]+)=([^\s]+)")
+
+
+def _number(value: str) -> float | None:
+    try:
+        parsed = float(value.strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+class SystemMonitor:
+    """Collect lightweight host and NVIDIA telemetry outside the trainer."""
+
+    def __init__(self, process_pid: int | None = None, *, max_points: int = 3600) -> None:
+        self.process_pid = process_pid
+        self.max_points = max_points
+        self.previous_cpu: tuple[int, int] | None = None
+        self.history: list[dict[str, Any]] = []
+
+    def sample(self) -> dict[str, Any]:
+        sample: dict[str, Any] = {"timestamp": datetime.now(timezone.utc).isoformat()}
+        sample.update(self._cpu_and_memory())
+        sample["process_rss_mb"] = self._process_rss_mb()
+        sample["gpus"] = self._gpus()
+        self.history.append(sample)
+        del self.history[:-self.max_points]
+        return sample
+
+    def _cpu_and_memory(self) -> dict[str, Any]:
+        result = {"cpu_percent": None, "ram_used_mb": None, "ram_total_mb": None, "ram_percent": None}
+        try:
+            cpu_values = [int(value) for value in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
+            total, idle = sum(cpu_values), cpu_values[3] + (cpu_values[4] if len(cpu_values) > 4 else 0)
+            if self.previous_cpu:
+                total_delta, idle_delta = total - self.previous_cpu[0], idle - self.previous_cpu[1]
+                if total_delta > 0:
+                    result["cpu_percent"] = (1.0 - idle_delta / total_delta) * 100.0
+            self.previous_cpu = (total, idle)
+            memory = {}
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                key, value = line.split(":", 1)
+                memory[key] = int(value.strip().split()[0])
+            total_kb, available_kb = memory["MemTotal"], memory["MemAvailable"]
+            used_kb = total_kb - available_kb
+            result.update({
+                "ram_used_mb": used_kb / 1024,
+                "ram_total_mb": total_kb / 1024,
+                "ram_percent": used_kb / total_kb * 100 if total_kb else None,
+            })
+        except (OSError, ValueError, KeyError, IndexError):
+            pass
+        return result
+
+    def _process_rss_mb(self) -> float | None:
+        if not self.process_pid:
+            return None
+        try:
+            for line in Path(f"/proc/{self.process_pid}/status").read_text().splitlines():
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+        except (OSError, ValueError, IndexError):
+            pass
+        return None
+
+    @staticmethod
+    def _gpus() -> list[dict[str, Any]]:
+        fields = [
+            "index", "name", "utilization.gpu", "memory.used", "memory.total",
+            "temperature.gpu", "power.draw", "power.limit", "fan.speed",
+        ]
+        try:
+            completed = subprocess.run(
+                ["nvidia-smi", f"--query-gpu={','.join(fields)}", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=2, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        if completed.returncode != 0:
+            return []
+        gpus = []
+        for line in completed.stdout.splitlines():
+            values = [value.strip() for value in line.split(",")]
+            if len(values) != len(fields):
+                continue
+            gpus.append({
+                "index": int(values[0]), "name": values[1],
+                "utilization_percent": _number(values[2]),
+                "memory_used_mb": _number(values[3]), "memory_total_mb": _number(values[4]),
+                "temperature_c": _number(values[5]), "power_draw_w": _number(values[6]),
+                "power_limit_w": _number(values[7]), "fan_percent": _number(values[8]),
+            })
+        return gpus
 
 
 def _value(text: str) -> Any:
@@ -269,7 +362,11 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_report(args: argparse.Namespace, parsed: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_report(
+    args: argparse.Namespace,
+    parsed: dict[str, Any] | None = None,
+    telemetry: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     parsed = parsed or parse_training_log(args.log, raw_tail_lines=args.raw_tail_lines)
     report = {
         "schema_version": 1,
@@ -284,21 +381,29 @@ def build_report(args: argparse.Namespace, parsed: dict[str, Any] | None = None)
             "best": checkpoint_details(args.best_checkpoint, parsed["validation"], best=True),
         },
         "analysis": analyze_progress(parsed),
+        "telemetry": telemetry or [],
         **parsed,
     }
+    latest_telemetry = report["telemetry"][-1] if report["telemetry"] else {}
+    if latest_telemetry.get("gpus"):
+        report["analysis"]["report_coverage"]["gpu_telemetry"] = "available"
+    elif report["telemetry"]:
+        report["analysis"]["report_coverage"]["gpu_telemetry"] = "CPU and RAM available; NVIDIA telemetry unavailable"
     return _finite(report)
 
 
 async def watch_report(args: argparse.Namespace) -> None:
     """Refresh JSON asynchronously while file reads run off the event loop."""
     reader = IncrementalLogReader(args.log, raw_tail_lines=args.raw_tail_lines)
+    monitor = SystemMonitor(args.parent_pid, max_points=args.telemetry_points)
     interval = max(args.watch_seconds, 0.25)
     while True:
-        if args.parent_pid and os.getppid() != args.parent_pid:
+        if args.parent_pid and not _pid_is_running(args.parent_pid):
             print("parent training process exited; report watcher stopping", flush=True)
             return
         parsed = await asyncio.to_thread(reader.refresh)
-        report = await asyncio.to_thread(build_report, args, parsed)
+        await asyncio.to_thread(monitor.sample)
+        report = await asyncio.to_thread(build_report, args, parsed, monitor.history)
         await asyncio.to_thread(write_atomic, args.output, report)
         print(
             f"updated {args.output}: {len(report['training'])} training points, "
@@ -306,6 +411,17 @@ async def watch_report(args: argparse.Namespace) -> None:
             flush=True,
         )
         await asyncio.sleep(interval)
+
+
+def _pid_is_running(pid: int) -> bool:
+    """Return whether a process exists, including when the watcher was restarted."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _finite(value):
@@ -344,18 +460,24 @@ def main() -> None:
     parser.add_argument("--best-checkpoint", type=Path, default=Path("checkpoints/v2-finetuning/best.pt"))
     parser.add_argument("--raw-tail-lines", type=int, default=1000)
     parser.add_argument(
+        "--telemetry-points", type=int, default=3600,
+        help="maximum live CPU/RAM/GPU samples retained in report JSON",
+    )
+    parser.add_argument(
         "--watch-seconds", type=float, default=1.0,
         help="asynchronous refresh interval (default: 1 second; zero runs once)",
     )
     parser.add_argument(
         "--parent-pid", type=int,
-        help="stop automatically when this direct parent process exits",
+        help="stop automatically when this training process exits",
     )
     args = parser.parse_args()
     if not args.log.is_file():
         parser.error(f"training log not found: {args.log}")
     if args.watch_seconds < 0:
         parser.error("--watch-seconds must be non-negative")
+    if args.telemetry_points < 1:
+        parser.error("--telemetry-points must be positive")
     if args.watch_seconds > 0:
         try:
             asyncio.run(watch_report(args))
@@ -363,7 +485,9 @@ def main() -> None:
             print("report watcher stopped", flush=True)
         return
     else:
-        report = build_report(args)
+        monitor = SystemMonitor(args.parent_pid, max_points=args.telemetry_points)
+        monitor.sample()
+        report = build_report(args, telemetry=monitor.history)
         write_atomic(args.output, report)
         print(
             f"updated {args.output}: {len(report['training'])} training points, "
