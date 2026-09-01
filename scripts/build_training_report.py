@@ -191,16 +191,66 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
     gradients = [float(item["grad_norm"]) for item in training if item.get("grad_norm") is not None]
     memory = [float(item["peak_memory_mb"]) for item in training if item.get("peak_memory_mb") is not None]
     train_metric = "avg" if training and training[0].get("avg") is not None else "loss"
+    training_loss = _change(
+        training[0].get(train_metric) if training else None,
+        training[-1].get(train_metric) if training else None,
+    )
+    domain_ranking = sorted(
+        (
+            {"name": name, "latest_loss": values["loss"]["latest"],
+             "percent_improvement": values["loss"]["percent_improvement"]}
+            for name, values in domains.items()
+            if values["loss"]["latest"] is not None
+        ),
+        key=lambda item: item["latest_loss"],
+    )
+    train_improvement = training_loss.get("absolute_improvement")
+    recent_validation_improvement = recent.get("absolute_improvement")
+    if len(validation) < 2:
+        overfitting = {"status": "insufficient_validation", "reason": "At least two validation runs are required."}
+    elif train_improvement is not None and train_improvement > 0 and recent_validation_improvement is not None and recent_validation_improvement < -0.001:
+        overfitting = {"status": "risk_detected", "reason": "Training loss improved while recent validation loss worsened."}
+    elif recent_validation_improvement is not None and recent_validation_improvement >= -0.001:
+        overfitting = {"status": "no_current_signal", "reason": "Recent validation loss is stable or improving."}
+    else:
+        overfitting = {"status": "inconclusive", "reason": "The available loss trends are inconclusive."}
+    best_validation = min(validation, key=lambda item: float(item["loss"])) if validation else None
+    latest_validation = validation[-1] if validation else None
     return {
         "verdict": verdict,
         "overall_validation_loss": overall,
         "recent_validation_loss": recent,
         "overall_perplexity": perplexity,
-        "training_loss": _change(
-            training[0].get(train_metric) if training else None,
-            training[-1].get(train_metric) if training else None,
-        ),
+        "training_loss": training_loss,
         "domains": domains,
+        "domain_ranking": domain_ranking,
+        "overfitting": overfitting,
+        "checkpoint_comparison": {
+            "best_step": best_validation.get("step") if best_validation else None,
+            "best_validation_loss": best_validation.get("loss") if best_validation else None,
+            "latest_step": latest_validation.get("step") if latest_validation else None,
+            "latest_validation_loss": latest_validation.get("loss") if latest_validation else None,
+            "latest_minus_best": (
+                float(latest_validation["loss"]) - float(best_validation["loss"])
+                if latest_validation and best_validation else None
+            ),
+            "note": "Loss comparison only; response quality requires a separate fixed-prompt or benchmark evaluation.",
+        },
+        "run_summary": {
+            "current_epoch": training[-1].get("epoch") if training else None,
+            "current_step": training[-1].get("step") if training else None,
+            "progress_percent": training[-1].get("progress") if training else None,
+            "best_validation_step": best_validation.get("step") if best_validation else None,
+            "best_validation_loss": best_validation.get("loss") if best_validation else None,
+            "best_checkpoint_updates": len(parsed.get("best_updates", [])),
+        },
+        "report_coverage": {
+            "loss_and_runtime": "available",
+            "checkpoint_files": "available",
+            "data_quality": "not_collected; run a dataset audit for duplicates, truncation, language and token lengths",
+            "generation_quality": "not_collected; run fixed-prompt or benchmark evaluation for checkpoint response quality",
+            "gpu_telemetry": "partial; memory and throughput are available, utilization, temperature and power are not logged",
+        },
         "runtime": {
             "training_points": len(training),
             "validation_points": len(validation),

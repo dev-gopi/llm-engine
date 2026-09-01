@@ -67,3 +67,22 @@ def test_progress_analysis_reports_overall_and_domain_improvement() -> None:
     assert analysis["verdict"] == "improving"
     assert analysis["overall_validation_loss"]["percent_improvement"] == pytest.approx(10.0)
     assert analysis["domains"]["chat"]["loss"]["absolute_improvement"] == 0.5
+    assert analysis["overfitting"]["status"] == "no_current_signal"
+    assert analysis["domain_ranking"][0]["name"] == "chat"
+    assert analysis["checkpoint_comparison"]["best_step"] is None
+    assert analysis["checkpoint_comparison"]["latest_minus_best"] == 0
+    assert analysis["report_coverage"]["generation_quality"].startswith("not_collected")
+
+
+def test_progress_analysis_detects_overfitting_signal() -> None:
+    parsed = {
+        "training": [{"loss": 3.0}, {"loss": 2.0}],
+        "validation": [{"step": 10, "loss": 2.5}, {"step": 20, "loss": 2.7}],
+        "best_updates": [],
+    }
+
+    analysis = MODULE.analyze_progress(parsed)
+
+    assert analysis["overfitting"]["status"] == "risk_detected"
+    assert analysis["checkpoint_comparison"]["best_step"] == 10
+    assert analysis["checkpoint_comparison"]["latest_minus_best"] == pytest.approx(0.2)

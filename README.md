@@ -816,7 +816,12 @@ Open `http://localhost:8000/training_report.html`. The page loads
 `training_report.json` by default and refreshes every five seconds. It displays
 training and validation loss, per-domain loss, perplexity, learning rate,
 gradient norm, throughput, memory/checkpoint details, improvement tables,
-warnings, and the recent raw log tail. Query parameters can select another
+warnings, and the recent raw log tail. It also highlights possible overfitting,
+ranks domains by current validation loss, compares latest and best validation
+checkpoints, summarizes the run, and identifies additional evaluations that
+are not available from trainer logs (dataset quality, fixed-prompt generation
+quality, and detailed GPU utilization/temperature/power telemetry). Query
+parameters can select another
 JSON file or browser refresh interval:
 
 ```text

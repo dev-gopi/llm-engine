@@ -50,6 +50,13 @@
     </section>
     <section class="panel" style="margin-bottom:16px"><h2>Validation history</h2><div id="validation-table"></div></section>
     <section class="panel" style="margin-bottom:16px"><h2>Per-domain improvement</h2><div id="domain-improvement"></div></section>
+    <section class="grid">
+      <div class="panel"><h2>Overfitting monitor</h2><div id="overfitting"></div></div>
+      <div class="panel"><h2>Domain ranking</h2><div id="domain-ranking"></div></div>
+      <div class="panel"><h2>Checkpoint comparison</h2><div id="checkpoint-comparison"></div></div>
+      <div class="panel"><h2>Run summary</h2><div id="run-summary"></div></div>
+    </section>
+    <section class="panel" style="margin-bottom:16px"><h2>Report coverage and recommended additional evaluations</h2><div id="report-coverage"></div></section>
     <section class="panel" style="margin-bottom:16px"><h2>Warnings and errors</h2><pre id="warnings"></pre></section>
     <section class="panel"><h2>Training log tail</h2><pre id="logs"></pre></section>
   </main>
@@ -105,6 +112,20 @@
       document.getElementById('domains').innerHTML=table(['Domain','Loss','Cross entropy','Perplexity','Tokens'],Object.entries(validation.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
       document.getElementById('validation-table').innerHTML=table(['Step','Epoch','Loss','Cross entropy','Perplexity','Tokens'],vals.map(v=>[fmt(v.step,0),fmt(v.epoch,0),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
       document.getElementById('domain-improvement').innerHTML=table(['Domain','First loss','Latest loss','Loss improvement','Improvement %','Perplexity improvement %'],Object.entries(analysis.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss?.first),fmt(v.loss?.latest),delta(v.loss?.absolute_improvement),percent(v.loss?.percent_improvement),percent(v.perplexity?.percent_improvement)]));
+      const over=analysis.overfitting||{};
+      document.getElementById('overfitting').innerHTML=`<div class="value ${over.status==='risk_detected'?'bad':'ok'}">${esc((over.status||'unknown').replaceAll('_',' '))}</div><p class="muted">${esc(over.reason||'No analysis available.')}</p>`;
+      const ranking=analysis.domain_ranking||[];
+      document.getElementById('domain-ranking').innerHTML=ranking.length?table(['Rank','Domain','Latest loss','Improvement %'],ranking.map((v,i)=>[fmt(i+1,0),esc(v.name),fmt(v.latest_loss),percent(v.percent_improvement)])):'Not enough domain validation data.';
+      const comparison=analysis.checkpoint_comparison||{};
+      document.getElementById('checkpoint-comparison').innerHTML=table(['Metric','Value'],[
+        ['Best validation step',fmt(comparison.best_step,0)],['Best validation loss',fmt(comparison.best_validation_loss)],
+        ['Latest validation step',fmt(comparison.latest_step,0)],['Latest validation loss',fmt(comparison.latest_validation_loss)],
+        ['Latest minus best',fmt(comparison.latest_minus_best,6)]
+      ])+`<p class="muted">${esc(comparison.note||'')}</p>`;
+      const summary=analysis.run_summary||{};
+      document.getElementById('run-summary').innerHTML=table(['Metric','Value'],Object.entries(summary).map(([key,value])=>[esc(key.replaceAll('_',' ')),fmt(value)]));
+      const coverage=analysis.report_coverage||{};
+      document.getElementById('report-coverage').innerHTML=table(['Area','Coverage'],Object.entries(coverage).map(([key,value])=>[esc(key.replaceAll('_',' ')),esc(value)]));
       document.getElementById('warnings').textContent=(data.warnings||[]).join('\n')||'No warnings or errors captured.';
       document.getElementById('logs').textContent=(data.raw_log_tail||[]).join('\n');
     }
