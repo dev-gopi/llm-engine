@@ -71,7 +71,7 @@ Build and enable the persistent retrieval index:
 .venv/bin/python scripts/build_rag_index.py documents/ --output data/rag/index.sqlite
 ```
 
-Set `rag.enabled: true` under `configs/inference.v2.yaml`, restart the server,
+Set `rag.enabled: true` under `configs/inference.yaml`, restart the server,
 and call the native endpoint with `"rag": true`. Alternatively prefix a prompt
 with `/rag`; this also works through OpenAI-compatible chat clients. The server
 uses disk-backed SQLite FTS5/BM25 retrieval, does not send documents to an external service,

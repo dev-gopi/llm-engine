@@ -1,3 +1,4 @@
+# Frozen 32K, 10-layer source shape used only when growing an older checkpoint.
 vocab_size: 32000
 hidden_size: 512
 layers: 10

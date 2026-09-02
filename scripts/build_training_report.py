@@ -489,10 +489,10 @@ def main() -> None:
         help="training console log to parse (matches train.py default)",
     )
     parser.add_argument("--output", type=Path, default=Path("reports/training_report.json"))
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.v2.gpu.yaml"))
-    parser.add_argument("--latest-checkpoint", type=Path, default=Path("checkpoints/v2-finetuning/latest.pt"))
-    parser.add_argument("--best-checkpoint", type=Path, default=Path("checkpoints/v2-finetuning/best.pt"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml"))
+    parser.add_argument("--latest-checkpoint", type=Path, default=Path("checkpoints/finetuning/latest.pt"))
+    parser.add_argument("--best-checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt"))
     parser.add_argument("--raw-tail-lines", type=int, default=1000)
     parser.add_argument(
         "--telemetry-points", type=int, default=3600,

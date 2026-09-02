@@ -24,9 +24,9 @@ from utils.device import resolve_device
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--domains", type=Path, default=Path("configs/evaluation.v2.domains.yaml"))
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.v2.gpu.yaml"))
+    parser.add_argument("--domains", type=Path, default=Path("configs/evaluation.domains.yaml"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml"))
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--device", default="auto")

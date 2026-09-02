@@ -33,14 +33,14 @@ logger = get_logger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/dpo.v2.gpu.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--training-config", type=Path, default=Path("configs/dpo.gpu.yaml"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v3"))
     parser.add_argument("--reference-checkpoint", type=Path, required=True)
     parser.add_argument("--init-from", type=Path)
     parser.add_argument("--resume", type=Path)
-    parser.add_argument("--output", type=Path, default=Path("checkpoints/v2-dpo/latest.pt"))
-    parser.add_argument("--best-output", type=Path, default=Path("checkpoints/v2-dpo/best.pt"))
+    parser.add_argument("--output", type=Path, default=Path("checkpoints/dpo/latest.pt"))
+    parser.add_argument("--best-output", type=Path, default=Path("checkpoints/dpo/best.pt"))
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
@@ -59,7 +59,7 @@ def main() -> None:
     device = resolve_device(args.device)
     mixed_precision = str(config.get("mixed_precision", "none"))
     if mixed_precision == "fp16" and device.type != "cuda":
-        parser.error("the selected DPO profile requires CUDA fp16; use configs/dpo.v2.cpu.yaml")
+        parser.error("the selected DPO profile requires CUDA fp16; use configs/dpo.cpu.yaml")
     if mixed_precision == "bf16" and device.type == "cuda" and not torch.cuda.is_bf16_supported():
         parser.error("the selected DPO profile requires BF16, but this GPU does not support it")
     tokenizer = Tokenizer.load(args.tokenizer)

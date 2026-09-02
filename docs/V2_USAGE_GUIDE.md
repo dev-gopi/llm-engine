@@ -39,8 +39,8 @@ test -f checkpoints/v2-dpo/best.pt && echo "Final checkpoint found"
 Required runtime files are:
 
 ```text
-configs/model.v2.gpu.yaml
-configs/inference.v2.yaml
+configs/model.gpu.yaml
+configs/inference.yaml
 data/tokenizer-v2/
 checkpoints/v2-dpo/best.pt
 ```
@@ -52,8 +52,8 @@ English assistant response:
 ```bash
 .venv/bin/python scripts/generate.py \
   "Explain artificial intelligence in simple language." \
-  --model-config configs/model.v2.gpu.yaml \
-  --inference-config configs/inference.v2.yaml \
+  --model-config configs/model.gpu.yaml \
+  --inference-config configs/inference.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --device cuda \
@@ -66,8 +66,8 @@ Bengali:
 ```bash
 .venv/bin/python scripts/generate.py \
   "বাংলায় কম্পিউটার কী তা সহজভাবে ব্যাখ্যা করো।" \
-  --model-config configs/model.v2.gpu.yaml \
-  --inference-config configs/inference.v2.yaml \
+  --model-config configs/model.gpu.yaml \
+  --inference-config configs/inference.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --device cuda \
@@ -80,8 +80,8 @@ Hindi:
 ```bash
 .venv/bin/python scripts/generate.py \
   "कंप्यूटर क्या है? सरल भाषा में समझाइए।" \
-  --model-config configs/model.v2.gpu.yaml \
-  --inference-config configs/inference.v2.yaml \
+  --model-config configs/model.gpu.yaml \
+  --inference-config configs/inference.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --device cuda \
@@ -94,8 +94,8 @@ Coding:
 ```bash
 .venv/bin/python scripts/generate.py \
   "Write a Python function that returns the factorial of a non-negative integer." \
-  --model-config configs/model.v2.gpu.yaml \
-  --inference-config configs/inference.v2.yaml \
+  --model-config configs/model.gpu.yaml \
+  --inference-config configs/inference.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --device cuda \
@@ -116,8 +116,8 @@ Pretraining learns text continuation rather than assistant behavior. Use
 ```bash
 .venv/bin/python scripts/generate.py \
   "Once upon a time" \
-  --model-config configs/model.v2.gpu.yaml \
-  --inference-config configs/inference.v2.yaml \
+  --model-config configs/model.gpu.yaml \
+  --inference-config configs/inference.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-pretraining/best.pt \
   --device cuda \
@@ -132,8 +132,8 @@ Do not judge chat quality from a pretraining checkpoint.
 
 ```bash
 .venv/bin/python scripts/chat.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --inference-config configs/inference.v2.yaml \
+  --model-config configs/model.gpu.yaml \
+  --inference-config configs/inference.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --device cuda \
@@ -161,7 +161,7 @@ API key. Normal local chat does not require web search.
 
 ```bash
 .venv/bin/python scripts/export.py \
-  --model-config configs/model.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --format safetensors \
@@ -193,12 +193,12 @@ Generate from that bundle without the training checkpoint:
 
 ## 7. Start the API server
 
-The server reads `configs/inference.v2.yaml`. Override its checkpoint explicitly
+The server reads `configs/inference.yaml`. Override its checkpoint explicitly
 so it serves the final DPO model rather than the pretraining default:
 
 ```bash
-GOPI_INFERENCE_CONFIG=configs/inference.v2.yaml \
-GOPI_MODEL_CONFIG=configs/model.v2.gpu.yaml \
+GOPI_INFERENCE_CONFIG=configs/inference.yaml \
+GOPI_MODEL_CONFIG=configs/model.gpu.yaml \
 GOPI_TOKENIZER_PATH=data/tokenizer-v2 \
 GOPI_CHECKPOINT_PATH=checkpoints/v2-dpo/best.pt \
 GOPI_DEVICE=cuda \

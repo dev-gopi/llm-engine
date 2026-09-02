@@ -329,7 +329,7 @@ def parse_args() -> argparse.Namespace:
 
     inspect_parser = subparsers.add_parser("inspect", help="encode and decode sample text")
     inspect_parser.add_argument("text")
-    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v3"))
     inspect_parser.add_argument("--add-bos", action="store_true")
     inspect_parser.add_argument("--add-eos", action="store_true")
     inspect_parser.set_defaults(handler=inspect_command)
@@ -337,7 +337,10 @@ def parse_args() -> argparse.Namespace:
     extend_parser = subparsers.add_parser(
         "extend", help="append tokens while preserving all existing token IDs"
     )
-    extend_parser.add_argument("--config", type=Path, help="configuration containing an extension section")
+    extend_parser.add_argument(
+        "--config", type=Path, default=Path("configs/tokenizer.v2.yaml"),
+        help="configuration containing an extension section",
+    )
     extend_parser.add_argument("--tokenizer", type=Path)
     extend_parser.add_argument("--source", action="append", help="dataset glob to scan; repeatable")
     extend_parser.add_argument("--token", action="append", help="token text; repeatable")

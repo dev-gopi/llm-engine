@@ -240,7 +240,7 @@ dataset-audit command:
 
 ```bash
 .venv/bin/python scripts/audit_datasets.py \
-  --training-config configs/finetuning.v2.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --stage sft
 ```
 
@@ -248,7 +248,7 @@ Audit dataset governance before training:
 
 ```bash
 .venv/bin/python scripts/audit_datasets.py \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --stage pretraining
 ```
 
@@ -305,8 +305,8 @@ Do not add `--resume` to a fresh run:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --output checkpoints/v2-pretraining/latest.pt \
   --best-output checkpoints/v2-pretraining/best.pt
@@ -320,8 +320,8 @@ checkpoint passed to the next stage.
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --resume checkpoints/v2-pretraining/latest.pt \
   --output checkpoints/v2-pretraining/latest.pt \
@@ -352,9 +352,9 @@ records the previous loss, new loss, step, and metric name.
 
 ```bash
 .venv/bin/python scripts/evaluate_domains.py \
-  --domains configs/evaluation.v2.pretraining.yaml \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --domains configs/evaluation.pretraining.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-pretraining/best.pt \
   --device cuda
@@ -368,7 +368,7 @@ Test raw text completion:
 ```bash
 .venv/bin/python scripts/generate.py \
   "Once upon a time" \
-  --model-config configs/model.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-pretraining/best.pt \
   --device cuda \
@@ -381,14 +381,14 @@ Test raw text completion:
 
 Skip this stage unless a separate continued-pretraining experiment is wanted.
 For the existing TinyStories/WikiText data, use one epoch in
-`configs/pretraining.v2.continued.gpu.yaml`. Do not overwrite the base
+`configs/pretraining.gpu.yaml`. Do not overwrite the base
 pretraining checkpoints.
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.continued.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/v2-pretraining/best.pt \
   --output checkpoints/v2-pretraining-continued/latest.pt \
@@ -407,8 +407,8 @@ The following command assumes that optional continued pretraining was skipped:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/v2-pretraining/best.pt \
   --output checkpoints/v2-finetuning/latest.pt \
@@ -427,8 +427,8 @@ Resume an interrupted SFT run with its complete state:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --resume checkpoints/v2-finetuning/latest.pt \
   --output checkpoints/v2-finetuning/latest.pt \
@@ -443,9 +443,9 @@ Evaluate English, Bengali, Hindi, coding, GSM8K, and chat independently:
 
 ```bash
 .venv/bin/python scripts/evaluate_domains.py \
-  --domains configs/evaluation.v2.finetuning.yaml \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.gpu.yaml \
+  --domains configs/evaluation.finetuning.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-finetuning/best.pt \
   --device cuda
@@ -455,8 +455,8 @@ Run deterministic capability cases:
 
 ```bash
 .venv/bin/python scripts/evaluate_benchmarks.py \
-  --cases configs/evaluation.v2.domains.jsonl \
-  --model-config configs/model.v2.gpu.yaml \
+  --cases configs/evaluation.domains.jsonl \
+  --model-config configs/model.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-finetuning/best.pt \
   --device cuda
@@ -489,8 +489,8 @@ the validation-selected SFT checkpoint:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train_dpo.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/dpo.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/dpo.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --reference-checkpoint checkpoints/v2-finetuning/best.pt \
   --init-from checkpoints/v2-finetuning/best.pt \
@@ -504,8 +504,8 @@ Resume interrupted DPO training:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train_dpo.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/dpo.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/dpo.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --reference-checkpoint checkpoints/v2-finetuning/best.pt \
   --resume checkpoints/v2-dpo/latest.pt \
@@ -524,7 +524,7 @@ English:
 ```bash
 .venv/bin/python scripts/generate.py \
   "Explain artificial intelligence in simple language." \
-  --model-config configs/model.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --device cuda \
@@ -537,7 +537,7 @@ Bengali:
 ```bash
 .venv/bin/python scripts/generate.py \
   "বাংলায় কম্পিউটার কী তা সহজভাবে ব্যাখ্যা করো।" \
-  --model-config configs/model.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --device cuda \
@@ -553,7 +553,7 @@ Export the DPO checkpoint as a SafeTensors bundle:
 
 ```bash
 .venv/bin/python scripts/export.py \
-  --model-config configs/model.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-dpo/best.pt \
   --format safetensors \

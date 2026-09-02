@@ -36,9 +36,9 @@ def main() -> None:
         "--prompt", dest="prompt_option",
         help="text to generate a response for (alternative to the positional prompt)",
     )
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
-    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.v2.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2-extended"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v3"))
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
@@ -74,6 +74,10 @@ def main() -> None:
     checkpoint_path = args.checkpoint
     if checkpoint_path is None:
         for candidate in (
+            Path("checkpoints/finetuning/best.pt"),
+            Path("checkpoints/finetuning/latest.pt"),
+            Path("checkpoints/training/best.pt"),
+            Path("checkpoints/training/latest.pt"),
             Path("checkpoints/v2-finetuning/best.pt"),
             Path("checkpoints/v2-finetuning/latest.pt"),
             Path("checkpoints/v2-training/best.pt"),
@@ -85,7 +89,7 @@ def main() -> None:
                 checkpoint_path = candidate
                 break
         if checkpoint_path is None:
-            checkpoint_path = Path("checkpoints/v2-pretraining/best.pt")
+            checkpoint_path = Path("checkpoints/finetuning/best.pt")
 
     print(f"Loading checkpoint: {checkpoint_path}")
     device = resolve_device(args.device)

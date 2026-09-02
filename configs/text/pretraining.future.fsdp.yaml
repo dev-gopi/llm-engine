@@ -1,5 +1,5 @@
-# Multi-GPU example for configs/model.future.1b.yaml. Requires torchrun, CUDA,
-# BF16-capable GPUs, data/tokenizer-v2, and the binary shard manifest below.
+# Multi-GPU example for configs/text/model.future.1b.yaml. Requires torchrun, CUDA,
+# BF16-capable GPUs, data/tokenizer-future-50k, and matching binary shards.
 batch_size: 1
 epochs: 1
 seed: 42
@@ -17,7 +17,7 @@ distributed_strategy: fsdp
 distributed_backend: nccl
 checkpoint_format: distributed
 train_files:
-  - data/shards/pretraining-v2/manifest.json
+  - data/shards/pretraining-future-50k/manifest.json
 validation_files: []
 learning_rate: 0.0003
 weight_decay: 0.1

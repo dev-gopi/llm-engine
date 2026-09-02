@@ -15,7 +15,7 @@ The v3 tokenizer is a verified append-only extension of
 
 ```bash
 .venv/bin/python scripts/tokenize.py extend \
-  --config configs/tokenizer.v3.extension.yaml
+  --config configs/tokenizer.v2.yaml
 ```
 
 The command must report:
@@ -28,12 +28,12 @@ new_vocab_size: 38000
 Verify the saved tokenizer and its lineage:
 
 ```bash
-.venv/bin/python -c "from tokenizer.encoder import Tokenizer; t=Tokenizer.load('data/tokenizer-v3-extended-38k'); print({'vocab_size': t.vocab_size, 'base_vocab_size': t.base_vocab_size, 'append_only': bool(t.compatible_base_fingerprints)})"
+.venv/bin/python -c "from tokenizer.encoder import Tokenizer; t=Tokenizer.load('data/tokenizer-v3-extended'); print({'vocab_size': t.vocab_size, 'base_vocab_size': t.base_vocab_size, 'append_only': bool(t.compatible_base_fingerprints)})"
 ```
 
 Expected values are `vocab_size: 38000`, `base_vocab_size: 32000`, and
 `append_only: True`. Do not grow the model if the vocabulary is smaller than
-38,000; its size must match `configs/model.v3.gpu.yaml`.
+38,000; its size must match `configs/model.gpu.yaml`.
 
 ## 2. Grow the v2 checkpoint
 
@@ -44,10 +44,10 @@ then adds six identity-like layers and mean-initialized vocabulary rows.
 ```bash
 .venv/bin/python scripts/grow_checkpoint.py \
   --checkpoint checkpoints/v2-finetuning/best.pt \
-  --source-model-config configs/model.v2.55m-source.yaml \
-  --target-model-config configs/model.v3.gpu.yaml \
+  --source-model-config configs/model.source.gpu.yaml \
+  --target-model-config configs/model.gpu.yaml \
   --source-tokenizer data/tokenizer-v2-extended \
-  --target-tokenizer data/tokenizer-v3-extended-38k \
+  --target-tokenizer data/tokenizer-v3-extended \
   --output checkpoints/v3-direct/init.pt
 ```
 
@@ -58,9 +58,9 @@ This operation creates a separate checkpoint and does not overwrite v2.
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v3.gpu.yaml \
-  --training-config configs/finetuning.v3.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended-38k \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
+  --tokenizer data/tokenizer-v3-extended \
   --init-from checkpoints/v3-direct/init.pt \
   --output checkpoints/v3-direct-finetuning/latest.pt \
   --best-output checkpoints/v3-direct-finetuning/best.pt
@@ -74,9 +74,9 @@ scheduler while loading the grown model weights.
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v3.gpu.yaml \
-  --training-config configs/finetuning.v3.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended-38k \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
+  --tokenizer data/tokenizer-v3-extended \
   --resume checkpoints/v3-direct-finetuning/latest.pt \
   --output checkpoints/v3-direct-finetuning/latest.pt \
   --best-output checkpoints/v3-direct-finetuning/best.pt
@@ -96,9 +96,9 @@ start a separate optimizer stage directly from the v2 best checkpoint:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.expanded.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended-38k \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
+  --tokenizer data/tokenizer-v3-extended \
   --init-from checkpoints/v2-finetuning/best.pt \
   --output checkpoints/v2-expanded-finetuning/latest.pt \
   --best-output checkpoints/v2-expanded-finetuning/best.pt
@@ -118,9 +118,9 @@ modeling objective:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v3.gpu.yaml \
-  --training-config configs/pretraining.v3.grown.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended-38k \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
+  --tokenizer data/tokenizer-v3-extended \
   --init-from checkpoints/v3-grown/init.pt \
   --output checkpoints/v3-pretraining/latest.pt \
   --best-output checkpoints/v3-pretraining/best.pt

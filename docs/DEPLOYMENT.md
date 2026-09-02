@@ -31,9 +31,9 @@ control:
 ```bash
 export GOPI_API_KEY='replace-with-a-long-random-value'
 export GOPI_CHECKPOINT_PATH='checkpoints/v2-dpo/best.pt'
-export GOPI_MODEL_CONFIG='configs/model.v2.gpu.yaml'
+export GOPI_MODEL_CONFIG='configs/model.gpu.yaml'
 export GOPI_TOKENIZER_PATH='data/tokenizer-v2'
-export GOPI_INFERENCE_CONFIG='configs/inference.v2.yaml'
+export GOPI_INFERENCE_CONFIG='configs/inference.yaml'
 export GOPI_DEVICE='cuda'
 export GOPI_MCP_ENABLED='false'
 export GOPI_UID="$(id -u)"

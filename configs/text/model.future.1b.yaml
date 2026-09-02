@@ -1,10 +1,10 @@
-# Future multi-GPU/multi-node example. Do not train this on a 4 GB laptop GPU.
-vocab_size: 32000
-hidden_size: 4096
-layers: 36
-heads: 32
-kv_heads: 8
-max_position: 32768
+# Future distributed-training example. This does not replace any current profile.
+vocab_size: 50000
+hidden_size: 2048
+layers: 24
+heads: 16
+kv_heads: 4
+max_position: 8192
 position_type: rotary
 rope_base: 10000.0
 rope_scale: 1.0
@@ -18,7 +18,7 @@ lm_head_bias: false
 attention_dropout: 0.0
 attention_bias: false
 causal_attention: true
-ffn_hidden_size: 11008
+ffn_hidden_size: 5504
 ffn_multiple_of: 256
 ffn_activation: swiglu
 ffn_dropout: 0.0

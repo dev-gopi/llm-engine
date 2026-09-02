@@ -115,7 +115,7 @@ def test_dataset_audit_cli_inherits_governance_stage_from_config(tmp_path) -> No
 def test_expanded_sft_sources_have_stage_compatible_manifests() -> None:
     root = Path(__file__).resolve().parents[1]
     config = yaml.safe_load(
-        (root / "configs/finetuning.v2.expanded.gpu.yaml").read_text(encoding="utf-8")
+        (root / "configs/finetuning.gpu.yaml").read_text(encoding="utf-8")
     )
 
     findings = audit_dataset_files(config["train_files"], stage="sft")

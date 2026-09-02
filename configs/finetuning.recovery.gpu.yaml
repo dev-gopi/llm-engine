@@ -1,7 +1,7 @@
-# Focused recovery SFT from checkpoints/v2-finetuning/best.pt.
-# Generate inputs first with scripts/prepare_recovery_sft.py.
-batch_size: 2
-validation_batch_size: 4
+# Clean response-quality recovery for the active 80.29M, 16-layer model.
+# Initialize from checkpoints/v3-recovery/init.pt with the append-only 38K tokenizer.
+batch_size: 1
+validation_batch_size: 2
 epochs: 2
 seed: 42
 dataset_governance:
@@ -54,15 +54,15 @@ validation_weights:
   hindi: 0.10
   math: 0.15
   coding: 0.10
-validation_metric_name: dataset_weighted_v2_recovery_domains_v1
-learning_rate: 0.00001
+validation_metric_name: dataset_weighted_v3_recovery_domains_v1
+learning_rate: 0.000008
 weight_decay: 0.01
 beta1: 0.9
 beta2: 0.95
 adam_epsilon: 0.00000001
 fused_optimizer: false
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 16
+gradient_accumulation_steps: 32
 mixed_precision: bf16
 lr_schedule: cosine
 warmup_ratio: 0.05

@@ -80,7 +80,7 @@ Dataset licensing is independent of this repository's software licensing.
 Check all paths referenced by an SFT configuration:
 
 ```bash
-.venv/bin/python -c "from pathlib import Path; from utils.config import load_yaml; c=load_yaml(Path('configs/finetuning.v2.gpu.yaml')); missing=[p for p in c['train_files']+c['validation_files'] if not Path(p).is_file()]; print('Missing:', missing or 'none')"
+.venv/bin/python -c "from pathlib import Path; from utils.config import load_yaml; c=load_yaml(Path('configs/finetuning.gpu.yaml')); missing=[p for p in c['train_files']+c['validation_files'] if not Path(p).is_file()]; print('Missing:', missing or 'none')"
 ```
 
 Inspect a JSONL file without loading it all into memory:

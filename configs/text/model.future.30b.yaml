@@ -1,5 +1,5 @@
 # Future cluster-scale example. This is an architecture target, not a laptop profile.
-vocab_size: 32000
+vocab_size: 50000
 hidden_size: 6656
 layers: 66
 heads: 52

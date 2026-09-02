@@ -103,7 +103,7 @@ quality prominent in checkpoint selection without changing training sampling.
 
 ## Additional tokenizer and mixed-objective inputs
 
-`configs/tokenizer.v3.extension.yaml` scans every active SFT training file plus
+`configs/tokenizer.v2.yaml` scans every active SFT training file plus
 the sources below. The expanded v2 and v3 fine-tuning profiles now also use
 them conservatively: preference records train only on the chosen response,
 while Wikipedia records receive ordinary causal-language-model loss.
@@ -122,7 +122,7 @@ knowledge text from dominating assistant behavior.
 ## Optional v3 continued-pretraining inputs
 
 The direct v3 workflow skips this stage. If
-`configs/pretraining.v3.grown.gpu.yaml` is used, its separate causal-language-
+`configs/pretraining.gpu.yaml` is used, its separate causal-language-
 model mixture contains:
 
 | Local name | Weight | Purpose |
@@ -150,7 +150,7 @@ Run the machine-readable audit with:
 
 ```bash
 .venv/bin/python scripts/audit_datasets.py \
-  --training-config configs/finetuning.v3.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --stage sft
 ```
 

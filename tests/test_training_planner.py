@@ -62,8 +62,8 @@ def test_training_planner_cli_emits_json_without_allocating_model() -> None:
     completed = subprocess.run(
         [
             sys.executable, "scripts/plan_training.py",
-            "--model-config", "configs/model.v2.gpu.yaml",
-            "--training-config", "configs/pretraining.v2.gpu.yaml",
+            "--model-config", "configs/model.gpu.yaml",
+            "--training-config", "configs/pretraining.gpu.yaml",
             "--training-tokens", "1000000", "--gpus", "1",
             "--hardware-tflops", "10", "--gpu-memory-gib", "4",
         ],
@@ -81,8 +81,8 @@ def test_training_planner_cli_can_enforce_feasibility_constraints() -> None:
     completed = subprocess.run(
         [
             sys.executable, "scripts/plan_training.py",
-            "--model-config", "configs/model.future.1b.yaml",
-            "--training-config", "configs/pretraining.future.fsdp.yaml",
+            "--model-config", "configs/text/model.future.1b.yaml",
+            "--training-config", "configs/text/pretraining.future.fsdp.yaml",
             "--training-tokens", "1000000", "--gpu-memory-gib", "0.01",
             "--require-fit",
         ],

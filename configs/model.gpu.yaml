@@ -1,6 +1,7 @@
-vocab_size: 32000
+# Active GPU architecture with an append-only 38K vocabulary.
+vocab_size: 38000
 hidden_size: 512
-layers: 10
+layers: 16
 heads: 8
 kv_heads: 2
 max_position: 512

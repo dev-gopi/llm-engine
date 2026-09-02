@@ -12,7 +12,7 @@ architecture targets.
 
 ## Current model
 
-The active GPU model is defined by `configs/model.v2.gpu.yaml`:
+The active GPU model is defined by `configs/model.gpu.yaml`:
 
 | Property | Current value |
 | --- | ---: |
@@ -226,8 +226,10 @@ Increase model dimensions only after confirming:
 
 ### Stage 3: approximately 1B parameters
 
-`configs/model.future.1b.yaml` defines a 1.148B model with an 8K context. The
-repository includes `configs/pretraining.future.fsdp.yaml` as an FSDP example.
+`configs/text/model.future.1b.yaml` defines a 1.185B model with an 8K context and
+the 50K from-scratch multilingual vocabulary from
+`configs/text/tokenizer.future.50k.yaml`. The repository includes
+`configs/text/pretraining.future.fsdp.yaml` as an FSDP example.
 This stage requires substantially more unique data, compute, storage, and
 validation than the laptop profile. Multi-GPU BF16 training, distributed
 checkpoints, binary token shards, and cluster validation are the expected path.
@@ -276,11 +278,11 @@ require target-hardware validation and operational work:
 Run the planner before allocating a larger model:
 
 ```bash
-.venv/bin/python scripts/inspect_model.py configs/model.future.1b.yaml
+.venv/bin/python scripts/inspect_model.py configs/text/model.future.1b.yaml
 
 .venv/bin/python scripts/plan_training.py \
-  --model-config configs/model.future.1b.yaml \
-  --training-config configs/pretraining.future.fsdp.yaml \
+  --model-config configs/text/model.future.1b.yaml \
+  --training-config configs/text/pretraining.future.fsdp.yaml \
   --training-tokens 20000000000 \
   --hardware-tflops 100 \
   --utilization 0.35 \

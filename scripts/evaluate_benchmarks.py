@@ -25,8 +25,8 @@ from utils.device import resolve_device
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cases", type=Path, default=Path("configs/evaluation.core.jsonl"))
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.v2.gpu.yaml"))
-    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.v2.yaml"))
+    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--device", default="auto")

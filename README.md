@@ -57,15 +57,15 @@ pytest -q
 Inspect a model before allocating its weights:
 
 ```bash
-python scripts/inspect_model.py configs/model.v2.gpu.yaml
+python scripts/inspect_model.py configs/model.gpu.yaml
 ```
 
 Estimate a complete training run without allocating the model:
 
 ```bash
 python scripts/plan_training.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --training-tokens 1000000000 \
   --hardware-tflops 10 --utilization 0.35 --gpu-memory-gib 4 --require-fit
 ```
@@ -133,8 +133,8 @@ The current model is a flexible, modern GPT-style network featuring:
 8. Vocabulary projection head with optional weight tying
 
 Architecture values live in model configurations. The active v2 paths use
-[`configs/model.v2.gpu.yaml`](configs/model.v2.gpu.yaml) for the 54.4M-parameter
-GPU model and [`configs/model.v2.cpu.yaml`](configs/model.v2.cpu.yaml) for the
+[`configs/model.gpu.yaml`](configs/model.gpu.yaml) for the 54.4M-parameter
+GPU model and [`configs/model.cpu.yaml`](configs/model.cpu.yaml) for the
 15.8M-parameter compact CPU model. The unversioned files remain available for
 legacy v1 experiments.
 
@@ -152,7 +152,7 @@ With the active v2 GPU configuration, the embedding matrix contains
 projection. The v2 CPU profile uses `32,000 × 256 = 8.192M`. Initialization and behavior are controlled by
 `padding_idx`, `initializer_range`, `scale_embeddings`, and
 `freeze_embeddings` in files such as
-[`configs/model.v2.gpu.yaml`](configs/model.v2.gpu.yaml).
+[`configs/model.gpu.yaml`](configs/model.gpu.yaml).
 
 ### Causal self-attention
 
@@ -195,8 +195,8 @@ The project provides a bias-configurable LayerNorm matching PyTorch's reference
 equation and an RMSNorm alternative with float32 accumulation for FP16/BF16
 inputs. Normalization type, epsilon, bias, residual layout, dropout, and scale
 are configured in model configuration files (for example,
-[`configs/model.v2.gpu.yaml`](configs/model.v2.gpu.yaml) or
-[`configs/model.v2.cpu.yaml`](configs/model.v2.cpu.yaml)). A final normalization
+[`configs/model.gpu.yaml`](configs/model.gpu.yaml) or
+[`configs/model.cpu.yaml`](configs/model.cpu.yaml)). A final normalization
 is applied before the language-model output head.
 
 ### Causal language-model loss
@@ -287,7 +287,7 @@ corpus does not need to fit in RAM:
   data/rag/wikipedia/ --output data/rag/index.sqlite
 ```
 
-Set `rag.enabled: true` in `configs/inference.v2.yaml`, restart the server, and
+Set `rag.enabled: true` in `configs/inference.yaml`, restart the server, and
 send `{"prompt":"What does the guide say?","rag":true}` to `/v1/generate`.
 The `/rag What does the guide say?` shortcut works with the native API,
 OpenAI-compatible chat UIs, and the browser playground. Retrieved text is
@@ -319,7 +319,7 @@ and SSE streaming are supported. Configure the client base URL as
 API key. See the v2 usage guide for limits and a complete example.
 
 V2 serving defaults come from
-[`configs/inference.v2.yaml`](configs/inference.v2.yaml). Set
+[`configs/inference.yaml`](configs/inference.yaml). Set
 `GOPI_CHECKPOINT_PATH=checkpoints/v2-dpo/best.pt` (or the best SFT checkpoint)
 when serving the final assistant; the file's conservative default points to the
 pretraining checkpoint. Model, tokenizer, and runtime settings can be overridden
@@ -421,7 +421,7 @@ explicit prompt while keeping `mcp: true`:
 ## Assistant identity
 
 The assistant is named **Gopi**. Its default identity is configured in
-[`configs/inference.v2.yaml`](configs/inference.v2.yaml):
+[`configs/inference.yaml`](configs/inference.yaml):
 
 ```yaml
 bot_name: Gopi
@@ -559,7 +559,7 @@ privacy-review state. Audit every dataset referenced by a training profile:
 
 ```bash
 python scripts/audit_datasets.py \
-  --training-config configs/finetuning.v2.gpu.yaml --stage sft
+  --training-config configs/finetuning.gpu.yaml --stage sft
 ```
 
 The command exits unsuccessfully for missing, invalid, unreviewed, or
@@ -620,32 +620,30 @@ Configuration is divided by responsibility:
 
 | File | Responsibility | Key Parameters |
 | --- | --- | --- |
-| `configs/model.v2.cpu.yaml` | Active compact v2 CPU architecture | 15.8M parameters, 32K vocabulary, hidden size 256, 8 layers, GQA, RoPE, RMSNorm, SwiGLU |
-| `configs/model.v2.gpu.yaml` | Active laptop-GPU v2 architecture | 54.4M parameters, 32K vocabulary, hidden size 512, 10 layers, GQA, RoPE, RMSNorm, SwiGLU |
-| `configs/model.v2.55m-source.yaml` | Frozen source shape for checkpoint growth | Original v2 GPU shape: 32K base vocabulary, hidden size 512, 10 layers |
-| `configs/model.v3.gpu.yaml` | Grown laptop-GPU architecture | 80.3M parameters, 38K vocabulary, hidden size 512, 16 layers |
-| `configs/pretraining.v2.cpu.yaml` | Active CPU v2 pretraining | TinyStories/WikiText 35/65, 128 tokens, effective batch 32, 3 epochs, FP32 |
-| `configs/pretraining.v2.gpu.yaml` | Active GPU v2 pretraining | TinyStories/WikiText 35/65, 256 tokens, effective batch 32, FP16, 3 epochs |
-| `configs/pretraining.v2.continued.gpu.yaml` | Optional WikiText-heavy new training stage | TinyStories/WikiText 15/85, one epoch, separate metric and checkpoints |
-| `configs/pretraining.v2.packed.cpu.yaml` | CPU v2 pretraining from memory-mapped token shards | TinyStories/WikiText 35/65 weighted validation, 256-token packed sequences |
-| `configs/pretraining.v2.packed.gpu.yaml` | GPU v2 pretraining from memory-mapped token shards | Same objective and weights as JSONL v2, FP16, runtime tokenization removed |
-| `configs/pretraining.v3.grown.gpu.yaml` | Continued pretraining after 55M-to-80M growth | Batch 1, effective batch 32, FP16, 500K samples/epoch, fresh optimizer |
-| `configs/finetuning.v2.cpu.yaml` | Quality-balanced CPU v2 SFT | Chat, factual, reasoning, Bengali, Hindi, and coding; response-only loss |
-| `configs/finetuning.v2.gpu.yaml` | Active quality-balanced GPU v2 SFT | 18 datasets, 500K samples/epoch, 384 tokens, effective batch 32, BF16, 3 epochs |
-| `configs/finetuning.v2.packed.cpu.yaml` | CPU v2 SFT from response-masked shards | Same quality mixture with runtime tokenization removed |
-| `configs/finetuning.v2.packed.gpu.yaml` | GPU v2 SFT from response-masked shards | 384-token packed sequences, BF16, weighted domain validation |
-| `configs/dpo.v2.cpu.yaml` | Single-device CPU preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
-| `configs/dpo.v2.gpu.yaml` | Single-GPU FP16 preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
-| `configs/tokenizer.v2.yaml` | V2 base-tokenizer training and append-only extension setup | `vocab_size: 32000`, balanced source sampling, extension sources and discovery limits |
-| `configs/tokenizer.v3.extension.yaml` | Verified append-only v3 extension | Preserves the current 34K IDs and discovers up to 4,000 additional tokens |
-| `configs/evaluation.v2.pretraining.yaml` | Pretraining domain evaluation | TinyStories and WikiText reported independently |
-| `configs/evaluation.v2.finetuning.yaml` | SFT domain evaluation | English, Bengali, Hindi, coding, GSM8K, and chat |
-| `configs/inference.v2.yaml` | Active v2 inference and serving defaults | Gopi identity, sampling, context memory, model paths, concurrency, cache, and rate limits |
+| `configs/model.cpu.yaml` | Active compact CPU architecture | 15.8M parameters, 32K vocabulary, hidden size 256, 8 layers, GQA, RoPE, RMSNorm, SwiGLU |
+| `configs/model.gpu.yaml` | Active laptop-GPU architecture | 54.4M parameters, 32K vocabulary, hidden size 512, 10 layers, GQA, RoPE, RMSNorm, SwiGLU |
+| `configs/model.source.gpu.yaml` | Frozen source shape for checkpoint growth | Original GPU shape: 32K base vocabulary, hidden size 512, 10 layers |
+| `configs/model.gpu.yaml` | Active grown laptop-GPU architecture | 80.3M parameters, 38K vocabulary, hidden size 512, 16 layers |
+| `configs/pretraining.cpu.yaml` | Active CPU pretraining | TinyStories/WikiText 30/70, 128 tokens, effective batch 32, 3 epochs, FP32 |
+| `configs/pretraining.gpu.yaml` | Active GPU pretraining | TinyStories/WikiText 30/70, 256 tokens, effective batch 32, FP16, 3 epochs |
+| `configs/pretraining.packed.cpu.yaml` | CPU pretraining from memory-mapped token shards | Weighted validation and 256-token packed sequences |
+| `configs/pretraining.packed.gpu.yaml` | GPU pretraining from memory-mapped token shards | Same objective, FP16, runtime tokenization removed |
+| `configs/pretraining.gpu.yaml` | Continued pretraining for the grown GPU model | Batch 1, effective batch 32, FP16, 500K samples/epoch |
+| `configs/finetuning.cpu.yaml` | Quality-balanced CPU SFT | Chat, factual, reasoning, Bengali, Hindi, and coding; response-only loss |
+| `configs/finetuning.gpu.yaml` | Active quality-balanced GPU SFT | 18 datasets, 500K samples/epoch, 384 tokens, effective batch 32, BF16, 3 epochs |
+| `configs/finetuning.packed.cpu.yaml` | CPU SFT from response-masked shards | Same quality mixture with runtime tokenization removed |
+| `configs/finetuning.packed.gpu.yaml` | GPU SFT from response-masked shards | 384-token packed sequences, BF16, weighted domain validation |
+| `configs/dpo.cpu.yaml` | Single-device CPU preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
+| `configs/dpo.gpu.yaml` | Single-GPU FP16 preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
+| `configs/tokenizer.v2.yaml` | Final append-only tokenizer setup | 38K vocabulary, balanced source sampling, and bounded token discovery |
+| `configs/evaluation.pretraining.yaml` | Pretraining domain evaluation | TinyStories and WikiText reported independently |
+| `configs/evaluation.finetuning.yaml` | SFT domain evaluation | English, Bengali, Hindi, coding, GSM8K, and chat |
+| `configs/inference.yaml` | Active inference and serving defaults | Gopi identity, sampling, context memory, model paths, concurrency, cache, and rate limits |
 
 Legacy v1 profiles remain under the unversioned `model.*`, `pretraining.*`,
 `finetuning.*`, `training.*`, `tokenizer.yaml`, and `inference.yaml` names. New
-v2 work should use the explicit `.v2.` files and the guides linked in Quick
-start.
+The unversioned files are the active defaults. `configs/tokenizer.v2.yaml` is
+the only versioned default because tokenizer lineage must remain explicit.
 
 Training code must not read inference settings, and inference code must not
 depend on the training package.
@@ -716,8 +714,8 @@ the original tokenizer or pretraining checkpoints:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2-extended \
   --init-from checkpoints/v2-pretraining/best.pt \
   --output checkpoints/v2-tokenizer-extended/latest.pt \
@@ -734,7 +732,7 @@ input/output weights.
 Two checkpoint-compatible upgrade paths are available:
 
 - Continue the 10-layer v2 model on the expanded dataset mixture with
-  `configs/finetuning.v2.expanded.gpu.yaml`.
+  `configs/finetuning.gpu.yaml`.
 - Grow v2 into the 16-layer, 38K-vocabulary v3 model and use either direct SFT
   or optional continued pretraining.
 
@@ -768,8 +766,8 @@ required:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.55m-source.yaml \
-  --training-config configs/finetuning.v2.gpu.yaml \
+  --model-config configs/model.source.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --tokenizer data/tokenizer-v2-extended \
   --resume checkpoints/v2-finetuning/latest.pt \
   --output checkpoints/v2-finetuning/latest.pt \
@@ -836,15 +834,15 @@ Run staged GPU training with separate checkpoints:
 
 ```bash
 python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --output checkpoints/v2-pretraining/latest.pt \
   --best-output checkpoints/v2-pretraining/best.pt
 
 python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/v2-pretraining/best.pt \
   --output checkpoints/v2-finetuning/latest.pt \
@@ -854,7 +852,7 @@ python scripts/train.py \
 The v2 pretraining corpus uses complete bounded WikiText chunks instead of
 silently truncating each article. Base pretraining runs three epochs with a
 35/65 TinyStories/WikiText objective. The optional
-`configs/pretraining.v2.continued.gpu.yaml` stage runs once with a 15/85 mix and
+`configs/pretraining.gpu.yaml` stage runs with a WikiText-heavy mix and
 must write separate checkpoints. SFT samples 500,000 examples per epoch across
 18 chat, factual, reasoning, coding, Bengali, Hindi/Hinglish, safety, tool, and
 emoji datasets. These additions improve data coverage but do not make a small
@@ -862,8 +860,8 @@ from-scratch model equivalent to a billion-parameter model.
 
 ### Large-model architecture profiles
 
-Optional architecture targets are provided as `configs/model.future.1b.yaml`,
-`configs/model.future.7b.yaml`, and `configs/model.future.30b.yaml`. They verify
+Optional architecture targets are provided as `configs/text/model.future.1b.yaml`,
+`configs/text/model.future.7b.yaml`, and `configs/text/model.future.30b.yaml`. They verify
 that model dimensions, GQA, SwiGLU, RoPE, and long context are configuration
 driven; they are not laptop training profiles and do not include the distributed
 cluster resources required to train models of those sizes. The engine provides
@@ -873,9 +871,9 @@ Inspect a profile without allocating its weights or risking an out-of-memory
 error:
 
 ```bash
-python scripts/inspect_model.py configs/model.v2.gpu.yaml
-python scripts/plan_training.py --model-config configs/model.v2.gpu.yaml --training-config configs/pretraining.v2.gpu.yaml --training-tokens 1000000
-python scripts/inspect_model.py configs/model.future.7b.yaml
+python scripts/inspect_model.py configs/model.gpu.yaml
+python scripts/plan_training.py --model-config configs/model.gpu.yaml --training-config configs/pretraining.gpu.yaml --training-tokens 1000000
+python scripts/inspect_model.py configs/text/model.future.7b.yaml
 ```
 
 The estimator reports parameter-weight and full-length KV-cache memory. Real
@@ -914,14 +912,21 @@ launcher's seeded RNG streams. Validate save, restart, and world-size changes on
 the exact cluster topology before a long run.
 
 An opt-in 1B example is provided in
-`configs/pretraining.future.fsdp.yaml`. After building its binary shard input,
-launch it on a suitable multi-GPU machine with:
+`configs/text/pretraining.future.fsdp.yaml`. Train the from-scratch multilingual
+tokenizer in `configs/text/tokenizer.future.50k.yaml` and build its matching binary shard
+input before launching:
+
+```bash
+python scripts/tokenize.py train --config configs/text/tokenizer.future.50k.yaml
+```
+
+Then launch the distributed training job on a suitable multi-GPU machine:
 
 ```bash
 torchrun --standalone --nproc-per-node=8 scripts/train.py \
-  --model-config configs/model.future.1b.yaml \
-  --training-config configs/pretraining.future.fsdp.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --model-config configs/text/model.future.1b.yaml \
+  --training-config configs/text/pretraining.future.fsdp.yaml \
+  --tokenizer data/tokenizer-future-50k \
   --output checkpoints/future-1b/latest \
   --best-output checkpoints/future-1b/best
 ```
@@ -999,8 +1004,8 @@ profile:
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.packed.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.packed.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/v2-pretraining/best.pt \
   --epochs 1 \
@@ -1018,8 +1023,8 @@ The packed CPU profile reads the same 256-token manifests:
 
 ```bash
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.cpu.yaml \
-  --training-config configs/pretraining.v2.packed.cpu.yaml \
+  --model-config configs/model.cpu.yaml \
+  --training-config configs/pretraining.packed.cpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/v2-pretraining-cpu/best.pt \
   --output checkpoints/v2-packed-continued-cpu/latest.pt \
@@ -1053,8 +1058,8 @@ After every manifest exists, start packed SFT as a new optimizer stage:
 
 ```bash
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.packed.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.packed.gpu.yaml \
   --tokenizer data/tokenizer-v2-extended \
   --init-from checkpoints/v2-pretraining/best.pt \
   --output checkpoints/v2-finetuning-packed/latest.pt \
@@ -1062,8 +1067,8 @@ After every manifest exists, start packed SFT as a new optimizer stage:
 ```
 
 Do not resume a JSONL SFT run into packed data because packing changes sequence
-and sampler boundaries. Use `configs/finetuning.v2.packed.cpu.yaml` with
-`configs/model.v2.cpu.yaml` for the CPU equivalent. Both packed SFT profiles
+and sampler boundaries. Use `configs/finetuning.packed.cpu.yaml` with
+`configs/model.cpu.yaml` for the CPU equivalent. Both packed SFT profiles
 consume the same 384-token manifests.
 
 ### Preference training and capability evaluation
@@ -1082,8 +1087,8 @@ python scripts/prepare_helpsteer_preferences.py
 
 ```bash
 .venv/bin/python scripts/train_dpo.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/dpo.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/dpo.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --reference-checkpoint checkpoints/v2-finetuning/best.pt \
   --init-from checkpoints/v2-finetuning/best.pt \
@@ -1101,7 +1106,7 @@ Run held-out deterministic generation checks after SFT or preference training:
 ```bash
 python scripts/evaluate_benchmarks.py \
   --checkpoint checkpoints/v2-finetuning/best.pt \
-  --model-config configs/model.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
   --tokenizer data/tokenizer-v2
 ```
 
@@ -1114,7 +1119,7 @@ Hindi, coding, GSM8K, and chat data:
 
 ```bash
 python scripts/evaluate_domains.py \
-  --domains configs/evaluation.v2.finetuning.yaml \
+  --domains configs/evaluation.finetuning.yaml \
   --checkpoint checkpoints/v2-finetuning/best.pt \
   --device cuda
 ```
@@ -1125,7 +1130,7 @@ matching, with the deterministic six-domain smoke suite:
 
 ```bash
 python scripts/evaluate_benchmarks.py \
-  --cases configs/evaluation.v2.domains.jsonl \
+  --cases configs/evaluation.domains.jsonl \
   --checkpoint checkpoints/v2-finetuning/best.pt \
   --device cuda
 ```
@@ -1138,9 +1143,9 @@ trusting a token-count aggregate dominated by the larger validation split:
 
 ```bash
 .venv/bin/python scripts/evaluate_domains.py \
-  --domains configs/evaluation.v2.pretraining.yaml \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --domains configs/evaluation.pretraining.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-pretraining/best.pt \
   --device cuda
@@ -1184,9 +1189,9 @@ The primary v2 command-line entry points are:
 ```bash
 .venv/bin/python scripts/capabilities.py
 .venv/bin/python scripts/tokenize.py train --config configs/tokenizer.v2.yaml
-.venv/bin/python scripts/train.py --model-config configs/model.v2.gpu.yaml --training-config configs/pretraining.v2.gpu.yaml --tokenizer data/tokenizer-v2
-.venv/bin/python scripts/train_dpo.py --training-config configs/dpo.v2.gpu.yaml --reference-checkpoint checkpoints/v2-finetuning/best.pt --init-from checkpoints/v2-finetuning/best.pt
-.venv/bin/python scripts/evaluate_domains.py --domains configs/evaluation.v2.finetuning.yaml --checkpoint checkpoints/v2-finetuning/best.pt --device cuda
+.venv/bin/python scripts/train.py --model-config configs/model.gpu.yaml --training-config configs/pretraining.gpu.yaml --tokenizer data/tokenizer-v2
+.venv/bin/python scripts/train_dpo.py --training-config configs/dpo.gpu.yaml --reference-checkpoint checkpoints/finetuning/best.pt --init-from checkpoints/finetuning/best.pt
+.venv/bin/python scripts/evaluate_domains.py --domains configs/evaluation.finetuning.yaml --checkpoint checkpoints/finetuning/best.pt --device cuda
 .venv/bin/python scripts/generate.py "Hello Gopi" --checkpoint checkpoints/v2-dpo/best.pt --device cuda
 .venv/bin/python scripts/export.py --checkpoint checkpoints/v2-dpo/best.pt --format safetensors
 .venv/bin/python scripts/serve.py --host 127.0.0.1 --port 8000
@@ -1214,8 +1219,8 @@ WikiText, so the required processed files must exist first:
 
 ```bash
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.cpu.yaml \
-  --training-config configs/pretraining.v2.cpu.yaml \
+  --model-config configs/model.cpu.yaml \
+  --training-config configs/pretraining.cpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --epochs 1 \
   --output checkpoints/v2-cpu-smoke/latest.pt \
@@ -1229,8 +1234,8 @@ Evaluate a bounded sample without loading the full dataset into memory:
 
 ```bash
 .venv/bin/python scripts/evaluate.py \
-  --model-config configs/model.v2.cpu.yaml \
-  --training-config configs/pretraining.v2.cpu.yaml \
+  --model-config configs/model.cpu.yaml \
+  --training-config configs/pretraining.cpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-cpu-smoke/best.pt \
   --dataset data/processed/tinystories/validation.jsonl \
@@ -1241,7 +1246,7 @@ Then verify checkpoint loading and autoregressive generation:
 
 ```bash
 .venv/bin/python scripts/generate.py "Hello, my name is" \
-  --model-config configs/model.v2.cpu.yaml \
+  --model-config configs/model.cpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/v2-cpu-smoke/best.pt \
   --device cpu --raw --max-tokens 40 --temperature 0.8 --seed 42
@@ -1265,8 +1270,8 @@ a large CPU job and can take a long time:
 
 ```bash
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.cpu.yaml \
-  --training-config configs/pretraining.v2.cpu.yaml \
+  --model-config configs/model.cpu.yaml \
+  --training-config configs/pretraining.cpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --output checkpoints/v2-pretraining-cpu/latest.pt \
   --best-output checkpoints/v2-pretraining-cpu/best.pt
@@ -1277,8 +1282,8 @@ quality-balanced v2 SFT mixture:
 
 ```bash
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.cpu.yaml \
-  --training-config configs/finetuning.v2.cpu.yaml \
+  --model-config configs/model.cpu.yaml \
+  --training-config configs/finetuning.cpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/v2-pretraining-cpu/best.pt \
   --output checkpoints/v2-finetuning-cpu/latest.pt \
@@ -1294,15 +1299,15 @@ SFT uses BF16 on a verified-capable GPU:
 
 ```bash
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/pretraining.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --output checkpoints/v2-pretraining/latest.pt \
   --best-output checkpoints/v2-pretraining/best.pt
 
 .venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.gpu.yaml \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
   --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/v2-pretraining/best.pt \
   --output checkpoints/v2-finetuning/latest.pt \

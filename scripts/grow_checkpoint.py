@@ -27,11 +27,11 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument(
         "--source-model-config", type=Path,
-        default=Path("configs/model.v2.55m-source.yaml"),
+        default=Path("configs/model.source.gpu.yaml"),
     )
-    parser.add_argument("--target-model-config", type=Path, default=Path("configs/model.v3.gpu.yaml"))
+    parser.add_argument("--target-model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--source-tokenizer", type=Path, default=Path("data/tokenizer-v2-extended"))
-    parser.add_argument("--target-tokenizer", type=Path, default=Path("data/tokenizer-v2-extended-36k"))
+    parser.add_argument("--target-tokenizer", type=Path, default=Path("data/tokenizer-v3"))
     parser.add_argument("--output", type=Path, default=Path("checkpoints/v3-grown/init.pt"))
     parser.add_argument("--embedding-init", choices=("mean", "normal", "zero"), default="mean")
     parser.add_argument("--use-ema", action="store_true", help="grow EMA weights instead of live weights")

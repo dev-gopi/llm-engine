@@ -1,3 +1,4 @@
+# Active inference and serving defaults.
 bot_name: Gopi
 system_prompt: You are Gopi, a helpful assistant. Answer clearly and briefly.
 response_format: plain
@@ -30,8 +31,8 @@ rag:
 serving:
   model_name: gopi
   model_config: configs/model.gpu.yaml
-  tokenizer_path: data/tokenizer
-  checkpoint_path: checkpoints/pretraining/best.pt
+  tokenizer_path: data/tokenizer-v3
+  checkpoint_path: checkpoints/finetuning/best.pt
   device: auto
   max_concurrency: 1
   continuous_streams: 4
@@ -45,3 +46,5 @@ serving:
   paged_kv_page_size: 16
   tensor_parallel_size: 1
   session_store_path: data/cache/sessions.sqlite
+  workspace_agent_enabled: false
+  workspace_root: .

@@ -139,7 +139,7 @@ class ServingSettings:
 
     @classmethod
     def from_environment(cls) -> "ServingSettings":
-        config_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.v2.yaml"))
+        config_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.yaml"))
         config = {}
         if config_path.is_file():
             config = load_yaml(config_path)

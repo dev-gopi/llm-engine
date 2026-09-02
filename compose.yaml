@@ -13,9 +13,9 @@ services:
         required: false
     environment:
       GOPI_DEVICE: ${GOPI_DEVICE:-cpu}
-      GOPI_MODEL_CONFIG: /app/configs/model.v2.gpu.yaml
-      GOPI_INFERENCE_CONFIG: /app/configs/inference.v2.yaml
-      GOPI_TOKENIZER_PATH: /app/data/tokenizer-v2
+      GOPI_MODEL_CONFIG: /app/configs/model.gpu.yaml
+      GOPI_INFERENCE_CONFIG: /app/configs/inference.yaml
+      GOPI_TOKENIZER_PATH: /app/data/tokenizer-v3
       GOPI_CHECKPOINT_PATH: /app/checkpoints/best.pt
       GOPI_SESSION_STORE: /app/data/cache/sessions.sqlite
       GOPI_RATE_LIMIT_STORE: /app/data/cache/rate-limits.sqlite
@@ -29,8 +29,8 @@ services:
       GOPI_MAX_CONCURRENCY: ${GOPI_MAX_CONCURRENCY:-1}
       GOPI_REQUESTS_PER_MINUTE: ${GOPI_REQUESTS_PER_MINUTE:-30}
     volumes:
-      - ./data/tokenizer-v2:/app/data/tokenizer-v2:ro
-      - ${GOPI_CHECKPOINT_DIR:-./checkpoints/v2-dpo}:/app/checkpoints:ro
+      - ./data/tokenizer-v3:/app/data/tokenizer-v3:ro
+      - ${GOPI_CHECKPOINT_DIR:-./checkpoints/finetuning}:/app/checkpoints:ro
       - ./data/cache:/app/data/cache
     expose:
       - "8000"

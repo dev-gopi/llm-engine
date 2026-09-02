@@ -1,4 +1,5 @@
-batch_size: 2
+# Continued pretraining for the active grown GPU model.
+batch_size: 1
 epochs: 3
 seed: 42
 dataset_governance:
@@ -14,13 +15,13 @@ lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
-samples_per_epoch: 2466629
+samples_per_epoch: 500000
 train_files:
   - data/processed/tinystories/train.jsonl
   - data/processed/wikitext_103/train.jsonl
 dataset_weights:
-  tinystories: 0.50
-  wikitext_103: 0.50
+  tinystories: 0.20
+  wikitext_103: 0.80
 validation_files:
   - data/processed/tinystories/validation.jsonl
   - data/processed/wikitext_103/validation.jsonl
@@ -30,28 +31,28 @@ validation_domains:
   wikitext_103:
     - data/processed/wikitext_103/validation.jsonl
 validation_weights:
-  tinystories: 0.50
-  wikitext_103: 0.50
-validation_metric_name: dataset_weighted_tinystories_50_wikitext_50_v1
-learning_rate: 0.0002
+  tinystories: 0.20
+  wikitext_103: 0.80
+validation_metric_name: dataset_weighted_grown_v3_tinystories_20_wikitext_80_v1
+learning_rate: 0.00005
 weight_decay: 0.1
 beta1: 0.9
 beta2: 0.95
 adam_epsilon: 0.00000001
 fused_optimizer: false
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 16
+gradient_accumulation_steps: 32
 mixed_precision: fp16
 grad_scaler_initial_scale: 1024
 grad_scaler_growth_interval: 20000
 lr_schedule: cosine
-warmup_ratio: 0.03
+warmup_ratio: 0.05
 min_lr_ratio: 0.1
 ema_decay: 0.999
 log_every: 25
 checkpoint_every: 1000
 evaluate_every: 2000
-early_stopping_patience: 2
+early_stopping_patience: 3
 early_stopping_min_delta: 0.001
 ignore_index: -100
 label_smoothing: 0.0

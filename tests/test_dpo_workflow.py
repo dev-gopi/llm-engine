@@ -83,5 +83,5 @@ def test_dpo_cli_and_profiles_are_available() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert "--reference-checkpoint" in completed.stdout
-    assert (root / "configs/dpo.v2.cpu.yaml").is_file()
-    assert (root / "configs/dpo.v2.gpu.yaml").is_file()
+    assert (root / "configs/dpo.cpu.yaml").is_file()
+    assert (root / "configs/dpo.gpu.yaml").is_file()

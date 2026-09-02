@@ -61,7 +61,7 @@ class ConfiguredModelBackend:
     def __init__(
         self,
         *,
-        model_config: str | Path = "configs/model.v2.cpu.yaml",
+        model_config: str | Path = "configs/model.cpu.yaml",
         tokenizer_path: str | Path = "data/tokenizer-v2",
         checkpoint_path: str | Path = "checkpoints/v2-pretraining/best.pt",
         device: str = "auto",
@@ -203,7 +203,7 @@ class ConfiguredModelBackend:
             )
         except RuntimeError as error:
             # Retry with the other v2 hardware profile if architecture selection was wrong.
-            alt_config_path = Path("configs/model.v2.gpu.yaml") if self.model_config.name == "model.v2.cpu.yaml" else Path("configs/model.v2.cpu.yaml")
+            alt_config_path = Path("configs/model.gpu.yaml") if self.model_config.name == "model.cpu.yaml" else Path("configs/model.cpu.yaml")
             if alt_config_path.exists():
                 logger.info("Retrying checkpoint load with alternate config: %s", alt_config_path)
                 alt_config = load_yaml(alt_config_path)
@@ -871,13 +871,13 @@ class ConfiguredModelBackend:
             await asyncio.sleep(0)
 
 def _configured_from_environment(*, device: str | None = None) -> ConfiguredModelBackend:
-    inference_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.v2.yaml"))
+    inference_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.yaml"))
     inference = load_yaml(inference_path) if inference_path.is_file() else {}
     serving = inference.get("serving", {})
     if not isinstance(serving, dict):
         raise ValueError("inference serving configuration must be a mapping")
     return ConfiguredModelBackend(
-        model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.v2.cpu.yaml"))),
+        model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.cpu.yaml"))),
         tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer-v2"))),
         checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/v2-pretraining/best.pt"))),
         device=device or os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
