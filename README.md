@@ -743,9 +743,12 @@ the [dataset catalog](docs/DATASET_CATALOG.md).
 
 ### Live training report
 
-`scripts/train.py` appends its existing structured log messages to
-`logs/training.log` by default and launches `scripts/build_training_report.py`
-as an isolated subprocess on rank zero. Training does not wait for report
+`scripts/train.py` writes structured messages to `logs/training.log` by default
+and launches `scripts/build_training_report.py` as an isolated subprocess on
+rank zero. A new run, including one started with `--init-from`, archives the
+previous log and JSON report with a timestamped `.previous-*` filename so its
+dashboard starts empty. `--resume` preserves and appends the interrupted run's
+history. Training does not wait for report
 parsing or JSON generation. The reporter does not import the trainer, load
 model tensors, use GPU memory, or modify checkpoints; failure of the reporter
 does not stop training. It exits automatically when its parent training

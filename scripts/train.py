@@ -31,6 +31,7 @@ from training.evaluator import Evaluator
 from training.trainer import Trainer
 from training.planner import optimizer_steps_for_epochs
 from training.elastic import PreemptionCoordinator
+from training.reporting import archive_previous_report_files
 from dotenv import load_dotenv
 
 from utils.config import load_yaml
@@ -112,8 +113,16 @@ def main() -> None:
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
 
+    archived_reports = archive_previous_report_files(
+        args.log_file, args.report_json, resume=bool(args.resume)
+    )
     configure_logging(log_file=args.log_file)
-    logger.info("Appending standalone report data to %s", args.log_file)
+    for source, destination in archived_reports:
+        logger.info("Archived previous report file %s to %s", source, destination)
+    if args.resume:
+        logger.info("Appending resumed training report data to %s", args.log_file)
+    else:
+        logger.info("Starting a fresh training report in %s", args.log_file)
     if args.report_refresh_seconds <= 0:
         parser.error("--report-refresh-seconds must be positive")
     if args.report_telemetry_seconds <= 0:
