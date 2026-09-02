@@ -26,6 +26,8 @@ New users should follow these end-to-end guides:
 
 - [V2 training guide](docs/V2_TRAINING_GUIDE.md) — collect datasets, prepare the
   tokenizer, pretrain, fine-tune, run DPO, evaluate, and export.
+- [V3 direct fine-tuning guide](docs/V3_DIRECT_TRAINING_GUIDE.md) — extend the
+  tokenizer, grow the best v2 checkpoint, start v3 SFT, resume, and monitor it.
 - [V2 usage guide](docs/V2_USAGE_GUIDE.md) — generate from the CLI, chat in the
   terminal, use the browser UI and API, stream responses, and run exported
   models.
@@ -36,6 +38,8 @@ New users should follow these end-to-end guides:
   non-finite gradients, tokenizer/checkpoint, validation, and serving failures.
 - [Dataset formats](docs/DATASET_FORMATS.md) — required JSONL schemas for
   pretraining, SFT, DPO, and domain evaluation.
+- [Dataset catalog](docs/DATASET_CATALOG.md) — every active v3 dataset, its
+  sampling weight, purpose, validation domain, and governance status.
 - [API reference](docs/API_REFERENCE.md) — native and OpenAI-compatible HTTP
   endpoints, authentication, request fields, streaming, and errors.
 - [Deployment guide](docs/DEPLOYMENT.md) — run the local service safely behind
@@ -725,126 +729,19 @@ derives that size from verified tokenizer lineage, copies rows `0..31999`
 exactly, initializes only appended embedding/output rows, and preserves tied
 input/output weights.
 
-### Continue v2 SFT with the expanded datasets and 38K tokenizer
+### Expanded v2 and v3 model-growth workflows
 
-This route keeps the trained 10-layer v2 architecture and does not require
-continued pretraining. It creates one append-only 38K v3 extension, then starts
-a fresh optimizer stage from the v2 best model. Existing
-token IDs and model rows remain compatible; only token IDs 34000 and above are
-new relative to the selected v2 checkpoint.
+Two checkpoint-compatible upgrade paths are available:
 
-```bash
-.venv/bin/python scripts/tokenize.py extend \
-  --config configs/tokenizer.v3.extension.yaml
+- Continue the 10-layer v2 model on the expanded dataset mixture with
+  `configs/finetuning.v2.expanded.gpu.yaml`.
+- Grow v2 into the 16-layer, 38K-vocabulary v3 model and use either direct SFT
+  or optional continued pretraining.
 
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.v2.gpu.yaml \
-  --training-config configs/finetuning.v2.expanded.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended-38k \
-  --init-from checkpoints/v2-finetuning/best.pt \
-  --output checkpoints/v2-expanded-finetuning/latest.pt \
-  --best-output checkpoints/v2-expanded-finetuning/best.pt
-```
-
-Use `--init-from`, not `--resume`: the vocabulary, dataset mixture, validation
-metric, optimizer schedule, and output checkpoint lineage define a new stage.
-Keep the original v2 tokenizer and checkpoints for rollback and comparison.
-
-### Grow the 55M v2 checkpoint to the 80M v3 model
-
-This optional workflow reuses a trained 10-layer v2 GPU model while adding six
-transformer layers and extending its vocabulary from 34K to 38K. It is not a
-normal resume: `scripts/grow_checkpoint.py` creates a new model checkpoint with
-a fresh training state. It copies layers `0..9` and vocabulary rows `0..33999`
-exactly, mean-initializes the new vocabulary rows, and makes layers `10..15`
-identity-like by zeroing their attention and feed-forward output projections.
-The new blocks therefore disturb the learned residual stream as little as
-possible before continued pretraining.
-
-For an experimental direct-SFT route that skips continued pretraining, use the
-conservative `configs/finetuning.v3.gpu.yaml` profile. This preserves the
-v2 files and writes a separate grown checkpoint and v3 fine-tuning lineage:
-
-```bash
-.venv/bin/python scripts/tokenize.py extend \
-  --config configs/tokenizer.v3.extension.yaml
-
-.venv/bin/python scripts/grow_checkpoint.py \
-  --checkpoint checkpoints/v2-finetuning/best.pt \
-  --source-model-config configs/model.v2.55m-source.yaml \
-  --target-model-config configs/model.v3.gpu.yaml \
-  --source-tokenizer data/tokenizer-v2-extended \
-  --target-tokenizer data/tokenizer-v3-extended-38k \
-  --output checkpoints/v3-direct/init.pt
-
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.v3.gpu.yaml \
-  --training-config configs/finetuning.v3.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended-38k \
-  --init-from checkpoints/v3-direct/init.pt \
-  --output checkpoints/v3-direct-finetuning/latest.pt \
-  --best-output checkpoints/v3-direct-finetuning/best.pt
-```
-
-This route is less reliable than continued pretraining because the six new
-layers see only supervised instruction data. Compare its validation and
-generation quality against v2 and retain v2 until v3 demonstrates an advantage.
-
-Keep the original tokenizer and checkpoint. The 38K tokenizer must be an
-append-only extension of `data/tokenizer-v2-extended`; a newly trained 38K
-tokenizer is not compatible because it can assign different IDs.
-
-First create the verified 34K-to-38K tokenizer extension:
-
-```bash
-.venv/bin/python scripts/tokenize.py extend \
-  --config configs/tokenizer.v3.extension.yaml
-```
-
-Confirm that the command reports an old vocabulary size of 34,000 and a new
-size of 38,000. If discovery finds fewer than 4,000 acceptable tokens, do not
-run the converter with a 38K target configuration; adjust the extension corpus
-or use a target model configuration matching the actual tokenizer size.
-
-Convert the selected v2 fine-tuning checkpoint on CPU:
-
-```bash
-.venv/bin/python scripts/grow_checkpoint.py \
-  --checkpoint checkpoints/v2-finetuning/best.pt \
-  --source-model-config configs/model.v2.55m-source.yaml \
-  --target-model-config configs/model.v3.gpu.yaml \
-  --source-tokenizer data/tokenizer-v2-extended \
-  --target-tokenizer data/tokenizer-v3-extended-38k \
-  --output checkpoints/v3-grown/init.pt
-```
-
-The converter rejects unrelated tokenizers, shrinking vocabularies, targets
-that are not deeper, and incompatible hidden dimensions. It intentionally does
-not copy optimizer, scheduler, scaler, sampler, or EMA state. Pass `--use-ema`
-only when the EMA weights are deliberately preferred over the live checkpoint
-weights.
-
-Continue causal-language-model pretraining with a fresh optimizer:
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.v3.gpu.yaml \
-  --training-config configs/pretraining.v3.grown.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended-38k \
-  --init-from checkpoints/v3-grown/init.pt \
-  --output checkpoints/v3-pretraining/latest.pt \
-  --best-output checkpoints/v3-pretraining/best.pt
-```
-
-The 4 GB GPU profile uses batch size 1, gradient accumulation 32, FP16,
-gradient checkpointing, a `5e-5` peak learning rate, and a 5% warmup. Watch
-validation loss and `nonfinite_updates`; retain the original v2 model until the
-grown checkpoint has demonstrated better held-out and generation quality.
-After continued pretraining stabilizes, run SFT again with a separate v3
-fine-tuning profile before optional DPO.
+Follow the complete commands, compatibility checks, resume procedure, and
+tradeoffs in the [v3 training guide](docs/V3_DIRECT_TRAINING_GUIDE.md). Dataset
+purposes, weights, upstream references, and governance state are maintained in
+the [dataset catalog](docs/DATASET_CATALOG.md).
 
 ### Live training report
 

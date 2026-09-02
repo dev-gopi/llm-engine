@@ -104,3 +104,14 @@ def test_v3_direct_sft_fits_the_laptop_growth_route() -> None:
     assert config["validation_metric_name"] == "dataset_weighted_v3_direct_sft_domains_v1"
     assert model["vocab_size"] == 38_000
     assert model["layers"] == 16
+
+
+def test_dataset_catalog_lists_every_v3_training_source() -> None:
+    config = load_yaml(CONFIGS / "finetuning.v3.gpu.yaml")
+    catalog = (ROOT / "docs" / "DATASET_CATALOG.md").read_text(encoding="utf-8")
+
+    for name in config["dataset_weights"]:
+        assert f"`{name}`" in catalog
+
+    for manifest in (ROOT / "data" / "processed").glob("*/dataset-manifest.yaml"):
+        assert f"`{manifest.parent.name}`" in catalog
