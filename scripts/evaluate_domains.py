@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument("--domains", type=Path, default=Path("configs/evaluation.domains.yaml"))
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--max-batches", type=int, help="limit batches independently per domain")

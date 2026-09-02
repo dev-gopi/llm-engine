@@ -52,7 +52,6 @@ data/rag/wikipedia/*
 !data/rag/wikipedia/dataset-manifest.yaml
 !data/shards/.gitkeep
 !data/tokenizer/.gitkeep
-!data/tokenizer-v2/.gitkeep
 
 # Training checkpoints and generated model exports
 checkpoints/*

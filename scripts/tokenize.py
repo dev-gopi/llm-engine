@@ -204,7 +204,7 @@ def train_command(args: argparse.Namespace) -> None:
         ),
         progress=report,
     )
-    output_dir = args.output or Path(config.get("output_dir", "data/tokenizer-v2"))
+    output_dir = args.output or Path(config.get("output_dir", "data/tokenizer"))
     artifact = tokenizer.save(output_dir)
     print(
         json.dumps(
@@ -277,7 +277,7 @@ def extend_command(args: argparse.Namespace) -> None:
     if extension_config and not isinstance(extension_config, dict):
         raise ValueError("tokenizer extension configuration must be a mapping")
     tokenizer_path = args.tokenizer or Path(
-        extension_config.get("base_tokenizer", config.get("output_dir", "data/tokenizer-v2"))
+        extension_config.get("base_tokenizer", config.get("output_dir", "data/tokenizer"))
     )
     tokenizer = Tokenizer.load(tokenizer_path)
     requested = list(args.token or ())
@@ -329,7 +329,7 @@ def parse_args() -> argparse.Namespace:
 
     inspect_parser = subparsers.add_parser("inspect", help="encode and decode sample text")
     inspect_parser.add_argument("text")
-    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     inspect_parser.add_argument("--add-bos", action="store_true")
     inspect_parser.add_argument("--add-eos", action="store_true")
     inspect_parser.set_defaults(handler=inspect_command)
@@ -338,7 +338,7 @@ def parse_args() -> argparse.Namespace:
         "extend", help="append tokens while preserving all existing token IDs"
     )
     extend_parser.add_argument(
-        "--config", type=Path, default=Path("configs/tokenizer.v2.yaml"),
+        "--config", type=Path, required=True,
         help="configuration containing an extension section",
     )
     extend_parser.add_argument("--tokenizer", type=Path)

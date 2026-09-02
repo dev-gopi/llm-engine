@@ -81,7 +81,7 @@ def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
     config = load_yaml(CONFIGS / "inference.yaml")["serving"]
 
     assert config["checkpoint_path"] == "checkpoints/finetuning/best.pt"
-    assert config["tokenizer_path"] == "data/tokenizer-v2"
+    assert config["tokenizer_path"] == "data/tokenizer"
 
 
 def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
@@ -111,19 +111,20 @@ def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
     assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_v1"
 
 
-def test_v2_tokenizer_sources_match_gpu_finetuning_training_files() -> None:
-    tokenizer = load_yaml(CONFIGS / "tokenizer.v2.yaml")
+def test_tokenizer_sources_match_gpu_finetuning_training_files() -> None:
+    tokenizer = load_yaml(CONFIGS / "tokenizer.yaml")
     finetuning = load_yaml(CONFIGS / "finetuning.gpu.yaml")
 
-    # Learn vocabulary from every training source, but never from held-out
-    # validation files. Preserve ordering so sampling remains reproducible.
-    assert tokenizer["extension"]["sources"] == finetuning["train_files"]
-    assert not any("validation" in path for path in tokenizer["extension"]["sources"])
+    # Learn vocabulary from every SFT source plus the two pretraining corpora,
+    # but never from held-out validation files.
+    assert set(finetuning["train_files"]) <= set(tokenizer["sources"])
+    assert not any("validation" in path for path in tokenizer["sources"])
+    assert tokenizer["max_training_bytes"] == 12 * 1024**3
 
 
 def test_expanded_sft_is_the_active_gpu_stage() -> None:
     config = load_yaml(CONFIGS / "finetuning.gpu.yaml")
-    tokenizer = load_yaml(CONFIGS / "tokenizer.v2.yaml")
+    tokenizer = load_yaml(CONFIGS / "tokenizer.yaml")
 
     assert config["epochs"] == 2
     assert config["learning_rate"] == pytest.approx(1e-5)
@@ -133,16 +134,15 @@ def test_expanded_sft_is_the_active_gpu_stage() -> None:
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
     assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_v1"
     assert tokenizer["vocab_size"] == 38_000
-    assert tokenizer["extension"]["base_tokenizer"] == "data/tokenizer"
-    assert tokenizer["extension"]["output_dir"] == "data/tokenizer-v2"
-    assert tokenizer["extension"]["max_new_tokens"] == 6_000
+    assert tokenizer["output_dir"] == "data/tokenizer"
+    assert "extension" not in tokenizer
 
 
 def test_expanded_finetuning_includes_every_tokenizer_source() -> None:
-    tokenizer_sources = set(load_yaml(CONFIGS / "tokenizer.v2.yaml")["extension"]["sources"])
+    tokenizer_sources = set(load_yaml(CONFIGS / "tokenizer.yaml")["sources"])
     config = load_yaml(CONFIGS / "finetuning.gpu.yaml")
 
-    assert set(config["train_files"]) == tokenizer_sources
+    assert set(config["train_files"]) <= tokenizer_sources
     assert "data/processed/preferences/validation.jsonl" in config["validation_files"]
     assert "data/processed/preferences/validation.jsonl" in config["validation_domains"]["english"]
 

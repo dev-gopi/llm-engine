@@ -31,7 +31,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt"))
     parser.add_argument("--device", default="auto")
     parser.add_argument("--max-tokens", type=int)

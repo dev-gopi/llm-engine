@@ -1,7 +1,7 @@
 # Model usage and serving guide
 
 > The filename is retained for existing links. Commands use the current
-> unversioned configs and the active `data/tokenizer-v2` artifact.
+> unversioned configs and the active `data/tokenizer` artifact.
 
 ## Choose a checkpoint
 
@@ -20,7 +20,7 @@ validation; `latest.pt` exists primarily for resuming interrupted training.
 .venv/bin/python scripts/generate.py "Explain gradient accumulation simply." \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --checkpoint checkpoints/dpo/best.pt \
   --device cuda
 ```
@@ -34,7 +34,7 @@ tokenizer compatible with that CPU model shape.
 .venv/bin/python scripts/chat.py \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --checkpoint checkpoints/dpo/best.pt \
   --device cuda
 ```
@@ -49,7 +49,7 @@ Set the active paths explicitly when they differ from `configs/inference.yaml`:
 ```bash
 export GOPI_INFERENCE_CONFIG=configs/inference.yaml
 export GOPI_MODEL_CONFIG=configs/model.gpu.yaml
-export GOPI_TOKENIZER_PATH=data/tokenizer-v2
+export GOPI_TOKENIZER_PATH=data/tokenizer
 export GOPI_CHECKPOINT_PATH=checkpoints/dpo/best.pt
 export GOPI_MODEL_NAME=gopi
 export GOPI_API_KEY='replace-with-a-secret'
@@ -94,7 +94,7 @@ TLS, request limits, and storage permissions appropriate for the deployment.
 ```bash
 .venv/bin/python scripts/export.py \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --checkpoint checkpoints/dpo/best.pt \
   --format safetensors \
   --output exports/final/gopi.safetensors

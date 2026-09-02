@@ -32,7 +32,7 @@ control:
 export GOPI_API_KEY='replace-with-a-long-random-value'
 export GOPI_CHECKPOINT_PATH='checkpoints/dpo/best.pt'
 export GOPI_MODEL_CONFIG='configs/model.gpu.yaml'
-export GOPI_TOKENIZER_PATH='data/tokenizer-v2'
+export GOPI_TOKENIZER_PATH='data/tokenizer'
 export GOPI_INFERENCE_CONFIG='configs/inference.yaml'
 export GOPI_DEVICE='cuda'
 export GOPI_MCP_ENABLED='false'

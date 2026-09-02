@@ -25,7 +25,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --init-from checkpoints/finetuning/best.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt
@@ -39,7 +39,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --resume checkpoints/recovery/latest.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt
@@ -52,7 +52,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   --cases configs/evaluation.core.jsonl \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --checkpoint checkpoints/recovery/best.pt \
   --device cuda
 ```
@@ -60,34 +60,6 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 Select checkpoints using both validation loss and fixed behavioral evaluations.
 The generated manifests remain unreviewed until every upstream source license and
 privacy status is manually approved.
-
-## Optional: grow an older checkpoint before recovery
-
-When both tokenizers exist, grow the compatible 32K/10-layer pretraining
-checkpoint without overwriting it:
-
-```bash
-.venv/bin/python scripts/grow_checkpoint.py \
-  --checkpoint checkpoints/v1-pretraining/best.pt \
-  --source-model-config configs/model.source.gpu.yaml \
-  --target-model-config configs/model.gpu.yaml \
-  --source-tokenizer data/tokenizer \
-  --target-tokenizer data/tokenizer-v2 \
-  --output checkpoints/grown/init.pt
-```
-
-Then start clean recovery with the active architecture and tokenizer:
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --init-from checkpoints/grown/init.pt \
-  --output checkpoints/recovery/latest.pt \
-  --best-output checkpoints/recovery/best.pt
-```
 
 The recovery profile uses batch size 1 with 32 accumulation steps to reduce
 activation memory on a 4 GB GPU.

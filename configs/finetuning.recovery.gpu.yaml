@@ -1,5 +1,5 @@
 # Clean response-quality recovery for the active 80.29M, 16-layer model.
-# Initialize from checkpoints/grown/init.pt with the append-only 38K tokenizer.
+# Initialize from checkpoints/finetuning/best.pt with the unified 38K tokenizer.
 batch_size: 1
 validation_batch_size: 2
 epochs: 2

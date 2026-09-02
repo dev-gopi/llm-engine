@@ -62,7 +62,7 @@ class ConfiguredModelBackend:
         self,
         *,
         model_config: str | Path = "configs/model.cpu.yaml",
-        tokenizer_path: str | Path = "data/tokenizer-v2",
+        tokenizer_path: str | Path = "data/tokenizer",
         checkpoint_path: str | Path = "checkpoints/finetuning/best.pt",
         device: str = "auto",
         session_store_path: str | Path | None = None,
@@ -878,7 +878,7 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         raise ValueError("inference serving configuration must be a mapping")
     return ConfiguredModelBackend(
         model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.cpu.yaml"))),
-        tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer-v2"))),
+        tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer"))),
         checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/finetuning/best.pt"))),
         device=device or os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
         session_store_path=os.getenv("GOPI_SESSION_STORE", str(serving.get("session_store_path", "data/cache/sessions.sqlite"))),

@@ -1,58 +1,28 @@
-# Direct model growth and fine-tuning guide
+# Direct training and fine-tuning guide
 
-> Active training configurations are unversioned. Only
-> `configs/tokenizer.v2.yaml` keeps a version suffix because tokenizer lineage
-> is compatibility-sensitive.
+The active 38K tokenizer is trained from all active SFT sources and saved at
+`data/tokenizer`. Because it is not an append-only extension of the older 32K
+tokenizer, start a new model family and do not initialize from old checkpoints.
 
-This workflow upgrades an older 32K/10-layer checkpoint to the active
-38K/16-layer GPU model. Keep the source checkpoint and tokenizer until the
-grown model passes evaluation.
-
-## 1. Build the append-only tokenizer
-
-The tokenizer config reads the 32K base from `data/tokenizer` and writes the
-append-only 38K tokenizer to `data/tokenizer-v2`.
+## 1. Train the tokenizer
 
 ```bash
-.venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.v2.yaml
+.venv/bin/python scripts/tokenize.py train --config configs/tokenizer.yaml
 ```
 
-```bash
-.venv/bin/python -c "from tokenizer.encoder import Tokenizer; t=Tokenizer.load('data/tokenizer-v2'); print({'vocab_size': t.vocab_size, 'base_vocab_size': t.base_vocab_size, 'append_only': bool(t.compatible_base_fingerprints)})"
-```
-
-The result must contain 38,000 tokens, match `configs/model.gpu.yaml`, and
-report append-only compatibility.
-
-## 2. Grow the source checkpoint
-
-```bash
-.venv/bin/python scripts/grow_checkpoint.py \
-  --checkpoint checkpoints/v1-pretraining/best.pt \
-  --source-model-config configs/model.source.gpu.yaml \
-  --target-model-config configs/model.gpu.yaml \
-  --source-tokenizer data/tokenizer \
-  --target-tokenizer data/tokenizer-v2 \
-  --output checkpoints/grown/init.pt
-```
-
-This creates a separate checkpoint. Existing rows and layers are copied; new
-vocabulary rows and layers are initialized for subsequent training.
-
-## 3. Optional continued pretraining
+## 2. Start pretraining
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --init-from checkpoints/grown/init.pt \
+  --tokenizer data/tokenizer \
   --output checkpoints/pretraining/latest.pt \
   --best-output checkpoints/pretraining/best.pt
 ```
 
-## 4. Start supervised fine-tuning
+## 3. Start supervised fine-tuning
 
 Use `--init-from` for the first invocation. It loads weights but creates fresh
 optimizer, scheduler, sampler, and live-report state.
@@ -62,23 +32,20 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --init-from checkpoints/pretraining/best.pt \
   --output checkpoints/finetuning/latest.pt \
   --best-output checkpoints/finetuning/best.pt
 ```
 
-If continued pretraining was skipped, initialize from
-`checkpoints/grown/init.pt` instead.
-
-## 5. Resume an interrupted stage
+## 4. Resume an interrupted stage
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
+  --tokenizer data/tokenizer \
   --resume checkpoints/finetuning/latest.pt \
   --output checkpoints/finetuning/latest.pt \
   --best-output checkpoints/finetuning/best.pt
@@ -87,7 +54,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 Do not combine `--resume` and `--init-from`. A new stage archives the previous
 report; a resumed stage appends to its report history.
 
-## 6. Monitor and evaluate
+## 5. Monitor and evaluate
 
 ```bash
 .venv/bin/python -m http.server 8000 --directory reports

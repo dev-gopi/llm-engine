@@ -26,7 +26,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--training-config", type=Path, default=Path("configs/pretraining.gpu.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
+    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/pretraining/best.pt"))
     parser.add_argument("--dataset", type=Path, action="append")
     parser.add_argument("--device", default="auto")

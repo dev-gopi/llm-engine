@@ -36,13 +36,13 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 | `hindi_hinglish` | v2 Hindi/Hinglish reasoning SFT | [Subh775/formatted-hindi-hinglish-cot](https://huggingface.co/datasets/Subh775/formatted-hindi-hinglish-cot) |
 | `v2_hindi_news` | v2 Hindi SFT | [soketlabs/bhasha-sft](https://huggingface.co/datasets/soketlabs/bhasha-sft) (`aya_templated_hindi_news`) |
 | `code_alpaca` | V2/v2 coding SFT | [flwrlabs/code-alpaca-20k](https://huggingface.co/datasets/flwrlabs/code-alpaca-20k) |
-| `preferences` | V2 DPO and v2 tokenizer discovery | Derived locally from [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
+| `preferences` | DPO and tokenizer discovery | Derived locally from [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
 | `recovery_sft` | Focused v2 response-quality recovery | Deterministically filtered from the governed chat, English, Bengali, Hindi, mathematics, and coding sources listed in `scripts/prepare_recovery_sft.py` |
 | `dailydialog` | Optional retained conversation experiment; excluded from active profiles | [ConvLab/dailydialog](https://huggingface.co/datasets/ConvLab/dailydialog) |
-| `wikipedia_en` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
-| `wikipedia_simple` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |
-| `wikipedia_bn` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Bengali Wikipedia dumps](https://dumps.wikimedia.org/bnwiki/) |
-| `wikipedia_hi` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Hindi Wikipedia dumps](https://dumps.wikimedia.org/hiwiki/) |
+| `wikipedia_en` | Tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
+| `wikipedia_simple` | Tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |
+| `wikipedia_bn` | Tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Bengali Wikipedia dumps](https://dumps.wikimedia.org/bnwiki/) |
+| `wikipedia_hi` | Tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Hindi Wikipedia dumps](https://dumps.wikimedia.org/hiwiki/) |
 
 Packed profiles reference generated token-shard manifests built from these
 same processed sources; shards are representations of a dataset, not new
@@ -103,9 +103,9 @@ quality prominent in checkpoint selection without changing training sampling.
 
 ## Additional tokenizer and mixed-objective inputs
 
-`configs/tokenizer.v2.yaml` scans every active SFT training file plus
-the sources below. The active fine-tuning profile also uses
-them conservatively: preference records train only on the chosen response,
+`configs/tokenizer.yaml` scans every active SFT training file. The active
+fine-tuning profile uses the additional mixed-objective inputs conservatively:
+preference records train only on the chosen response,
 while Wikipedia records receive ordinary causal-language-model loss.
 
 | Input | Purpose | Used for SFT? |
