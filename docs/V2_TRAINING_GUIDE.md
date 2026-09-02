@@ -1,606 +1,182 @@
-# V2 model training guide
+# Model training guide
 
-This guide is for a new user who wants to train, evaluate, align, export, and
-run the v2 model. Run every command from the repository root. Do not run two
-training stages at the same time on one GPU.
+> The filename is retained for existing links. The active model and training
+> profiles now use unversioned filenames. `configs/tokenizer.v2.yaml` is the
+> deliberate exception because tokenizer lineage affects checkpoint safety.
 
-The complete order is:
+Run commands from the repository root. Review dataset licenses, privacy, and
+manifests before training.
 
-```text
-Environment and data checks
-        -> tokenizer (fresh models only)
-        -> pretraining
-        -> optional continued pretraining
-        -> supervised fine-tuning (SFT)
-        -> preference dataset
-        -> DPO
-        -> final evaluation
-        -> export and generation
-```
-
-## 1. Create the Python environment
+## 1. Install and inspect
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install --editable '.[dev]'
+python scripts/capabilities.py
 ```
 
-Run the test suite before starting a long training job:
+GPU training profiles require CUDA. `configs/finetuning.gpu.yaml` and
+`configs/dpo.gpu.yaml` require BF16 and FP16 support respectively. Use the CPU
+profiles when CUDA is unavailable.
+
+## 2. Prepare and audit datasets
+
+Dataset preparation commands and provenance are maintained in
+[DATASET_CATALOG.md](DATASET_CATALOG.md). After preparation, audit the exact
+stage inputs:
 
 ```bash
-.venv/bin/python -m pytest
+python scripts/audit_datasets.py \
+  --training-config configs/pretraining.gpu.yaml --stage pretraining
+
+python scripts/audit_datasets.py \
+  --training-config configs/finetuning.gpu.yaml --stage sft
 ```
 
-Check CUDA, BF16, FP16, SDPA, and other accelerator capabilities with the
-repository's hardware-check script:
+Do not train through missing, malformed, unreviewed, or incompatible data
+without consciously accepting the configured governance policy.
+
+## 3. Prepare the tokenizer
+
+The active 38K model uses `data/tokenizer-v3`. The versioned config extends a
+compatible tokenizer at `data/tokenizer-v2` without renumbering existing IDs:
 
 ```bash
-.venv/bin/python scripts/capabilities.py
+.venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.v2.yaml
 ```
 
-The v2 GPU fine-tuning profile requires a CUDA GPU with BF16 support. Use the
-matching CPU profiles on a machine without CUDA.
-
-## 2. Collect and prepare datasets
-
-Skip individual commands in this section when their processed `train.jsonl`,
-`validation.jsonl`, and `test.jsonl` files already exist. Downloads require an
-internet connection and can be large. Read each source dataset card and license
-before downloading or training. The commands do not grant permission to use a
-dataset.
-
-The general Hugging Face collector downloads Parquet shards, normalizes common
-text/instruction/chat schemas, and creates deterministic disjoint splits:
-
-```bash
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset OWNER/DATASET \
-  --full \
-  --output-dir data/processed/LOCAL_NAME
-```
-
-Use the following commands for the active v2 datasets.
-
-### Pretraining data
-
-Collect TinyStories:
-
-```bash
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset roneneldan/TinyStories \
-  --full \
-  --raw-dir data/raw/tinystories \
-  --output-dir data/processed/tinystories
-```
-
-WikiText requires its official train, validation, and test Parquet shards. The
-temporary processed directory created by the downloader is not used for
-training; `prepare_wikitext.py` rebuilds article-level records from the raw
-shards:
-
-```bash
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset Salesforce/wikitext \
-  --config wikitext-103-raw-v1 \
-  --split train \
-  --full \
-  --raw-dir data/raw/wikitext-103-raw-v1 \
-  --output-dir data/staging/wikitext
-
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset Salesforce/wikitext \
-  --config wikitext-103-raw-v1 \
-  --split validation \
-  --full \
-  --raw-dir data/raw/wikitext-103-raw-v1 \
-  --output-dir data/staging/wikitext
-
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset Salesforce/wikitext \
-  --config wikitext-103-raw-v1 \
-  --split test \
-  --full \
-  --raw-dir data/raw/wikitext-103-raw-v1 \
-  --output-dir data/staging/wikitext
-
-.venv/bin/python scripts/prepare_wikitext.py \
-  --raw-dir data/raw/wikitext-103-raw-v1 \
-  --output-dir data/processed/wikitext_103
-```
-
-### Main SFT data
-
-Collect UltraChat's raw official SFT splits, then create the bounded working
-subset:
-
-```bash
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset HuggingFaceH4/ultrachat_200k \
-  --split train_sft \
-  --full \
-  --raw-dir data/raw/ultrachat_200k \
-  --output-dir data/staging/ultrachat
-
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset HuggingFaceH4/ultrachat_200k \
-  --split test_sft \
-  --full \
-  --raw-dir data/raw/ultrachat_200k \
-  --output-dir data/staging/ultrachat
-
-.venv/bin/python scripts/prepare_ultrachat.py \
-  --raw-dir data/raw/ultrachat_200k \
-  --output-dir data/processed/ultrachat_200k
-```
-
-Collect HelpSteer, OpenOrca, and GSM8K. HelpSteer rating fields are retained so
-the same processed records can later produce DPO pairs:
-
-```bash
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset nvidia/HelpSteer \
-  --full \
-  --output-dir data/processed/helpsteer
-
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset Open-Orca/OpenOrca \
-  --full \
-  --output-dir data/processed/openorca
-
-.venv/bin/python scripts/prepare_hf_dataset.py \
-  --dataset openai/gsm8k \
-  --config main \
-  --full \
-  --output-dir data/processed/gsm8k
-
-.venv/bin/python scripts/prepare_core_chat.py \
-  --output-dir data/processed/core_chat
-```
-
-### Capability and multilingual SFT data
-
-```bash
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset iamtarun/python_code_instructions_18k_alpaca \
-  --output-dir data/processed/code_instructions
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset databricks/databricks-dolly-15k \
-  --output-dir data/processed/general_qa
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset fwnlp/self-instruct-safety-alignment \
-  --output-dir data/processed/safety_alignment
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset HuggingFaceH4/no_robots \
-  --output-dir data/processed/writing_editing
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset rishiraj/bengalichat \
-  --output-dir data/processed/multilingual_bn_hi
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset rishiraj/hindichat \
-  --output-dir data/processed/multilingual_hi
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset narrative-io/narrative-function-calling-v1 \
-  --output-dir data/processed/tool_calling
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset kamruzzaman-asif/bangla-instruction-dataset \
-  --config QApair \
-  --output-dir data/processed/bangla_qa
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset kamruzzaman-asif/bangla-instruction-dataset \
-  --config RQA \
-  --output-dir data/processed/bangla_reading_qa
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset kaifahmad/indian-history-hindi-QA-3.4k \
-  --output-dir data/processed/hindi_history_qa
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset DSMJ910/hinglish-instruct-10k \
-  --output-dir data/processed/hinglish_chat
-
-.venv/bin/python scripts/prepare_hf_dataset.py --full \
-  --dataset flwrlabs/code-alpaca-20k \
-  --output-dir data/processed/code_alpaca
-```
-
-`emoji_chat` is a small project-authored dataset, not a third-party download.
-Keep the supplied `data/processed/emoji_chat` directory. A replacement must use
-the same JSONL chat structure (`id`, `source`, `bot_name`, and alternating
-`messages`) and disjoint train, validation, and test files.
-
-Do not assume that a successful download is ready for production use. Inspect
-sample rows, remove invalid/duplicate/private content, verify train/validation
-separation, and create or review `dataset-manifest.yaml` before training.
-
-## 3. Check the processed datasets
-
-The commands below assume that the processed datasets already exist under
-`data/processed`. Check the two pretraining datasets first:
-
-```bash
-wc -l \
-  data/processed/tinystories/train.jsonl \
-  data/processed/tinystories/validation.jsonl \
-  data/processed/wikitext_103/train.jsonl \
-  data/processed/wikitext_103/validation.jsonl
-```
-
-Check every dataset referenced by the SFT configuration with the repository's
-dataset-audit command:
-
-```bash
-.venv/bin/python scripts/audit_datasets.py \
-  --training-config configs/finetuning.gpu.yaml \
-  --stage sft
-```
-
-Audit dataset governance before training:
-
-```bash
-.venv/bin/python scripts/audit_datasets.py \
-  --training-config configs/pretraining.gpu.yaml \
-  --stage pretraining
-```
-
-The audit checks file presence as well as manifests, provenance, licensing,
-privacy review, and allowed training stages. A `missing_file` finding means the
-dataset must be prepared before training. Governance findings such as
-`missing_manifest` or `privacy_unreviewed` need review, but do not by themselves
-mean that the JSONL file is absent or malformed.
-
-## 4. Prepare the tokenizer
-
-### Existing pretrained model
-
-If `checkpoints/v2-pretraining/latest.pt` or `best.pt` already exists, keep the
-tokenizer that trained it:
-
-```text
-data/tokenizer-v2
-```
-
-Do **not** retrain or replace this tokenizer. A rebuilt vocabulary can assign
-different meanings to existing token IDs and make the checkpoint incompatible.
-
-Inspect the existing tokenizer:
+Verify the artifact:
 
 ```bash
 .venv/bin/python scripts/tokenize.py inspect \
-  "Hello বাংলা हिन्दी 👋" \
-  --tokenizer data/tokenizer-v2 \
-  --add-bos \
-  --add-eos
+  --tokenizer data/tokenizer-v3 \
+  "Hello, नमस्ते, বাংলা" --add-bos --add-eos
 ```
 
-### Completely fresh model only
+If no compatible `data/tokenizer-v2` exists, this is a new model family rather
+than a checkpoint-compatible continuation. Train a base tokenizer deliberately
+and do not reuse checkpoints created with a different tokenizer fingerprint.
 
-Run this only when no model has been trained with `data/tokenizer-v2`, or when
-intentionally beginning a new model family from scratch:
+## 4. Obtain the active model shape
+
+The active GPU model is 38K/16-layer. Either grow a compatible older checkpoint
+as described in [V3_DIRECT_TRAINING_GUIDE.md](V3_DIRECT_TRAINING_GUIDE.md), or
+start it from scratch. Inspect it without allocating full weights:
 
 ```bash
-.venv/bin/python scripts/tokenize.py train \
-  --config configs/tokenizer.v2.yaml
+python scripts/inspect_model.py configs/model.gpu.yaml
 ```
 
-After a model has been pretrained, use the append-only tokenizer extension
-workflow instead of rebuilding its vocabulary. See the tokenizer section in
-the main README before choosing that advanced workflow.
+## 5. Pretrain
 
-## 5. Base pretraining
-
-### Start a fresh pretraining run
-
-Do not add `--resume` to a fresh run:
+For a fresh run, omit both `--init-from` and `--resume`:
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --output checkpoints/v2-pretraining/latest.pt \
-  --best-output checkpoints/v2-pretraining/best.pt
+  --tokenizer data/tokenizer-v3 \
+  --output checkpoints/pretraining/latest.pt \
+  --best-output checkpoints/pretraining/best.pt
 ```
 
-`latest.pt` is for recovery. `best.pt` is selected using validation and is the
-checkpoint passed to the next stage.
+To continue from model weights while starting a new optimizer stage, add
+`--init-from PATH`. To resume an interrupted pretraining run, use:
 
-### Resume an interrupted pretraining run
+```bash
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/pretraining.gpu.yaml \
+  --tokenizer data/tokenizer-v3 \
+  --resume checkpoints/pretraining/latest.pt \
+  --output checkpoints/pretraining/latest.pt \
+  --best-output checkpoints/pretraining/best.pt
+```
+
+## 6. Supervised fine-tuning
+
+Fine-tuning is a new stage, so use `--init-from`:
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
-  --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --resume checkpoints/v2-pretraining/latest.pt \
-  --output checkpoints/v2-pretraining/latest.pt \
-  --best-output checkpoints/v2-pretraining/best.pt
+  --training-config configs/finetuning.gpu.yaml \
+  --tokenizer data/tokenizer-v3 \
+  --init-from checkpoints/pretraining/best.pt \
+  --output checkpoints/finetuning/latest.pt \
+  --best-output checkpoints/finetuning/best.pt
 ```
 
-Do not change tokenizer, dataset weights, validation metric, model architecture,
-or epoch plan in the middle of a resumed run. A rare skipped non-finite FP16
-update is recoverable; repeated or rapidly increasing non-finite updates require
-investigation.
+Use `--resume checkpoints/finetuning/latest.pt` only when restarting this same
+stage. New stages archive the previous live report; resumed stages retain it.
 
-Training progress logs include:
+## 7. Optional recovery stage
 
-```text
-epoch, step, current and average loss, learning rate, gradient norm
-processed tokens, tokens/second, progress %, elapsed seconds, ETA seconds
-best validation loss, peak GPU memory, allocated/reserved/total GPU memory
-discarded non-finite update count
-```
-
-`gpu_memory_mb=A/R/T` means currently allocated, currently reserved by PyTorch,
-and total device memory. ETA is estimated from measured training-step time and
-does not include future validation, checkpoint I/O, pauses, or system slowdown.
-When validation reaches a new minimum, a separate `new_best_validation` log
-records the previous loss, new loss, step, and metric name.
-
-## 6. Evaluate pretraining
+Generate the focused dataset, then initialize recovery from the best SFT model:
 
 ```bash
-.venv/bin/python scripts/evaluate_domains.py \
-  --domains configs/evaluation.pretraining.yaml \
+.venv/bin/python scripts/prepare_recovery_sft.py \
+  --output data/processed/recovery_sft
+
+.venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
-  --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-pretraining/best.pt \
+  --training-config configs/finetuning.recovery.gpu.yaml \
+  --tokenizer data/tokenizer-v3 \
+  --init-from checkpoints/finetuning/best.pt \
+  --output checkpoints/recovery/latest.pt \
+  --best-output checkpoints/recovery/best.pt
+```
+
+Recovery targets response quality; it does not replace broad pretraining.
+
+## 8. DPO
+
+```bash
+.venv/bin/python scripts/train_dpo.py \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/dpo.gpu.yaml \
+  --tokenizer data/tokenizer-v3 \
+  --reference-checkpoint checkpoints/finetuning/best.pt \
+  --init-from checkpoints/finetuning/best.pt \
+  --output checkpoints/dpo/latest.pt \
+  --best-output checkpoints/dpo/best.pt \
   --device cuda
 ```
 
-Compare TinyStories and WikiText separately. The aggregate value alone can hide
-a weak domain.
+Use `configs/dpo.cpu.yaml` and `--device cpu` for the CPU route.
 
-Test raw text completion:
-
-```bash
-.venv/bin/python scripts/generate.py \
-  "Once upon a time" \
-  --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-pretraining/best.pt \
-  --device cuda \
-  --raw \
-  --max-tokens 120 \
-  --temperature 0.7
-```
-
-## 7. Optional continued pretraining
-
-Skip this stage unless a separate continued-pretraining experiment is wanted.
-For the existing TinyStories/WikiText data, use one epoch in
-`configs/pretraining.gpu.yaml`. Do not overwrite the base
-pretraining checkpoints.
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --init-from checkpoints/v2-pretraining/best.pt \
-  --output checkpoints/v2-pretraining-continued/latest.pt \
-  --best-output checkpoints/v2-pretraining-continued/best.pt
-```
-
-Use `--init-from`, not `--resume`, when starting this new stage. If this stage
-is skipped, use `checkpoints/v2-pretraining/best.pt` as the SFT input. If it is
-run and improves validation, use
-`checkpoints/v2-pretraining-continued/best.pt` instead.
-
-## 8. Supervised fine-tuning (SFT)
-
-The following command assumes that optional continued pretraining was skipped:
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --init-from checkpoints/v2-pretraining/best.pt \
-  --output checkpoints/v2-finetuning/latest.pt \
-  --best-output checkpoints/v2-finetuning/best.pt
-```
-
-When the optional stage was used successfully, replace the `--init-from` value
-with:
-
-```text
-checkpoints/v2-pretraining-continued/best.pt
-```
-
-Resume an interrupted SFT run with its complete state:
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --resume checkpoints/v2-finetuning/latest.pt \
-  --output checkpoints/v2-finetuning/latest.pt \
-  --best-output checkpoints/v2-finetuning/best.pt
-```
-
-Never provide `--resume` and `--init-from` together.
-
-## 9. Evaluate SFT quality
-
-Evaluate English, Bengali, Hindi, coding, GSM8K, and chat independently:
+## 9. Evaluate
 
 ```bash
 .venv/bin/python scripts/evaluate_domains.py \
   --domains configs/evaluation.finetuning.yaml \
   --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --tokenizer data/tokenizer-v3 \
+  --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
-```
 
-Run deterministic capability cases:
-
-```bash
 .venv/bin/python scripts/evaluate_benchmarks.py \
   --cases configs/evaluation.domains.jsonl \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --inference-config configs/inference.yaml \
+  --tokenizer data/tokenizer-v3 \
+  --checkpoint checkpoints/dpo/best.pt \
   --device cuda
 ```
 
-## 10. Build the DPO preference dataset
-
-DPO records require `prompt`, `chosen`, and `rejected`. Build deterministic
-pairs from processed HelpSteer data:
-
-```bash
-.venv/bin/python scripts/prepare_helpsteer_preferences.py \
-  --input-dir data/processed/helpsteer \
-  --output-dir data/processed/preferences
-```
-
-Confirm that both files contain data:
-
-```bash
-wc -l \
-  data/processed/preferences/train.jsonl \
-  data/processed/preferences/validation.jsonl
-```
-
-## 11. DPO preference training
-
-Run DPO only after SFT. The frozen reference and initial policy both start from
-the validation-selected SFT checkpoint:
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train_dpo.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/dpo.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --reference-checkpoint checkpoints/v2-finetuning/best.pt \
-  --init-from checkpoints/v2-finetuning/best.pt \
-  --output checkpoints/v2-dpo/latest.pt \
-  --best-output checkpoints/v2-dpo/best.pt \
-  --device cuda
-```
-
-Resume interrupted DPO training:
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train_dpo.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/dpo.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --reference-checkpoint checkpoints/v2-finetuning/best.pt \
-  --resume checkpoints/v2-dpo/latest.pt \
-  --output checkpoints/v2-dpo/latest.pt \
-  --best-output checkpoints/v2-dpo/best.pt \
-  --device cuda
-```
-
-The DPO CLI is single-device. Do not launch it with `torchrun` or multiple
-processes.
-
-## 12. Test the final checkpoint
-
-English:
-
-```bash
-.venv/bin/python scripts/generate.py \
-  "Explain artificial intelligence in simple language." \
-  --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-dpo/best.pt \
-  --device cuda \
-  --max-tokens 150 \
-  --temperature 0.7
-```
-
-Bengali:
-
-```bash
-.venv/bin/python scripts/generate.py \
-  "বাংলায় কম্পিউটার কী তা সহজভাবে ব্যাখ্যা করো।" \
-  --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-dpo/best.pt \
-  --device cuda \
-  --max-tokens 150 \
-  --temperature 0.7
-```
-
-Use the SFT `best.pt` instead when DPO was intentionally skipped.
-
-## 13. Export the final model
-
-Export the DPO checkpoint as a SafeTensors bundle:
+## 10. Export
 
 ```bash
 .venv/bin/python scripts/export.py \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v2 \
-  --checkpoint checkpoints/v2-dpo/best.pt \
+  --tokenizer data/tokenizer-v3 \
+  --checkpoint checkpoints/dpo/best.pt \
   --format safetensors \
-  --output exports/v2-final/gopi-v2.safetensors
+  --output exports/final/gopi.safetensors
 ```
 
-This also copies `model.yaml` and the tokenizer into `exports/v2-final`.
-
-Generate directly from the exported bundle:
-
-```bash
-.venv/bin/python scripts/generate_exported.py \
-  "Hello, explain what a computer is." \
-  --model exports/v2-final/gopi-v2.safetensors \
-  --model-config exports/v2-final/model.yaml \
-  --tokenizer exports/v2-final/tokenizer \
-  --device cuda \
-  --max-tokens 150 \
-  --temperature 0.7 \
-  --top-k 40 \
-  --top-p 0.9
-```
-
-## Checkpoint rules
-
-- Use `latest.pt` only to resume the same interrupted stage.
-- Use `best.pt` to initialize the next stage, evaluate, generate, or export.
-- Use `--resume` to restore model, optimizer, scheduler, scaler, and progress.
-- Use `--init-from` to begin a new stage from model weights.
-- Never use `--resume` and `--init-from` together.
-- Never rebuild the tokenizer used by an existing checkpoint.
-- Keep each stage in a different checkpoint directory.
-- Stop training cleanly with `Ctrl+C`, then resume from that stage's
-  `latest.pt`.
-
-## Recommended final artifact
-
-If all stages are completed, deploy:
-
-```text
-checkpoints/v2-dpo/best.pt
-```
-
-or its exported bundle:
-
-```text
-exports/v2-final/gopi-v2.safetensors
-exports/v2-final/model.yaml
-exports/v2-final/tokenizer/
-```
+Keep `model.yaml` and the copied tokenizer beside the exported weights.

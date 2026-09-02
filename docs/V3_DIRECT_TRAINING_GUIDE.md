@@ -1,145 +1,97 @@
-# V3 direct fine-tuning guide
+# Direct model-growth and fine-tuning guide
 
-This workflow grows the trained 10-layer v2 model into the 16-layer, 38K
-vocabulary v3 model and starts supervised fine-tuning without an intervening
-continued-pretraining stage. Keep all v2 artifacts for comparison and rollback.
-The complete source mixture and its review status are documented in the
-[dataset catalog](DATASET_CATALOG.md).
+> The filename is retained for existing links. Active configurations are
+> unversioned; only `configs/tokenizer.v2.yaml` keeps a version suffix because
+> tokenizer lineage is compatibility-sensitive.
 
-Run every command from the repository root.
+This workflow upgrades an older 32K/10-layer checkpoint to the active
+38K/16-layer GPU model. Keep the source checkpoint and tokenizer until the
+grown model passes evaluation.
 
-## 1. Create the v3 tokenizer
+## 1. Build the append-only tokenizer
 
-The v3 tokenizer is a verified append-only extension of
-`data/tokenizer-v2-extended`. Existing v2 token IDs remain unchanged.
-
-```bash
-.venv/bin/python scripts/tokenize.py extend \
-  --config configs/tokenizer.v2.yaml
-```
-
-The command must report:
-
-```text
-old_vocab_size: 34000
-new_vocab_size: 38000
-```
-
-Verify the saved tokenizer and its lineage:
+The tokenizer config reads `data/tokenizer-v2` and writes `data/tokenizer-v3`.
 
 ```bash
-.venv/bin/python -c "from tokenizer.encoder import Tokenizer; t=Tokenizer.load('data/tokenizer-v3-extended'); print({'vocab_size': t.vocab_size, 'base_vocab_size': t.base_vocab_size, 'append_only': bool(t.compatible_base_fingerprints)})"
+.venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.v2.yaml
 ```
 
-Expected values are `vocab_size: 38000`, `base_vocab_size: 32000`, and
-`append_only: True`. Do not grow the model if the vocabulary is smaller than
-38,000; its size must match `configs/model.gpu.yaml`.
+```bash
+.venv/bin/python -c "from tokenizer.encoder import Tokenizer; t=Tokenizer.load('data/tokenizer-v3'); print({'vocab_size': t.vocab_size, 'base_vocab_size': t.base_vocab_size, 'append_only': bool(t.compatible_base_fingerprints)})"
+```
 
-## 2. Grow the v2 checkpoint
+The result must contain 38,000 tokens, match `configs/model.gpu.yaml`, and
+report append-only compatibility.
 
-Select the best v2 fine-tuning checkpoint, not merely the latest checkpoint.
-The converter copies the ten trained layers and the existing vocabulary rows,
-then adds six identity-like layers and mean-initialized vocabulary rows.
+## 2. Grow the source checkpoint
 
 ```bash
 .venv/bin/python scripts/grow_checkpoint.py \
-  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --checkpoint checkpoints/source-finetuning/best.pt \
   --source-model-config configs/model.source.gpu.yaml \
   --target-model-config configs/model.gpu.yaml \
-  --source-tokenizer data/tokenizer-v2-extended \
-  --target-tokenizer data/tokenizer-v3-extended \
-  --output checkpoints/v3-direct/init.pt
+  --source-tokenizer data/tokenizer-v2 \
+  --target-tokenizer data/tokenizer-v3 \
+  --output checkpoints/grown/init.pt
 ```
 
-This operation creates a separate checkpoint and does not overwrite v2.
+This creates a separate checkpoint. Existing rows and layers are copied; new
+vocabulary rows and layers are initialized for subsequent training.
 
-## 3. Start direct v3 fine-tuning
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended \
-  --init-from checkpoints/v3-direct/init.pt \
-  --output checkpoints/v3-direct-finetuning/latest.pt \
-  --best-output checkpoints/v3-direct-finetuning/best.pt
-```
-
-Use `--init-from` only for this first v3 run. It starts a fresh optimizer and
-scheduler while loading the grown model weights.
-
-## 4. Resume an interrupted v3 run
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended \
-  --resume checkpoints/v3-direct-finetuning/latest.pt \
-  --output checkpoints/v3-direct-finetuning/latest.pt \
-  --best-output checkpoints/v3-direct-finetuning/best.pt
-```
-
-Do not combine `--resume` with `--init-from`. Resume restores the complete v3
-training state, so the model, tokenizer, and training configuration must match
-the interrupted run.
-
-## 5. Optional alternative training routes
-
-### Keep the 10-layer v2 architecture
-
-To use the expanded datasets and 38K tokenizer without adding six layers,
-start a separate optimizer stage directly from the v2 best checkpoint:
-
-```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-.venv/bin/python scripts/train.py \
-  --model-config configs/model.gpu.yaml \
-  --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended \
-  --init-from checkpoints/v2-finetuning/best.pt \
-  --output checkpoints/v2-expanded-finetuning/latest.pt \
-  --best-output checkpoints/v2-expanded-finetuning/best.pt
-```
-
-This is safer than adding layers because the complete transformer stack is
-already trained. Newly appended vocabulary rows are initialized from the
-trained vocabulary centroid instead of random values, reducing the initial
-logit disturbance while preserving every existing token row exactly.
-
-### Continued pretraining before v3 SFT
-
-For the more reliable v3 growth route, write the grown checkpoint to
-`checkpoints/v3-grown/init.pt`, then train the new layers on the causal-language
-modeling objective:
+## 3. Optional continued pretraining
 
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v3-extended \
-  --init-from checkpoints/v3-grown/init.pt \
-  --output checkpoints/v3-pretraining/latest.pt \
-  --best-output checkpoints/v3-pretraining/best.pt
+  --tokenizer data/tokenizer-v3 \
+  --init-from checkpoints/grown/init.pt \
+  --output checkpoints/pretraining/latest.pt \
+  --best-output checkpoints/pretraining/best.pt
 ```
 
-After pretraining stabilizes, run v3 SFT with
-`checkpoints/v3-pretraining/best.pt` as `--init-from` and use separate v3
-fine-tuning output paths.
+## 4. Start supervised fine-tuning
+
+Use `--init-from` for the first invocation. It loads weights but creates fresh
+optimizer, scheduler, sampler, and live-report state.
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
+  --tokenizer data/tokenizer-v3 \
+  --init-from checkpoints/pretraining/best.pt \
+  --output checkpoints/finetuning/latest.pt \
+  --best-output checkpoints/finetuning/best.pt
+```
+
+If continued pretraining was skipped, initialize from
+`checkpoints/grown/init.pt` instead.
+
+## 5. Resume an interrupted stage
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.gpu.yaml \
+  --training-config configs/finetuning.gpu.yaml \
+  --tokenizer data/tokenizer-v3 \
+  --resume checkpoints/finetuning/latest.pt \
+  --output checkpoints/finetuning/latest.pt \
+  --best-output checkpoints/finetuning/best.pt
+```
+
+Do not combine `--resume` and `--init-from`. A new stage archives the previous
+report; a resumed stage appends to its report history.
 
 ## 6. Monitor and evaluate
-
-Training automatically updates the live report. Serve it from the report
-directory:
 
 ```bash
 .venv/bin/python -m http.server 8000 --directory reports
 ```
 
-Open `http://localhost:8000/training_report.html`. Retain the v2 model until v3
-shows better held-out validation and generation quality; direct SFT is more
-experimental than continued pretraining because the six new layers initially
-see only instruction data.
+Open `http://localhost:8000/training_report.html`. Choose the final checkpoint
+using held-out validation and fixed behavioral evaluation, not training loss
+alone.

@@ -1,285 +1,104 @@
-# V2 capabilities, purposes, and scaling guide
+# Capabilities, limitations, and scaling guide
 
-This document describes what the current v2 model can realistically do, where
-it can be useful, what it cannot safely do, and how this project can grow from
-the active 54.4M-parameter model toward the supplied 1B, 7B, and 30B
-architecture targets.
+> The filename is retained for existing links. This document describes the
+> current unversioned profiles.
 
-- To build and train the model, read
-  [V2_TRAINING_GUIDE.md](V2_TRAINING_GUIDE.md).
-- To generate, chat, serve an API, or use the browser UI, read
-  [V2_USAGE_GUIDE.md](V2_USAGE_GUIDE.md).
+## Active model
 
-## Current model
+`configs/model.gpu.yaml` defines the active laptop-GPU architecture:
 
-The active GPU model is defined by `configs/model.gpu.yaml`:
+- 38,000-token vocabulary;
+- hidden size 512;
+- 16 transformer layers;
+- 8 attention heads and 2 KV heads;
+- rotary positions with a 512-token model limit;
+- RMSNorm, SwiGLU, tied embeddings, and gradient checkpointing.
 
-| Property | Current value |
-| --- | ---: |
-| Parameters | 54,405,632 (54.4M) |
-| Vocabulary | 32,000 base tokens |
-| Hidden size | 512 |
-| Transformer layers | 10 |
-| Attention heads | 8 query heads, 2 KV heads |
-| Feed-forward size | 2,048 |
-| Maximum context | 512 tokens |
-| Position encoding | RoPE |
-| Normalization | RMSNorm |
-| Feed-forward activation | SwiGLU |
-| Input/output embeddings | Tied |
-| Activation checkpointing | Enabled |
-| FP16/BF16 weight size | About 0.10 GiB |
-| FP32 weight size | About 0.20 GiB |
+It contains about 80.3M parameters. `configs/model.cpu.yaml` remains a smaller
+32K/8-layer profile and is not checkpoint-compatible with the active GPU model.
 
-Training uses much more memory than weights alone because it also needs
-gradients, optimizer state, activations, temporary buffers, and—outside FSDP—an
-EMA copy.
+Inspect any architecture without allocating its tensors:
 
-## Training stages and what they add
+```bash
+python scripts/inspect_model.py configs/model.gpu.yaml
+python scripts/inspect_model.py configs/model.cpu.yaml
+```
 
-The same architecture behaves differently after each stage:
+## Realistic capabilities
 
-| Checkpoint | Main capability | Not yet expected |
-| --- | --- | --- |
-| `v2-pretraining/best.pt` | English text continuation, short stories, basic general-language patterns | Reliable assistant/chat behavior |
-| `v2-pretraining-continued/best.pt` | More WikiText-weighted general and factual language patterns | Instruction following |
-| `v2-finetuning/best.pt` | Chat, instructions, Bengali, Hindi, basic coding, GSM8K-style arithmetic, safety responses | Strong preference alignment |
-| `v2-dpo/best.pt` | Better preference toward helpful/coherent responses from the available HelpSteer pairs | New factual knowledge not present in prior stages |
+After successful pretraining, SFT, and evaluation, the active model can support
+small-project experiments in:
 
-DPO primarily changes which response style the model prefers. It is not a
-replacement for pretraining data, factual data, reasoning data, or SFT.
+- short chat and instruction following;
+- English, Bengali, Hindi, and Hinglish text represented in the training data;
+- basic coding and editing tasks;
+- GSM8K-style arithmetic patterns;
+- safety-response, tool-call, and structured-output experiments;
+- local RAG and web-search demonstrations;
+- checkpoint growth, recovery SFT, DPO, export, and serving research.
 
-## What the trained model can do
-
-Actual quality must be measured from the resulting checkpoint. With successful
-pretraining, SFT, and DPO, the project is designed for the following bounded
-capabilities.
-
-### Text and story generation
-
-- Continue short English prompts.
-- Generate TinyStories-style simple stories.
-- Produce short summaries, rewrites, lists, and explanations.
-- Generate creative text with sampling controls.
-
-The model is most likely to be coherent on short outputs similar to its
-training distribution.
-
-### Basic assistant chat
-
-- Maintain a short conversation within its context window.
-- Follow simple, direct instructions.
-- Use a configurable system prompt and Gopi identity.
-- Return plain text or Markdown-oriented responses.
-- Produce safer refusals for examples represented in alignment data.
-
-### Multilingual text
-
-- Read and generate examples in English, Bengali, Hindi, and Hinglish.
-- Understand common emoji and some complex emoji sequences.
-- Answer basic multilingual questions represented by the SFT datasets.
-
-Multilingual quality will be much smaller and less robust than a large model
-trained on billions of high-quality multilingual tokens.
-
-### Basic coding
-
-- Answer simple Python syntax questions.
-- Generate short functions and code snippets.
-- Explain elementary programming concepts.
-- Work with common instruction formats represented in CodeAlpaca and code
-  instruction data.
-
-Always execute generated code in an isolated environment and review it. The
-model is not a compiler, security auditor, or reliable source of production
-code.
-
-### Basic arithmetic and reasoning
-
-- Solve short arithmetic word problems similar to GSM8K examples.
-- Perform simple step-by-step transformations.
-- Answer basic factual and reading-comprehension questions.
-
-The model should not be expected to perform dependable multi-step reasoning,
-advanced mathematics, or precise long calculations. Use the API calculator
-tool for deterministic arithmetic.
-
-### Local application integration
-
-- One-shot CLI generation.
-- Interactive terminal chat.
-- Browser-based chat UI.
-- REST and WebSocket generation APIs.
-- Conversation sessions stored in SQLite.
-- Optional calculator and date/time tools.
-- Optional web-search context through SearXNG or Brave.
-- Allowlisted MCP tool calls.
-- SafeTensors, `torch.export`, and ONNX export paths.
-
-Web search and tools are external runtime features. They do not become part of
-the model's learned weights.
-
-## Useful project purposes
-
-The current model is appropriate for:
-
-- learning how an LLM tokenizer, transformer, trainer, evaluator, and server
-  work end to end;
-- testing dataset preparation and governance workflows;
-- experimenting with pretraining, SFT, DPO, EMA, mixed precision, and
-  checkpoint recovery;
-- building a small local chatbot or browser demo;
-- prototyping multilingual or domain-specific data mixtures;
-- testing API, streaming, session, caching, and tool integrations;
-- benchmarking inference and training optimizations on limited hardware;
-- serving as a base for research and educational experiments.
-
-It is not appropriate as the sole system for medical, legal, financial,
-safety-critical, or other high-stakes decisions.
+These are expected task categories, not guaranteed quality claims. Actual
+capability depends on dataset quality, training tokens, convergence, and held-out
+evaluation.
 
 ## Important limitations
 
-### Small parameter count
+An 80M model trained on the included educational corpus is not comparable to a
+large production foundation model. Expect limitations in factual reliability,
+multi-step reasoning, long-context consistency, code correctness, multilingual
+fluency, tool selection, and resistance to prompt injection. RAG and web search
+provide context; they do not guarantee truth.
 
-54.4M parameters are useful for learning and bounded tasks but far smaller than
-modern general-purpose assistants. The model has limited capacity for facts,
-reasoning, languages, and instruction diversity.
+Never treat model output as authoritative medical, legal, financial, security,
+or safety-critical advice. Validate generated code and factual claims.
 
-### Short context
+## What each stage contributes
 
-The current architecture supports 512 tokens. The usable prompt plus generated
-response must fit within that window. It cannot reliably process large files,
-books, or long conversations without chunking and retrieval.
+| Stage | Main purpose | Does not guarantee |
+| --- | --- | --- |
+| `checkpoints/pretraining/best.pt` | Language modeling and broad corpus patterns | Assistant behavior |
+| `checkpoints/finetuning/best.pt` | Instructions, chat, multilingual, math, coding, and safety behavior | Preference alignment or factuality |
+| `checkpoints/recovery/best.pt` | Focused repair of response quality | Broad new knowledge |
+| `checkpoints/dpo/best.pt` | Preference toward chosen responses | Correct answers outside learned data |
 
-### Hallucination
+Use `best.pt` for comparison and deployment. Use `latest.pt` to resume an
+interrupted stage.
 
-The model can produce fluent but false information. DPO does not guarantee
-truthfulness. Validate factual output against trusted sources.
+## Scaling profiles
 
-### No native multimodality
+Future architecture targets live under `configs/text/`:
 
-The current model accepts text token IDs. It does not directly understand
-images, audio, or video. Adding those capabilities requires encoders, adapters,
-multimodal data, objectives, and inference changes—not only more text data.
+- `model.future.1b.yaml` — roughly 1.185B parameters and 8K context;
+- `model.future.7b.yaml` — multi-GPU/multi-node target with 32K context;
+- `model.future.30b.yaml` — cluster-scale target with 32K context;
+- `tokenizer.future.50k.yaml` — separate 50K from-scratch tokenizer family;
+- `pretraining.future.fsdp.yaml` — opt-in FSDP training example.
 
-### Knowledge is bounded by data
-
-The checkpoint does not automatically know current events or information never
-represented by its training data. Runtime web search can provide current text
-context, but the model must still interpret it correctly.
-
-### Evaluation is required
-
-Low aggregate validation loss does not prove high assistant quality. Evaluate
-English, Bengali, Hindi, coding, GSM8K, chat, safety, repetition, and factual
-accuracy independently, then inspect human-reviewed generations.
-
-## How large this project can grow
-
-The model implementation is configuration-driven and already includes future
-architecture examples. The numbers below come from `scripts/inspect_model.py`
-and describe weights and one maximum-length BF16 KV cache—not complete training
-memory.
-
-| Profile | Parameters | Context | FP16/BF16 weights | FP32 weights | BF16 KV cache per max-length sequence |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Current v2 GPU | 54.4M | 512 | 0.10 GiB | 0.20 GiB | 0.002 GiB |
-| Future 1B | 1.148B | 8,192 | 2.14 GiB | 4.28 GiB | 0.375 GiB |
-| Future 7B | 6.511B | 32,768 | 12.13 GiB | 24.26 GiB | 4.50 GiB |
-| Future 30B | 30.128B | 32,768 | 56.12 GiB | 112.24 GiB | 4.13 GiB |
-
-The 1B, 7B, and 30B files are architecture targets, not proof that those models
-can be trained well with the current datasets or laptop hardware.
-
-## Practical scaling path
-
-### Stage 1: improve the existing 54.4M model
-
-Before increasing parameters:
-
-1. Finish base pretraining and retain the validation-selected checkpoint.
-2. Measure every domain independently.
-3. Remove duplicates, leakage, low-quality answers, and privacy-sensitive data.
-4. Increase factual, Bengali, Hindi, reasoning, and code quality—not only row
-   count.
-5. Run SFT and DPO with held-out evaluation and human review.
-6. Use packed token shards when runtime tokenization becomes a bottleneck.
-
-A well-trained small model is more useful than a larger model trained on an
-unreviewed or badly mixed corpus.
-
-### Stage 2: intermediate experiments
-
-Before jumping to 1B, create intermediate configurations such as 100M–350M.
-This tests whether quality improves with capacity while keeping failures and
-cost manageable. Preserve the tokenizer mapping or intentionally begin a new
-model family.
-
-Increase model dimensions only after confirming:
-
-- enough unique high-quality tokens;
-- stable mixed-precision gradients;
-- checkpoint and resume reliability;
-- meaningful validation improvements;
-- acceptable training time and storage;
-- inference memory for the intended context and concurrency.
-
-### Stage 3: approximately 1B parameters
-
-`configs/text/model.future.1b.yaml` defines a 1.185B model with an 8K context and
-the 50K from-scratch multilingual vocabulary from
-`configs/text/tokenizer.future.50k.yaml`. The repository includes
-`configs/text/pretraining.future.fsdp.yaml` as an FSDP example.
-This stage requires substantially more unique data, compute, storage, and
-validation than the laptop profile. Multi-GPU BF16 training, distributed
-checkpoints, binary token shards, and cluster validation are the expected path.
-
-### Stage 4: 7B and 30B targets
-
-The 7B and 30B configurations require serious multi-GPU or multi-node
-resources. Weight memory is only the beginning: training also holds gradients,
-optimizer states, activations, communication buffers, and checkpoints. Long
-contexts add large KV-cache and activation costs. Plan these stages as cluster
-projects, not upgrades for a 4 GB laptop GPU.
-
-## Data growth requirements
-
-Increasing parameters without increasing unique, clean data usually produces a
-larger model that memorizes the same corpus. As model size grows:
-
-- use substantially more unique pretraining tokens;
-- balance languages and domains intentionally;
-- keep train, validation, and test examples disjoint;
-- record source, version, license, allowed use, and privacy review;
-- deduplicate both exact and near-duplicate content;
-- filter secrets, personal data, corrupted text, and low-quality synthetic
-  answers;
-- reserve stable evaluation sets that are never used for tokenizer training,
-  pretraining, SFT, or DPO;
-- track tokens seen, not only examples or epochs.
-
-Repeated epochs over a small corpus cannot replace new information.
-
-## Engineering work required for larger models
-
-The repository already contains many building blocks, but larger runs still
-require target-hardware validation and operational work:
-
-- FSDP or hybrid sharding across real GPU nodes;
-- NCCL and network validation;
-- reshardable distributed checkpoints;
-- packed, memory-mapped token datasets;
-- fault-tolerant job scheduling and checkpoint storage;
-- throughput, utilization, memory, and communication profiling;
-- larger-scale evaluation and contamination checks;
-- inference quantization or tensor parallelism;
-- production authentication, TLS, monitoring, rate limits, and abuse controls.
-
-Run the planner before allocating a larger model:
+The future tokenizer is intentionally incompatible with the active 38K model.
+Using it requires new pretraining.
 
 ```bash
-.venv/bin/python scripts/inspect_model.py configs/text/model.future.1b.yaml
+python scripts/inspect_model.py configs/text/model.future.1b.yaml
+python scripts/inspect_model.py configs/text/model.future.7b.yaml
+python scripts/inspect_model.py configs/text/model.future.30b.yaml
+```
 
+## Data and compute requirements
+
+Increasing parameter count without increasing unique, reviewed data usually
+increases memorization rather than capability. Before scaling:
+
+1. Deduplicate train/validation/test data and check contamination.
+2. Record source, version, license, allowed use, and privacy review.
+3. Measure unique tokens and domain balance.
+4. Validate mixed precision, checkpoint restore, and distributed communication.
+5. Estimate optimizer, gradient, activation, KV-cache, and temporary memory—not
+   only parameter weights.
+6. Reserve stable evaluations and fixed generation prompts.
+
+Plan a run before allocating hardware:
+
+```bash
 .venv/bin/python scripts/plan_training.py \
   --model-config configs/text/model.future.1b.yaml \
   --training-config configs/text/pretraining.future.fsdp.yaml \
@@ -290,24 +109,17 @@ Run the planner before allocating a larger model:
   --require-fit
 ```
 
-The `training-tokens` value above is an illustrative planning input, not a
-guarantee of quality or a final data recommendation. Replace performance and
-memory inputs with measured values from the target hardware.
+The planner is an estimate. Validate throughput and memory on the real cluster
+before committing to a long run.
 
-## Recommended direction for this project
+## Recommended progression
 
-For the current RTX 3050 laptop workflow:
+1. Make the active 80M route reproducible.
+2. Compare pretraining, SFT, recovery, and DPO using fixed evaluations.
+3. Test intermediate 100M–350M configurations.
+4. Validate FSDP and distributed checkpoint resharding on a short run.
+5. Move to the 1B profile only when data and compute scale with it.
+6. Treat 7B and 30B as cluster projects requiring production-grade operations.
 
-```text
-54.4M base pretraining
-        -> optional one-epoch WikiText-heavy continuation
-        -> quality-balanced multilingual SFT
-        -> HelpSteer DPO
-        -> domain evaluation and human review
-        -> local CLI/UI/API deployment
-```
-
-Improve the 54.4M model and its data first. Then test one intermediate model
-before attempting the provided 1B distributed profile. The 7B and 30B targets
-should remain future cluster-scale experiments until data, evaluation,
-distributed reliability, and compute budgets are ready.
+See [V2_TRAINING_GUIDE.md](V2_TRAINING_GUIDE.md) for training commands and
+[V2_USAGE_GUIDE.md](V2_USAGE_GUIDE.md) for inference and serving.

@@ -4,7 +4,7 @@ Start the local server:
 
 ```bash
 GOPI_API_KEY='replace-with-a-long-random-key' \
-GOPI_CHECKPOINT_PATH=checkpoints/v2-dpo/best.pt \
+GOPI_CHECKPOINT_PATH=checkpoints/dpo/best.pt \
 GOPI_DEVICE=cuda \
 .venv/bin/python scripts/serve.py --host 127.0.0.1 --port 8000
 ```

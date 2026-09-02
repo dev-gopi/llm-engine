@@ -29,17 +29,17 @@ def main() -> None:
     parser.add_argument(
         "--model",
         type=Path,
-        default=Path("exports/v2-pretraining/gopi-v2.safetensors"),
+        default=Path("exports/final/gopi.safetensors"),
     )
     parser.add_argument(
         "--model-config",
         type=Path,
-        default=Path("exports/v2-pretraining/model.yaml"),
+        default=Path("exports/final/model.yaml"),
     )
     parser.add_argument(
         "--tokenizer",
         type=Path,
-        default=Path("exports/v2-pretraining/tokenizer"),
+        default=Path("exports/final/tokenizer"),
     )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--max-tokens", type=int, default=100)

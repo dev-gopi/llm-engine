@@ -63,7 +63,7 @@ class ConfiguredModelBackend:
         *,
         model_config: str | Path = "configs/model.cpu.yaml",
         tokenizer_path: str | Path = "data/tokenizer-v2",
-        checkpoint_path: str | Path = "checkpoints/v2-pretraining/best.pt",
+        checkpoint_path: str | Path = "checkpoints/finetuning/best.pt",
         device: str = "auto",
         session_store_path: str | Path | None = None,
         system_prompt: str = "You are Gopi, a helpful assistant.",
@@ -111,10 +111,10 @@ class ConfiguredModelBackend:
             # Optional compatibility fallback is restricted to known paths;
             # never load an arbitrary recently modified checkpoint.
             candidates = [
-                Path("checkpoints/v2-training/best.pt"),
-                Path("checkpoints/v2-training/latest.pt"),
-                Path("checkpoints/v2-pretraining/best.pt"),
-                Path("checkpoints/v2-pretraining/latest.pt"),
+                Path("checkpoints/training/best.pt"),
+                Path("checkpoints/training/latest.pt"),
+                Path("checkpoints/pretraining/best.pt"),
+                Path("checkpoints/pretraining/latest.pt"),
             ]
             for fallback in candidates:
                 if fallback.exists():
@@ -879,7 +879,7 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
     return ConfiguredModelBackend(
         model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.cpu.yaml"))),
         tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer-v2"))),
-        checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/v2-pretraining/best.pt"))),
+        checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/finetuning/best.pt"))),
         device=device or os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
         session_store_path=os.getenv("GOPI_SESSION_STORE", str(serving.get("session_store_path", "data/cache/sessions.sqlite"))),
         system_prompt=str(inference.get("system_prompt", "You are Gopi, a helpful assistant.")),

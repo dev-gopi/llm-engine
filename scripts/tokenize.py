@@ -320,7 +320,7 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     train_parser = subparsers.add_parser("train", help="train and save tokenizer artifacts")
-    train_parser.add_argument("--config", type=Path, default=Path("configs/tokenizer.v2.yaml"))
+    train_parser.add_argument("--config", type=Path, default=Path("configs/tokenizer.yaml"))
     train_parser.add_argument("--source", action="append", help="override source glob; repeatable")
     train_parser.add_argument("--output", type=Path)
     train_parser.add_argument("--vocab-size", type=int)

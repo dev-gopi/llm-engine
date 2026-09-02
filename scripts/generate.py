@@ -78,12 +78,8 @@ def main() -> None:
             Path("checkpoints/finetuning/latest.pt"),
             Path("checkpoints/training/best.pt"),
             Path("checkpoints/training/latest.pt"),
-            Path("checkpoints/v2-finetuning/best.pt"),
-            Path("checkpoints/v2-finetuning/latest.pt"),
-            Path("checkpoints/v2-training/best.pt"),
-            Path("checkpoints/v2-training/latest.pt"),
-            Path("checkpoints/v2-pretraining/best.pt"),
-            Path("checkpoints/v2-pretraining/latest.pt"),
+            Path("checkpoints/pretraining/best.pt"),
+            Path("checkpoints/pretraining/latest.pt"),
         ):
             if candidate.exists():
                 checkpoint_path = candidate

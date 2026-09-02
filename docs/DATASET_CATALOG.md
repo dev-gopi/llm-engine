@@ -49,7 +49,7 @@ same processed sources; shards are representations of a dataset, not new
 upstream datasets. Evaluation profiles also reuse held-out splits or dedicated
 case files and therefore do not create additional training sources.
 
-## Active v3 supervised fine-tuning mixture
+## Active supervised fine-tuning mixture
 
 `dataset_weights` control deterministic sampling targets for one training
 epoch. They are not raw dataset-size percentages. Small capability datasets
@@ -104,7 +104,7 @@ quality prominent in checkpoint selection without changing training sampling.
 ## Additional tokenizer and mixed-objective inputs
 
 `configs/tokenizer.v2.yaml` scans every active SFT training file plus
-the sources below. The expanded v2 and v3 fine-tuning profiles now also use
+the sources below. The active fine-tuning profile also uses
 them conservatively: preference records train only on the chosen response,
 while Wikipedia records receive ordinary causal-language-model loss.
 
@@ -119,9 +119,9 @@ while Wikipedia records receive ordinary causal-language-model loss.
 The remaining 94% of each mixture stays instruction-oriented, preventing raw
 knowledge text from dominating assistant behavior.
 
-## Optional v3 continued-pretraining inputs
+## Optional continued-pretraining inputs
 
-The direct v3 workflow skips this stage. If
+The direct-growth workflow may skip this stage. If
 `configs/pretraining.gpu.yaml` is used, its separate causal-language-
 model mixture contains:
 
