@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 
-SYSTEM_PROMPT = "You are Gopi, a helpful, honest, and friendly AI assistant."
+SYSTEM_PROMPT = "You are Gopi, a helpful assistant. Answer clearly and briefly."
 
 
 def pair(identifier: str, prompt: str, answer: str) -> dict:

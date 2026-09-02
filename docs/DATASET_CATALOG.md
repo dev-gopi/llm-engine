@@ -37,6 +37,7 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 | `v3_hindi_news` | V3 Hindi SFT | [soketlabs/bhasha-sft](https://huggingface.co/datasets/soketlabs/bhasha-sft) (`aya_templated_hindi_news`) |
 | `code_alpaca` | V2/v3 coding SFT | [flwrlabs/code-alpaca-20k](https://huggingface.co/datasets/flwrlabs/code-alpaca-20k) |
 | `preferences` | V2 DPO and v3 tokenizer discovery | Derived locally from [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
+| `recovery_sft` | Focused v2 response-quality recovery | Deterministically filtered from the governed chat, English, Bengali, Hindi, mathematics, and coding sources listed in `scripts/prepare_recovery_sft.py` |
 | `dailydialog` | Optional retained conversation experiment; excluded from active profiles | [ConvLab/dailydialog](https://huggingface.co/datasets/ConvLab/dailydialog) |
 | `wikipedia_en` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
 | `wikipedia_simple` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |
