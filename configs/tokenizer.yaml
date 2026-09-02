@@ -1,5 +1,5 @@
 type: byte_level_bpe
-vocab_size: 38000
+vocab_size: 40000
 min_frequency: 5
 max_training_bytes: 12884901888
 source_sampling: balanced_bytes

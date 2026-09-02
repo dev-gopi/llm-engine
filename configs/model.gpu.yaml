@@ -1,5 +1,5 @@
 # Active GPU architecture with the unified 38K vocabulary.
-vocab_size: 38000
+vocab_size: 40000
 hidden_size: 512
 layers: 16
 heads: 8
