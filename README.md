@@ -12,14 +12,14 @@ foundation models.
 
 ## Guides
 
-- [Training guide](docs/V2_TRAINING_GUIDE.md) — prepare datasets and the
+- [Training guide](docs/TRAINING_GUIDE.md) — prepare datasets and the
   tokenizer, pretrain, fine-tune, run recovery or DPO, evaluate, and export.
-- [Direct model-growth guide](docs/V3_DIRECT_TRAINING_GUIDE.md) — extend the
+- [Direct model-growth guide](docs/DIRECT_TRAINING_GUIDE.md) — extend the
   tokenizer, grow a compatible source checkpoint, initialize a new stage,
   resume it safely, and monitor training.
-- [Usage guide](docs/V2_USAGE_GUIDE.md) — generate from the CLI, chat in the
+- [Usage guide](docs/USAGE_GUIDE.md) — generate from the CLI, chat in the
   terminal, use the browser/API, stream responses, and run exports.
-- [Capabilities and scaling guide](docs/V2_CAPABILITIES_AND_SCALING.md) —
+- [Capabilities and scaling guide](docs/CAPABILITIES_AND_SCALING.md) —
   realistic uses, limitations, and the path toward the provided 1B, 7B, and
   30B architecture targets.
 - [Dataset catalog](docs/DATASET_CATALOG.md) — dataset purposes, provenance,
@@ -27,7 +27,7 @@ foundation models.
 - [Deployment guide](docs/DEPLOYMENT.md) — local and container serving,
   security, monitoring, and recovery.
 
-The V2/V3 guide filenames are retained so existing GitHub links continue to
+The V2/v2 guide filenames are retained so existing GitHub links continue to
 work. Their commands use the current config layout.
 
 ## Current configuration layout
@@ -70,8 +70,8 @@ support.
 
 ## Quick start
 
-The active GPU model uses the tokenizer written to `data/tokenizer-v3`. Build
-it from a compatible `data/tokenizer-v2` artifact:
+The active GPU model uses the tokenizer written to `data/tokenizer-v2`. Build
+it by extending the compatible 32K base in `data/tokenizer`:
 
 ```bash
 .venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.v2.yaml
@@ -84,7 +84,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --output checkpoints/pretraining/latest.pt \
   --best-output checkpoints/pretraining/best.pt
 ```
@@ -96,7 +96,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/pretraining/best.pt \
   --output checkpoints/finetuning/latest.pt \
   --best-output checkpoints/finetuning/best.pt
@@ -130,7 +130,7 @@ Open `http://localhost:8000/training_report.html`.
 .venv/bin/python scripts/generate.py "Hello Gopi" \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 ```
@@ -139,7 +139,7 @@ Open `http://localhost:8000/training_report.html`.
 .venv/bin/python scripts/chat.py \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 ```
@@ -150,7 +150,7 @@ Open `http://localhost:8000/training_report.html`.
 .venv/bin/python scripts/evaluate_domains.py \
   --domains configs/evaluation.finetuning.yaml \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 
@@ -158,7 +158,7 @@ Open `http://localhost:8000/training_report.html`.
   --cases configs/evaluation.domains.jsonl \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 ```
@@ -172,7 +172,7 @@ evaluation, not training loss alone.
 .venv/bin/python scripts/train_dpo.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/dpo.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --reference-checkpoint checkpoints/finetuning/best.pt \
   --init-from checkpoints/finetuning/best.pt \
   --output checkpoints/dpo/latest.pt \
@@ -183,7 +183,7 @@ evaluation, not training loss alone.
 ```bash
 .venv/bin/python scripts/export.py \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/dpo/best.pt \
   --format safetensors \
   --output exports/final/gopi.safetensors
@@ -192,7 +192,7 @@ evaluation, not training loss alone.
 ## Serving
 
 `configs/inference.yaml` defaults to model name `gopi`,
-`configs/model.gpu.yaml`, `data/tokenizer-v3`, and
+`configs/model.gpu.yaml`, `data/tokenizer-v2`, and
 `checkpoints/finetuning/best.pt`.
 
 ```bash

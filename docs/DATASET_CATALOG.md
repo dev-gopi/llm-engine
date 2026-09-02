@@ -10,39 +10,39 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 
 | Local name/input | Used by | Upstream reference |
 | --- | --- | --- |
-| `tinystories` | V1/V2/v3 optional pretraining and tokenizer training | [roneneldan/TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) |
-| `wikitext_103` | V1/V2/v3 optional pretraining and tokenizer training | [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext) |
-| `ultrachat_200k` | V1/V2/v3 SFT and tokenizer discovery | [HuggingFaceH4/ultrachat_200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k) |
-| `v3_openassistant_en` | V3 SFT and tokenizer discovery | [agentlans/OpenAssistant-oasst](https://huggingface.co/datasets/agentlans/OpenAssistant-oasst) and original [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) |
-| `helpsteer` | V1/V2/v3 SFT, tokenizer discovery, and preference derivation | [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
-| `openorca` | V1/V2/v3 SFT and tokenizer discovery | [Open-Orca/OpenOrca](https://huggingface.co/datasets/Open-Orca/OpenOrca) |
-| `gsm8k` | V1/V2/v3 mathematical SFT and evaluation | [openai/gsm8k](https://huggingface.co/datasets/openai/gsm8k) |
-| `v3_math_instruct` | V3 mathematical SFT and evaluation | [TIGER-Lab/MathInstruct](https://huggingface.co/datasets/TIGER-Lab/MathInstruct) |
-| `core_chat` | V1/V2/v3 SFT | [Local project-owned manifest](../data/processed/core_chat/dataset-manifest.yaml) |
-| `code_instructions` | V1/V2/v3 coding SFT | [iamtarun/python_code_instructions_18k_alpaca](https://huggingface.co/datasets/iamtarun/python_code_instructions_18k_alpaca) |
-| `v3_code_feedback` | V3 coding SFT | [m-a-p/CodeFeedback-Filtered-Instruction](https://huggingface.co/datasets/m-a-p/CodeFeedback-Filtered-Instruction) |
-| `general_qa` | V1/V2/v3 English SFT | [databricks/databricks-dolly-15k](https://huggingface.co/datasets/databricks/databricks-dolly-15k) |
-| `safety_alignment` | V1/V2/v3 safety SFT | [fwnlp/self-instruct-safety-alignment](https://huggingface.co/datasets/fwnlp/self-instruct-safety-alignment) |
-| `writing_editing` | V1/V2/v3 writing SFT | [HuggingFaceH4/no_robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots) |
-| `multilingual_bn_hi` | V1/V2/v3 Bengali SFT | [rishiraj/bengalichat](https://huggingface.co/datasets/rishiraj/bengalichat) |
-| `multilingual_hi` | V1/V2/v3 Hindi SFT | [rishiraj/hindichat](https://huggingface.co/datasets/rishiraj/hindichat) |
-| `tool_calling` | V1/V2/v3 structured tool-use SFT | [narrative-io/narrative-function-calling-v1](https://huggingface.co/datasets/narrative-io/narrative-function-calling-v1) |
-| `emoji_chat` | V2/v3 SFT | [Local project-owned manifest](../data/processed/emoji_chat/dataset-manifest.yaml) |
-| `bangla_qa` | V2/v3 Bengali SFT | [kamruzzaman-asif/bangla-instruction-dataset](https://huggingface.co/datasets/kamruzzaman-asif/bangla-instruction-dataset) (`QApair`) |
-| `v3_bengali_news` | V3 Bengali SFT | [soketlabs/bhasha-sft](https://huggingface.co/datasets/soketlabs/bhasha-sft) (`aya_templated_bengali_news`) |
-| `bangla_reading_qa` | V2/v3 Bengali SFT | [kamruzzaman-asif/bangla-instruction-dataset](https://huggingface.co/datasets/kamruzzaman-asif/bangla-instruction-dataset) (`RQA`) |
-| `hindi_history_qa` | V2/v3 Hindi SFT | [kaifahmad/indian-history-hindi-QA-3.4k](https://huggingface.co/datasets/kaifahmad/indian-history-hindi-QA-3.4k) |
-| `hinglish_chat` | V2/v3 Hinglish SFT | [DSMJ910/hinglish-instruct-10k](https://huggingface.co/datasets/DSMJ910/hinglish-instruct-10k) |
-| `hindi_hinglish` | V3 Hindi/Hinglish reasoning SFT | [Subh775/formatted-hindi-hinglish-cot](https://huggingface.co/datasets/Subh775/formatted-hindi-hinglish-cot) |
-| `v3_hindi_news` | V3 Hindi SFT | [soketlabs/bhasha-sft](https://huggingface.co/datasets/soketlabs/bhasha-sft) (`aya_templated_hindi_news`) |
-| `code_alpaca` | V2/v3 coding SFT | [flwrlabs/code-alpaca-20k](https://huggingface.co/datasets/flwrlabs/code-alpaca-20k) |
-| `preferences` | V2 DPO and v3 tokenizer discovery | Derived locally from [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
+| `tinystories` | V1/V2/v2 optional pretraining and tokenizer training | [roneneldan/TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) |
+| `wikitext_103` | V1/V2/v2 optional pretraining and tokenizer training | [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext) |
+| `ultrachat_200k` | V1/V2/v2 SFT and tokenizer discovery | [HuggingFaceH4/ultrachat_200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k) |
+| `v2_openassistant_en` | v2 SFT and tokenizer discovery | [agentlans/OpenAssistant-oasst](https://huggingface.co/datasets/agentlans/OpenAssistant-oasst) and original [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) |
+| `helpsteer` | V1/V2/v2 SFT, tokenizer discovery, and preference derivation | [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
+| `openorca` | V1/V2/v2 SFT and tokenizer discovery | [Open-Orca/OpenOrca](https://huggingface.co/datasets/Open-Orca/OpenOrca) |
+| `gsm8k` | V1/V2/v2 mathematical SFT and evaluation | [openai/gsm8k](https://huggingface.co/datasets/openai/gsm8k) |
+| `v2_math_instruct` | v2 mathematical SFT and evaluation | [TIGER-Lab/MathInstruct](https://huggingface.co/datasets/TIGER-Lab/MathInstruct) |
+| `core_chat` | V1/V2/v2 SFT | [Local project-owned manifest](../data/processed/core_chat/dataset-manifest.yaml) |
+| `code_instructions` | V1/V2/v2 coding SFT | [iamtarun/python_code_instructions_18k_alpaca](https://huggingface.co/datasets/iamtarun/python_code_instructions_18k_alpaca) |
+| `v2_code_feedback` | v2 coding SFT | [m-a-p/CodeFeedback-Filtered-Instruction](https://huggingface.co/datasets/m-a-p/CodeFeedback-Filtered-Instruction) |
+| `general_qa` | V1/V2/v2 English SFT | [databricks/databricks-dolly-15k](https://huggingface.co/datasets/databricks/databricks-dolly-15k) |
+| `safety_alignment` | V1/V2/v2 safety SFT | [fwnlp/self-instruct-safety-alignment](https://huggingface.co/datasets/fwnlp/self-instruct-safety-alignment) |
+| `writing_editing` | V1/V2/v2 writing SFT | [HuggingFaceH4/no_robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots) |
+| `multilingual_bn_hi` | V1/V2/v2 Bengali SFT | [rishiraj/bengalichat](https://huggingface.co/datasets/rishiraj/bengalichat) |
+| `multilingual_hi` | V1/V2/v2 Hindi SFT | [rishiraj/hindichat](https://huggingface.co/datasets/rishiraj/hindichat) |
+| `tool_calling` | V1/V2/v2 structured tool-use SFT | [narrative-io/narrative-function-calling-v1](https://huggingface.co/datasets/narrative-io/narrative-function-calling-v1) |
+| `emoji_chat` | V2/v2 SFT | [Local project-owned manifest](../data/processed/emoji_chat/dataset-manifest.yaml) |
+| `bangla_qa` | V2/v2 Bengali SFT | [kamruzzaman-asif/bangla-instruction-dataset](https://huggingface.co/datasets/kamruzzaman-asif/bangla-instruction-dataset) (`QApair`) |
+| `v2_bengali_news` | v2 Bengali SFT | [soketlabs/bhasha-sft](https://huggingface.co/datasets/soketlabs/bhasha-sft) (`aya_templated_bengali_news`) |
+| `bangla_reading_qa` | V2/v2 Bengali SFT | [kamruzzaman-asif/bangla-instruction-dataset](https://huggingface.co/datasets/kamruzzaman-asif/bangla-instruction-dataset) (`RQA`) |
+| `hindi_history_qa` | V2/v2 Hindi SFT | [kaifahmad/indian-history-hindi-QA-3.4k](https://huggingface.co/datasets/kaifahmad/indian-history-hindi-QA-3.4k) |
+| `hinglish_chat` | V2/v2 Hinglish SFT | [DSMJ910/hinglish-instruct-10k](https://huggingface.co/datasets/DSMJ910/hinglish-instruct-10k) |
+| `hindi_hinglish` | v2 Hindi/Hinglish reasoning SFT | [Subh775/formatted-hindi-hinglish-cot](https://huggingface.co/datasets/Subh775/formatted-hindi-hinglish-cot) |
+| `v2_hindi_news` | v2 Hindi SFT | [soketlabs/bhasha-sft](https://huggingface.co/datasets/soketlabs/bhasha-sft) (`aya_templated_hindi_news`) |
+| `code_alpaca` | V2/v2 coding SFT | [flwrlabs/code-alpaca-20k](https://huggingface.co/datasets/flwrlabs/code-alpaca-20k) |
+| `preferences` | V2 DPO and v2 tokenizer discovery | Derived locally from [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
 | `recovery_sft` | Focused v2 response-quality recovery | Deterministically filtered from the governed chat, English, Bengali, Hindi, mathematics, and coding sources listed in `scripts/prepare_recovery_sft.py` |
 | `dailydialog` | Optional retained conversation experiment; excluded from active profiles | [ConvLab/dailydialog](https://huggingface.co/datasets/ConvLab/dailydialog) |
-| `wikipedia_en` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
-| `wikipedia_simple` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |
-| `wikipedia_bn` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Bengali Wikipedia dumps](https://dumps.wikimedia.org/bnwiki/) |
-| `wikipedia_hi` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Hindi Wikipedia dumps](https://dumps.wikimedia.org/hiwiki/) |
+| `wikipedia_en` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
+| `wikipedia_simple` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |
+| `wikipedia_bn` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Bengali Wikipedia dumps](https://dumps.wikimedia.org/bnwiki/) |
+| `wikipedia_hi` | v2 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Hindi Wikipedia dumps](https://dumps.wikimedia.org/hiwiki/) |
 
 Packed profiles reference generated token-shard manifests built from these
 same processed sources; shards are representations of a dataset, not new
@@ -59,14 +59,14 @@ UltraChat. All 24 weights total exactly 100%.
 | Local name | Weight | Validation domain | Upstream source | Purpose | License/review status |
 | --- | ---: | --- | --- | --- | --- |
 | `ultrachat_200k` | 8% | Chat | `HuggingFaceH4/ultrachat_200k` | Multi-turn assistant behavior and broad instruction following | MIT reviewed; privacy unreviewed |
-| `v3_openassistant_en` | 3% | Chat | `agentlans/OpenAssistant-oasst` | Human-style English conversations and multi-turn diversity | Apache-2.0 reviewed; privacy unreviewed |
+| `v2_openassistant_en` | 3% | Chat | `agentlans/OpenAssistant-oasst` | Human-style English conversations and multi-turn diversity | Apache-2.0 reviewed; privacy unreviewed |
 | `helpsteer` | 8% | English | `nvidia/HelpSteer` | Helpful, correct, coherent response style with quality signals | Upstream license and privacy unreviewed |
 | `openorca` | 8% | English | `Open-Orca/OpenOrca` | Broad English instructions, explanations, and general reasoning | Upstream license and privacy unreviewed |
 | `gsm8k` | 13% | GSM8K | `openai/gsm8k` | Grade-school arithmetic word problems with worked reasoning | MIT reviewed; privacy unreviewed |
-| `v3_math_instruct` | 5% | GSM8K | `TIGER-Lab/MathInstruct` | Broader mathematical fields and reasoning formats beyond GSM8K | Mixed source licenses and privacy unreviewed; Camel-Math and GSM8K-RFT excluded |
+| `v2_math_instruct` | 5% | GSM8K | `TIGER-Lab/MathInstruct` | Broader mathematical fields and reasoning formats beyond GSM8K | Mixed source licenses and privacy unreviewed; Camel-Math and GSM8K-RFT excluded |
 | `core_chat` | 2% | Chat | `gopi/core-chat-v1` | Preserve Gopi identity, greeting behavior, honesty, and response conventions | Project-owned and reviewed |
 | `code_instructions` | 3% | Coding | `iamtarun/python_code_instructions_18k_alpaca` | Python generation, explanation, debugging, and implementation instructions | Upstream license and privacy unreviewed |
-| `v3_code_feedback` | 4% | Coding | `m-a-p/CodeFeedback-Filtered-Instruction` | More complex coding requests and higher-difficulty solutions | Apache-2.0 label; upstream policy/license and privacy review incomplete |
+| `v2_code_feedback` | 4% | Coding | `m-a-p/CodeFeedback-Filtered-Instruction` | More complex coding requests and higher-difficulty solutions | Apache-2.0 label; upstream policy/license and privacy review incomplete |
 | `general_qa` | 11% | English | `databricks/databricks-dolly-15k` | General questions, factual answers, summarization, and brainstorming | Upstream license and privacy unreviewed |
 | `safety_alignment` | 2.5% | English | `fwnlp/self-instruct-safety-alignment` | Safer refusals and handling of harmful or inappropriate requests | Upstream license and privacy unreviewed |
 | `writing_editing` | 1.5% | English | `HuggingFaceH4/no_robots` | Rewriting, editing, structured writing, and natural response quality | Upstream license and privacy unreviewed |
@@ -75,12 +75,12 @@ UltraChat. All 24 weights total exactly 100%.
 | `tool_calling` | 1.5% | Coding | `narrative-io/narrative-function-calling-v1` | Structured function/tool selection and argument generation | Upstream license and privacy unreviewed |
 | `emoji_chat` | 0.5% | Chat | `gopi/emoji-chat-v1` | Emoji meaning and compact informal conversation | Project-owned and reviewed |
 | `bangla_qa` | 2% | Bengali | `kamruzzaman-asif/bangla-instruction-dataset:QApair` | Bengali factual and instructional question answering | Apache-2.0 reviewed; privacy unreviewed |
-| `v3_bengali_news` | 3% | Bengali | `soketlabs/bhasha-sft` | Bengali news summarization and concise information extraction | Mixed licenses and privacy unreviewed |
+| `v2_bengali_news` | 3% | Bengali | `soketlabs/bhasha-sft` | Bengali news summarization and concise information extraction | Mixed licenses and privacy unreviewed |
 | `bangla_reading_qa` | 4% | Bengali | `kamruzzaman-asif/bangla-instruction-dataset:RQA` | Bengali reading comprehension and context-grounded answers | Apache-2.0 reviewed; privacy unreviewed |
 | `hindi_history_qa` | 2% | Hindi | `kaifahmad/indian-history-hindi-QA-3.4k` | Hindi factual QA focused on Indian history | Apache-2.0 reviewed; privacy unreviewed |
 | `hinglish_chat` | 1% | Hindi | `DSMJ910/hinglish-instruct-10k` | Code-switched Hindi/English conversational behavior | Apache-2.0 reviewed; privacy unreviewed |
 | `hindi_hinglish` | 2% | Hindi | `Subh775/formatted-hindi-hinglish-cot` | Hindi/Hinglish step-by-step reasoning and instruction following | Upstream license and privacy unreviewed |
-| `v3_hindi_news` | 3% | Hindi | `soketlabs/bhasha-sft` | Hindi news summarization and information extraction | Mixed licenses and privacy unreviewed |
+| `v2_hindi_news` | 3% | Hindi | `soketlabs/bhasha-sft` | Hindi news summarization and information extraction | Mixed licenses and privacy unreviewed |
 | `code_alpaca` | 3% | Coding | `flwrlabs/code-alpaca-20k` | Additional programming instructions and response diversity | Apache-2.0 reviewed; privacy unreviewed |
 
 ### Training shares by validation domain

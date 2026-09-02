@@ -1,25 +1,25 @@
-# Final append-only tokenizer: preserve the existing base token IDs and append
-# up to 4,000 tokens from the expanded training mixture.
+# Final append-only tokenizer: preserve the existing 32K base token IDs and
+# append up to 6,000 tokens from the expanded training mixture.
 type: byte_level_bpe
 vocab_size: 38000
 extension:
-  base_tokenizer: data/tokenizer-v2
-  output_dir: data/tokenizer-v3
-  max_new_tokens: 4000
+  base_tokenizer: data/tokenizer
+  output_dir: data/tokenizer-v2
+  max_new_tokens: 6000
   min_frequency: 5
   min_existing_tokens: 3
   max_scan_bytes: 536870912
   source_sampling: balanced_bytes
   sources:
     - data/processed/ultrachat_200k/train.jsonl
-    - data/processed/v3_openassistant_en/train.jsonl
+    - data/processed/v2_openassistant_en/train.jsonl
     - data/processed/helpsteer/train.jsonl
     - data/processed/openorca/train.jsonl
     - data/processed/gsm8k/train.jsonl
-    - data/processed/v3_math_instruct/train.jsonl
+    - data/processed/v2_math_instruct/train.jsonl
     - data/processed/core_chat/train.jsonl
     - data/processed/code_instructions/train.jsonl
-    - data/processed/v3_code_feedback/train.jsonl
+    - data/processed/v2_code_feedback/train.jsonl
     - data/processed/general_qa/train.jsonl
     - data/processed/safety_alignment/train.jsonl
     - data/processed/writing_editing/train.jsonl
@@ -28,12 +28,12 @@ extension:
     - data/processed/tool_calling/train.jsonl
     - data/processed/emoji_chat/train.jsonl
     - data/processed/bangla_qa/train.jsonl
-    - data/processed/v3_bengali_news/train.jsonl
+    - data/processed/v2_bengali_news/train.jsonl
     - data/processed/bangla_reading_qa/train.jsonl
     - data/processed/hindi_history_qa/train.jsonl
     - data/processed/hinglish_chat/train.jsonl
     - data/processed/hindi_hinglish/train.jsonl
-    - data/processed/v3_hindi_news/train.jsonl
+    - data/processed/v2_hindi_news/train.jsonl
     - data/processed/code_alpaca/train.jsonl
     # Include future preference optimization and multilingual knowledge text
     # in token discovery without mixing non-SFT schemas into fine-tuning.

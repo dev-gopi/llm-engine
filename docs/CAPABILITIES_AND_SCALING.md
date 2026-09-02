@@ -1,4 +1,4 @@
-# Capabilities, limitations, and scaling guide
+# Capabilities, limitations, and model scaling
 
 > The filename is retained for existing links. This document describes the
 > current unversioned profiles.
@@ -121,5 +121,5 @@ before committing to a long run.
 5. Move to the 1B profile only when data and compute scale with it.
 6. Treat 7B and 30B as cluster projects requiring production-grade operations.
 
-See [V2_TRAINING_GUIDE.md](V2_TRAINING_GUIDE.md) for training commands and
-[V2_USAGE_GUIDE.md](V2_USAGE_GUIDE.md) for inference and serving.
+See [TRAINING_GUIDE.md](TRAINING_GUIDE.md) for training commands and
+[USAGE_GUIDE.md](USAGE_GUIDE.md) for inference and serving.

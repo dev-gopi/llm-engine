@@ -7,7 +7,7 @@ monitoring, and operational testing.
 ## 1. Prepare a final artifact
 
 Use a validated `best.pt`, not `latest.pt`, and follow
-[V2_TRAINING_GUIDE.md](V2_TRAINING_GUIDE.md) to evaluate and export it. Keep the
+[TRAINING_GUIDE.md](TRAINING_GUIDE.md) to evaluate and export it. Keep the
 model configuration and tokenizer with the checkpoint.
 
 ## 2. Create a dedicated environment
@@ -32,7 +32,7 @@ control:
 export GOPI_API_KEY='replace-with-a-long-random-value'
 export GOPI_CHECKPOINT_PATH='checkpoints/dpo/best.pt'
 export GOPI_MODEL_CONFIG='configs/model.gpu.yaml'
-export GOPI_TOKENIZER_PATH='data/tokenizer-v3'
+export GOPI_TOKENIZER_PATH='data/tokenizer-v2'
 export GOPI_INFERENCE_CONFIG='configs/inference.yaml'
 export GOPI_DEVICE='cuda'
 export GOPI_MCP_ENABLED='false'

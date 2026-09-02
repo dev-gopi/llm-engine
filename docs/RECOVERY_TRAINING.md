@@ -1,4 +1,4 @@
-# Response-quality recovery
+# Response-quality recovery training
 
 This stage repairs basic instruction-following behavior without overwriting the
 completed SFT run. It uses a deterministic cleaner, a short shared base prompt
@@ -25,7 +25,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/finetuning/best.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt
@@ -39,7 +39,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --resume checkpoints/recovery/latest.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt
@@ -52,7 +52,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   --cases configs/evaluation.core.jsonl \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/recovery/best.pt \
   --device cuda
 ```
@@ -63,16 +63,16 @@ privacy status is manually approved.
 
 ## Optional: grow an older checkpoint before recovery
 
-When the append-only 38K tokenizer already exists, grow the best source checkpoint
-without overwriting it:
+When both tokenizers exist, grow the compatible 32K/10-layer pretraining
+checkpoint without overwriting it:
 
 ```bash
 .venv/bin/python scripts/grow_checkpoint.py \
-  --checkpoint checkpoints/source-finetuning/best.pt \
+  --checkpoint checkpoints/v1-pretraining/best.pt \
   --source-model-config configs/model.source.gpu.yaml \
   --target-model-config configs/model.gpu.yaml \
-  --source-tokenizer data/tokenizer-v2 \
-  --target-tokenizer data/tokenizer-v3 \
+  --source-tokenizer data/tokenizer \
+  --target-tokenizer data/tokenizer-v2 \
   --output checkpoints/grown/init.pt
 ```
 
@@ -83,7 +83,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/grown/init.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt

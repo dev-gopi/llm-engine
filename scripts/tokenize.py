@@ -329,7 +329,7 @@ def parse_args() -> argparse.Namespace:
 
     inspect_parser = subparsers.add_parser("inspect", help="encode and decode sample text")
     inspect_parser.add_argument("text")
-    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v3"))
+    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-v2"))
     inspect_parser.add_argument("--add-bos", action="store_true")
     inspect_parser.add_argument("--add-eos", action="store_true")
     inspect_parser.set_defaults(handler=inspect_command)

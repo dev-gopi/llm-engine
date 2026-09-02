@@ -40,8 +40,12 @@ without consciously accepting the configured governance policy.
 
 ## 3. Prepare the tokenizer
 
-The active 38K model uses `data/tokenizer-v3`. The versioned config extends a
-compatible tokenizer at `data/tokenizer-v2` without renumbering existing IDs:
+The active 38K model uses `data/tokenizer-v2`. The versioned config extends the
+compatible 32K tokenizer at `data/tokenizer` without renumbering existing IDs:
+
+Its source list matches all 29 training inputs in
+`configs/finetuning.gpu.yaml`. Validation files remain excluded to prevent
+held-out evaluation text from influencing tokenizer construction.
 
 ```bash
 .venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.v2.yaml
@@ -51,18 +55,18 @@ Verify the artifact:
 
 ```bash
 .venv/bin/python scripts/tokenize.py inspect \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   "Hello, नमस्ते, বাংলা" --add-bos --add-eos
 ```
 
-If no compatible `data/tokenizer-v2` exists, this is a new model family rather
-than a checkpoint-compatible continuation. Train a base tokenizer deliberately
-and do not reuse checkpoints created with a different tokenizer fingerprint.
+If no compatible `data/tokenizer` exists, train the 32K base with
+`configs/tokenizer.yaml` first. Do not reuse checkpoints created with a
+different tokenizer fingerprint.
 
 ## 4. Obtain the active model shape
 
 The active GPU model is 38K/16-layer. Either grow a compatible older checkpoint
-as described in [V3_DIRECT_TRAINING_GUIDE.md](V3_DIRECT_TRAINING_GUIDE.md), or
+as described in [DIRECT_TRAINING_GUIDE.md](DIRECT_TRAINING_GUIDE.md), or
 start it from scratch. Inspect it without allocating full weights:
 
 ```bash
@@ -78,7 +82,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --output checkpoints/pretraining/latest.pt \
   --best-output checkpoints/pretraining/best.pt
 ```
@@ -90,7 +94,7 @@ To continue from model weights while starting a new optimizer stage, add
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/pretraining.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --resume checkpoints/pretraining/latest.pt \
   --output checkpoints/pretraining/latest.pt \
   --best-output checkpoints/pretraining/best.pt
@@ -105,7 +109,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/pretraining/best.pt \
   --output checkpoints/finetuning/latest.pt \
   --best-output checkpoints/finetuning/best.pt
@@ -125,7 +129,7 @@ Generate the focused dataset, then initialize recovery from the best SFT model:
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --init-from checkpoints/finetuning/best.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt
@@ -139,7 +143,7 @@ Recovery targets response quality; it does not replace broad pretraining.
 .venv/bin/python scripts/train_dpo.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/dpo.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --reference-checkpoint checkpoints/finetuning/best.pt \
   --init-from checkpoints/finetuning/best.pt \
   --output checkpoints/dpo/latest.pt \
@@ -155,7 +159,7 @@ Use `configs/dpo.cpu.yaml` and `--device cpu` for the CPU route.
 .venv/bin/python scripts/evaluate_domains.py \
   --domains configs/evaluation.finetuning.yaml \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 
@@ -163,7 +167,7 @@ Use `configs/dpo.cpu.yaml` and `--device cpu` for the CPU route.
   --cases configs/evaluation.domains.jsonl \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/dpo/best.pt \
   --device cuda
 ```
@@ -173,7 +177,7 @@ Use `configs/dpo.cpu.yaml` and `--device cpu` for the CPU route.
 ```bash
 .venv/bin/python scripts/export.py \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer-v3 \
+  --tokenizer data/tokenizer-v2 \
   --checkpoint checkpoints/dpo/best.pt \
   --format safetensors \
   --output exports/final/gopi.safetensors

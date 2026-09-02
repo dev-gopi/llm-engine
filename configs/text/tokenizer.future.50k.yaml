@@ -35,12 +35,12 @@ sources:
   - data/processed/hindi_history_qa/train.jsonl
   - data/processed/hinglish_chat/train.jsonl
   - data/processed/code_alpaca/train.jsonl
-  - data/processed/v3_openassistant_en/train.jsonl
-  - data/processed/v3_math_instruct/train.jsonl
-  - data/processed/v3_code_feedback/train.jsonl
-  - data/processed/v3_bengali_news/train.jsonl
+  - data/processed/v2_openassistant_en/train.jsonl
+  - data/processed/v2_math_instruct/train.jsonl
+  - data/processed/v2_code_feedback/train.jsonl
+  - data/processed/v2_bengali_news/train.jsonl
   - data/processed/hindi_hinglish/train.jsonl
-  - data/processed/v3_hindi_news/train.jsonl
+  - data/processed/v2_hindi_news/train.jsonl
   - data/processed/preferences/train.jsonl
   # Include future preference optimization and multilingual knowledge text
   # in token discovery without mixing non-SFT schemas into fine-tuning.

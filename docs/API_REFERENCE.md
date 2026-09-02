@@ -112,7 +112,7 @@ data: [DONE]
 ```
 
 The native WebSocket interface is documented by the running OpenAPI-adjacent
-usage guide; see [V2_USAGE_GUIDE.md](V2_USAGE_GUIDE.md).
+usage guide; see [USAGE_GUIDE.md](USAGE_GUIDE.md).
 
 ## Workspace agent
 

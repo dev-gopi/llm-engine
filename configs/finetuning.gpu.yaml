@@ -8,7 +8,7 @@ dataset_governance:
   policy: warn
   stage: sft
   commercial_use: false
-max_sequence_length: 384
+max_sequence_length: 512
 pad_to_multiple_of: 8
 num_workers: 1
 pin_memory: true
@@ -18,19 +18,19 @@ lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
-samples_per_epoch: 300000
+samples_per_epoch: 500000
 dataset_weights:
   # Preference data contributes chosen responses only. Wikipedia contributes
   # causal-LM knowledge examples; keep its combined share deliberately small.
   ultrachat_200k: 0.06
-  v3_openassistant_en: 0.03
+  v2_openassistant_en: 0.03
   helpsteer: 0.08
   openorca: 0.07
   gsm8k: 0.13
-  v3_math_instruct: 0.05
+  v2_math_instruct: 0.05
   core_chat: 0.02
   code_instructions: 0.03
-  v3_code_feedback: 0.04
+  v2_code_feedback: 0.04
   general_qa: 0.08
   safety_alignment: 0.025
   writing_editing: 0.015
@@ -39,12 +39,12 @@ dataset_weights:
   tool_calling: 0.015
   emoji_chat: 0.005
   bangla_qa: 0.02
-  v3_bengali_news: 0.03
+  v2_bengali_news: 0.03
   bangla_reading_qa: 0.04
   hindi_history_qa: 0.02
   hinglish_chat: 0.01
   hindi_hinglish: 0.02
-  v3_hindi_news: 0.03
+  v2_hindi_news: 0.03
   code_alpaca: 0.03
   preferences: 0.02
   wikipedia_en: 0.01
@@ -53,14 +53,14 @@ dataset_weights:
   wikipedia_hi: 0.01
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
-  - data/processed/v3_openassistant_en/train.jsonl
+  - data/processed/v2_openassistant_en/train.jsonl
   - data/processed/helpsteer/train.jsonl
   - data/processed/openorca/train.jsonl
   - data/processed/gsm8k/train.jsonl
-  - data/processed/v3_math_instruct/train.jsonl
+  - data/processed/v2_math_instruct/train.jsonl
   - data/processed/core_chat/train.jsonl
   - data/processed/code_instructions/train.jsonl
-  - data/processed/v3_code_feedback/train.jsonl
+  - data/processed/v2_code_feedback/train.jsonl
   - data/processed/general_qa/train.jsonl
   - data/processed/safety_alignment/train.jsonl
   - data/processed/writing_editing/train.jsonl
@@ -69,12 +69,12 @@ train_files:
   - data/processed/tool_calling/train.jsonl
   - data/processed/emoji_chat/train.jsonl
   - data/processed/bangla_qa/train.jsonl
-  - data/processed/v3_bengali_news/train.jsonl
+  - data/processed/v2_bengali_news/train.jsonl
   - data/processed/bangla_reading_qa/train.jsonl
   - data/processed/hindi_history_qa/train.jsonl
   - data/processed/hinglish_chat/train.jsonl
   - data/processed/hindi_hinglish/train.jsonl
-  - data/processed/v3_hindi_news/train.jsonl
+  - data/processed/v2_hindi_news/train.jsonl
   - data/processed/code_alpaca/train.jsonl
   - data/processed/preferences/train.jsonl
   - data/rag/wikipedia/wikipedia-en.jsonl
@@ -83,14 +83,14 @@ train_files:
   - data/rag/wikipedia/wikipedia-hi.jsonl
 validation_files:
   - data/processed/ultrachat_200k/validation.jsonl
-  - data/processed/v3_openassistant_en/validation.jsonl
+  - data/processed/v2_openassistant_en/validation.jsonl
   - data/processed/helpsteer/validation.jsonl
   - data/processed/openorca/validation.jsonl
   - data/processed/gsm8k/validation.jsonl
-  - data/processed/v3_math_instruct/validation.jsonl
+  - data/processed/v2_math_instruct/validation.jsonl
   - data/processed/core_chat/validation.jsonl
   - data/processed/code_instructions/validation.jsonl
-  - data/processed/v3_code_feedback/validation.jsonl
+  - data/processed/v2_code_feedback/validation.jsonl
   - data/processed/general_qa/validation.jsonl
   - data/processed/safety_alignment/validation.jsonl
   - data/processed/writing_editing/validation.jsonl
@@ -99,12 +99,12 @@ validation_files:
   - data/processed/tool_calling/validation.jsonl
   - data/processed/emoji_chat/validation.jsonl
   - data/processed/bangla_qa/validation.jsonl
-  - data/processed/v3_bengali_news/validation.jsonl
+  - data/processed/v2_bengali_news/validation.jsonl
   - data/processed/bangla_reading_qa/validation.jsonl
   - data/processed/hindi_history_qa/validation.jsonl
   - data/processed/hinglish_chat/validation.jsonl
   - data/processed/hindi_hinglish/validation.jsonl
-  - data/processed/v3_hindi_news/validation.jsonl
+  - data/processed/v2_hindi_news/validation.jsonl
   - data/processed/code_alpaca/validation.jsonl
   - data/processed/preferences/validation.jsonl
 validation_domains:
@@ -117,7 +117,7 @@ validation_domains:
       - data/processed/safety_alignment/validation.jsonl
     bengali:
       - data/processed/bangla_qa/validation.jsonl
-      - data/processed/v3_bengali_news/validation.jsonl
+      - data/processed/v2_bengali_news/validation.jsonl
       - data/processed/bangla_reading_qa/validation.jsonl
       - data/processed/multilingual_bn_hi/validation.jsonl
     hindi:
@@ -125,18 +125,18 @@ validation_domains:
       - data/processed/multilingual_hi/validation.jsonl
       - data/processed/hinglish_chat/validation.jsonl
       - data/processed/hindi_hinglish/validation.jsonl
-      - data/processed/v3_hindi_news/validation.jsonl
+      - data/processed/v2_hindi_news/validation.jsonl
     coding:
       - data/processed/code_instructions/validation.jsonl
-      - data/processed/v3_code_feedback/validation.jsonl
+      - data/processed/v2_code_feedback/validation.jsonl
       - data/processed/code_alpaca/validation.jsonl
       - data/processed/tool_calling/validation.jsonl
     gsm8k:
       - data/processed/gsm8k/validation.jsonl
-      - data/processed/v3_math_instruct/validation.jsonl
+      - data/processed/v2_math_instruct/validation.jsonl
     chat:
       - data/processed/ultrachat_200k/validation.jsonl
-      - data/processed/v3_openassistant_en/validation.jsonl
+      - data/processed/v2_openassistant_en/validation.jsonl
       - data/processed/core_chat/validation.jsonl
       - data/processed/emoji_chat/validation.jsonl
 validation_weights:
@@ -146,7 +146,7 @@ validation_weights:
   coding: 0.10
   gsm8k: 0.18
   chat: 0.31
-validation_metric_name: dataset_weighted_v3_sft_domains_v1
+validation_metric_name: dataset_weighted_v2_sft_domains_v1
 learning_rate: 0.00001
 weight_decay: 0.01
 beta1: 0.9

@@ -23,14 +23,14 @@ BASE_SYSTEM_PROMPT = "You are Gopi, a helpful assistant. Answer clearly and brie
 SYSTEM_PROMPT = format_system_prompt(BASE_SYSTEM_PROMPT, "plain")
 
 DOMAIN_SOURCES = {
-    "chat": ("core_chat", "helpsteer", "v3_openassistant_en"),
+    "chat": ("core_chat", "helpsteer", "v2_openassistant_en"),
     # OpenOrca is deliberately excluded: its local split is 2.9M records and
     # its broad synthetic style is counterproductive for this narrow recovery.
     "english": ("general_qa",),
     "bengali": ("bangla_qa", "bangla_reading_qa", "multilingual_bn_hi"),
     "hindi": ("hindi_history_qa", "multilingual_hi", "hinglish_chat"),
-    "math": ("gsm8k", "v3_math_instruct"),
-    "coding": ("code_instructions", "code_alpaca", "v3_code_feedback"),
+    "math": ("gsm8k", "v2_math_instruct"),
+    "coding": ("code_instructions", "code_alpaca", "v2_code_feedback"),
 }
 
 TRAIN_LIMITS = {
