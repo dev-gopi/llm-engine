@@ -106,9 +106,24 @@ def build_loader(
         loader_options["prefetch_factor"] = int(config.get("prefetch_factor", 2))
         if loader_options["prefetch_factor"] < 1:
             raise ValueError("prefetch_factor must be positive")
+    pad_to_multiple_of = config.get("pad_to_multiple_of")
+    if pad_to_multiple_of is not None:
+        pad_to_multiple_of = int(pad_to_multiple_of)
+        if pad_to_multiple_of < 1:
+            raise ValueError("pad_to_multiple_of must be positive")
+        max_sequence_length = int(config.get("max_sequence_length", 2048))
+        if max_sequence_length % pad_to_multiple_of:
+            raise ValueError(
+                "max_sequence_length must be divisible by pad_to_multiple_of "
+                "so padding cannot exceed the model context"
+            )
     return DataLoader(
         dataset, batch_sampler=sampler,
-        collate_fn=Collator(pad_id, ignore_index=int(config.get("ignore_index", -100))),
+        collate_fn=Collator(
+            pad_id,
+            ignore_index=int(config.get("ignore_index", -100)),
+            pad_to_multiple_of=pad_to_multiple_of,
+        ),
         num_workers=num_workers,
         pin_memory=bool(config.get("pin_memory", False)) and torch.cuda.is_available(),
         **loader_options,

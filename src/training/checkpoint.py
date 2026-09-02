@@ -122,6 +122,9 @@ def load_checkpoint(
                         and source_value.shape[0] < parameter.shape[0]
                     ):
                         parameter[: source_value.shape[0]].copy_(source_value)
+                        parameter[source_value.shape[0] :].copy_(
+                            _vocabulary_row_mean(source_value)
+                        )
                     else:
                         parameter.copy_(source_value)
     if optimizer is not None and payload.get("optimizer") is not None:
@@ -193,8 +196,16 @@ def _expand_vocabulary_state(
             continue
         replacement = target.detach().clone()
         replacement[: saved.shape[0]].copy_(saved.to(replacement.device))
+        replacement[saved.shape[0] :].copy_(
+            _vocabulary_row_mean(saved.to(replacement.device))
+        )
         expanded[name] = replacement
     return expanded
+
+
+def _vocabulary_row_mean(values: torch.Tensor) -> torch.Tensor:
+    """Return a broadcastable centroid for stable append-only initialization."""
+    return values.float().mean(dim=0, keepdim=True).to(dtype=values.dtype)
 
 
 def _numpy_rng_state() -> dict[str, Any]:

@@ -105,7 +105,9 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 ```
 
 This is safer than adding layers because the complete transformer stack is
-already trained. It still initializes the newly appended vocabulary rows.
+already trained. Newly appended vocabulary rows are initialized from the
+trained vocabulary centroid instead of random values, reducing the initial
+logit disturbance while preserving every existing token row exactly.
 
 ### Continued pretraining before v3 SFT
 

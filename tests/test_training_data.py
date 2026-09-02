@@ -24,6 +24,32 @@ def test_mixture_name_distinguishes_files_in_shared_directory() -> None:
     assert _mixture_name("data/rag/wikipedia/wikipedia-bn.jsonl", configured) == "wikipedia_bn"
 
 
+def test_loader_can_pad_batches_for_tensor_core_shapes(tmp_path) -> None:
+    pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
+    vocab = {piece: index for index, piece in enumerate(pieces)}
+    tokenizer = Tokenizer(
+        vocab,
+        special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS},
+    )
+    source = tmp_path / "records.jsonl"
+    source.write_text(json.dumps({"text": "five"}) + "\n", encoding="utf-8")
+
+    loader = build_loader(
+        [source], tokenizer,
+        {"batch_size": 1, "max_sequence_length": 32, "pad_to_multiple_of": 8},
+        shuffle=False,
+    )
+
+    assert next(iter(loader))["input_ids"].shape[1] % 8 == 0
+
+    with pytest.raises(ValueError, match="max_sequence_length must be divisible"):
+        build_loader(
+            [source], tokenizer,
+            {"batch_size": 1, "max_sequence_length": 30, "pad_to_multiple_of": 8},
+            shuffle=False,
+        )
+
+
 def test_token_shards_reject_different_same_size_tokenizer(tmp_path) -> None:
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: index for index, piece in enumerate(pieces)}

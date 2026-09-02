@@ -258,13 +258,18 @@ def main() -> None:
     validation_weights = None
     evaluator = None
     if config.get("validation_files"):
+        validation_config = dict(config)
+        validation_batch_size = int(config.get("validation_batch_size", config.get("batch_size", 32)))
+        if validation_batch_size < 1:
+            parser.error("validation_batch_size must be positive")
+        validation_config["batch_size"] = validation_batch_size
         validation_domains = config.get("validation_domains")
         if validation_domains:
             if not isinstance(validation_domains, dict):
                 parser.error("validation_domains must be a mapping")
             validation_loader = {
                 str(domain): build_loader(
-                    paths, tokenizer, config, shuffle=False,
+                    paths, tokenizer, validation_config, shuffle=False,
                     rank=distributed.rank, world_size=distributed.world_size,
                 )
                 for domain, paths in validation_domains.items()
@@ -273,7 +278,10 @@ def main() -> None:
             if not isinstance(validation_weights, dict):
                 parser.error("validation_weights must be provided with validation_domains")
         else:
-            validation_loader = build_loader(config["validation_files"], tokenizer, config, shuffle=False, rank=distributed.rank, world_size=distributed.world_size)
+            validation_loader = build_loader(
+                config["validation_files"], tokenizer, validation_config,
+                shuffle=False, rank=distributed.rank, world_size=distributed.world_size,
+            )
         evaluator = Evaluator(
             training_model,
             loss_fn=loss_fn,

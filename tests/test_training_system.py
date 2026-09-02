@@ -344,7 +344,7 @@ def test_checkpoint_loads_verified_append_only_vocabulary_extension(tmp_path) ->
         metadata={"tokenizer_fingerprint": "base-tokenizer"},
     )
     extended = MiniGPT(vocab_size=19, dim=8, layers=1, heads=2, max_pos=8)
-    new_rows = extended.tok.weight[16:].detach().clone()
+    expected_new_rows = original.tok.weight.mean(dim=0).expand(3, -1)
 
     load_checkpoint(
         path,
@@ -356,7 +356,7 @@ def test_checkpoint_loads_verified_append_only_vocabulary_extension(tmp_path) ->
     )
 
     torch.testing.assert_close(extended.tok.weight[:16], original.tok.weight)
-    torch.testing.assert_close(extended.tok.weight[16:], new_rows)
+    torch.testing.assert_close(extended.tok.weight[16:], expected_new_rows)
     assert extended.head.weight is extended.tok.weight
 
 
@@ -369,7 +369,7 @@ def test_checkpoint_expands_ema_for_append_only_vocabulary(tmp_path) -> None:
         metadata={"tokenizer_fingerprint": "base-tokenizer"},
     )
     extended = MiniGPT(vocab_size=19, dim=8, layers=1, heads=2, max_pos=8)
-    expected_new_rows = extended.tok.weight[16:].detach().clone()
+    expected_new_rows = expected_prefix.mean(dim=0).expand(3, -1)
 
     load_checkpoint(
         path,

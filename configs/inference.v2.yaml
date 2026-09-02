@@ -30,8 +30,8 @@ rag:
 serving:
   model_name: gopi-v2
   model_config: configs/model.v2.gpu.yaml
-  tokenizer_path: data/tokenizer-v2
-  checkpoint_path: checkpoints/v2-pretraining/best.pt
+  tokenizer_path: data/tokenizer-v2-extended
+  checkpoint_path: checkpoints/v2-finetuning/best.pt
   device: auto
   max_concurrency: 1
   continuous_streams: 4

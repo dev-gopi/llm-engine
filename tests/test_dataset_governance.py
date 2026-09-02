@@ -110,3 +110,16 @@ def test_dataset_audit_cli_inherits_governance_stage_from_config(tmp_path) -> No
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert json.loads(completed.stdout)["status"] == "passed"
+
+
+def test_expanded_sft_sources_have_stage_compatible_manifests() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = yaml.safe_load(
+        (root / "configs/finetuning.v2.expanded.gpu.yaml").read_text(encoding="utf-8")
+    )
+
+    findings = audit_dataset_files(config["train_files"], stage="sft")
+
+    assert not {
+        "missing_manifest", "invalid_manifest", "stage_not_allowed"
+    } & {finding.code for finding in findings}

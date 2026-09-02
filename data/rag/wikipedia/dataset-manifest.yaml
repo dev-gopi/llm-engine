@@ -1,0 +1,16 @@
+schema_version: 1
+name: Multilingual Wikipedia RAG snapshot
+source: wikimedia/wikipedia
+version: '20231101'
+license:
+  identifier: CC-BY-SA-3.0 AND GFDL-1.3-or-later
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - pretraining
+  - sft
+  - tokenizer
+  - rag
+privacy_review: unreviewed
+review_notes:
+  basis: Raw English, Simple English, Bengali, and Hindi encyclopedia text; attribution and share-alike obligations must be retained.

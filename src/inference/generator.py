@@ -58,6 +58,7 @@ class Generator:
 
     DEFAULT_REPETITION_PENALTY = 1.1
     DEFAULT_NO_REPEAT_NGRAM_SIZE = 3
+    DEFAULT_MIN_TOKENS = 1
 
     def __init__(
         self,
@@ -77,6 +78,11 @@ class Generator:
         if self.max_positions < 1:
             raise ValueError("model must expose a positive max_positions value")
         self.eos_token_id = tokenizer.token_to_id("<|eos|>")
+        self.blocked_special_token_ids = tuple(sorted(
+            identifier
+            for identifier in tokenizer.special_ids
+            if identifier != self.eos_token_id
+        ))
         self.prefix_cache: PrefixCache | PagedPrefixCache | None = None
         self.paged_kv_allocator: PagedKVCache | None = None
         self._paged_request_ids = itertools.count(1)
@@ -109,6 +115,7 @@ class Generator:
         top_p: float = 1.0,
         repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
         no_repeat_ngram_size: int = DEFAULT_NO_REPEAT_NGRAM_SIZE,
+        min_tokens: int = DEFAULT_MIN_TOKENS,
         seed: int | None = None,
         stop: list[str] | None = None,
         allow_special_tokens: bool = False,
@@ -118,6 +125,7 @@ class Generator:
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
         self._validate_no_repeat_ngram_size(no_repeat_ngram_size)
+        self._validate_min_tokens(min_tokens)
         prompt_ids = self.tokenizer.encode(
             prompt, add_bos=True, allowed_special="all" if allow_special_tokens else ()
         )
@@ -143,6 +151,7 @@ class Generator:
             next_logits = logits[:, -1, :]
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, no_repeat_ngram_size)
+            self._suppress_special_tokens(next_logits, len(generated), min_tokens)
             next_id = int(
                 self.sampler(
                     next_logits, temperature=temperature, top_k=top_k,
@@ -232,11 +241,14 @@ class Generator:
             logits = state.logits[:, -1, :].clone()
             penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
             ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
+            min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
             if penalty <= 0:
                 raise ValueError("repetition_penalty must be positive")
             self._validate_no_repeat_ngram_size(ngram_size)
+            self._validate_min_tokens(min_tokens)
             self._apply_repetition_penalty(logits, set(state.all_ids), penalty)
             self._apply_no_repeat_ngram(logits, state.all_ids, ngram_size)
+            self._suppress_special_tokens(logits, len(state.generated), min_tokens)
             token_id = int(self.sampler(
                 logits, temperature=float(options.get("temperature", .8)),
                 top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
@@ -341,9 +353,11 @@ class Generator:
             raise ValueError("max_tokens must be positive")
         penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
         ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
+        min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
         if penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
         self._validate_no_repeat_ngram_size(ngram_size)
+        self._validate_min_tokens(min_tokens)
         encoded = [self.tokenizer.encode(
             prompt, add_bos=True,
             allowed_special="all" if options.get("allow_special_tokens", False) else (),
@@ -376,6 +390,7 @@ class Generator:
                     row_logits = logits[row:row + 1, -1, :].clone()
                     self._apply_repetition_penalty(row_logits, set(all_ids[row]), penalty)
                     self._apply_no_repeat_ngram(row_logits, all_ids[row], ngram_size)
+                    self._suppress_special_tokens(row_logits, len(generated[row]), min_tokens)
                     token_id = int(self.sampler(
                         row_logits, temperature=float(options.get("temperature", .8)),
                         top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
@@ -426,11 +441,13 @@ class Generator:
         top_p = float(options.get("top_p", 1.0))
         repetition_penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
         ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
+        min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
         self._validate_no_repeat_ngram_size(ngram_size)
+        self._validate_min_tokens(min_tokens)
         stop_sequences = options.get("stop") or []
         prompt_ids = self.tokenizer.encode(
             prompt, add_bos=True,
@@ -450,6 +467,7 @@ class Generator:
             next_logits = logits[:, -1, :]
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, ngram_size)
+            self._suppress_special_tokens(next_logits, len(generated), min_tokens)
             token_id = int(self.sampler(next_logits, temperature=temperature, top_k=top_k, top_p=top_p, generator=random).item())
             if self.eos_token_id is not None and token_id == self.eos_token_id:
                 finish_reason = "stop"
@@ -499,6 +517,23 @@ class Generator:
     def _validate_no_repeat_ngram_size(ngram_size: int) -> None:
         if ngram_size < 0:
             raise ValueError("no_repeat_ngram_size must be non-negative")
+
+    @staticmethod
+    def _validate_min_tokens(min_tokens: int) -> None:
+        if min_tokens < 0:
+            raise ValueError("min_tokens must be non-negative")
+
+    def _suppress_special_tokens(
+        self, logits: torch.Tensor, generated_tokens: int, min_tokens: int,
+    ) -> None:
+        """Prevent control-token leakage and empty EOS-only responses."""
+        if self.blocked_special_token_ids:
+            logits[:, list(self.blocked_special_token_ids)] = -torch.inf
+        if (
+            self.eos_token_id is not None
+            and generated_tokens < min_tokens
+        ):
+            logits[:, self.eos_token_id] = -torch.inf
 
     @staticmethod
     def _apply_no_repeat_ngram(

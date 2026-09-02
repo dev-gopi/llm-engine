@@ -47,6 +47,9 @@ data/processed/*/*
 !data/processed/*/dataset-manifest.yaml
 !data/cache/.gitkeep
 !data/rag/.gitkeep
+!data/rag/wikipedia/
+data/rag/wikipedia/*
+!data/rag/wikipedia/dataset-manifest.yaml
 !data/shards/.gitkeep
 !data/tokenizer/.gitkeep
 !data/tokenizer-v2/.gitkeep

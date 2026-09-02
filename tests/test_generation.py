@@ -61,6 +61,27 @@ class PredictBThenEos(nn.Module):
         return logits
 
 
+class PredictSpecialThenB(nn.Module):
+    max_positions = 8
+
+    def __init__(self, vocab_size: int, special_id: int, b_id: int) -> None:
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.special_id = special_id
+        self.b_id = b_id
+        self.anchor = nn.Parameter(torch.zeros(()))
+
+    def forward(self, token_ids: torch.Tensor, *, past_key_values=None, use_cache=False):
+        logits = torch.full((*token_ids.shape, self.vocab_size), -100.0, device=token_ids.device)
+        logits[:, -1, self.special_id] = 100.0
+        logits[:, -1, self.b_id] = 90.0
+        if use_cache:
+            length = token_ids.shape[1] + (past_key_values[0][0].shape[2] if past_key_values else 0)
+            cache = torch.zeros((1, 1, length, 1), device=token_ids.device)
+            return logits, ((cache, cache.clone()),)
+        return logits
+
+
 def test_generator_connects_tokenizer_model_sampler_and_decoder() -> None:
     tokenizer = make_tokenizer()
     model = PredictBThenEos(
@@ -75,6 +96,43 @@ def test_generator_connects_tokenizer_model_sampler_and_decoder() -> None:
     assert result.prompt_tokens == 2
     assert result.finish_reason == "stop"
     assert len(result.token_ids) == 1
+
+
+def test_generator_suppresses_non_eos_special_tokens() -> None:
+    tokenizer = make_tokenizer()
+    b_id = tokenizer.token_to_id(BYTE_ENCODER[ord("b")])
+    model = PredictSpecialThenB(
+        tokenizer.vocab_size,
+        tokenizer.token_to_id("<|user|>"),
+        b_id,
+    )
+
+    result = Generator(model, tokenizer, device="cpu").generate(
+        "a", max_tokens=1, temperature=0,
+    )
+
+    assert result.text == "b"
+    assert result.token_ids == (b_id,)
+
+
+def test_special_token_suppression_applies_to_every_decode_mode() -> None:
+    tokenizer = make_tokenizer()
+    b_id = tokenizer.token_to_id(BYTE_ENCODER[ord("b")])
+    generator = Generator(PredictSpecialThenB(
+        tokenizer.vocab_size,
+        tokenizer.token_to_id("<|assistant|>"),
+        b_id,
+    ), tokenizer, device="cpu")
+
+    batch = generator.generate_batch(["a"], max_tokens=1, temperature=0)
+    stream = list(generator.stream("a", max_tokens=1, temperature=0))
+    state = generator.start_batched_stream("a", max_tokens=1, temperature=0)
+    streamed_step, done = generator.decode_batched_stream([state])[0]
+
+    assert batch[0].text == "b"
+    assert "".join(step.token for step in stream) == "b"
+    assert streamed_step.token == "b"
+    assert done
 
 
 def test_generator_stream_yields_before_final_event() -> None:
@@ -99,6 +157,8 @@ def test_all_generation_modes_validate_unsafe_options() -> None:
         generator.generate_batch(["a"], repetition_penalty=0)
     with pytest.raises(ValueError, match="no_repeat_ngram_size"):
         generator.generate("a", no_repeat_ngram_size=-1)
+    with pytest.raises(ValueError, match="min_tokens"):
+        list(generator.stream("a", min_tokens=-1))
 
 
 def test_no_repeat_ngram_bans_only_tokens_that_complete_a_duplicate() -> None:

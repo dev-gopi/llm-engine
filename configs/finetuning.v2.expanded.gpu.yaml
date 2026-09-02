@@ -1,6 +1,9 @@
 # Continue SFT from a trained v2 checkpoint using the append-only 38K tokenizer.
 # Keep the 10-layer v2 architecture; use --init-from rather than --resume.
 batch_size: 2
+# Evaluation has no backward-pass activations, so it can safely use a larger
+# batch and reduce the long validation pauses seen in the v2 report.
+validation_batch_size: 4
 epochs: 2
 seed: 42
 dataset_governance:
@@ -8,6 +11,7 @@ dataset_governance:
   stage: sft
   commercial_use: false
 max_sequence_length: 384
+pad_to_multiple_of: 8
 num_workers: 1
 pin_memory: true
 persistent_workers: true

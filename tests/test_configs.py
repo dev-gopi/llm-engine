@@ -52,6 +52,13 @@ def test_v2_gpu_finetuning_profile_targets_balanced_quality() -> None:
     )) >= 0.14
 
 
+def test_v2_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
+    config = load_yaml(CONFIGS / "inference.v2.yaml")["serving"]
+
+    assert config["checkpoint_path"] == "checkpoints/v2-finetuning/best.pt"
+    assert config["tokenizer_path"] == "data/tokenizer-v2-extended"
+
+
 def test_v3_gpu_finetuning_includes_balanced_domain_expansion() -> None:
     config = load_yaml(CONFIGS / "finetuning.v3.gpu.yaml")
 
@@ -86,6 +93,8 @@ def test_v2_expanded_sft_is_a_conservative_new_stage() -> None:
     assert config["epochs"] == 2
     assert config["learning_rate"] == pytest.approx(1e-5)
     assert config["samples_per_epoch"] == 300_000
+    assert config["validation_batch_size"] > config["batch_size"]
+    assert config["pad_to_multiple_of"] == 8
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
     assert config["validation_metric_name"] == "dataset_weighted_v2_expanded_sft_domains_v1"
     assert tokenizer["vocab_size"] == 38_000
