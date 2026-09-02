@@ -1,0 +1,9 @@
+image_size: 128
+patch_size: 16
+channels: 3
+hidden_size: 192
+layers: 4
+heads: 3
+ffn_hidden_size: 768
+dropout: 0.05
+initializer_range: 0.02

@@ -1,0 +1,8 @@
+vision_config: configs/vision/model.small.yaml
+language_config: configs/model.v2.gpu.yaml
+language_checkpoint: checkpoints/v2-finetuning/best.pt
+tokenizer: data/tokenizer-v2-extended
+visual_tokens: 16
+projector_dropout: 0.05
+freeze_vision: true
+freeze_language: true

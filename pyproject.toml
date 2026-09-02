@@ -24,6 +24,7 @@ dependencies = [
 dev = ["httpx", "pytest"]
 export = ["onnx>=1.16", "onnxruntime>=1.18"]
 rag = ["pypdf>=5"]
+images = ["pillow>=10"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
