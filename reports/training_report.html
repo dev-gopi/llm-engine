@@ -26,6 +26,9 @@
     .verdict { font-size:20px; font-weight:800; padding:12px 16px; border-radius:9px; display:inline-block }
     .improving { color:#052e20; background:#6ee7b7 }.plateau { color:#422006; background:#fcd34d }.worsening { color:#450a0a; background:#fda4af }.waiting_for_validation { color:#172033; background:#cbd5e1 }
     .positive { color:var(--green) }.negative { color:var(--red) }
+    .usage-low { color:var(--green) }.usage-medium { color:#fbbf24 }.usage-high { color:var(--red) }
+    .card.usage-low { border-color:#166534 }.card.usage-medium { border-color:#a16207 }.card.usage-high { border-color:#be123c }
+    .severity-warning { color:#fbbf24 }.severity-error { color:var(--red);font-weight:700 }
   </style>
 </head>
 <body>
@@ -97,6 +100,11 @@
       return value.toLocaleString(undefined,{maximumFractionDigits:3});
     };
     const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const usageLevel = (value,warn=70,high=90) => value==null?'':value>=high?'usage-high':value>=warn?'usage-medium':'usage-low';
+    const usageColor = (value,warn=70,high=90) => value==null?'#91a4ba':value>=high?'#fb7185':value>=warn?'#fbbf24':'#34d399';
+    const activityLevel = value => value==null?'':value>=75?'usage-low':value>=40?'usage-medium':'usage-high';
+    const trendLevel = (improvement,deadband=.001) => improvement==null?'':improvement>deadband?'usage-low':improvement<-deadband?'usage-high':'usage-medium';
+    const trendColor = (improvement,deadband=.001) => improvement==null?'#91a4ba':improvement>deadband?'#34d399':improvement<-deadband?'#fb7185':'#fbbf24';
     let manual = false;
 
     function lineChart(svg, series) {
@@ -131,8 +139,17 @@
       const telemetry=data.telemetry||[], system=telemetry.at(-1)||{}, gpu=system.gpus?.[0]||{};
       const analysis=data.analysis||deriveAnalysis(train,vals), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
       document.getElementById('status').textContent=`Updated ${dateFmt(data.generated_at)} · ${data.line_count||0} log lines`;
-      const cards=[['Step',latest.step],['Progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Training loss',latest.loss],['Best validation',best],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second],['CPU',unit(system.cpu_percent,'%')],['RAM',unit(system.ram_percent,'%')],['GPU',unit(gpu.utilization_percent,'%')],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—'],['GPU temp',unit(gpu.temperature_c,' °C')],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds)],['Non-finite updates',latest.nonfinite_updates]];
-      document.getElementById('cards').innerHTML=cards.map(([k,v])=>`<div class="card"><div class="muted">${k}</div><div class="value">${fmt(v)}</div></div>`).join('');
+      const vramPercent=gpu.memory_total_mb?gpu.memory_used_mb/gpu.memory_total_mb*100:null;
+      const powerPercent=gpu.power_limit_w?gpu.power_draw_w/gpu.power_limit_w*100:null;
+      const trainTrend=analysis.training_loss?.absolute_improvement,recentValidation=analysis.recent_validation_loss?.absolute_improvement;
+      const throughputValues=train.map(value=>value.tokens_per_second).filter(Number.isFinite),throughputAverage=throughputValues.length?throughputValues.reduce((a,b)=>a+b,0)/throughputValues.length:null;
+      const throughputRatio=throughputAverage&&latest.tokens_per_second!=null?latest.tokens_per_second/throughputAverage:null;
+      const throughputLevel=throughputRatio==null?'':throughputRatio<.8?'usage-high':throughputRatio<.9?'usage-medium':'usage-low';
+      const etaPrevious=train.at(-2)?.eta_seconds,etaImprovement=etaPrevious!=null&&latest.eta_seconds!=null?etaPrevious-latest.eta_seconds:null;
+      const clipNorm=Number(data.training_config?.gradient_clip_norm),gradientRatio=clipNorm>0&&latest.grad_norm!=null?latest.grad_norm/clipNorm:null;
+      const gradientLevel=gradientRatio==null?'':gradientRatio>2?'usage-high':gradientRatio>1?'usage-medium':'usage-low';
+      const cards=[['Step',latest.step],['Progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Training loss',latest.loss,trendLevel(trainTrend)],['Best validation',best,trendLevel(recentValidation)],['Gradient norm',latest.grad_norm,gradientLevel],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second,throughputLevel],['CPU',unit(system.cpu_percent,'%'),usageLevel(system.cpu_percent)],['RAM',unit(system.ram_percent,'%'),usageLevel(system.ram_percent,75,90)],['GPU',unit(gpu.utilization_percent,'%'),activityLevel(gpu.utilization_percent)],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—',usageLevel(vramPercent,75,90)],['GPU temp',unit(gpu.temperature_c,' °C'),usageLevel(gpu.temperature_c,75,85)],['GPU power',unit(gpu.power_draw_w,' W'),usageLevel(powerPercent,80,95)],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds),trendLevel(etaImprovement,1)],['Non-finite updates',latest.nonfinite_updates,latest.nonfinite_updates>0?'usage-high':'usage-low']];
+      document.getElementById('cards').innerHTML=cards.map(([k,v,level=''])=>`<div class="card ${level}"><div class="muted">${k}</div><div class="value ${level}">${fmt(v)}</div></div>`).join('');
       const indexed=telemetry.map((value,index)=>({value,index}));
       lineChart(document.getElementById('system-chart'),[
         {name:'CPU %',points:indexed.filter(x=>x.value.cpu_percent!=null).map(x=>[x.index,x.value.cpu_percent]),color:'#4f9cf9'},
@@ -142,9 +159,9 @@
         {name:'GPU %',points:indexed.filter(x=>x.value.gpus?.[0]?.utilization_percent!=null).map(x=>[x.index,x.value.gpus[0].utilization_percent]),color:'#a78bfa'},
         {name:'VRAM %',points:indexed.filter(x=>x.value.gpus?.[0]?.memory_total_mb).map(x=>[x.index,x.value.gpus[0].memory_used_mb/x.value.gpus[0].memory_total_mb*100]),color:'#f97316'}
       ]);
-      lineChart(document.getElementById('gpu-temperature-chart'),[{name:'temperature °C',points:indexed.filter(x=>x.value.gpus?.[0]?.temperature_c!=null).map(x=>[x.index,x.value.gpus[0].temperature_c]),color:'#fb7185'}]);
+      lineChart(document.getElementById('gpu-temperature-chart'),[{name:'temperature °C',points:indexed.filter(x=>x.value.gpus?.[0]?.temperature_c!=null).map(x=>[x.index,x.value.gpus[0].temperature_c]),color:usageColor(gpu.temperature_c,75,85)}]);
       lineChart(document.getElementById('gpu-power-chart'),[
-        {name:'power draw W',points:indexed.filter(x=>x.value.gpus?.[0]?.power_draw_w!=null).map(x=>[x.index,x.value.gpus[0].power_draw_w]),color:'#fbbf24'},
+        {name:'power draw W',points:indexed.filter(x=>x.value.gpus?.[0]?.power_draw_w!=null).map(x=>[x.index,x.value.gpus[0].power_draw_w]),color:usageColor(powerPercent,80,95)},
         {name:'power limit W',points:indexed.filter(x=>x.value.gpus?.[0]?.power_limit_w!=null).map(x=>[x.index,x.value.gpus[0].power_limit_w]),color:'#91a4ba'}
       ]);
       const systemRows=[['CPU utilization',unit(system.cpu_percent,'%')],['System RAM',system.ram_used_mb!=null?`${fmt(system.ram_used_mb,0)} / ${fmt(system.ram_total_mb,0)} MB (${fmt(system.ram_percent,1)}%)`:'—'],['Training process RAM',unit(system.process_rss_mb,' MB')]];
@@ -159,15 +176,17 @@
         ['Perplexity',fmt(pp.first),fmt(pp.latest),delta(pp.absolute_improvement),percent(pp.percent_improvement)],
         ['Training average loss',fmt(tl.first),fmt(tl.latest),delta(tl.absolute_improvement),percent(tl.percent_improvement)]
       ]);
-      lineChart(document.getElementById('training-chart'),[{name:'window loss',points:train.map(v=>[v.step,v.loss]),color:'#4f9cf9'},{name:'average loss',points:train.filter(v=>v.avg!=null).map(v=>[v.step,v.avg]),color:'#34d399'}]);
+      lineChart(document.getElementById('training-chart'),[{name:'window loss',points:train.map(v=>[v.step,v.loss]),color:'#4f9cf9'},{name:'average loss',points:train.filter(v=>v.avg!=null).map(v=>[v.step,v.avg]),color:trendColor(trainTrend)}]);
       const domainNames=[...new Set(vals.flatMap(v=>Object.keys(v.domains||{})))];
-      lineChart(document.getElementById('validation-chart'),[{name:'overall',points:vals.map(v=>[v.step,v.loss]),color:'#fff',width:4},...domainNames.map((name,i)=>({name,points:vals.filter(v=>v.domains?.[name]).map(v=>[v.step,v.domains[name].loss]),color:colors[i%colors.length]}))]);
-      lineChart(document.getElementById('perplexity-chart'),[{name:'overall',points:vals.filter(v=>v.perplexity!=null).map(v=>[v.step,v.perplexity]),color:'#fff',width:4},...domainNames.map((name,i)=>({name,points:vals.filter(v=>v.domains?.[name]?.perplexity!=null).map(v=>[v.step,v.domains[name].perplexity]),color:colors[i%colors.length]}))]);
+      lineChart(document.getElementById('validation-chart'),[{name:'overall',points:vals.map(v=>[v.step,v.loss]),color:'#ffffff',width:4},...domainNames.map((name,i)=>({name,points:vals.filter(v=>v.domains?.[name]).map(v=>[v.step,v.domains[name].loss]),color:colors[i%colors.length]}))]);
+      lineChart(document.getElementById('perplexity-chart'),[{name:'overall',points:vals.filter(v=>v.perplexity!=null).map(v=>[v.step,v.perplexity]),color:'#ffffff',width:4},...domainNames.map((name,i)=>({name,points:vals.filter(v=>v.domains?.[name]?.perplexity!=null).map(v=>[v.step,v.domains[name].perplexity]),color:colors[i%colors.length]}))]);
       lineChart(document.getElementById('lr-chart'),[{name:'learning rate',points:train.filter(v=>v.lr!=null).map(v=>[v.step,v.lr]),color:'#fbbf24'}]);
-      lineChart(document.getElementById('gradient-chart'),[{name:'gradient norm',points:train.filter(v=>v.grad_norm!=null).map(v=>[v.step,v.grad_norm]),color:'#a78bfa'}]);
-      lineChart(document.getElementById('throughput-chart'),[{name:'tokens / second',points:train.filter(v=>v.tokens_per_second!=null).map(v=>[v.step,v.tokens_per_second]),color:'#22d3ee'}]);
+      const gradientColor=gradientRatio==null?'#a78bfa':gradientRatio>2?'#fb7185':gradientRatio>1?'#fbbf24':'#34d399';
+      lineChart(document.getElementById('gradient-chart'),[{name:'gradient norm',points:train.filter(v=>v.grad_norm!=null).map(v=>[v.step,v.grad_norm]),color:gradientColor}]);
+      const throughputColor=throughputLevel==='usage-high'?'#fb7185':throughputLevel==='usage-medium'?'#fbbf24':'#34d399';
+      lineChart(document.getElementById('throughput-chart'),[{name:'tokens / second',points:train.filter(v=>v.tokens_per_second!=null).map(v=>[v.step,v.tokens_per_second]),color:throughputColor}]);
       document.getElementById('checkpoints').innerHTML=table(['Checkpoint','Status','Size','Modified','Validation'],Object.entries(data.checkpoints||{}).map(([name,c])=>[esc(name),`<span class="${c.exists?'ok':'bad'}">${c.exists?'available':'missing'}</span>`,c.size_mb!=null?fmt(c.size_mb,2)+' MB':'—',esc(dateFmt(c.modified_at)),fmt(c.validation?.loss)]));
-      document.getElementById('domains').innerHTML=table(['Domain','Loss','Cross entropy','Perplexity','Tokens'],Object.entries(validation.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
+      document.getElementById('domains').innerHTML=table(['Domain','Loss','Cross entropy','Perplexity','Tokens'],Object.entries(validation.domains||{}).map(([name,v])=>{const level=trendLevel(analysis.domains?.[name]?.loss?.absolute_improvement);return [`<span class="${level}">${esc(name)}</span>`,`<span class="${level}">${fmt(v.loss)}</span>`,fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]}));
       document.getElementById('validation-table').innerHTML=table(['Time','Step','Epoch','Loss','Cross entropy','Perplexity','Tokens'],vals.map(v=>[esc(dateFmt(v.timestamp)),fmt(v.step,0),fmt(v.epoch,0),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
       document.getElementById('domain-improvement').innerHTML=table(['Domain','First loss','Latest loss','Loss improvement','Improvement %','Perplexity improvement %'],Object.entries(analysis.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss?.first),fmt(v.loss?.latest),delta(v.loss?.absolute_improvement),percent(v.loss?.percent_improvement),percent(v.perplexity?.percent_improvement)]));
       const over=analysis.overfitting||{};
@@ -184,7 +203,7 @@
       document.getElementById('run-summary').innerHTML=table(['Metric','Value'],Object.entries(summary).map(([key,value])=>[esc(key.replaceAll('_',' ')),fmt(value)]));
       const coverage=analysis.report_coverage||{};
       document.getElementById('report-coverage').innerHTML=table(['Area','Coverage'],Object.entries(coverage).map(([key,value])=>[esc(key.replaceAll('_',' ')),esc(value)]));
-      document.getElementById('warnings').textContent=(data.warnings||[]).join('\n')||'No warnings or errors captured.';
+      document.getElementById('warnings').innerHTML=(data.warnings||[]).map(line=>`<span class="${line.includes('ERROR')?'severity-error':'severity-warning'}">${esc(line)}</span>`).join('\n')||'No warnings or errors captured.';
       document.getElementById('logs').textContent=(data.raw_log_tail||[]).join('\n');
     }
 
