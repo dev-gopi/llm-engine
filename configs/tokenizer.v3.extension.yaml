@@ -12,11 +12,14 @@ extension:
   source_sampling: balanced_bytes
   sources:
     - data/processed/ultrachat_200k/train.jsonl
+    - data/processed/v3_openassistant_en/train.jsonl
     - data/processed/helpsteer/train.jsonl
     - data/processed/openorca/train.jsonl
     - data/processed/gsm8k/train.jsonl
+    - data/processed/v3_math_instruct/train.jsonl
     - data/processed/core_chat/train.jsonl
     - data/processed/code_instructions/train.jsonl
+    - data/processed/v3_code_feedback/train.jsonl
     - data/processed/general_qa/train.jsonl
     - data/processed/safety_alignment/train.jsonl
     - data/processed/writing_editing/train.jsonl
@@ -25,7 +28,17 @@ extension:
     - data/processed/tool_calling/train.jsonl
     - data/processed/emoji_chat/train.jsonl
     - data/processed/bangla_qa/train.jsonl
+    - data/processed/v3_bengali_news/train.jsonl
     - data/processed/bangla_reading_qa/train.jsonl
     - data/processed/hindi_history_qa/train.jsonl
     - data/processed/hinglish_chat/train.jsonl
+    - data/processed/hindi_hinglish/train.jsonl
+    - data/processed/v3_hindi_news/train.jsonl
     - data/processed/code_alpaca/train.jsonl
+    # Include future preference optimization and multilingual knowledge text
+    # in token discovery without mixing non-SFT schemas into fine-tuning.
+    - data/processed/preferences/train.jsonl
+    - data/rag/wikipedia/wikipedia-en.jsonl
+    - data/rag/wikipedia/wikipedia-simple.jsonl
+    - data/rag/wikipedia/wikipedia-bn.jsonl
+    - data/rag/wikipedia/wikipedia-hi.jsonl

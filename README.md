@@ -519,6 +519,23 @@ These sources have different licenses and provenance characteristics. Review
 their current dataset cards and add reviewed manifests before changing the v2
 governance policy from `warn` to `error` or enabling commercial use.
 
+The v3 profile adds bounded, separately measurable coverage for Bengali,
+Hindi, English chat, coding, and broader mathematical reasoning. Reproduce the
+local subsets with:
+
+```bash
+python scripts/prepare_hf_dataset.py --dataset soketlabs/bhasha-sft --config aya_templated_bengali_news --output-dir data/processed/v3_bengali_news --raw-dir data/raw/v3_bengali_news --train-size 12000 --validation-size 1500 --test-size 500
+python scripts/prepare_hf_dataset.py --dataset soketlabs/bhasha-sft --config aya_templated_hindi_news --output-dir data/processed/v3_hindi_news --raw-dir data/raw/v3_hindi_news --train-size 30000 --validation-size 3000 --test-size 1000
+python scripts/prepare_hf_dataset.py --dataset agentlans/OpenAssistant-oasst --config en --output-dir data/processed/v3_openassistant_en --raw-dir data/raw/v3_openassistant_en --train-size 20000 --validation-size 2000 --test-size 1000
+python scripts/prepare_hf_dataset.py --dataset m-a-p/CodeFeedback-Filtered-Instruction --output-dir data/processed/v3_code_feedback --raw-dir data/raw/v3_code_feedback --train-size 30000 --validation-size 3000 --test-size 1000
+python scripts/prepare_hf_dataset.py --dataset TIGER-Lab/MathInstruct --output-dir data/processed/v3_math_instruct --raw-dir data/raw/v3_math_instruct --train-size 30000 --validation-size 3000 --test-size 1000 --exclude-source-pattern math50k_camel --exclude-source-pattern gsm_rft
+```
+
+Repeated runs reuse cached raw files. The MathInstruct command omits the
+noncommercial Camel-Math component and GSM8K-RFT, whose license is not listed
+by the source card. Mixed-source manifests deliberately remain marked for
+review; run the governance audit before training.
+
 The v2 SFT profiles use `dataset_weights` as target dataset-level sampling
 shares. A dataset's configured weight is divided across its rows, so a large
 source such as OpenOrca does not dominate a smaller capability dataset merely

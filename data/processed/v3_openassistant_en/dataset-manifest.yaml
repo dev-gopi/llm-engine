@@ -1,0 +1,13 @@
+schema_version: 1
+name: OpenAssistant English conversation subset
+source: agentlans/OpenAssistant-oasst
+version: en-huggingface-parquet-2026-09-02
+license:
+  identifier: Apache-2.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Bounded English subset derived from OASST1/OASST2; quality filtering and privacy review remain required before release.

@@ -50,3 +50,30 @@ def test_v2_gpu_finetuning_profile_targets_balanced_quality() -> None:
     assert sum(weights[name] for name in (
         "multilingual_bn_hi", "bangla_qa", "bangla_reading_qa",
     )) >= 0.14
+
+
+def test_v3_gpu_finetuning_includes_balanced_domain_expansion() -> None:
+    config = load_yaml(CONFIGS / "finetuning.v3.gpu.yaml")
+
+    expected_additions = {
+        "v3_bengali_news": "bengali",
+        "v3_hindi_news": "hindi",
+        "v3_openassistant_en": "chat",
+        "v3_code_feedback": "coding",
+        "v3_math_instruct": "gsm8k",
+    }
+    for name, domain in expected_additions.items():
+        train = f"data/processed/{name}/train.jsonl"
+        validation = f"data/processed/{name}/validation.jsonl"
+        assert config["dataset_weights"][name] > 0
+        assert train in config["train_files"]
+        assert validation in config["validation_files"]
+        assert validation in config["validation_domains"][domain]
+
+    assert "data/processed/hindi_hinglish/train.jsonl" in config["train_files"]
+    assert "data/processed/hindi_hinglish/validation.jsonl" in config["validation_files"]
+    assert "data/processed/hindi_hinglish/validation.jsonl" in config["validation_domains"]["hindi"]
+    assert config["validation_weights"]["hindi"] == pytest.approx(0.12)
+    assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
+    assert sum(config["validation_weights"].values()) == pytest.approx(1.0)
+    assert config["validation_metric_name"] == "dataset_weighted_sft_domains_v4"

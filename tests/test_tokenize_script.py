@@ -1,6 +1,6 @@
 import json
 
-from scripts.tokenize import discover_extension_tokens, iter_corpus
+from scripts.tokenize import discover_extension_tokens, extract_text, iter_corpus
 from tokenizer.trainer import BPETokenizerTrainer
 
 
@@ -9,6 +9,18 @@ def _write_jsonl(path, texts):
         "".join(json.dumps({"text": text}) + "\n" for text in texts),
         encoding="utf-8",
     )
+
+
+def test_extract_text_supports_preference_records_without_metadata():
+    record = {
+        "id": "preference-1",
+        "source": "example/source",
+        "prompt": "question",
+        "chosen": "good answer",
+        "rejected": "bad answer",
+    }
+
+    assert list(extract_text(record)) == ["question", "good answer", "bad answer"]
 
 
 def test_iter_corpus_round_robin_reads_every_source(tmp_path):

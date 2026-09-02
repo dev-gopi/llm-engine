@@ -11,6 +11,7 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import Sequence
 
 # Avoid resolving the standard-library ``tokenize`` module to scripts/tokenize.py
 script_directory = str(Path(__file__).resolve().parent)
@@ -66,7 +67,13 @@ def extract_messages(row: dict, dataset_name: str, bot_name: str = DEFAULT_BOT_N
         return normalize_conversation(row["conversations"], system_msg)
 
     # Case 3: Instruction / Context / Output format (e.g. Dolly 15k, Alpaca, Platypus)
-    instruction = row.get("instruction") or row.get("prompt") or row.get("input_text") or row.get("question")
+    instruction = (
+        row.get("instruction")
+        or row.get("prompt")
+        or row.get("input_text")
+        or row.get("question")
+        or row.get("query")
+    )
     output = row.get("response") or row.get("output") or row.get("completion") or row.get("answer")
     context = row.get("context") or row.get("input", "")
 
@@ -118,6 +125,7 @@ def download_and_convert_dataset(
     test_size: int | None = 1000,
     bot_name: str = DEFAULT_BOT_NAME,
     timeout: float = 60.0,
+    exclude_source_patterns: Sequence[str] = (),
 ) -> dict[str, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if raw_dir is not None:
@@ -147,32 +155,47 @@ def download_and_convert_dataset(
         for index, url in enumerate(urls):
             if total_needed is not None and len(records) >= total_needed:
                 break
-            print(f"Downloading {url}...")
-            request = urllib.request.Request(url, headers={"User-Agent": "LLMEngine/1.0"})
-            descriptor, temporary_name = tempfile.mkstemp(
-                prefix=f".{split}-{index:05d}.", suffix=".parquet",
-                dir=raw_dir or output_dir,
-            )
-            os.close(descriptor)
-            parquet_path = Path(temporary_name)
+            cached_path = raw_dir / f"{split}-{index:05d}.parquet" if raw_dir is not None else None
+            if cached_path is not None and cached_path.is_file():
+                print(f"Reusing raw dataset file {cached_path}")
+                parquet_path = cached_path
+                temporary_name = str(cached_path)
+                remove_temporary = False
+            else:
+                print(f"Downloading {url}...")
+                descriptor, temporary_name = tempfile.mkstemp(
+                    prefix=f".{split}-{index:05d}.", suffix=".parquet",
+                    dir=raw_dir or output_dir,
+                )
+                os.close(descriptor)
+                parquet_path = Path(temporary_name)
+                remove_temporary = True
             try:
-                with urllib.request.urlopen(request, timeout=timeout) as response, parquet_path.open("wb") as output:
-                    shutil.copyfileobj(response, output, length=1024 * 1024)
-                if raw_dir is not None:
-                    raw_file_path = raw_dir / f"{split}-{index:05d}.parquet"
-                    os.replace(parquet_path, raw_file_path)
-                    parquet_path = raw_file_path
-                    print(f"Saved raw dataset file to {raw_file_path}")
+                if remove_temporary:
+                    request = urllib.request.Request(url, headers={"User-Agent": "LLMEngine/1.0"})
+                    with urllib.request.urlopen(request, timeout=timeout) as response, parquet_path.open("wb") as output:
+                        shutil.copyfileobj(response, output, length=1024 * 1024)
+                    if raw_dir is not None:
+                        raw_file_path = raw_dir / f"{split}-{index:05d}.parquet"
+                        os.replace(parquet_path, raw_file_path)
+                        parquet_path = raw_file_path
+                        remove_temporary = False
+                        print(f"Saved raw dataset file to {raw_file_path}")
 
                 parquet_file = pq.ParquetFile(parquet_path)
                 for batch in parquet_file.iter_batches():
                     for row in batch.to_pylist():
+                        upstream_source = str(row.get("source") or row.get("resource") or "")
+                        if any(pattern.lower() in upstream_source.lower() for pattern in exclude_source_patterns):
+                            continue
                         messages = extract_messages(row, dataset_name, bot_name=bot_name)
                         record_index = sum(counts.values()) if full_dataset else len(records)
                         record = {
                             "id": f"{dataset_name.replace('/', '_')}_{record_index}",
                             "source": dataset_name,
                         }
+                        if upstream_source:
+                            record["source_subset"] = upstream_source
                         if messages:
                             record.update({"bot_name": bot_name, "messages": messages})
                         else:
@@ -208,7 +231,8 @@ def download_and_convert_dataset(
                             if len(records) >= total_needed:
                                 break
             finally:
-                Path(temporary_name).unlink(missing_ok=True)
+                if remove_temporary:
+                    Path(temporary_name).unlink(missing_ok=True)
     finally:
         for stream in streams.values():
             stream.close()
@@ -265,6 +289,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--full", action="store_true", help="Process the complete source split using deterministic 90/5/5 splits")
     parser.add_argument("--bot-name", default=DEFAULT_BOT_NAME)
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument(
+        "--exclude-source-pattern", action="append", default=[],
+        help="Skip rows whose source/resource field contains this text (repeatable)",
+    )
     return parser.parse_args()
 
 
@@ -285,6 +313,7 @@ def main() -> None:
         test_size=None if args.full else args.test_size,
         bot_name=args.bot_name,
         timeout=args.timeout,
+        exclude_source_patterns=args.exclude_source_pattern,
     )
     result = {
         "dataset": args.dataset,

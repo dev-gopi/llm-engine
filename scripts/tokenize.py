@@ -42,6 +42,13 @@ def extract_text(value: Any) -> Iterator[str]:
         if isinstance(value.get("utterance"), str):
             yield value["utterance"]
             return
+        preference_fields = [
+            value[key] for key in ("prompt", "chosen", "rejected")
+            if isinstance(value.get(key), str)
+        ]
+        if preference_fields:
+            yield from preference_fields
+            return
         for key, nested in value.items():
             if key not in {"id", "prompt_id", "source", "bot_name", "domain"}:
                 yield from extract_text(nested)

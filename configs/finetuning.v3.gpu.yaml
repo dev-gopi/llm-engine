@@ -1,0 +1,156 @@
+batch_size: 2
+epochs: 3
+seed: 42
+dataset_governance:
+  policy: warn
+  stage: sft
+  commercial_use: false
+max_sequence_length: 384
+num_workers: 1
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+lazy_dataset: true
+distributed_strategy: ddp
+distributed_backend: null
+checkpoint_format: single_file
+samples_per_epoch: 500000
+dataset_weights:
+  # Exact source-group totals: chat 13.5%, factual/general 27%, reasoning 18%,
+  # code 10%, Bengali 14%, Hindi/Hinglish 12%, and safety/tools/writing 5.5%.
+  ultrachat_200k: 0.08
+  v3_openassistant_en: 0.03
+  helpsteer: 0.08
+  openorca: 0.08
+  gsm8k: 0.13
+  v3_math_instruct: 0.05
+  core_chat: 0.02
+  code_instructions: 0.03
+  v3_code_feedback: 0.04
+  general_qa: 0.11
+  safety_alignment: 0.025
+  writing_editing: 0.015
+  multilingual_bn_hi: 0.05
+  multilingual_hi: 0.04
+  tool_calling: 0.015
+  emoji_chat: 0.005
+  bangla_qa: 0.02
+  v3_bengali_news: 0.03
+  bangla_reading_qa: 0.04
+  hindi_history_qa: 0.02
+  hinglish_chat: 0.01
+  hindi_hinglish: 0.02
+  v3_hindi_news: 0.03
+  code_alpaca: 0.03
+train_files:
+  - data/processed/ultrachat_200k/train.jsonl
+  - data/processed/v3_openassistant_en/train.jsonl
+  - data/processed/helpsteer/train.jsonl
+  - data/processed/openorca/train.jsonl
+  - data/processed/gsm8k/train.jsonl
+  - data/processed/v3_math_instruct/train.jsonl
+  - data/processed/core_chat/train.jsonl
+  - data/processed/code_instructions/train.jsonl
+  - data/processed/v3_code_feedback/train.jsonl
+  - data/processed/general_qa/train.jsonl
+  - data/processed/safety_alignment/train.jsonl
+  - data/processed/writing_editing/train.jsonl
+  - data/processed/multilingual_bn_hi/train.jsonl
+  - data/processed/multilingual_hi/train.jsonl
+  - data/processed/tool_calling/train.jsonl
+  - data/processed/emoji_chat/train.jsonl
+  - data/processed/bangla_qa/train.jsonl
+  - data/processed/v3_bengali_news/train.jsonl
+  - data/processed/bangla_reading_qa/train.jsonl
+  - data/processed/hindi_history_qa/train.jsonl
+  - data/processed/hinglish_chat/train.jsonl
+  - data/processed/hindi_hinglish/train.jsonl
+  - data/processed/v3_hindi_news/train.jsonl
+  - data/processed/code_alpaca/train.jsonl
+validation_files:
+  - data/processed/ultrachat_200k/validation.jsonl
+  - data/processed/v3_openassistant_en/validation.jsonl
+  - data/processed/helpsteer/validation.jsonl
+  - data/processed/openorca/validation.jsonl
+  - data/processed/gsm8k/validation.jsonl
+  - data/processed/v3_math_instruct/validation.jsonl
+  - data/processed/core_chat/validation.jsonl
+  - data/processed/code_instructions/validation.jsonl
+  - data/processed/v3_code_feedback/validation.jsonl
+  - data/processed/general_qa/validation.jsonl
+  - data/processed/safety_alignment/validation.jsonl
+  - data/processed/writing_editing/validation.jsonl
+  - data/processed/multilingual_bn_hi/validation.jsonl
+  - data/processed/multilingual_hi/validation.jsonl
+  - data/processed/tool_calling/validation.jsonl
+  - data/processed/emoji_chat/validation.jsonl
+  - data/processed/bangla_qa/validation.jsonl
+  - data/processed/v3_bengali_news/validation.jsonl
+  - data/processed/bangla_reading_qa/validation.jsonl
+  - data/processed/hindi_history_qa/validation.jsonl
+  - data/processed/hinglish_chat/validation.jsonl
+  - data/processed/hindi_hinglish/validation.jsonl
+  - data/processed/v3_hindi_news/validation.jsonl
+  - data/processed/code_alpaca/validation.jsonl
+validation_domains:
+    english:
+      - data/processed/helpsteer/validation.jsonl
+      - data/processed/openorca/validation.jsonl
+      - data/processed/general_qa/validation.jsonl
+      - data/processed/writing_editing/validation.jsonl
+      - data/processed/safety_alignment/validation.jsonl
+    bengali:
+      - data/processed/bangla_qa/validation.jsonl
+      - data/processed/v3_bengali_news/validation.jsonl
+      - data/processed/bangla_reading_qa/validation.jsonl
+      - data/processed/multilingual_bn_hi/validation.jsonl
+    hindi:
+      - data/processed/hindi_history_qa/validation.jsonl
+      - data/processed/multilingual_hi/validation.jsonl
+      - data/processed/hinglish_chat/validation.jsonl
+      - data/processed/hindi_hinglish/validation.jsonl
+      - data/processed/v3_hindi_news/validation.jsonl
+    coding:
+      - data/processed/code_instructions/validation.jsonl
+      - data/processed/v3_code_feedback/validation.jsonl
+      - data/processed/code_alpaca/validation.jsonl
+      - data/processed/tool_calling/validation.jsonl
+    gsm8k:
+      - data/processed/gsm8k/validation.jsonl
+      - data/processed/v3_math_instruct/validation.jsonl
+    chat:
+      - data/processed/ultrachat_200k/validation.jsonl
+      - data/processed/v3_openassistant_en/validation.jsonl
+      - data/processed/core_chat/validation.jsonl
+      - data/processed/emoji_chat/validation.jsonl
+validation_weights:
+  english: 0.15
+  bengali: 0.14
+  hindi: 0.12
+  coding: 0.10
+  gsm8k: 0.18
+  chat: 0.31
+validation_metric_name: dataset_weighted_sft_domains_v4
+learning_rate: 0.00002
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 0.00000001
+fused_optimizer: false
+gradient_clip_norm: 1.0
+gradient_accumulation_steps: 16
+mixed_precision: bf16
+lr_schedule: cosine
+warmup_ratio: 0.05
+min_lr_ratio: 0.1
+ema_decay: 0.999
+log_every: 25
+checkpoint_every: 1000
+evaluate_every: 2000
+early_stopping_patience: 2
+early_stopping_min_delta: 0.001
+ignore_index: -100
+label_smoothing: 0.0
+z_loss_coefficient: 0.0001
+shift_labels: true
+loss_reduction: mean

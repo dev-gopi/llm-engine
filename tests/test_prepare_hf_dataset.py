@@ -68,6 +68,38 @@ def test_preference_scores_are_preserved(tmp_path, monkeypatch) -> None:
     }
 
 
+def test_query_answer_schema_is_normalized() -> None:
+    messages = prepare_hf_dataset.extract_messages(
+        {"query": "Write Python code.", "answer": "print('ok')"},
+        "test/code",
+    )
+
+    assert messages is not None
+    assert messages[1] == {"role": "user", "content": "Write Python code."}
+    assert messages[2] == {"role": "assistant", "content": "print('ok')"}
+
+
+def test_source_filter_excludes_mixed_license_subset(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "math.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        {"instruction": "Keep", "output": "Yes", "source": "data/CoT/math.json"},
+        {"instruction": "Drop", "output": "No", "source": "data/CoT/camel_math.json"},
+    ]), source)
+    monkeypatch.setattr(
+        prepare_hf_dataset, "fetch_hf_parquet_urls",
+        lambda *_args, **_kwargs: [source.as_uri()],
+    )
+
+    prepare_hf_dataset.download_and_convert_dataset(
+        "test/math", tmp_path / "processed",
+        train_size=1, validation_size=0, test_size=0,
+        exclude_source_patterns=["camel"],
+    )
+
+    record = json.loads((tmp_path / "processed/train.jsonl").read_text())
+    assert record["source_subset"] == "data/CoT/math.json"
+
+
 def test_full_preference_dataset_keeps_prompt_candidates_together(
     tmp_path, monkeypatch,
 ) -> None:
