@@ -64,6 +64,18 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
             try:
                 if isinstance(record, Mapping) and isinstance(record.get("messages"), list):
                     identifiers, loss_mask = self._encode_chat(record["messages"], tokenizer, add_bos, add_eos)
+                elif (
+                    isinstance(record, Mapping)
+                    and isinstance(record.get("prompt"), str)
+                    and isinstance(record.get("chosen"), str)
+                ):
+                    # Preference corpora contribute the selected response to SFT;
+                    # the rejected response must never become a training target.
+                    messages = (
+                        {"role": "user", "content": record["prompt"]},
+                        {"role": "assistant", "content": record["chosen"]},
+                    )
+                    identifiers, loss_mask = self._encode_chat(messages, tokenizer, add_bos, add_eos)
                 else:
                     text = record if isinstance(record, str) else record_to_text(record)
                     identifiers = tokenizer.encode(text, add_bos=add_bos, add_eos=add_eos, allowed_special="all")

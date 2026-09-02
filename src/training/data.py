@@ -15,6 +15,15 @@ from datasets.sampler import Sampler
 from tokenizer.encoder import Tokenizer
 
 
+def _mixture_name(path: str | Path, configured: Mapping[str, Any]) -> str:
+    """Resolve a weight by filename first, then by dataset directory."""
+    source = Path(path)
+    filename_name = source.stem.replace("-", "_")
+    if filename_name != "train" and filename_name in configured:
+        return filename_name
+    return source.parent.name.replace("-", "_")
+
+
 def _mixture_groups(paths: list[str | Path], dataset_sizes: list[int], config: Mapping[str, Any]) -> list[tuple[int, int, float]] | None:
     configured = config.get("dataset_weights")
     if not configured:
@@ -24,7 +33,7 @@ def _mixture_groups(paths: list[str | Path], dataset_sizes: list[int], config: M
     result: list[tuple[int, int, float]] = []
     start = 0
     for path, size in zip(paths, dataset_sizes, strict=True):
-        name = Path(path).parent.name
+        name = _mixture_name(path, configured)
         weight = float(configured.get(name, 1.0))
         if weight < 0:
             raise ValueError(f"dataset weight must be non-negative: {name}")

@@ -93,6 +93,16 @@ def test_v2_expanded_sft_is_a_conservative_new_stage() -> None:
     assert tokenizer["extension"]["output_dir"] == "data/tokenizer-v3-extended-38k"
 
 
+def test_expanded_finetuning_profiles_include_every_v3_tokenizer_source() -> None:
+    tokenizer_sources = set(load_yaml(CONFIGS / "tokenizer.v3.extension.yaml")["extension"]["sources"])
+
+    for filename in ("finetuning.v3.gpu.yaml", "finetuning.v2.expanded.gpu.yaml"):
+        config = load_yaml(CONFIGS / filename)
+        assert set(config["train_files"]) == tokenizer_sources
+        assert "data/processed/preferences/validation.jsonl" in config["validation_files"]
+        assert "data/processed/preferences/validation.jsonl" in config["validation_domains"]["english"]
+
+
 def test_v3_direct_sft_fits_the_laptop_growth_route() -> None:
     config = load_yaml(CONFIGS / "finetuning.v3.gpu.yaml")
     model = load_yaml(CONFIGS / "model.v3.gpu.yaml")

@@ -18,18 +18,18 @@ distributed_backend: null
 checkpoint_format: single_file
 samples_per_epoch: 300000
 dataset_weights:
-  # Exact source-group totals: chat 13.5%, factual/general 27%, reasoning 18%,
-  # code 10%, Bengali 14%, Hindi/Hinglish 12%, and safety/tools/writing 5.5%.
-  ultrachat_200k: 0.08
+  # Preference data contributes chosen responses only. Wikipedia contributes
+  # causal-LM knowledge examples; keep its combined share deliberately small.
+  ultrachat_200k: 0.06
   v3_openassistant_en: 0.03
   helpsteer: 0.08
-  openorca: 0.08
+  openorca: 0.07
   gsm8k: 0.13
   v3_math_instruct: 0.05
   core_chat: 0.02
   code_instructions: 0.03
   v3_code_feedback: 0.04
-  general_qa: 0.11
+  general_qa: 0.08
   safety_alignment: 0.025
   writing_editing: 0.015
   multilingual_bn_hi: 0.05
@@ -44,6 +44,11 @@ dataset_weights:
   hindi_hinglish: 0.02
   v3_hindi_news: 0.03
   code_alpaca: 0.03
+  preferences: 0.02
+  wikipedia_en: 0.01
+  wikipedia_simple: 0.01
+  wikipedia_bn: 0.01
+  wikipedia_hi: 0.01
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/v3_openassistant_en/train.jsonl
@@ -69,6 +74,11 @@ train_files:
   - data/processed/hindi_hinglish/train.jsonl
   - data/processed/v3_hindi_news/train.jsonl
   - data/processed/code_alpaca/train.jsonl
+  - data/processed/preferences/train.jsonl
+  - data/rag/wikipedia/wikipedia-en.jsonl
+  - data/rag/wikipedia/wikipedia-simple.jsonl
+  - data/rag/wikipedia/wikipedia-bn.jsonl
+  - data/rag/wikipedia/wikipedia-hi.jsonl
 validation_files:
   - data/processed/ultrachat_200k/validation.jsonl
   - data/processed/v3_openassistant_en/validation.jsonl
@@ -94,8 +104,10 @@ validation_files:
   - data/processed/hindi_hinglish/validation.jsonl
   - data/processed/v3_hindi_news/validation.jsonl
   - data/processed/code_alpaca/validation.jsonl
+  - data/processed/preferences/validation.jsonl
 validation_domains:
     english:
+      - data/processed/preferences/validation.jsonl
       - data/processed/helpsteer/validation.jsonl
       - data/processed/openorca/validation.jsonl
       - data/processed/general_qa/validation.jsonl

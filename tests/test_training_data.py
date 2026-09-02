@@ -5,7 +5,7 @@ import pytest
 
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
-from training.data import _mixture_groups, build_loader
+from training.data import _mixture_groups, _mixture_name, build_loader
 
 
 def test_dataset_mixture_weights_are_dataset_level_probabilities() -> None:
@@ -15,6 +15,13 @@ def test_dataset_mixture_weights_are_dataset_level_probabilities() -> None:
         {"dataset_weights": {"small": 0.25, "large": 0.75}},
     )
     assert groups == [(0, 2, 0.25), (2, 10, 0.75)]
+
+
+def test_mixture_name_distinguishes_files_in_shared_directory() -> None:
+    configured = {"wikipedia_en": 0.01, "wikipedia_bn": 0.02}
+
+    assert _mixture_name("data/rag/wikipedia/wikipedia-en.jsonl", configured) == "wikipedia_en"
+    assert _mixture_name("data/rag/wikipedia/wikipedia-bn.jsonl", configured) == "wikipedia_bn"
 
 
 def test_token_shards_reject_different_same_size_tokenizer(tmp_path) -> None:

@@ -38,10 +38,10 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 | `code_alpaca` | V2/v3 coding SFT | [flwrlabs/code-alpaca-20k](https://huggingface.co/datasets/flwrlabs/code-alpaca-20k) |
 | `preferences` | V2 DPO and v3 tokenizer discovery | Derived locally from [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
 | `dailydialog` | Optional retained conversation experiment; excluded from active profiles | [ConvLab/dailydialog](https://huggingface.co/datasets/ConvLab/dailydialog) |
-| `wikipedia-en` | V3 tokenizer discovery and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
-| `wikipedia-simple` | V3 tokenizer discovery and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |
-| `wikipedia-bn` | V3 tokenizer discovery and local RAG | [Bengali Wikipedia dumps](https://dumps.wikimedia.org/bnwiki/) |
-| `wikipedia-hi` | V3 tokenizer discovery and local RAG | [Hindi Wikipedia dumps](https://dumps.wikimedia.org/hiwiki/) |
+| `wikipedia_en` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
+| `wikipedia_simple` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |
+| `wikipedia_bn` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Bengali Wikipedia dumps](https://dumps.wikimedia.org/bnwiki/) |
+| `wikipedia_hi` | V3 tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Hindi Wikipedia dumps](https://dumps.wikimedia.org/hiwiki/) |
 
 Packed profiles reference generated token-shard manifests built from these
 same processed sources; shards are representations of a dataset, not new
@@ -100,24 +100,23 @@ Validation uses a deliberately different domain weighting: English 15%,
 Bengali 14%, Hindi 12%, coding 10%, GSM8K 18%, and chat 31%. This makes chat
 quality prominent in checkpoint selection without changing training sampling.
 
-## Tokenizer discovery-only inputs
+## Additional tokenizer and mixed-objective inputs
 
 `configs/tokenizer.v3.extension.yaml` scans every active SFT training file plus
-the sources below. These additional files help discover efficient Bengali,
-Hindi, English, preference, and knowledge tokens; they are not automatically
-added to the SFT objective.
+the sources below. The expanded v2 and v3 fine-tuning profiles now also use
+them conservatively: preference records train only on the chosen response,
+while Wikipedia records receive ordinary causal-language-model loss.
 
 | Input | Purpose | Used for SFT? |
 | --- | --- | --- |
-| `data/processed/preferences/train.jsonl` | Expose chosen/rejected preference language before later DPO work | No |
-| `data/rag/wikipedia/wikipedia-en.jsonl` | English knowledge vocabulary and named entities | No |
-| `data/rag/wikipedia/wikipedia-simple.jsonl` | Simpler English vocabulary and phrasing | No |
-| `data/rag/wikipedia/wikipedia-bn.jsonl` | Bengali knowledge vocabulary and script coverage | No |
-| `data/rag/wikipedia/wikipedia-hi.jsonl` | Hindi knowledge vocabulary and Devanagari coverage | No |
+| `data/processed/preferences/train.jsonl` | Chosen-response SFT before later pairwise DPO | Yes, 2% |
+| `data/rag/wikipedia/wikipedia-en.jsonl` | English knowledge vocabulary and named entities | Yes, 1% |
+| `data/rag/wikipedia/wikipedia-simple.jsonl` | Simpler English vocabulary and phrasing | Yes, 1% |
+| `data/rag/wikipedia/wikipedia-bn.jsonl` | Bengali knowledge vocabulary and script coverage | Yes, 1% |
+| `data/rag/wikipedia/wikipedia-hi.jsonl` | Hindi knowledge vocabulary and Devanagari coverage | Yes, 1% |
 
-Tokenizer discovery changes segmentation efficiency only. It does not teach
-the model facts or behaviors until corresponding text is used by a training
-objective.
+The remaining 94% of each mixture stays instruction-oriented, preventing raw
+knowledge text from dominating assistant behavior.
 
 ## Optional v3 continued-pretraining inputs
 

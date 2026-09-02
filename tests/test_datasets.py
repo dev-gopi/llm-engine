@@ -87,6 +87,21 @@ def test_text_dataset_rejects_unusable_records_instead_of_skipping() -> None:
         TextDataset([{"unsupported": "value"}], tokenizer(), max_length=16)
 
 
+def test_preference_record_uses_only_chosen_response_as_sft_target() -> None:
+    dataset = TextDataset(
+        [{"prompt": "Choose carefully", "chosen": "Good answer", "rejected": "Bad answer"}],
+        tokenizer(),
+        max_length=128,
+    )
+
+    example = dataset[0]
+    assert torch.any(example["loss_mask"])
+    assert torch.any(~example["loss_mask"])
+    rendered = tokenizer().decode(example["input_ids"].tolist())
+    assert "Good answer" in rendered
+    assert "Bad answer" not in rendered
+
+
 def test_truncated_user_turn_does_not_inject_synthetic_eos() -> None:
     dataset = TextDataset(
         [{"messages": [{"role": "user", "content": "a" * 100}]}],
