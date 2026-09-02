@@ -76,4 +76,31 @@ def test_v3_gpu_finetuning_includes_balanced_domain_expansion() -> None:
     assert config["validation_weights"]["hindi"] == pytest.approx(0.12)
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
     assert sum(config["validation_weights"].values()) == pytest.approx(1.0)
-    assert config["validation_metric_name"] == "dataset_weighted_sft_domains_v4"
+    assert config["validation_metric_name"] == "dataset_weighted_v3_direct_sft_domains_v1"
+
+
+def test_v2_expanded_sft_is_a_conservative_new_stage() -> None:
+    config = load_yaml(CONFIGS / "finetuning.v2.expanded.gpu.yaml")
+    tokenizer = load_yaml(CONFIGS / "tokenizer.v3.extension.yaml")
+
+    assert config["epochs"] == 2
+    assert config["learning_rate"] == pytest.approx(1e-5)
+    assert config["samples_per_epoch"] == 300_000
+    assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
+    assert config["validation_metric_name"] == "dataset_weighted_v2_expanded_sft_domains_v1"
+    assert tokenizer["vocab_size"] == 38_000
+    assert tokenizer["extension"]["base_tokenizer"] == "data/tokenizer-v2-extended"
+    assert tokenizer["extension"]["output_dir"] == "data/tokenizer-v3-extended-38k"
+
+
+def test_v3_direct_sft_fits_the_laptop_growth_route() -> None:
+    config = load_yaml(CONFIGS / "finetuning.v3.gpu.yaml")
+    model = load_yaml(CONFIGS / "model.v3.gpu.yaml")
+
+    assert config["batch_size"] == 1
+    assert config["gradient_accumulation_steps"] == 32
+    assert config["learning_rate"] == pytest.approx(1e-5)
+    assert config["epochs"] == 2
+    assert config["validation_metric_name"] == "dataset_weighted_v3_direct_sft_domains_v1"
+    assert model["vocab_size"] == 38_000
+    assert model["layers"] == 16

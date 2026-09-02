@@ -38,8 +38,7 @@ data/cache/*
 data/rag/*
 data/shards/*
 data/tokenizer/*
-data/tokenizer-v2/*
-data/tokenizer-v2-extended/*
+data/tokenizer-*/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/processed/*/

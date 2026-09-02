@@ -619,13 +619,13 @@ Configuration is divided by responsibility:
 | `configs/model.v2.cpu.yaml` | Active compact v2 CPU architecture | 15.8M parameters, 32K vocabulary, hidden size 256, 8 layers, GQA, RoPE, RMSNorm, SwiGLU |
 | `configs/model.v2.gpu.yaml` | Active laptop-GPU v2 architecture | 54.4M parameters, 32K vocabulary, hidden size 512, 10 layers, GQA, RoPE, RMSNorm, SwiGLU |
 | `configs/model.v2.55m-source.yaml` | Frozen source shape for checkpoint growth | Original v2 GPU shape: 32K base vocabulary, hidden size 512, 10 layers |
-| `configs/model.v3.gpu.yaml` | Grown laptop-GPU architecture | 79.3M parameters, 36K vocabulary, hidden size 512, 16 layers |
+| `configs/model.v3.gpu.yaml` | Grown laptop-GPU architecture | 80.3M parameters, 38K vocabulary, hidden size 512, 16 layers |
 | `configs/pretraining.v2.cpu.yaml` | Active CPU v2 pretraining | TinyStories/WikiText 35/65, 128 tokens, effective batch 32, 3 epochs, FP32 |
 | `configs/pretraining.v2.gpu.yaml` | Active GPU v2 pretraining | TinyStories/WikiText 35/65, 256 tokens, effective batch 32, FP16, 3 epochs |
 | `configs/pretraining.v2.continued.gpu.yaml` | Optional WikiText-heavy new training stage | TinyStories/WikiText 15/85, one epoch, separate metric and checkpoints |
 | `configs/pretraining.v2.packed.cpu.yaml` | CPU v2 pretraining from memory-mapped token shards | TinyStories/WikiText 35/65 weighted validation, 256-token packed sequences |
 | `configs/pretraining.v2.packed.gpu.yaml` | GPU v2 pretraining from memory-mapped token shards | Same objective and weights as JSONL v2, FP16, runtime tokenization removed |
-| `configs/pretraining.v3.grown.gpu.yaml` | Continued pretraining after 55M-to-79M growth | Batch 1, effective batch 32, FP16, 500K samples/epoch, fresh optimizer |
+| `configs/pretraining.v3.grown.gpu.yaml` | Continued pretraining after 55M-to-80M growth | Batch 1, effective batch 32, FP16, 500K samples/epoch, fresh optimizer |
 | `configs/finetuning.v2.cpu.yaml` | Quality-balanced CPU v2 SFT | Chat, factual, reasoning, Bengali, Hindi, and coding; response-only loss |
 | `configs/finetuning.v2.gpu.yaml` | Active quality-balanced GPU v2 SFT | 18 datasets, 500K samples/epoch, 384 tokens, effective batch 32, BF16, 3 epochs |
 | `configs/finetuning.v2.packed.cpu.yaml` | CPU v2 SFT from response-masked shards | Same quality mixture with runtime tokenization removed |
@@ -633,7 +633,7 @@ Configuration is divided by responsibility:
 | `configs/dpo.v2.cpu.yaml` | Single-device CPU preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/dpo.v2.gpu.yaml` | Single-GPU FP16 preference training | chosen/rejected pairs, batch size 1, 256 tokens, 2 epochs |
 | `configs/tokenizer.v2.yaml` | V2 base-tokenizer training and append-only extension setup | `vocab_size: 32000`, balanced source sampling, extension sources and discovery limits |
-| `configs/tokenizer.v3.extension.yaml` | Second verified append-only extension | Preserves the current 34K IDs and discovers up to 2,000 additional tokens |
+| `configs/tokenizer.v3.extension.yaml` | Verified append-only v3 extension | Preserves the current 34K IDs and discovers up to 4,000 additional tokens |
 | `configs/evaluation.v2.pretraining.yaml` | Pretraining domain evaluation | TinyStories and WikiText reported independently |
 | `configs/evaluation.v2.finetuning.yaml` | SFT domain evaluation | English, Bengali, Hindi, coding, GSM8K, and chat |
 | `configs/inference.v2.yaml` | Active v2 inference and serving defaults | Gopi identity, sampling, context memory, model paths, concurrency, cache, and rate limits |
@@ -725,10 +725,36 @@ derives that size from verified tokenizer lineage, copies rows `0..31999`
 exactly, initializes only appended embedding/output rows, and preserves tied
 input/output weights.
 
-### Grow the 55M v2 checkpoint to the 79M v3 model
+### Continue v2 SFT with the expanded datasets and 38K tokenizer
+
+This route keeps the trained 10-layer v2 architecture and does not require
+continued pretraining. It creates one append-only 38K v3 extension, then starts
+a fresh optimizer stage from the v2 best model. Existing
+token IDs and model rows remain compatible; only token IDs 34000 and above are
+new relative to the selected v2 checkpoint.
+
+```bash
+.venv/bin/python scripts/tokenize.py extend \
+  --config configs/tokenizer.v3.extension.yaml
+
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v2.gpu.yaml \
+  --training-config configs/finetuning.v2.expanded.gpu.yaml \
+  --tokenizer data/tokenizer-v3-extended-38k \
+  --init-from checkpoints/v2-finetuning/best.pt \
+  --output checkpoints/v2-expanded-finetuning/latest.pt \
+  --best-output checkpoints/v2-expanded-finetuning/best.pt
+```
+
+Use `--init-from`, not `--resume`: the vocabulary, dataset mixture, validation
+metric, optimizer schedule, and output checkpoint lineage define a new stage.
+Keep the original v2 tokenizer and checkpoints for rollback and comparison.
+
+### Grow the 55M v2 checkpoint to the 80M v3 model
 
 This optional workflow reuses a trained 10-layer v2 GPU model while adding six
-transformer layers and extending its vocabulary from 34K to 36K. It is not a
+transformer layers and extending its vocabulary from 34K to 38K. It is not a
 normal resume: `scripts/grow_checkpoint.py` creates a new model checkpoint with
 a fresh training state. It copies layers `0..9` and vocabulary rows `0..33999`
 exactly, mean-initializes the new vocabulary rows, and makes layers `10..15`
@@ -736,11 +762,41 @@ identity-like by zeroing their attention and feed-forward output projections.
 The new blocks therefore disturb the learned residual stream as little as
 possible before continued pretraining.
 
-Keep the original tokenizer and checkpoint. The 36K tokenizer must be a second
-append-only extension of `data/tokenizer-v2-extended`; a newly trained 36K
+For an experimental direct-SFT route that skips continued pretraining, use the
+conservative `configs/finetuning.v3.gpu.yaml` profile. This preserves the
+v2 files and writes a separate grown checkpoint and v3 fine-tuning lineage:
+
+```bash
+.venv/bin/python scripts/tokenize.py extend \
+  --config configs/tokenizer.v3.extension.yaml
+
+.venv/bin/python scripts/grow_checkpoint.py \
+  --checkpoint checkpoints/v2-finetuning/best.pt \
+  --source-model-config configs/model.v2.55m-source.yaml \
+  --target-model-config configs/model.v3.gpu.yaml \
+  --source-tokenizer data/tokenizer-v2-extended \
+  --target-tokenizer data/tokenizer-v3-extended-38k \
+  --output checkpoints/v3-direct/init.pt
+
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train.py \
+  --model-config configs/model.v3.gpu.yaml \
+  --training-config configs/finetuning.v3.gpu.yaml \
+  --tokenizer data/tokenizer-v3-extended-38k \
+  --init-from checkpoints/v3-direct/init.pt \
+  --output checkpoints/v3-direct-finetuning/latest.pt \
+  --best-output checkpoints/v3-direct-finetuning/best.pt
+```
+
+This route is less reliable than continued pretraining because the six new
+layers see only supervised instruction data. Compare its validation and
+generation quality against v2 and retain v2 until v3 demonstrates an advantage.
+
+Keep the original tokenizer and checkpoint. The 38K tokenizer must be an
+append-only extension of `data/tokenizer-v2-extended`; a newly trained 38K
 tokenizer is not compatible because it can assign different IDs.
 
-First create the verified 34K-to-36K tokenizer extension:
+First create the verified 34K-to-38K tokenizer extension:
 
 ```bash
 .venv/bin/python scripts/tokenize.py extend \
@@ -748,8 +804,8 @@ First create the verified 34K-to-36K tokenizer extension:
 ```
 
 Confirm that the command reports an old vocabulary size of 34,000 and a new
-size of 36,000. If discovery finds fewer than 2,000 acceptable tokens, do not
-run the converter with a 36K target configuration; adjust the extension corpus
+size of 38,000. If discovery finds fewer than 4,000 acceptable tokens, do not
+run the converter with a 38K target configuration; adjust the extension corpus
 or use a target model configuration matching the actual tokenizer size.
 
 Convert the selected v2 fine-tuning checkpoint on CPU:
@@ -760,7 +816,7 @@ Convert the selected v2 fine-tuning checkpoint on CPU:
   --source-model-config configs/model.v2.55m-source.yaml \
   --target-model-config configs/model.v3.gpu.yaml \
   --source-tokenizer data/tokenizer-v2-extended \
-  --target-tokenizer data/tokenizer-v2-extended-36k \
+  --target-tokenizer data/tokenizer-v3-extended-38k \
   --output checkpoints/v3-grown/init.pt
 ```
 
@@ -777,7 +833,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.v3.gpu.yaml \
   --training-config configs/pretraining.v3.grown.gpu.yaml \
-  --tokenizer data/tokenizer-v2-extended-36k \
+  --tokenizer data/tokenizer-v3-extended-38k \
   --init-from checkpoints/v3-grown/init.pt \
   --output checkpoints/v3-pretraining/latest.pt \
   --best-output checkpoints/v3-pretraining/best.pt

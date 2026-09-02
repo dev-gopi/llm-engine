@@ -15,6 +15,10 @@
     .card .value { font-size:24px; font-weight:700; margin-top:8px }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(480px,1fr)); gap:16px; margin-bottom:16px }
     .chart-scroll { width:100%; overflow-x:auto; overflow-y:hidden; scrollbar-color:#60758d #0a1728; padding-bottom:4px }
+    .chart-legend { min-height:22px; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; padding:0 4px 7px; font-size:12px }
+    .chart-legend-item { display:inline-flex; align-items:center; gap:6px; white-space:nowrap }
+    .chart-legend-swatch { width:18px; height:3px; border-radius:2px; display:inline-block }
+    .distribution-chart { width:100%; height:auto; min-height:360px }
     svg { display:block; width:100%; height:330px; max-width:none; background:#0a1728; border-radius:8px }
     .chart-axis { position:sticky; left:0; z-index:3; float:left; width:58px!important; min-width:58px; margin-right:-58px; border-radius:8px 0 0 8px }
     table { border-collapse:collapse; width:100% } th,td { padding:9px; border-bottom:1px solid var(--line); text-align:right }
@@ -40,21 +44,27 @@
     <section id="cards" class="cards"></section>
     <section class="panel" style="margin-bottom:16px"><h2>Live system resources</h2><div id="system-resources"></div></section>
     <section class="grid">
-      <div class="panel"><h2>CPU and RAM utilization</h2><div class="chart-scroll"><svg id="system-chart"></svg></div></div>
-      <div class="panel"><h2>GPU utilization and VRAM</h2><div class="chart-scroll"><svg id="gpu-chart"></svg></div></div>
-      <div class="panel"><h2>GPU temperature</h2><div class="chart-scroll"><svg id="gpu-temperature-chart"></svg></div></div>
-      <div class="panel"><h2>GPU power</h2><div class="chart-scroll"><svg id="gpu-power-chart"></svg></div></div>
+      <div class="panel"><h2>CPU and RAM utilization</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="system-chart"></svg></div></div>
+      <div class="panel"><h2>GPU utilization and VRAM</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gpu-chart"></svg></div></div>
+      <div class="panel"><h2>GPU temperature</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gpu-temperature-chart"></svg></div></div>
+      <div class="panel"><h2>GPU power</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gpu-power-chart"></svg></div></div>
     </section>
     <section class="panel" style="margin-bottom:16px"><h2>Improvement verdict</h2><div id="verdict"></div><div id="improvement-summary" style="margin-top:14px"></div></section>
     <section class="grid">
-      <div class="panel"><h2>Training loss</h2><div class="chart-scroll"><svg id="training-chart"></svg></div></div>
+      <div class="panel"><h2>Dataset sampling distribution</h2><svg id="dataset-weight-chart" class="distribution-chart"></svg></div>
+      <div class="panel"><h2>Validation domain weights</h2><svg id="validation-weight-chart" class="distribution-chart"></svg></div>
+      <div class="panel"><h2>Latest domain loss</h2><svg id="domain-loss-chart" class="distribution-chart"></svg></div>
+      <div class="panel"><h2>Latest domain perplexity</h2><svg id="domain-perplexity-chart" class="distribution-chart"></svg></div>
+    </section>
+    <section class="grid">
+      <div class="panel"><h2>Training loss</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="training-chart"></svg></div></div>
       <div class="panel"><h2>Validation loss</h2><div class="chart-scroll"><svg id="validation-chart"></svg></div></div>
     </section>
     <section class="grid">
       <div class="panel"><h2>Validation perplexity</h2><div class="chart-scroll"><svg id="perplexity-chart"></svg></div></div>
       <div class="panel"><h2>Learning rate</h2><div class="chart-scroll"><svg id="lr-chart"></svg></div></div>
-      <div class="panel"><h2>Gradient norm</h2><div class="chart-scroll"><svg id="gradient-chart"></svg></div></div>
-      <div class="panel"><h2>Training throughput</h2><div class="chart-scroll"><svg id="throughput-chart"></svg></div></div>
+      <div class="panel"><h2>Gradient norm</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gradient-chart"></svg></div></div>
+      <div class="panel"><h2>Training throughput</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="throughput-chart"></svg></div></div>
     </section>
     <section class="grid">
       <div class="panel"><h2>Checkpoint details</h2><div id="checkpoints"></div></div>
@@ -109,6 +119,12 @@
 
     function lineChart(svg, series) {
       const scroller=svg.parentElement;
+      const fixedLegend=scroller.dataset.fixedLegend==='true';
+      if(fixedLegend){
+        let legend=scroller.previousElementSibling;
+        if(!legend?.classList.contains('chart-legend')){legend=document.createElement('div');legend.className='chart-legend';scroller.before(legend)}
+        legend.innerHTML=series.map((s,i)=>{const color=s.color||colors[i%colors.length];return `<span class="chart-legend-item" style="color:${color}"><span class="chart-legend-swatch" style="background:${color}"></span>${esc(s.name)}</span>`}).join('');
+      }
       const followLatest=!scroller.dataset.rendered || scroller.scrollWidth-scroller.clientWidth-scroller.scrollLeft<48;
       const pointCount=Math.max(0,...series.map(value=>value.points.length));
       const width=Math.max(760,Math.min(30000,pointCount*10+76)),height=330,left=58,right=18,top=24,bottom=42;
@@ -126,10 +142,41 @@
       let axisOut=`<rect width="${left}" height="${height}" fill="#0a1728"/>`;
       for(let i=0;i<6;i++){const yy=top+i*(height-top-bottom)/5,val=maxY-i*(maxY-minY)/5;out+=`<line x1="${left}" y1="${yy}" x2="${width-right}" y2="${yy}" stroke="#263950"/>`;axisOut+=`<text x="${left-8}" y="${yy+4}" text-anchor="end" fill="#91a4ba" font-size="11">${axisFmt(val)}</text>`}
       out+=`<line x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}" stroke="#60758d"/><text x="${left}" y="${height-13}" fill="#91a4ba">${fmt(minX,0)}</text><text x="${width-right}" y="${height-13}" text-anchor="end" fill="#91a4ba">${fmt(maxX,0)}</text>`;
-      series.forEach((s,i)=>{const path=s.points.map((p,j)=>`${j?'L':'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');out+=`<path d="${path}" fill="none" stroke="${s.color||colors[i%colors.length]}" stroke-width="${s.width||2.5}"/><text x="${left+i*110}" y="16" fill="${s.color||colors[i%colors.length]}" font-size="11">${esc(s.name)}</text>`});
+      series.forEach((s,i)=>{const path=s.points.map((p,j)=>`${j?'L':'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');out+=`<path d="${path}" fill="none" stroke="${s.color||colors[i%colors.length]}" stroke-width="${s.width||2.5}"/>${fixedLegend?'':`<text x="${left+i*110}" y="16" fill="${s.color||colors[i%colors.length]}" font-size="11">${esc(s.name)}</text>`}`});
       axis.innerHTML=axisOut;svg.setAttribute('viewBox',`0 0 ${width} ${height}`); svg.innerHTML=out;
       scroller.dataset.rendered='true';
       if(followLatest)requestAnimationFrame(()=>{scroller.scrollLeft=scroller.scrollWidth-scroller.clientWidth});
+    }
+
+    function categoryColor(index,total) {
+      const hue=(index*137.508)%360;
+      return `hsl(${hue.toFixed(1)} 72% ${index%2?62:52}%)`;
+    }
+
+    function pieChart(svg, entries) {
+      const values=entries.filter(([,value])=>Number.isFinite(Number(value))&&Number(value)>0);
+      if(!values.length){svg.setAttribute('viewBox','0 0 760 360');svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No weight data yet</text>';return}
+      const total=values.reduce((sum,[,value])=>sum+Number(value),0),cx=175,cy=180,r=125;
+      let angle=-Math.PI/2,out='<rect width="760" height="360" fill="#0a1728" rx="8"/>';
+      values.forEach(([name,value],index)=>{
+        const share=Number(value)/total,next=angle+share*Math.PI*2,color=categoryColor(index,values.length);
+        const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle),x2=cx+r*Math.cos(next),y2=cy+r*Math.sin(next),large=share>.5?1:0;
+        out+=`<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z" fill="${color}" stroke="#07111f" stroke-width="2"><title>${esc(name)}: ${(share*100).toFixed(2)}%</title></path>`;
+        const column=Math.floor(index/12),row=index%12,lx=340+column*205,ly=28+row*27;
+        out+=`<rect x="${lx}" y="${ly-10}" width="13" height="13" rx="2" fill="${color}"/><text x="${lx+20}" y="${ly}" fill="#e7eef8" font-size="11">${esc(name)} ${(share*100).toFixed(1)}%</text>`;
+        angle=next;
+      });
+      out+=`<circle cx="${cx}" cy="${cy}" r="54" fill="#0a1728"/><text x="${cx}" y="${cy-2}" text-anchor="middle" fill="#e7eef8" font-size="20" font-weight="700">${values.length}</text><text x="${cx}" y="${cy+18}" text-anchor="middle" fill="#91a4ba" font-size="11">datasets</text>`;
+      svg.setAttribute('viewBox','0 0 760 360');svg.innerHTML=out;
+    }
+
+    function horizontalBarChart(svg, entries, valueLabel=value=>fmt(value,3)) {
+      const values=entries.filter(([,value])=>Number.isFinite(Number(value))).map(([name,value])=>[name,Number(value)]);
+      if(!values.length){svg.setAttribute('viewBox','0 0 760 360');svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No domain data yet</text>';return}
+      const width=760,left=155,right=70,rowHeight=38,top=24,height=Math.max(360,top+values.length*rowHeight+25),max=Math.max(...values.map(([,value])=>value),.000001);
+      let out=`<rect width="${width}" height="${height}" fill="#0a1728" rx="8"/>`;
+      values.forEach(([name,value],index)=>{const y=top+index*rowHeight,barWidth=value/max*(width-left-right),color=categoryColor(index,values.length);out+=`<text x="${left-10}" y="${y+17}" text-anchor="end" fill="#e7eef8" font-size="11">${esc(name)}</text><rect x="${left}" y="${y}" width="${width-left-right}" height="22" rx="4" fill="#162942"/><rect x="${left}" y="${y}" width="${barWidth}" height="22" rx="4" fill="${color}"><title>${esc(name)}: ${esc(valueLabel(value))}</title></rect><text x="${Math.min(width-right+6,left+barWidth+7)}" y="${y+16}" fill="#e7eef8" font-size="11">${esc(valueLabel(value))}</text>`});
+      svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.innerHTML=out;
     }
 
     function table(headers, rows) { return `<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table>`; }
@@ -176,6 +223,10 @@
         ['Perplexity',fmt(pp.first),fmt(pp.latest),delta(pp.absolute_improvement),percent(pp.percent_improvement)],
         ['Training average loss',fmt(tl.first),fmt(tl.latest),delta(tl.absolute_improvement),percent(tl.percent_improvement)]
       ]);
+      pieChart(document.getElementById('dataset-weight-chart'),Object.entries(data.training_config?.dataset_weights||{}));
+      horizontalBarChart(document.getElementById('validation-weight-chart'),Object.entries(data.training_config?.validation_weights||{}),value=>`${fmt(value*100,1)}%`);
+      horizontalBarChart(document.getElementById('domain-loss-chart'),Object.entries(validation.domains||{}).map(([name,value])=>[name,value.loss]));
+      horizontalBarChart(document.getElementById('domain-perplexity-chart'),Object.entries(validation.domains||{}).map(([name,value])=>[name,value.perplexity]));
       lineChart(document.getElementById('training-chart'),[{name:'window loss',points:train.map(v=>[v.step,v.loss]),color:'#4f9cf9'},{name:'average loss',points:train.filter(v=>v.avg!=null).map(v=>[v.step,v.avg]),color:trendColor(trainTrend)}]);
       const domainNames=[...new Set(vals.flatMap(v=>Object.keys(v.domains||{})))];
       lineChart(document.getElementById('validation-chart'),[{name:'overall',points:vals.map(v=>[v.step,v.loss]),color:'#ffffff',width:4},...domainNames.map((name,i)=>({name,points:vals.filter(v=>v.domains?.[name]).map(v=>[v.step,v.domains[name].loss]),color:colors[i%colors.length]}))]);

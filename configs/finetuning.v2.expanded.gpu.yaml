@@ -1,6 +1,6 @@
-# The 80.29M v3 model grown from a trained v2 checkpoint.
-# The six new identity-like layers learn during SFT; keep the original v2 checkpoint.
-batch_size: 1
+# Continue SFT from a trained v2 checkpoint using the append-only 38K tokenizer.
+# Keep the 10-layer v2 architecture; use --init-from rather than --resume.
+batch_size: 2
 epochs: 2
 seed: 42
 dataset_governance:
@@ -132,7 +132,7 @@ validation_weights:
   coding: 0.10
   gsm8k: 0.18
   chat: 0.31
-validation_metric_name: dataset_weighted_v3_direct_sft_domains_v1
+validation_metric_name: dataset_weighted_v2_expanded_sft_domains_v1
 learning_rate: 0.00001
 weight_decay: 0.01
 beta1: 0.9
@@ -140,7 +140,7 @@ beta2: 0.95
 adam_epsilon: 0.00000001
 fused_optimizer: false
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 32
+gradient_accumulation_steps: 16
 mixed_precision: bf16
 lr_schedule: cosine
 warmup_ratio: 0.05

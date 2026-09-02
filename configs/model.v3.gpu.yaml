@@ -1,4 +1,5 @@
-vocab_size: 36000
+# v3 architecture with an append-only 38K vocabulary.
+vocab_size: 38000
 hidden_size: 512
 layers: 16
 heads: 8
