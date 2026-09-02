@@ -76,6 +76,19 @@
     const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 5000));
     const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
     const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
+    const dateFmt = value => {
+      if (!value) return '—';
+      const date=new Date(value.includes?.('T')||value.endsWith?.('Z')?value:value.replace(' ', 'T'));
+      return Number.isNaN(date.getTime())?String(value):date.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    };
+    const durationFmt = seconds => {
+      if (!Number.isFinite(Number(seconds))) return '—';
+      let remaining=Math.max(0,Math.round(Number(seconds)));
+      const days=Math.floor(remaining/86400);remaining%=86400;
+      const hours=Math.floor(remaining/3600);remaining%=3600;
+      const minutes=Math.floor(remaining/60),secs=remaining%60;
+      return [[days,'d'],[hours,'h'],[minutes,'m'],[secs,'s']].filter(([value],index)=>value>0||(index===3&&!days&&!hours&&!minutes)).slice(0,2).map(([value,label])=>`${value}${label}`).join(' ');
+    };
     const axisFmt = value => {
       if (!Number.isFinite(value)) return '—';
       const magnitude=Math.abs(value);
@@ -117,8 +130,8 @@
       const train=data.training||[], vals=data.validation||[], latest=train.at(-1)||{}, validation=vals.at(-1)||{};
       const telemetry=data.telemetry||[], system=telemetry.at(-1)||{}, gpu=system.gpus?.[0]||{};
       const analysis=data.analysis||deriveAnalysis(train,vals), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
-      document.getElementById('status').textContent=`Updated ${data.generated_at||'—'} · ${data.line_count||0} log lines`;
-      const cards=[['Step',latest.step],['Progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Training loss',latest.loss],['Best validation',best],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second],['CPU',unit(system.cpu_percent,'%')],['RAM',unit(system.ram_percent,'%')],['GPU',unit(gpu.utilization_percent,'%')],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—'],['GPU temp',unit(gpu.temperature_c,' °C')],['ETA',latest.eta_seconds!=null?fmt(latest.eta_seconds/3600,1)+' h':'—'],['Non-finite updates',latest.nonfinite_updates]];
+      document.getElementById('status').textContent=`Updated ${dateFmt(data.generated_at)} · ${data.line_count||0} log lines`;
+      const cards=[['Step',latest.step],['Progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Training loss',latest.loss],['Best validation',best],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second],['CPU',unit(system.cpu_percent,'%')],['RAM',unit(system.ram_percent,'%')],['GPU',unit(gpu.utilization_percent,'%')],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—'],['GPU temp',unit(gpu.temperature_c,' °C')],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds)],['Non-finite updates',latest.nonfinite_updates]];
       document.getElementById('cards').innerHTML=cards.map(([k,v])=>`<div class="card"><div class="muted">${k}</div><div class="value">${fmt(v)}</div></div>`).join('');
       const indexed=telemetry.map((value,index)=>({value,index}));
       lineChart(document.getElementById('system-chart'),[
@@ -153,9 +166,9 @@
       lineChart(document.getElementById('lr-chart'),[{name:'learning rate',points:train.filter(v=>v.lr!=null).map(v=>[v.step,v.lr]),color:'#fbbf24'}]);
       lineChart(document.getElementById('gradient-chart'),[{name:'gradient norm',points:train.filter(v=>v.grad_norm!=null).map(v=>[v.step,v.grad_norm]),color:'#a78bfa'}]);
       lineChart(document.getElementById('throughput-chart'),[{name:'tokens / second',points:train.filter(v=>v.tokens_per_second!=null).map(v=>[v.step,v.tokens_per_second]),color:'#22d3ee'}]);
-      document.getElementById('checkpoints').innerHTML=table(['Checkpoint','Status','Size','Modified','Validation'],Object.entries(data.checkpoints||{}).map(([name,c])=>[esc(name),`<span class="${c.exists?'ok':'bad'}">${c.exists?'available':'missing'}</span>`,c.size_mb!=null?fmt(c.size_mb,2)+' MB':'—',esc(c.modified_at||'—'),fmt(c.validation?.loss)]));
+      document.getElementById('checkpoints').innerHTML=table(['Checkpoint','Status','Size','Modified','Validation'],Object.entries(data.checkpoints||{}).map(([name,c])=>[esc(name),`<span class="${c.exists?'ok':'bad'}">${c.exists?'available':'missing'}</span>`,c.size_mb!=null?fmt(c.size_mb,2)+' MB':'—',esc(dateFmt(c.modified_at)),fmt(c.validation?.loss)]));
       document.getElementById('domains').innerHTML=table(['Domain','Loss','Cross entropy','Perplexity','Tokens'],Object.entries(validation.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
-      document.getElementById('validation-table').innerHTML=table(['Step','Epoch','Loss','Cross entropy','Perplexity','Tokens'],vals.map(v=>[fmt(v.step,0),fmt(v.epoch,0),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
+      document.getElementById('validation-table').innerHTML=table(['Time','Step','Epoch','Loss','Cross entropy','Perplexity','Tokens'],vals.map(v=>[esc(dateFmt(v.timestamp)),fmt(v.step,0),fmt(v.epoch,0),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
       document.getElementById('domain-improvement').innerHTML=table(['Domain','First loss','Latest loss','Loss improvement','Improvement %','Perplexity improvement %'],Object.entries(analysis.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss?.first),fmt(v.loss?.latest),delta(v.loss?.absolute_improvement),percent(v.loss?.percent_improvement),percent(v.perplexity?.percent_improvement)]));
       const over=analysis.overfitting||{};
       document.getElementById('overfitting').innerHTML=`<div class="value ${over.status==='risk_detected'?'bad':'ok'}">${esc((over.status||'unknown').replaceAll('_',' '))}</div><p class="muted">${esc(over.reason||'No analysis available.')}</p>`;
