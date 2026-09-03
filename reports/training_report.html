@@ -142,8 +142,9 @@
     const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
     const dateFmt = value => {
       if (!value) return '—';
-      const date=new Date(value.includes?.('T')||value.endsWith?.('Z')?value:value.replace(' ', 'T'));
-      return Number.isNaN(date.getTime())?String(value):date.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true});
+      const normalized=(value.includes?.('T')||value.endsWith?.('Z')?value:value.replace(' ', 'T')).replace(/,(\d{3})(?=$|[+-]|Z)/,'.\$1');
+      const date=new Date(normalized);
+      return Number.isNaN(date.getTime())?String(value):date.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,hourCycle:'h12'});
     };
     const durationFmt = seconds => {
       if (!Number.isFinite(Number(seconds))) return '—';
