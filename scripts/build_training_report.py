@@ -45,6 +45,7 @@ class SystemMonitor:
     def sample(self) -> dict[str, Any]:
         sample: dict[str, Any] = {"timestamp": datetime.now(timezone.utc).isoformat()}
         sample.update(self._cpu_and_memory())
+        sample["cpu_temperature_c"] = self._cpu_temperature_c()
         sample["process_rss_mb"] = self._process_rss_mb()
         sample["gpus"] = self._gpus()
         self.history.append(sample)
@@ -75,6 +76,50 @@ class SystemMonitor:
         except (OSError, ValueError, KeyError, IndexError):
             pass
         return result
+
+    @staticmethod
+    def _cpu_temperature_c(
+        hwmon_root: Path = Path("/sys/class/hwmon"),
+        thermal_root: Path = Path("/sys/class/thermal"),
+    ) -> float | None:
+        """Return the best available CPU package temperature on Linux."""
+        candidates: list[tuple[int, float]] = []
+        try:
+            for device in hwmon_root.glob("hwmon*"):
+                try:
+                    name = (device / "name").read_text().strip().lower()
+                except OSError:
+                    continue
+                if not any(token in name for token in ("coretemp", "k10temp", "zenpower", "cpu")):
+                    continue
+                for sensor in device.glob("temp*_input"):
+                    try:
+                        value = float(sensor.read_text().strip()) / 1000.0
+                        label_path = sensor.with_name(sensor.name.replace("_input", "_label"))
+                        label = label_path.read_text().strip().lower() if label_path.exists() else ""
+                    except (OSError, ValueError):
+                        continue
+                    if not -20 <= value <= 150:
+                        continue
+                    priority = 0 if any(token in label for token in ("package", "tctl", "tdie")) else 1
+                    candidates.append((priority, value))
+        except OSError:
+            pass
+        if candidates:
+            best_priority = min(priority for priority, _ in candidates)
+            return max(value for priority, value in candidates if priority == best_priority)
+        try:
+            for zone in thermal_root.glob("thermal_zone*"):
+                try:
+                    kind = (zone / "type").read_text().strip().lower()
+                    value = float((zone / "temp").read_text().strip()) / 1000.0
+                except (OSError, ValueError):
+                    continue
+                if any(token in kind for token in ("cpu", "package", "x86_pkg", "soc")) and -20 <= value <= 150:
+                    return value
+        except OSError:
+            pass
+        return None
 
     def _process_rss_mb(self) -> float | None:
         if not self.process_pid:

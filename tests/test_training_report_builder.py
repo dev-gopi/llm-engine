@@ -181,6 +181,21 @@ def test_system_monitor_collects_cpu_ram_and_process_memory() -> None:
     assert len(monitor.history) == 2
 
 
+def test_cpu_temperature_prefers_package_sensor(tmp_path) -> None:
+    hwmon = tmp_path / "hwmon"
+    device = hwmon / "hwmon0"
+    device.mkdir(parents=True)
+    (device / "name").write_text("coretemp\n")
+    (device / "temp1_input").write_text("52000\n")
+    (device / "temp1_label").write_text("Core 0\n")
+    (device / "temp2_input").write_text("61000\n")
+    (device / "temp2_label").write_text("Package id 0\n")
+
+    temperature = MODULE.SystemMonitor._cpu_temperature_c(hwmon, tmp_path / "thermal")
+
+    assert temperature == 61
+
+
 def test_gpu_monitor_parses_nvidia_smi_and_handles_na(monkeypatch) -> None:
     output = "0, NVIDIA RTX, 72, 1906, 4096, 63, 22.5, [N/A], 60, 75, [N/A]\n"
     monkeypatch.setattr(
