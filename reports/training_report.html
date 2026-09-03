@@ -95,8 +95,7 @@
     <section class="panel" style="margin-bottom:16px"><h2>Live system resources</h2><div id="system-resources"></div></section>
     <section class="grid">
       <div class="panel"><h2>CPU, temperature and RAM</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="system-chart"></svg></div></div>
-      <div class="panel"><h2>GPU utilization and VRAM</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gpu-chart"></svg></div></div>
-      <div class="panel"><h2>GPU temperature</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gpu-temperature-chart"></svg></div></div>
+      <div class="panel"><h2>GPU, temperature and VRAM</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gpu-chart"></svg></div></div>
       <div class="panel"><h2>GPU power</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="gpu-power-chart"></svg></div></div>
     </section>
     <section class="panel" style="margin-bottom:16px"><h2>Improvement verdict</h2><div id="verdict"></div><div id="improvement-summary" style="margin-top:14px"></div></section>
@@ -364,9 +363,9 @@
       ]);
       lineChart(document.getElementById('gpu-chart'),[
         {name:'GPU %',points:indexed.filter(x=>x.value.gpus?.[0]?.utilization_percent!=null).map(x=>[x.index,x.value.gpus[0].utilization_percent]),color:'#a78bfa'},
-        {name:'VRAM %',points:indexed.filter(x=>x.value.gpus?.[0]?.memory_total_mb).map(x=>[x.index,x.value.gpus[0].memory_used_mb/x.value.gpus[0].memory_total_mb*100]),color:'#f97316'}
+        {name:'VRAM %',points:indexed.filter(x=>x.value.gpus?.[0]?.memory_total_mb).map(x=>[x.index,x.value.gpus[0].memory_used_mb/x.value.gpus[0].memory_total_mb*100]),color:'#f97316'},
+        {name:'GPU temp °C',points:indexed.filter(x=>x.value.gpus?.[0]?.temperature_c!=null).map(x=>[x.index,x.value.gpus[0].temperature_c]),color:'#22d3ee'}
       ]);
-      lineChart(document.getElementById('gpu-temperature-chart'),[{name:'temperature °C',points:indexed.filter(x=>x.value.gpus?.[0]?.temperature_c!=null).map(x=>[x.index,x.value.gpus[0].temperature_c]),color:usageColor(gpu.temperature_c,75,85)}]);
       lineChart(document.getElementById('gpu-power-chart'),[
         {name:'total power draw W',points:indexed.filter(x=>x.value.gpus?.some(gpu=>gpu.power_draw_w!=null)).map(x=>[x.index,x.value.gpus.reduce((sum,gpu)=>sum+(Number(gpu.power_draw_w)||0),0)]),color:usageColor(powerPercent,80,95)},
         {name:'total power capacity W',points:indexed.filter(x=>x.value.gpus?.length&&x.value.gpus.every(gpu=>gpu.power_limit_w!=null)).map(x=>[x.index,x.value.gpus.reduce((sum,gpu)=>sum+Number(gpu.power_limit_w),0)]),color:'#91a4ba'}
