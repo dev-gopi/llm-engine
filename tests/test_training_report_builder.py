@@ -27,11 +27,13 @@ def test_parse_training_log_collects_training_domains_and_best_updates(tmp_path)
     assert report["training"][0]["step"] == 10000
     assert report["training"][0]["progress"] == 20.27
     assert report["training"][0]["avg"] == 2.325153
+    assert report["training"][0]["session"] == 0
     assert report["validation"][0]["domains"]["english"]["loss"] == 2.914236
     assert report["best_updates"][0]["loss"] == 2.811581
     analysis = MODULE.analyze_progress(report)
     assert analysis["verdict"] == "waiting_for_validation"
     assert analysis["runtime"]["tokens_processed"] == 32907795
+    assert analysis["run_summary"]["resume_count"] == 0
 
 
 def test_atomic_json_output_is_valid(tmp_path) -> None:
@@ -53,6 +55,21 @@ def test_incremental_reader_only_appends_new_complete_lines(tmp_path) -> None:
 
     assert [item["step"] for item in parsed["training"]] == [25, 50]
     assert reader.refresh()["line_count"] == 2
+
+
+def test_parser_marks_records_after_resume_as_a_new_session(tmp_path) -> None:
+    log = tmp_path / "train.log"
+    log.write_text(
+        "2026 | INFO | trainer | epoch=1 step=100 loss=3 tokens_per_second=10 progress=2%\n"
+        "2026 | INFO | app | Appending resumed training report data to train.log\n"
+        "2026 | INFO | trainer | epoch=1 step=75 loss=2.9 tokens_per_second=10 progress=1.5%\n",
+        encoding="utf-8",
+    )
+
+    parsed = MODULE.parse_training_log(log)
+
+    assert [item["session"] for item in parsed["training"]] == [0, 1]
+    assert parsed["session_count"] == 1
 
 
 def test_normalize_history_sorts_and_replaces_restarted_steps() -> None:
@@ -104,6 +121,10 @@ def test_normalize_history_removes_abandoned_future_after_resume() -> None:
     assert [item["step"] for item in normalized["validation"]] == [8000]
     assert [item["step"] for item in normalized["best_updates"]] == [8000]
     assert normalized["resume_rollbacks"] == [{"epoch": 1, "step": 8025}]
+
+    analysis = MODULE.analyze_progress(normalized)
+    assert analysis["run_summary"]["resume_count"] == 0
+    assert analysis["run_summary"]["rollback_count"] == 1
 
 
 def test_progress_analysis_reports_overall_and_domain_improvement() -> None:

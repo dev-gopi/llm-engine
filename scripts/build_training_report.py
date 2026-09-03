@@ -134,7 +134,7 @@ def _fields(message: str) -> dict[str, Any]:
 def _empty_parsed() -> dict[str, Any]:
     return {
         "training": [], "validation": [], "best_updates": [], "warnings": [],
-        "raw_log_tail": [], "line_count": 0,
+        "raw_log_tail": [], "line_count": 0, "session_count": 0,
     }
 
 
@@ -149,25 +149,31 @@ def _append_lines(
         parsed["line_count"] += 1
         message = line.rsplit(" | ", 1)[-1]
         timestamp = line.split(" | ", 1)[0] if " | " in line else None
-        if "validation_domain=" in message:
+        if "Appending resumed training report data" in message:
+            parsed["session_count"] += 1
+        elif "validation_domain=" in message:
             values = _fields(message)
             key = (int(values.get("epoch", 0)), int(values.get("step", 0)))
             domain = str(values.pop("validation_domain"))
             values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
             pending_domains.setdefault(key, {})[domain] = values
         elif message.startswith("validation epoch="):
             values = _fields(message)
             key = (int(values.get("epoch", 0)), int(values.get("step", 0)))
             values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
             values["domains"] = pending_domains.pop(key, {})
             parsed["validation"].append(values)
         elif "new_best_validation" in message:
             values = _fields(message)
             values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
             parsed["best_updates"].append(values)
         elif "epoch=" in message and "tokens_per_second=" in message and "loss=" in message:
             values = _fields(message)
             values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
             parsed["training"].append(values)
         elif "WARNING" in line or "ERROR" in line:
             parsed["warnings"].append(line)
@@ -379,6 +385,8 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "current_epoch": training[-1].get("epoch") if training else None,
             "current_step": training[-1].get("step") if training else None,
             "progress_percent": training[-1].get("progress") if training else None,
+            "resume_count": int(parsed.get("session_count", 0)),
+            "rollback_count": len(parsed.get("resume_rollbacks", [])),
             "best_validation_step": best_validation.get("step") if best_validation else None,
             "best_validation_loss": best_validation.get("loss") if best_validation else None,
             "best_checkpoint_updates": len(parsed.get("best_updates", [])),
