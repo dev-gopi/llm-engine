@@ -75,6 +75,7 @@ mlruns/
 reports/*
 !reports/training_report.html
 !reports/training_report.sample.json
+!reports/notification-sw.js
 artifacts/
 
 # Model and tensor artifacts

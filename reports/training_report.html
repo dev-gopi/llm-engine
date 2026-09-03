@@ -156,6 +156,16 @@
     let notificationsEnabled = localStorage.getItem('gopi-report-notifications') === 'true';
     let lastNotifiedBest = localStorage.getItem('gopi-report-best') || '';
     let completionNotified = false;
+    let notificationWorker;
+
+    function getNotificationWorker() {
+      if(!('serviceWorker' in navigator))return Promise.resolve(null);
+      notificationWorker ||= navigator.serviceWorker.register('notification-sw.js').then(()=>navigator.serviceWorker.ready).catch(error=>{
+        console.warn('Could not register the notification service worker:',error);
+        return null;
+      });
+      return notificationWorker;
+    }
 
     function logTime(value) {
       const raw=typeof value==='string'?value:value?.timestamp;
@@ -263,9 +273,16 @@
       return `<svg viewBox="0 0 100 24" style="height:24px;margin-top:5px;background:transparent" aria-hidden="true"><polyline points="${points.map((value,index)=>`${index/(points.length-1)*100},${21-(value-min)/span*18}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
     }
 
-    function notifyOnce(key,title,body) {
+    async function notifyOnce(key,title,body) {
       if(!notificationsEnabled||typeof Notification==='undefined'||Notification.permission!=='granted'||localStorage.getItem(`gopi-notified-${key}`)==='true')return;
-      new Notification(title,{body});localStorage.setItem(`gopi-notified-${key}`,'true');
+      try {
+        const registration=await getNotificationWorker();
+        if(registration)await registration.showNotification(title,{body,tag:`gopi-${key}`});
+        else new Notification(title,{body});
+        localStorage.setItem(`gopi-notified-${key}`,'true');
+      } catch(error) {
+        console.warn('Could not display notification:',error);
+      }
     }
 
     function render(data) {
@@ -396,7 +413,20 @@
       return {verdict,overall_validation_loss:overall,recent_validation_loss:recent,overall_perplexity:perplexity,training_loss:change(train[0]?.avg??train[0]?.loss,train.at(-1)?.avg??train.at(-1)?.loss),domains};
     }
 
-    async function load() { if(manual)return; try { const response=await fetch(`${DATA_URL}?t=${Date.now()}`,{cache:'no-store'}); if(!response.ok)throw new Error(response.statusText); render(await response.json()); } catch(error) { document.getElementById('status').textContent=`Cannot fetch ${DATA_URL}. Serve this folder over HTTP or choose a JSON file. ${error}`; } }
+    async function load() {
+      if(manual)return;
+      let data;
+      try {
+        const response=await fetch(`${DATA_URL}?t=${Date.now()}`,{cache:'no-store'});
+        if(!response.ok)throw new Error(response.statusText);
+        data=await response.json();
+      } catch(error) {
+        document.getElementById('status').textContent=`Cannot fetch ${DATA_URL}. Serve this folder over HTTP or choose a JSON file. ${error}`;
+        return;
+      }
+      try { render(data); }
+      catch(error) { document.getElementById('status').textContent=`Cannot render ${DATA_URL}: ${error}`; }
+    }
     document.getElementById('refresh').onclick=()=>{manual=false;load()};
     document.getElementById('sample').onclick=async()=>{manual=true;try{const response=await fetch(`${SAMPLE_URL}?t=${Date.now()}`,{cache:'no-store'});if(!response.ok)throw new Error(response.statusText);render(await response.json())}catch(error){document.getElementById('status').textContent=`Cannot fetch ${SAMPLE_URL}: ${error}`}};
     document.getElementById('file').onchange=async event=>{const file=event.target.files[0];if(file){manual=true;render(JSON.parse(await file.text()))}};
@@ -405,7 +435,7 @@
     function updateNotificationButton(){notificationButton.setAttribute('aria-pressed',String(notificationsEnabled));notificationButton.textContent=notificationsEnabled?'Notifications on':'Notifications off'}
     compactButton.onclick=()=>setCompact(!document.body.classList.contains('compact'));
     document.getElementById('fullscreen').onclick=async()=>{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()};
-    notificationButton.onclick=async()=>{if(typeof Notification==='undefined'){notificationButton.textContent='Notifications unavailable';return}const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();notificationsEnabled=permission==='granted'?!notificationsEnabled:false;localStorage.setItem('gopi-report-notifications',String(notificationsEnabled));updateNotificationButton()};
+    notificationButton.onclick=async()=>{if(typeof Notification==='undefined'){notificationButton.textContent='Notifications unavailable';return}const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();notificationsEnabled=permission==='granted'?!notificationsEnabled:false;if(notificationsEnabled)await getNotificationWorker();localStorage.setItem('gopi-report-notifications',String(notificationsEnabled));updateNotificationButton()};
     setCompact(localStorage.getItem('gopi-report-compact')==='true');updateNotificationButton();
     load(); setInterval(load,REFRESH_MS);
   </script>
