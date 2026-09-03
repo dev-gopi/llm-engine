@@ -143,7 +143,7 @@
     const dateFmt = value => {
       if (!value) return '—';
       const date=new Date(value.includes?.('T')||value.endsWith?.('Z')?value:value.replace(' ', 'T'));
-      return Number.isNaN(date.getTime())?String(value):date.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      return Number.isNaN(date.getTime())?String(value):date.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true});
     };
     const durationFmt = seconds => {
       if (!Number.isFinite(Number(seconds))) return '—';
