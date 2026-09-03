@@ -182,7 +182,7 @@ def test_system_monitor_collects_cpu_ram_and_process_memory() -> None:
 
 
 def test_gpu_monitor_parses_nvidia_smi_and_handles_na(monkeypatch) -> None:
-    output = "0, NVIDIA RTX, 72, 1906, 4096, 63, 22.5, 60, [N/A]\n"
+    output = "0, NVIDIA RTX, 72, 1906, 4096, 63, 22.5, [N/A], 60, 75, [N/A]\n"
     monkeypatch.setattr(
         MODULE.subprocess,
         "run",
@@ -196,4 +196,8 @@ def test_gpu_monitor_parses_nvidia_smi_and_handles_na(monkeypatch) -> None:
     assert gpu["memory_used_mb"] == 1906
     assert gpu["temperature_c"] == 63
     assert gpu["power_draw_w"] == 22.5
+    assert gpu["power_limit_w"] == 60
+    assert gpu["power_enforced_limit_w"] is None
+    assert gpu["power_default_limit_w"] == 60
+    assert gpu["power_max_limit_w"] == 75
     assert gpu["fan_percent"] is None

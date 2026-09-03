@@ -271,11 +271,13 @@
     function render(data) {
       const rawTrain=data.training||[],train=activeTrainingHistory(rawTrain), vals=data.validation||[], latest=train.at(-1)||{}, validation=vals.at(-1)||{};
       const sessionTrain=currentSessionHistory(train,data.raw_log_tail);
-      const telemetry=data.telemetry||[], system=telemetry.at(-1)||{}, gpu=system.gpus?.[0]||{};
+      const telemetry=data.telemetry||[], system=telemetry.at(-1)||{}, gpus=system.gpus||[],gpu=gpus[0]||{};
       const staleTraining=train.length!==rawTrain.length,derived=deriveAnalysis(train,vals),analysis=staleTraining?{...(data.analysis||{}),...derived}:(data.analysis||derived), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
       document.getElementById('status').textContent=`Updated ${dateFmt(data.generated_at)} · ${data.line_count||0} log lines`;
       const vramPercent=gpu.memory_total_mb?gpu.memory_used_mb/gpu.memory_total_mb*100:null;
-      const powerPercent=gpu.power_limit_w?gpu.power_draw_w/gpu.power_limit_w*100:null;
+      const totalPowerDraw=gpus.some(value=>value.power_draw_w!=null)?gpus.reduce((sum,value)=>sum+(Number(value.power_draw_w)||0),0):null;
+      const totalPowerLimit=gpus.length&&gpus.every(value=>value.power_limit_w!=null)?gpus.reduce((sum,value)=>sum+Number(value.power_limit_w),0):null;
+      const powerPercent=totalPowerLimit&&totalPowerDraw!=null?totalPowerDraw/totalPowerLimit*100:null;
       const trainTrend=analysis.training_loss?.absolute_improvement,recentValidation=analysis.recent_validation_loss?.absolute_improvement;
       const throughputValues=train.map(value=>value.tokens_per_second).filter(Number.isFinite),throughputAverage=throughputValues.length?throughputValues.reduce((a,b)=>a+b,0)/throughputValues.length:null;
       const throughputRatio=throughputAverage&&latest.tokens_per_second!=null?latest.tokens_per_second/throughputAverage:null;
@@ -296,7 +298,7 @@
         meter('VRAM',vramPercent,gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'GPU memory',usageColor(vramPercent,75,90)),
         meter('Speed',throughputRatio!=null?throughputRatio*100:null,latest.tokens_per_second!=null?`${fmt(latest.tokens_per_second,0)} tok/s · avg ${fmt(throughputAverage,0)}`:'Tokens per second',throughputLevel==='usage-high'?'#fb7185':throughputLevel==='usage-medium'?'#fbbf24':'#34d399'),
         meter('Temperature',gpu.temperature_c,gpu.temperature_c!=null?'GPU thermal load':'No temperature data',usageColor(gpu.temperature_c,75,85),'°C'),
-        meter('Power',powerPercent,gpu.power_draw_w!=null?`${fmt(gpu.power_draw_w,1)} / ${fmt(gpu.power_limit_w,1)} W`:'No power data',usageColor(powerPercent,80,95))
+        meter('Total power',powerPercent,totalPowerDraw!=null?`${fmt(totalPowerDraw,1)} / ${fmt(totalPowerLimit,1)} W · ${gpus.length} GPU${gpus.length===1?'':'s'}`:'No power data',usageColor(powerPercent,80,95))
       ].join('');
       const latestTime=logTime(latest),stalled=!manual&&latestTime>0&&Date.now()-latestTime>STALL_MS&&Number(latest.progress)<100;
       const alerts=[];
@@ -319,7 +321,7 @@
       if(Number(latest.progress)>=100&&!completionNotified){notifyOnce('complete','Gopi training complete',`Finished at step ${fmt(latest.step,0)}`);completionNotified=true}
       if(bestStep!=null&&String(bestStep)!==lastNotifiedBest){if(lastNotifiedBest)notifyOnce(`best-${bestStep}`,'New best checkpoint',`Step ${fmt(bestStep,0)} · loss ${fmt(best)}`);lastNotifiedBest=String(bestStep);localStorage.setItem('gopi-report-best',lastNotifiedBest)}
       if((data.warnings||[]).some(line=>line.includes('ERROR')))notifyOnce(`error-${data.line_count}`,'Training error detected','Open the report for the latest error details.');
-      const cards=[['Step',latest.step],['Overall progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Epoch progress',epochProgress!=null?fmt(epochProgress,2)+'%':'—'],['Resume count',resumes,resumes>0?'usage-medium':'usage-low'],['Window loss (last log interval)',latest.loss,trendLevel(trainTrend)],['Average loss (epoch/session)',latest.avg,trendLevel(trainTrend)],['Best validation',best,trendLevel(recentValidation)],['Gradient norm',latest.grad_norm,gradientLevel],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second,throughputLevel],['CPU',unit(system.cpu_percent,'%'),usageLevel(system.cpu_percent)],['RAM',unit(system.ram_percent,'%'),usageLevel(system.ram_percent,75,90)],['GPU',unit(gpu.utilization_percent,'%'),activityLevel(gpu.utilization_percent)],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—',usageLevel(vramPercent,75,90)],['GPU temp',unit(gpu.temperature_c,' °C'),usageLevel(gpu.temperature_c,75,85)],['GPU power',unit(gpu.power_draw_w,' W'),usageLevel(powerPercent,80,95)],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds),trendLevel(etaImprovement,1)],['Non-finite updates',latest.nonfinite_updates,latest.nonfinite_updates>0?'usage-high':'usage-low']];
+      const cards=[['Step',latest.step],['Overall progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Epoch progress',epochProgress!=null?fmt(epochProgress,2)+'%':'—'],['Resume count',resumes,resumes>0?'usage-medium':'usage-low'],['Window loss (last log interval)',latest.loss,trendLevel(trainTrend)],['Average loss (epoch/session)',latest.avg,trendLevel(trainTrend)],['Best validation',best,trendLevel(recentValidation)],['Gradient norm',latest.grad_norm,gradientLevel],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second,throughputLevel],['CPU',unit(system.cpu_percent,'%'),usageLevel(system.cpu_percent)],['RAM',unit(system.ram_percent,'%'),usageLevel(system.ram_percent,75,90)],['GPU',unit(gpu.utilization_percent,'%'),activityLevel(gpu.utilization_percent)],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—',usageLevel(vramPercent,75,90)],['GPU temp',unit(gpu.temperature_c,' °C'),usageLevel(gpu.temperature_c,75,85)],['Total GPU power',totalPowerDraw!=null?`${fmt(totalPowerDraw,1)} / ${fmt(totalPowerLimit,1)} W`:'—',usageLevel(powerPercent,80,95)],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds),trendLevel(etaImprovement,1)],['Non-finite updates',latest.nonfinite_updates,latest.nonfinite_updates>0?'usage-high':'usage-low']];
       document.getElementById('cards').innerHTML=cards.map(([k,v,level=''])=>`<div class="card ${level}"><div class="muted">${k}</div><div class="value ${level}">${fmt(v)}</div></div>`).join('');
       const indexed=telemetry.map((value,index)=>({value,index}));
       lineChart(document.getElementById('system-chart'),[
@@ -332,11 +334,12 @@
       ]);
       lineChart(document.getElementById('gpu-temperature-chart'),[{name:'temperature °C',points:indexed.filter(x=>x.value.gpus?.[0]?.temperature_c!=null).map(x=>[x.index,x.value.gpus[0].temperature_c]),color:usageColor(gpu.temperature_c,75,85)}]);
       lineChart(document.getElementById('gpu-power-chart'),[
-        {name:'power draw W',points:indexed.filter(x=>x.value.gpus?.[0]?.power_draw_w!=null).map(x=>[x.index,x.value.gpus[0].power_draw_w]),color:usageColor(powerPercent,80,95)},
-        {name:'power limit W',points:indexed.filter(x=>x.value.gpus?.[0]?.power_limit_w!=null).map(x=>[x.index,x.value.gpus[0].power_limit_w]),color:'#91a4ba'}
+        {name:'total power draw W',points:indexed.filter(x=>x.value.gpus?.some(gpu=>gpu.power_draw_w!=null)).map(x=>[x.index,x.value.gpus.reduce((sum,gpu)=>sum+(Number(gpu.power_draw_w)||0),0)]),color:usageColor(powerPercent,80,95)},
+        {name:'total power capacity W',points:indexed.filter(x=>x.value.gpus?.length&&x.value.gpus.every(gpu=>gpu.power_limit_w!=null)).map(x=>[x.index,x.value.gpus.reduce((sum,gpu)=>sum+Number(gpu.power_limit_w),0)]),color:'#91a4ba'}
       ]);
       const systemRows=[['CPU utilization',unit(system.cpu_percent,'%')],['System RAM',system.ram_used_mb!=null?`${fmt(system.ram_used_mb,0)} / ${fmt(system.ram_total_mb,0)} MB (${fmt(system.ram_percent,1)}%)`:'—'],['Training process RAM',unit(system.process_rss_mb,' MB')]];
-      (system.gpus||[]).forEach(value=>systemRows.push([`GPU ${value.index} ${value.name}`,`util ${unit(value.utilization_percent,'%')} · VRAM ${fmt(value.memory_used_mb,0)} / ${fmt(value.memory_total_mb,0)} MB · ${unit(value.temperature_c,' °C')} · ${unit(value.power_draw_w,' W')} / ${unit(value.power_limit_w,' W')} · fan ${unit(value.fan_percent,'%')}`]));
+      if(gpus.length)systemRows.push(['All GPUs total power',`${unit(totalPowerDraw,' W')} / ${unit(totalPowerLimit,' W')} (${unit(powerPercent,'%')})`]);
+      gpus.forEach(value=>systemRows.push([`GPU ${value.index} ${value.name}`,`util ${unit(value.utilization_percent,'%')} · VRAM ${fmt(value.memory_used_mb,0)} / ${fmt(value.memory_total_mb,0)} MB · ${unit(value.temperature_c,' °C')} · power ${unit(value.power_draw_w,' W')} / ${unit(value.power_limit_w,' W')} · default ${unit(value.power_default_limit_w,' W')} · max ${unit(value.power_max_limit_w,' W')} · fan ${unit(value.fan_percent,'%')}`]));
       document.getElementById('system-resources').innerHTML=table(['Resource','Current'],systemRows);
       const verdict=analysis.verdict||'waiting_for_validation';
       document.getElementById('verdict').innerHTML=`<span class="verdict ${esc(verdict)}">${esc(verdict.replaceAll('_',' ').toUpperCase())}</span>`;

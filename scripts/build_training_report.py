@@ -91,7 +91,8 @@ class SystemMonitor:
     def _gpus() -> list[dict[str, Any]]:
         fields = [
             "index", "name", "utilization.gpu", "memory.used", "memory.total",
-            "temperature.gpu", "power.draw", "power.limit", "fan.speed",
+            "temperature.gpu", "power.draw", "power.limit", "power.default_limit",
+            "power.max_limit", "fan.speed",
         ]
         try:
             completed = subprocess.run(
@@ -107,12 +108,19 @@ class SystemMonitor:
             values = [value.strip() for value in line.split(",")]
             if len(values) != len(fields):
                 continue
+            enforced_limit = _number(values[7])
+            default_limit = _number(values[8])
+            maximum_limit = _number(values[9])
             gpus.append({
                 "index": int(values[0]), "name": values[1],
                 "utilization_percent": _number(values[2]),
                 "memory_used_mb": _number(values[3]), "memory_total_mb": _number(values[4]),
                 "temperature_c": _number(values[5]), "power_draw_w": _number(values[6]),
-                "power_limit_w": _number(values[7]), "fan_percent": _number(values[8]),
+                "power_limit_w": enforced_limit or default_limit or maximum_limit,
+                "power_enforced_limit_w": enforced_limit,
+                "power_default_limit_w": default_limit,
+                "power_max_limit_w": maximum_limit,
+                "fan_percent": _number(values[10]),
             })
         return gpus
 

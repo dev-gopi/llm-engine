@@ -119,7 +119,7 @@
       "ram_total_mb": 15738.0,
       "ram_percent": 51.6,
       "process_rss_mb": 3275.0,
-      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 76.0, "memory_used_mb": 1856.0, "memory_total_mb": 4096.0, "temperature_c": 62.0, "power_draw_w": 35.0, "power_limit_w": 60.0, "fan_percent": null}]
+      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 76.0, "memory_used_mb": 1856.0, "memory_total_mb": 4096.0, "temperature_c": 62.0, "power_draw_w": 35.0, "power_limit_w": 60.0, "power_enforced_limit_w": null, "power_default_limit_w": 60.0, "power_max_limit_w": 75.0, "fan_percent": null}]
     },
     {
       "timestamp": "2026-09-01T23:04:55+00:00",
@@ -128,7 +128,7 @@
       "ram_total_mb": 15738.0,
       "ram_percent": 52.4,
       "process_rss_mb": 3290.0,
-      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 91.0, "memory_used_mb": 1858.0, "memory_total_mb": 4096.0, "temperature_c": 64.0, "power_draw_w": 48.0, "power_limit_w": 60.0, "fan_percent": null}]
+      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 91.0, "memory_used_mb": 1858.0, "memory_total_mb": 4096.0, "temperature_c": 64.0, "power_draw_w": 48.0, "power_limit_w": 60.0, "power_enforced_limit_w": null, "power_default_limit_w": 60.0, "power_max_limit_w": 75.0, "fan_percent": null}]
     },
     {
       "timestamp": "2026-09-03T15:30:00+00:00",
@@ -137,7 +137,7 @@
       "ram_total_mb": 15738.0,
       "ram_percent": 53.5,
       "process_rss_mb": 3310.0,
-      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 86.0, "memory_used_mb": 2388.0, "memory_total_mb": 4096.0, "temperature_c": 67.0, "power_draw_w": 51.0, "power_limit_w": 60.0, "fan_percent": 58.0}]
+      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 86.0, "memory_used_mb": 2388.0, "memory_total_mb": 4096.0, "temperature_c": 67.0, "power_draw_w": 51.0, "power_limit_w": 60.0, "power_enforced_limit_w": null, "power_default_limit_w": 60.0, "power_max_limit_w": 75.0, "fan_percent": 58.0}]
     }
   ],
   "checkpoints": {
