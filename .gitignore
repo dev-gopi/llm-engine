@@ -74,6 +74,7 @@ mlruns/
 # Generated live-training reports and graph artifacts
 reports/*
 !reports/training_report.html
+!reports/training_report.sample.json
 artifacts/
 
 # Model and tensor artifacts

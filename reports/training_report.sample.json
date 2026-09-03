@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-03T15:30:00+00:00",
+  "source_log": "logs/v2-finetuning.log",
+  "model_config_path": "configs/model.v2.gpu.yaml",
+  "training_config_path": "configs/finetuning.v2.gpu.yaml",
+  "model_config": {
+    "vocab_size": 32000,
+    "hidden_size": 512,
+    "layers": 10,
+    "heads": 8,
+    "kv_heads": 2,
+    "max_position": 512
+  },
+  "training_config": {
+    "batch_size": 2,
+    "epochs": 3,
+    "max_sequence_length": 384,
+    "samples_per_epoch": 500000,
+    "learning_rate": 0.00003,
+    "gradient_clip_norm": 12.0,
+    "gradient_accumulation_steps": 16,
+    "mixed_precision": "bf16",
+    "dataset_weights": {"english": 0.36, "bengali": 0.12, "hindi": 0.12, "coding": 0.16, "gsm8k": 0.08, "chat": 0.16},
+    "validation_weights": {"english": 0.36, "bengali": 0.12, "hindi": 0.12, "coding": 0.16, "gsm8k": 0.08, "chat": 0.16}
+  },
+  "analysis": {
+    "verdict": "improving",
+    "overall_validation_loss": {
+      "first": 2.855694,
+      "latest": 2.811581,
+      "absolute_improvement": 0.044113,
+      "percent_improvement": 1.5447
+    },
+    "recent_validation_loss": {
+      "first": 2.855694,
+      "latest": 2.811581,
+      "absolute_improvement": 0.044113,
+      "percent_improvement": 1.5447
+    },
+    "overall_perplexity": {
+      "first": 17.2087,
+      "latest": 16.4808,
+      "absolute_improvement": 0.7279,
+      "percent_improvement": 4.2298
+    },
+    "training_loss": {
+      "first": 2.378460,
+      "latest": 2.118402,
+      "absolute_improvement": 0.260058,
+      "percent_improvement": 10.9345
+    },
+    "domains": {
+      "english": {"loss": {"first": 2.942130, "latest": 2.914236, "absolute_improvement": 0.027894, "percent_improvement": 0.9481}, "perplexity": {"first": 18.7535, "latest": 18.2575, "absolute_improvement": 0.4960, "percent_improvement": 2.6450}},
+      "bengali": {"loss": {"first": 3.334693, "latest": 3.253416, "absolute_improvement": 0.081277, "percent_improvement": 2.4373}, "perplexity": {"first": 27.9677, "latest": 25.7651, "absolute_improvement": 2.2026, "percent_improvement": 7.8755}},
+      "hindi": {"loss": {"first": 2.898284, "latest": 2.809157, "absolute_improvement": 0.089127, "percent_improvement": 3.0752}, "perplexity": {"first": 17.8940, "latest": 16.3923, "absolute_improvement": 1.5017, "percent_improvement": 8.3921}},
+      "coding": {"loss": {"first": 2.062294, "latest": 1.993978, "absolute_improvement": 0.068316, "percent_improvement": 3.3126}, "perplexity": {"first": 7.7798, "latest": 7.2729, "absolute_improvement": 0.5069, "percent_improvement": 6.5156}},
+      "gsm8k": {"loss": {"first": 1.645897, "latest": 1.639126, "absolute_improvement": 0.006771, "percent_improvement": 0.4114}, "perplexity": {"first": 5.1457, "latest": 5.1196, "absolute_improvement": 0.0261, "percent_improvement": 0.5072}},
+      "chat": {"loss": {"first": 3.230344, "latest": 3.194738, "absolute_improvement": 0.035606, "percent_improvement": 1.1022}, "perplexity": {"first": 24.9755, "latest": 24.1264, "absolute_improvement": 0.8491, "percent_improvement": 3.3998}}
+    },
+    "domain_ranking": [
+      {"name": "gsm8k", "latest_loss": 1.639126, "percent_improvement": 0.4114},
+      {"name": "coding", "latest_loss": 1.993978, "percent_improvement": 3.3126},
+      {"name": "hindi", "latest_loss": 2.809157, "percent_improvement": 3.0752},
+      {"name": "english", "latest_loss": 2.914236, "percent_improvement": 0.9481},
+      {"name": "chat", "latest_loss": 3.194738, "percent_improvement": 1.1022},
+      {"name": "bengali", "latest_loss": 3.253416, "percent_improvement": 2.4373}
+    ],
+    "overfitting": {
+      "status": "no_current_signal",
+      "reason": "Recent validation loss is stable or improving."
+    },
+    "checkpoint_comparison": {
+      "best_step": 10000,
+      "best_validation_loss": 2.811581,
+      "latest_step": 10000,
+      "latest_validation_loss": 2.811581,
+      "latest_minus_best": 0.0,
+      "note": "Loss comparison only; response quality requires a separate fixed-prompt or benchmark evaluation."
+    },
+    "run_summary": {
+      "current_epoch": 2,
+      "current_step": 30000,
+      "progress_percent": 60.0,
+      "resume_count": 0,
+      "rollback_count": 0,
+      "best_validation_step": 10000,
+      "best_validation_loss": 2.811581,
+      "best_checkpoint_updates": 2
+    },
+    "report_coverage": {
+      "loss_and_runtime": "available",
+      "checkpoint_files": "available",
+      "data_quality": "not_collected; run a dataset audit for duplicates, truncation, language and token lengths",
+      "generation_quality": "not_collected; run fixed-prompt or benchmark evaluation for checkpoint response quality",
+      "gpu_telemetry": "available"
+    },
+    "runtime": {
+      "training_points": 7,
+      "validation_points": 2,
+      "average_tokens_per_second": 2660.7,
+      "minimum_tokens_per_second": 2642.9,
+      "maximum_tokens_per_second": 2678.4,
+      "average_gradient_norm": 8.9142,
+      "maximum_gradient_norm": 10.2867,
+      "peak_memory_mb": 1650.0,
+      "nonfinite_updates": 0,
+      "current_learning_rate": 0.0000184,
+      "tokens_processed": 98723385,
+      "elapsed_seconds": 37220,
+      "eta_seconds": 24810
+    }
+  },
+  "telemetry": [
+    {
+      "timestamp": "2026-09-01T23:04:50+00:00",
+      "cpu_percent": 42.1,
+      "ram_used_mb": 8120.0,
+      "ram_total_mb": 15738.0,
+      "ram_percent": 51.6,
+      "process_rss_mb": 3275.0,
+      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 76.0, "memory_used_mb": 1856.0, "memory_total_mb": 4096.0, "temperature_c": 62.0, "power_draw_w": 35.0, "power_limit_w": 60.0, "fan_percent": null}]
+    },
+    {
+      "timestamp": "2026-09-01T23:04:55+00:00",
+      "cpu_percent": 55.4,
+      "ram_used_mb": 8245.0,
+      "ram_total_mb": 15738.0,
+      "ram_percent": 52.4,
+      "process_rss_mb": 3290.0,
+      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 91.0, "memory_used_mb": 1858.0, "memory_total_mb": 4096.0, "temperature_c": 64.0, "power_draw_w": 48.0, "power_limit_w": 60.0, "fan_percent": null}]
+    },
+    {
+      "timestamp": "2026-09-03T15:30:00+00:00",
+      "cpu_percent": 48.7,
+      "ram_used_mb": 8426.0,
+      "ram_total_mb": 15738.0,
+      "ram_percent": 53.5,
+      "process_rss_mb": 3310.0,
+      "gpus": [{"index": 0, "name": "NVIDIA GeForce RTX 3050 Laptop GPU", "utilization_percent": 86.0, "memory_used_mb": 2388.0, "memory_total_mb": 4096.0, "temperature_c": 67.0, "power_draw_w": 51.0, "power_limit_w": 60.0, "fan_percent": 58.0}]
+    }
+  ],
+  "checkpoints": {
+    "latest": {
+      "path": "checkpoints/v2-finetuning/latest.pt",
+      "exists": true,
+      "size_bytes": 714080256,
+      "size_mb": 681.0,
+      "modified_at": "2026-09-03T15:28:30+00:00",
+      "validation": {"epoch": 1, "step": 10000, "loss": 2.811581}
+    },
+    "best": {
+      "path": "checkpoints/v2-finetuning/best.pt",
+      "exists": true,
+      "size_bytes": 714080256,
+      "size_mb": 681.0,
+      "modified_at": "2026-09-01T23:04:21+00:00",
+      "validation": {"epoch": 1, "step": 10000, "loss": 2.811581}
+    }
+  },
+  "training": [
+    {
+      "epoch": 1,
+      "step": 8000,
+      "loss": 2.351093,
+      "lr": 0.000028622964,
+      "grad_norm": 10.2867,
+      "tokens": 26321614,
+      "tokens_per_second": 2647.8,
+      "progress": 16.0,
+      "epoch_progress": 48.0,
+      "elapsed_seconds": 9941,
+      "eta_seconds": 52189,
+      "best_validation_loss": 2.929210,
+      "peak_memory_mb": 1650.0,
+      "nonfinite_updates": 0,
+      "avg": 2.378460,
+      "timestamp": "2026-09-01 21:52:09,023"
+    },
+    {
+      "epoch": 1,
+      "step": 10000,
+      "loss": 2.125895,
+      "lr": 0.000027689184,
+      "grad_norm": 8.3775,
+      "tokens": 32907795,
+      "tokens_per_second": 2642.9,
+      "progress": 20.27,
+      "epoch_progress": 60.81,
+      "elapsed_seconds": 12451,
+      "eta_seconds": 48986,
+      "best_validation_loss": 2.855694,
+      "peak_memory_mb": 1650.0,
+      "nonfinite_updates": 0,
+      "avg": 2.325153,
+      "timestamp": "2026-09-01 22:50:09,507"
+    },
+    {
+      "epoch": 1, "step": 14000, "loss": 2.083210, "lr": 0.0000258, "grad_norm": 9.12,
+      "tokens": 46010244, "tokens_per_second": 2651.2, "progress": 28.0, "epoch_progress": 84.0,
+      "elapsed_seconds": 17360, "eta_seconds": 44640, "best_validation_loss": 2.811581,
+      "peak_memory_mb": 1650.0, "nonfinite_updates": 0, "avg": 2.274610, "timestamp": "2026-09-02 00:12:00,000"
+    },
+    {
+      "epoch": 2, "step": 18000, "loss": 2.041522, "lr": 0.0000232, "grad_norm": 8.74,
+      "tokens": 59200418, "tokens_per_second": 2664.8, "progress": 36.0, "epoch_progress": 8.0,
+      "elapsed_seconds": 22310, "eta_seconds": 39690, "best_validation_loss": 2.811581,
+      "peak_memory_mb": 1652.0, "nonfinite_updates": 0, "avg": 2.221830, "timestamp": "2026-09-02 01:34:00,000"
+    },
+    {
+      "epoch": 2, "step": 22000, "loss": 1.998304, "lr": 0.0000216, "grad_norm": 8.33,
+      "tokens": 72390710, "tokens_per_second": 2671.5, "progress": 44.0, "epoch_progress": 32.0,
+      "elapsed_seconds": 27260, "eta_seconds": 34740, "best_validation_loss": 2.811581,
+      "peak_memory_mb": 1652.0, "nonfinite_updates": 0, "avg": 2.177540, "timestamp": "2026-09-02 02:56:00,000"
+    },
+    {
+      "epoch": 2, "step": 26000, "loss": 1.963812, "lr": 0.0000201, "grad_norm": 8.02,
+      "tokens": 85581102, "tokens_per_second": 2678.4, "progress": 52.0, "epoch_progress": 56.0,
+      "elapsed_seconds": 32210, "eta_seconds": 29790, "best_validation_loss": 2.811581,
+      "peak_memory_mb": 1654.0, "nonfinite_updates": 0, "avg": 2.143290, "timestamp": "2026-09-03 14:08:00,000"
+    },
+    {
+      "epoch": 2, "step": 30000, "loss": 1.934522, "lr": 0.0000184, "grad_norm": 7.86,
+      "tokens": 98723385, "tokens_per_second": 2675.3, "progress": 60.0, "epoch_progress": 80.0,
+      "elapsed_seconds": 37220, "eta_seconds": 24810, "best_validation_loss": 2.811581,
+      "peak_memory_mb": 1654.0, "nonfinite_updates": 0, "avg": 2.118402, "timestamp": "2026-09-03 15:30:00,000"
+    }
+  ],
+  "validation": [
+    {
+      "epoch": 1,
+      "step": 8000,
+      "loss": 2.855694,
+      "cross_entropy": 2.845416,
+      "perplexity": 17.2087,
+      "tokens": 4930332,
+      "batches": 22530,
+      "domains": {
+        "english": {"loss": 2.942130, "cross_entropy": 2.931382, "perplexity": 18.7535, "tokens": 1458682},
+        "bengali": {"loss": 3.334693, "cross_entropy": 3.331051, "perplexity": 27.9677, "tokens": 156694},
+        "hindi": {"loss": 2.898284, "cross_entropy": 2.884465, "perplexity": 17.8940, "tokens": 92320},
+        "coding": {"loss": 2.062294, "cross_entropy": 2.051527, "perplexity": 7.7798, "tokens": 603814},
+        "gsm8k": {"loss": 1.645897, "cross_entropy": 1.638154, "perplexity": 5.1457, "tokens": 62208},
+        "chat": {"loss": 3.230344, "cross_entropy": 3.217894, "perplexity": 24.9755, "tokens": 2556614}
+      }
+    },
+    {
+      "epoch": 1,
+      "step": 10000,
+      "loss": 2.811581,
+      "cross_entropy": 2.802199,
+      "perplexity": 16.4808,
+      "tokens": 4930332,
+      "batches": 22530,
+      "domains": {
+        "english": {"loss": 2.914236, "cross_entropy": 2.904576, "perplexity": 18.2575, "tokens": 1458682},
+        "bengali": {"loss": 3.253416, "cross_entropy": 3.249019, "perplexity": 25.7651, "tokens": 156694},
+        "hindi": {"loss": 2.809157, "cross_entropy": 2.796815, "perplexity": 16.3923, "tokens": 92320},
+        "coding": {"loss": 1.993978, "cross_entropy": 1.984161, "perplexity": 7.2729, "tokens": 603814},
+        "gsm8k": {"loss": 1.639126, "cross_entropy": 1.633082, "perplexity": 5.1196, "tokens": 62208},
+        "chat": {"loss": 3.194738, "cross_entropy": 3.183308, "perplexity": 24.1264, "tokens": 2556614}
+      }
+    }
+  ],
+  "best_updates": [
+    {"step": 8000, "previous_loss": 2.929210, "loss": 2.855694, "metric": "dataset_weighted_sft_domains_v2"},
+    {"step": 10000, "previous_loss": 2.855694, "loss": 2.811581, "metric": "dataset_weighted_sft_domains_v2"}
+  ],
+  "warnings": [],
+  "raw_log_tail": [
+    "2026-09-01 22:50:09,507 | INFO | trainer | epoch=1 step=10000 loss=2.125895 tokens_per_second=2642.9 progress=20.27%",
+    "2026-09-01 23:04:20,569 | INFO | trainer | validation epoch=1 step=10000 loss=2.811581 perplexity=16.4808",
+    "2026-09-01 23:04:20,569 | INFO | trainer | new_best_validation step=10000 previous_loss=2.855694 loss=2.811581",
+    "2026-09-03 15:30:00,000 | INFO | trainer | epoch=2 step=30000 loss=1.934522 tokens_per_second=2675.3 progress=60.00% epoch_progress=80.00%"
+  ],
+  "line_count": 8,
+  "session_count": 0,
+  "resume_rollbacks": []
+}

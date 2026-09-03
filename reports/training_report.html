@@ -298,7 +298,7 @@
         meter('Temperature',gpu.temperature_c,gpu.temperature_c!=null?'GPU thermal load':'No temperature data',usageColor(gpu.temperature_c,75,85),'°C'),
         meter('Power',powerPercent,gpu.power_draw_w!=null?`${fmt(gpu.power_draw_w,1)} / ${fmt(gpu.power_limit_w,1)} W`:'No power data',usageColor(powerPercent,80,95))
       ].join('');
-      const latestTime=logTime(latest),stalled=latestTime>0&&Date.now()-latestTime>STALL_MS&&Number(latest.progress)<100;
+      const latestTime=logTime(latest),stalled=!manual&&latestTime>0&&Date.now()-latestTime>STALL_MS&&Number(latest.progress)<100;
       const alerts=[];
       if(stalled)alerts.push(['critical',`No training update for ${durationFmt((Date.now()-latestTime)/1000)}`]);
       if(Number(system.ram_percent)>=90)alerts.push(['critical','System RAM is above 90%']);else if(Number(system.ram_percent)>=75)alerts.push(['warning','System RAM is elevated']);
