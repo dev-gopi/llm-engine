@@ -102,8 +102,8 @@ def main() -> None:
         help="append training logs for the standalone live report viewer",
     )
     parser.add_argument("--report-json", type=Path, default=Path("reports/training_report.json"))
-    parser.add_argument("--report-refresh-seconds", type=float, default=5.0)
-    parser.add_argument("--report-telemetry-seconds", type=float, default=5.0)
+    parser.add_argument("--report-refresh-seconds", type=float, default=2.0)
+    parser.add_argument("--report-telemetry-seconds", type=float, default=2.0)
     parser.add_argument("--report-telemetry-points", type=int, default=3600)
     parser.add_argument(
         "--no-live-report", action="store_true",

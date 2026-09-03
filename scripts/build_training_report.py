@@ -483,6 +483,10 @@ def build_report(
         "source_log": str(args.log),
         "model_config_path": str(args.model_config),
         "training_config_path": str(args.training_config),
+        "monitoring": {
+            "telemetry_seconds": args.telemetry_seconds,
+            "refresh_seconds": args.watch_seconds,
+        },
         "model_config": load_yaml(args.model_config),
         "training_config": load_yaml(args.training_config),
         "checkpoints": {
@@ -589,12 +593,12 @@ def main() -> None:
         help="maximum live CPU/RAM/GPU samples retained in report JSON",
     )
     parser.add_argument(
-        "--telemetry-seconds", type=float, default=5.0,
-        help="CPU/RAM/GPU sampling interval (default: 5 seconds)",
+        "--telemetry-seconds", type=float, default=2.0,
+        help="CPU/RAM/GPU sampling interval (default: 2 seconds)",
     )
     parser.add_argument(
-        "--watch-seconds", type=float, default=5.0,
-        help="asynchronous refresh interval (default: 5 seconds; zero runs once)",
+        "--watch-seconds", type=float, default=2.0,
+        help="asynchronous refresh interval (default: 2 seconds; zero runs once)",
     )
     parser.add_argument(
         "--parent-pid", type=int,

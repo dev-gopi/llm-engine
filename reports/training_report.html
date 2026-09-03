@@ -87,7 +87,7 @@
   </header>
   <main>
     <section class="panel meter-panel" aria-labelledby="meter-title">
-      <div class="meter-heading"><div><h2 id="meter-title">Training console</h2><p class="muted">Live workload and completion meters</p></div><span id="meter-step" class="muted">Waiting for training data</span></div>
+      <div class="meter-heading"><div><h2 id="meter-title">Training console</h2><p class="muted">Live workload and completion meters</p><p id="interval-status" class="muted">Data collection: every 2s · Report refresh: every 2s</p></div><span id="meter-step" class="muted">Waiting for training data</span></div>
       <div id="meters" class="meter-grid"></div>
     </section>
     <section class="panel operations"><div class="operations-grid"><div><h2>Training health</h2><div id="health-alerts" class="alert-strip"></div><div id="signals" class="signal-row"></div></div><div><h2>Epoch timeline</h2><div id="epoch-timeline" class="timeline"></div><div id="best-badge"></div></div></div></section>
@@ -135,7 +135,7 @@
     const query = new URLSearchParams(location.search);
     const DATA_URL = query.get('data') || 'training_report.json';
     const SAMPLE_URL = query.get('sample') || 'training_report.sample.json';
-    const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 5000));
+    const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 2000));
     const STALL_MS = Math.max(60000, Number(query.get('stall') || 180000));
     const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
     const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
@@ -300,6 +300,10 @@
 
     function render(data) {
       const rawTrain=data.training||[],train=activeTrainingHistory(rawTrain), vals=data.validation||[], latest=train.at(-1)||{}, validation=vals.at(-1)||{};
+      const monitoring=data.monitoring||{};
+      const telemetrySeconds=Number(monitoring.telemetry_seconds)||2;
+      const reportRefreshSeconds=Number(monitoring.refresh_seconds)||2;
+      document.getElementById('interval-status').textContent=`Data collection: every ${fmt(telemetrySeconds,2)}s · Report refresh: every ${fmt(reportRefreshSeconds,2)}s`;
       const sessionTrain=currentSessionHistory(train,data.raw_log_tail);
       const telemetry=data.telemetry||[], system=telemetry.at(-1)||{}, gpus=system.gpus||[],gpu=gpus[0]||{};
       const staleTraining=train.length!==rawTrain.length,derived=deriveAnalysis(train,vals),analysis=staleTraining?{...(data.analysis||{}),...derived}:(data.analysis||derived), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
