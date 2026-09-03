@@ -51,7 +51,18 @@
     .timeline { display:flex; min-height:70px; gap:5px; align-items:stretch }.epoch-block { position:relative; flex:1; min-width:54px; overflow:hidden; padding:11px 8px; border:1px solid var(--line); border-radius:9px; background:#0a1728 }.epoch-fill { position:absolute; inset:auto 0 0; background:rgba(79,156,249,.2) }.epoch-block.current { border-color:var(--blue) }.epoch-block.done { border-color:#166534 }.epoch-block strong,.epoch-block small { position:relative; z-index:1; display:block }.epoch-block small { margin-top:4px; color:var(--muted) }
     .best-badge { display:inline-flex; gap:7px; align-items:center; margin-top:12px; padding:8px 11px; border-radius:999px; color:#052e20; background:#6ee7b7; font-size:12px; font-weight:800 }
     body.compact main > section:not(.meter-panel):not(.operations) { display:none } body.compact main { max-width:1800px } body.compact .meter-grid { grid-template-columns:repeat(auto-fit,minmax(155px,1fr)) }
-    @media (max-width:800px) { .operations-grid { grid-template-columns:1fr }.signal-row { grid-template-columns:1fr }.timeline { overflow-x:auto }.epoch-block { flex:0 0 80px } }
+    @media (max-width:800px) {
+      body { overflow-x:hidden }
+      header { align-items:stretch; flex-direction:column; padding:16px max(12px,env(safe-area-inset-right)) 14px max(12px,env(safe-area-inset-left)); gap:14px }
+      h1 { font-size:21px } main { width:100%; padding:12px max(10px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left)) }
+      .controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px }.controls button { min-height:42px; padding:8px 5px; font-size:12px }.controls .file { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0; overflow:hidden }.controls input[type=file] { min-width:0; max-width:68%; font-size:11px }
+      .panel,.card { min-width:0; padding:12px; border-radius:10px }.grid,.operations-grid { grid-template-columns:minmax(0,1fr); gap:12px; margin-bottom:12px }.cards { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:12px }.card .value { font-size:18px; overflow-wrap:anywhere }
+      .meter-panel,.operations { margin-bottom:12px }.meter-heading { align-items:flex-start; flex-direction:column; gap:6px; margin-bottom:12px }.meter-grid,body.compact .meter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px }.meter { padding:11px 5px 9px }.meter-dial { width:94px; height:94px }.meter-dial::before { inset:8px }.meter-dial::after { width:66px; height:24px }.meter-reading { font-size:19px }.meter-label { margin-top:5px; font-size:11px }.meter-detail { font-size:10px }
+      .signal-row { grid-template-columns:1fr }.timeline { overflow-x:auto; padding-bottom:5px; scrollbar-width:thin }.epoch-block { flex:0 0 88px }.best-badge { max-width:100%; overflow-wrap:anywhere }
+      #system-resources,#checkpoints,#domains,#validation-table,#domain-improvement,#domain-ranking,#checkpoint-comparison,#run-summary,#report-coverage,#improvement-summary { max-width:100%; overflow-x:auto; scrollbar-width:thin }
+      table { min-width:520px; font-size:12px } th,td { padding:8px 7px; white-space:nowrap }.chart-scroll { max-width:100%; scrollbar-width:thin }.distribution-chart { min-height:260px } svg { height:280px } pre { max-height:300px; padding:10px; font-size:11px }
+    }
+    @media (max-width:380px) { .meter-dial { width:84px; height:84px }.meter-reading { font-size:17px }.alert { width:100%; border-radius:9px }.controls { grid-template-columns:repeat(2,minmax(0,1fr)) }.controls .file { grid-column:1/-1 } }
     @media (prefers-reduced-motion:no-preference) { .meter-dial { transition:background .45s ease } }
   </style>
 </head>
