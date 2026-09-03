@@ -309,7 +309,9 @@ def test_resumed_progress_uses_full_epoch_length() -> None:
         trainer.fit(ResumeLoader(), epochs=3, log_every=1)
 
     progress_percent = log_info.call_args_list[0].args[8]
+    epoch_progress_percent = log_info.call_args_list[0].args[9]
     assert progress_percent == pytest.approx(251 / 300 * 100)
+    assert epoch_progress_percent == pytest.approx(51)
     assert progress_percent < 100
 
 

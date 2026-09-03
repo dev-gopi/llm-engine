@@ -80,6 +80,32 @@ def test_normalize_history_sorts_and_replaces_restarted_steps() -> None:
     assert normalized["best_updates"][0]["loss"] == 2.6
 
 
+def test_normalize_history_removes_abandoned_future_after_resume() -> None:
+    parsed = {
+        "training": [
+            {"epoch": 1, "step": 8000, "loss": 4.6},
+            {"epoch": 1, "step": 8675, "loss": 4.45},
+            {"epoch": 1, "step": 8025, "loss": 4.55},
+            {"epoch": 1, "step": 8450, "loss": 4.52},
+        ],
+        "validation": [
+            {"epoch": 1, "step": 8000, "loss": 4.53},
+            {"epoch": 1, "step": 8500, "loss": 4.50},
+        ],
+        "best_updates": [
+            {"step": 8000, "loss": 4.53},
+            {"step": 8500, "loss": 4.50},
+        ],
+    }
+
+    normalized = MODULE.normalize_history(parsed)
+
+    assert [item["step"] for item in normalized["training"]] == [8000, 8025, 8450]
+    assert [item["step"] for item in normalized["validation"]] == [8000]
+    assert [item["step"] for item in normalized["best_updates"]] == [8000]
+    assert normalized["resume_rollbacks"] == [{"epoch": 1, "step": 8025}]
+
+
 def test_progress_analysis_reports_overall_and_domain_improvement() -> None:
     parsed = {
         "training": [

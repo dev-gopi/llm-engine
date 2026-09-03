@@ -315,6 +315,7 @@ class Trainer:
                         total_batches, epoch * batches_per_epoch + batch_index
                     )
                     progress = completed_batches / total_batches
+                    epoch_progress = min(1.0, batch_index / max(1, batches_per_epoch))
                     elapsed_seconds = self.training_seconds
                     eta_seconds = (
                         elapsed_seconds * (1.0 - progress) / progress
@@ -323,12 +324,12 @@ class Trainer:
                     allocated_mb, reserved_mb, total_mb = self.gpu_memory_mb
                     logger.info(
                         "epoch=%d step=%d loss=%.6f lr=%.8g grad_norm=%.4f tokens=%d "
-                        "tokens_per_second=%.1f progress=%.2f%% elapsed_seconds=%.0f "
+                        "tokens_per_second=%.1f progress=%.2f%% epoch_progress=%.2f%% elapsed_seconds=%.0f "
                         "eta_seconds=%.0f best_validation_loss=%.6f peak_memory_mb=%.1f "
                         "gpu_memory_mb=%.1f/%.1f/%.1f nonfinite_updates=%d (avg=%.6f)",
                         epoch + 1, self.global_step, current_loss, self.learning_rate,
                         self.last_gradient_norm, self.tokens_processed, self.tokens_per_second,
-                        progress * 100.0, elapsed_seconds, eta_seconds,
+                        progress * 100.0, epoch_progress * 100.0, elapsed_seconds, eta_seconds,
                         self.best_validation_loss, self.peak_memory_mb,
                         allocated_mb, reserved_mb, total_mb,
                         self.nonfinite_updates, avg_loss,

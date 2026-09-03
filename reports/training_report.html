@@ -117,6 +117,15 @@
     const trendColor = (improvement,deadband=.001) => improvement==null?'#91a4ba':improvement>deadband?'#34d399':improvement<-deadband?'#fb7185':'#fbbf24';
     let manual = false;
 
+    function activeTrainingHistory(rows) {
+      if(rows.length<2)return rows;
+      const timestamp=value=>{const raw=value?.timestamp;if(!raw)return -Infinity;const parsed=Date.parse(raw.includes('T')?raw:raw.replace(' ','T'));return Number.isNaN(parsed)?-Infinity:parsed};
+      const active=rows.reduce((latest,value)=>timestamp(value)>timestamp(latest)?value:latest,rows[0]);
+      const sortedLatest=rows.at(-1);
+      if(active.epoch>sortedLatest.epoch||(active.epoch===sortedLatest.epoch&&active.step>=sortedLatest.step))return rows;
+      return rows.filter(value=>value.epoch<active.epoch||(value.epoch===active.epoch&&value.step<=active.step));
+    }
+
     function lineChart(svg, series) {
       const scroller=svg.parentElement;
       const fixedLegend=scroller.dataset.fixedLegend==='true';
@@ -182,9 +191,9 @@
     function table(headers, rows) { return `<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table>`; }
 
     function render(data) {
-      const train=data.training||[], vals=data.validation||[], latest=train.at(-1)||{}, validation=vals.at(-1)||{};
+      const rawTrain=data.training||[],train=activeTrainingHistory(rawTrain), vals=data.validation||[], latest=train.at(-1)||{}, validation=vals.at(-1)||{};
       const telemetry=data.telemetry||[], system=telemetry.at(-1)||{}, gpu=system.gpus?.[0]||{};
-      const analysis=data.analysis||deriveAnalysis(train,vals), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
+      const staleTraining=train.length!==rawTrain.length,derived=deriveAnalysis(train,vals),analysis=staleTraining?{...(data.analysis||{}),...derived}:(data.analysis||derived), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
       document.getElementById('status').textContent=`Updated ${dateFmt(data.generated_at)} · ${data.line_count||0} log lines`;
       const vramPercent=gpu.memory_total_mb?gpu.memory_used_mb/gpu.memory_total_mb*100:null;
       const powerPercent=gpu.power_limit_w?gpu.power_draw_w/gpu.power_limit_w*100:null;
@@ -195,7 +204,8 @@
       const etaPrevious=train.at(-2)?.eta_seconds,etaImprovement=etaPrevious!=null&&latest.eta_seconds!=null?etaPrevious-latest.eta_seconds:null;
       const clipNorm=Number(data.training_config?.gradient_clip_norm),gradientRatio=clipNorm>0&&latest.grad_norm!=null?latest.grad_norm/clipNorm:null;
       const gradientLevel=gradientRatio==null?'':gradientRatio>2?'usage-high':gradientRatio>1?'usage-medium':'usage-low';
-      const cards=[['Step',latest.step],['Progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Training loss',latest.loss,trendLevel(trainTrend)],['Best validation',best,trendLevel(recentValidation)],['Gradient norm',latest.grad_norm,gradientLevel],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second,throughputLevel],['CPU',unit(system.cpu_percent,'%'),usageLevel(system.cpu_percent)],['RAM',unit(system.ram_percent,'%'),usageLevel(system.ram_percent,75,90)],['GPU',unit(gpu.utilization_percent,'%'),activityLevel(gpu.utilization_percent)],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—',usageLevel(vramPercent,75,90)],['GPU temp',unit(gpu.temperature_c,' °C'),usageLevel(gpu.temperature_c,75,85)],['GPU power',unit(gpu.power_draw_w,' W'),usageLevel(powerPercent,80,95)],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds),trendLevel(etaImprovement,1)],['Non-finite updates',latest.nonfinite_updates,latest.nonfinite_updates>0?'usage-high':'usage-low']];
+      const configuredEpochs=Number(data.training_config?.epochs),epochProgress=latest.epoch_progress??(latest.progress!=null&&configuredEpochs>0&&latest.epoch!=null?Math.max(0,Math.min(100,latest.progress*configuredEpochs-(latest.epoch-1)*100)):null);
+      const cards=[['Step',latest.step],['Overall progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Epoch progress',epochProgress!=null?fmt(epochProgress,2)+'%':'—'],['Window loss (last log interval)',latest.loss,trendLevel(trainTrend)],['Average loss (epoch/session)',latest.avg,trendLevel(trainTrend)],['Best validation',best,trendLevel(recentValidation)],['Gradient norm',latest.grad_norm,gradientLevel],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second,throughputLevel],['CPU',unit(system.cpu_percent,'%'),usageLevel(system.cpu_percent)],['RAM',unit(system.ram_percent,'%'),usageLevel(system.ram_percent,75,90)],['GPU',unit(gpu.utilization_percent,'%'),activityLevel(gpu.utilization_percent)],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—',usageLevel(vramPercent,75,90)],['GPU temp',unit(gpu.temperature_c,' °C'),usageLevel(gpu.temperature_c,75,85)],['GPU power',unit(gpu.power_draw_w,' W'),usageLevel(powerPercent,80,95)],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds),trendLevel(etaImprovement,1)],['Non-finite updates',latest.nonfinite_updates,latest.nonfinite_updates>0?'usage-high':'usage-low']];
       document.getElementById('cards').innerHTML=cards.map(([k,v,level=''])=>`<div class="card ${level}"><div class="muted">${k}</div><div class="value ${level}">${fmt(v)}</div></div>`).join('');
       const indexed=telemetry.map((value,index)=>({value,index}));
       lineChart(document.getElementById('system-chart'),[

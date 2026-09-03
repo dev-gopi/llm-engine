@@ -185,18 +185,47 @@ def parse_training_log(path: str | Path, *, raw_tail_lines: int = 1000) -> dict[
 
 
 def normalize_history(parsed: dict[str, Any]) -> dict[str, Any]:
-    """Sort histories and keep the latest record for restarted/duplicate steps."""
+    """Keep the active timeline when a resumed run rolls back to a checkpoint.
+
+    A resume can append to a log whose previous process had advanced beyond the
+    last durable checkpoint.  Merely sorting/deduplicating those records leaves
+    the abandoned future at the end of the report, making every headline value
+    stale until the resumed process catches up.
+    """
     normalized = dict(parsed)
-    for name in ("training", "validation"):
-        records: dict[tuple[int, int], dict[str, Any]] = {}
-        for item in parsed.get(name, []):
-            key = (int(item.get("epoch", 0)), int(item.get("step", 0)))
-            records[key] = item
-        normalized[name] = [records[key] for key in sorted(records)]
+
+    training_records: dict[tuple[int, int], dict[str, Any]] = {}
+    rollback_ranges: list[tuple[tuple[int, int], tuple[int, int]]] = []
+    latest_position: tuple[int, int] | None = None
+    for item in parsed.get("training", []):
+        position = (int(item.get("epoch", 0)), int(item.get("step", 0)))
+        if latest_position is not None and position < latest_position:
+            rollback_ranges.append((position, latest_position))
+            training_records = {
+                key: value for key, value in training_records.items() if key < position
+            }
+        training_records[position] = item
+        latest_position = position
+    normalized["training"] = [training_records[key] for key in sorted(training_records)]
+
+    validation_records: dict[tuple[int, int], dict[str, Any]] = {}
+    for item in parsed.get("validation", []):
+        position = (int(item.get("epoch", 0)), int(item.get("step", 0)))
+        if any(start < position <= abandoned_end for start, abandoned_end in rollback_ranges):
+            continue
+        validation_records[position] = item
+    normalized["validation"] = [validation_records[key] for key in sorted(validation_records)]
+
     best_updates: dict[int, dict[str, Any]] = {}
     for item in parsed.get("best_updates", []):
-        best_updates[int(item.get("step", 0))] = item
+        step = int(item.get("step", 0))
+        if any(start[1] < step <= abandoned_end[1] for start, abandoned_end in rollback_ranges):
+            continue
+        best_updates[step] = item
     normalized["best_updates"] = [best_updates[key] for key in sorted(best_updates)]
+    normalized["resume_rollbacks"] = [
+        {"epoch": start[0], "step": start[1]} for start, _ in rollback_ranges
+    ]
     return normalized
 
 
