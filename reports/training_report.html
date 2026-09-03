@@ -120,7 +120,8 @@
     function logTime(value) {
       const raw=typeof value==='string'?value:value?.timestamp;
       if(!raw)return -Infinity;
-      const parsed=Date.parse(raw.includes('T')?raw:raw.replace(' ','T'));
+      const normalized=(raw.includes('T')?raw:raw.replace(' ','T')).replace(/,(\d{3})(?=$|[+-]|Z)/,'.$1');
+      const parsed=Date.parse(normalized);
       return Number.isNaN(parsed)?-Infinity:parsed;
     }
 
