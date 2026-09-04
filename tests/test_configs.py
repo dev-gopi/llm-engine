@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 
 from model.config import estimate_model_size
+from model.vocabulary import adapt_config_to_tokenizer
+from tokenizer.encoder import Tokenizer
 from utils.config import load_yaml
 
 
@@ -51,12 +53,25 @@ def test_future_models_match_the_from_scratch_tokenizer() -> None:
     ]
 
 
+def test_active_cpu_and_gpu_models_match_both_tokenizer_stages() -> None:
+    base = Tokenizer.load(ROOT / "data/tokenizer")
+    extended = Tokenizer.load(ROOT / "data/tokenizer-finetuning")
+
+    assert base.vocab_size == 40_000
+    assert extended.base_vocab_size == base.vocab_size
+    assert extended.vocab_size == 42_000
+    for name in ("model.cpu.yaml", "model.gpu.yaml"):
+        model = load_yaml(CONFIGS / name)
+        assert model["vocab_size"] == base.vocab_size
+        assert adapt_config_to_tokenizer(model, extended)["vocab_size"] == extended.vocab_size
+
+
 def test_gpu_pretraining_uses_full_context_with_expanded_token_budget() -> None:
     config = load_yaml(CONFIGS / "pretraining.gpu.yaml")
 
     assert config["max_sequence_length"] == 512
-    assert config["samples_per_epoch"] == 500_000
-    assert config["max_sequence_length"] * config["samples_per_epoch"] == 256_000_000
+    assert config["samples_per_epoch"] == 1_000_000
+    assert config["max_sequence_length"] * config["samples_per_epoch"] == 512_000_000
     assert config["dataset_weights"] == {"tinystories": 0.10, "wikitext_103": 0.90}
     assert config["validation_weights"] == config["dataset_weights"]
 
@@ -81,7 +96,7 @@ def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
     config = load_yaml(CONFIGS / "inference.yaml")["serving"]
 
     assert config["checkpoint_path"] == "checkpoints/finetuning/best.pt"
-    assert config["tokenizer_path"] == "data/tokenizer"
+    assert config["tokenizer_path"] == "data/tokenizer-finetuning"
 
 
 def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
@@ -130,7 +145,7 @@ def test_expanded_sft_is_the_active_gpu_stage() -> None:
 
     assert config["epochs"] == 2
     assert config["learning_rate"] == pytest.approx(1e-5)
-    assert config["samples_per_epoch"] == 500_000
+    assert config["samples_per_epoch"] == 1_000_000
     assert config["validation_batch_size"] > config["batch_size"]
     assert config["pad_to_multiple_of"] == 8
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
@@ -155,7 +170,9 @@ def test_active_sft_fits_the_laptop_growth_route() -> None:
     model = load_yaml(CONFIGS / "model.gpu.yaml")
 
     assert config["batch_size"] == 2
-    assert config["gradient_accumulation_steps"] == 16
+    assert config["gradient_accumulation_steps"] == 32
+    assert config["batch_size"] * config["gradient_accumulation_steps"] == 64
+    assert config["samples_per_epoch"] == 1_000_000
     assert config["learning_rate"] == pytest.approx(1e-5)
     assert config["epochs"] == 2
     assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"

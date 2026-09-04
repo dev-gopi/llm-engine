@@ -1,5 +1,7 @@
-# Active expanded SFT profile for the 80.29M, 16-layer GPU model.
-# The six new identity-like layers learn during SFT; keep the source checkpoint.
+# Quality-first SFT profile for the 16-layer model and its 42K append-only
+# fine-tuning tokenizer (40K pretrained tokens plus 2K new tokens).
+# The 1M-sample epoch matches pretraining coverage while the effective batch of
+# 64 keeps updates stable and preserves the conservative 1e-5 SFT learning rate.
 batch_size: 2
 validation_batch_size: 4
 epochs: 2
@@ -18,7 +20,7 @@ lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
-samples_per_epoch: 500000
+samples_per_epoch: 1000000
 dataset_weights:
   # Preference data contributes chosen responses only. Wikipedia, FineWeb-Edu,
   # and CodeParrot contribute causal-LM examples at deliberately small shares.
@@ -162,7 +164,7 @@ beta2: 0.95
 adam_epsilon: 0.00000001
 fused_optimizer: false
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 16
+gradient_accumulation_steps: 32
 mixed_precision: bf16
 lr_schedule: cosine
 warmup_ratio: 0.05

@@ -1,4 +1,6 @@
-vocab_size: 32000
+# Match the active base tokenizer. The verified fine-tuning tokenizer may
+# expand this 40K vocabulary to 42K automatically at load time.
+vocab_size: 40000
 hidden_size: 256
 layers: 8
 heads: 8

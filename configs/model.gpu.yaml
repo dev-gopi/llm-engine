@@ -1,4 +1,5 @@
-# Active GPU architecture with the unified 38K vocabulary.
+# Active GPU architecture with a 40K base vocabulary. Selecting the verified
+# data/tokenizer-finetuning extension expands it to 42K at load time.
 vocab_size: 40000
 hidden_size: 512
 layers: 16
