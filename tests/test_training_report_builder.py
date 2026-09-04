@@ -147,7 +147,7 @@ def test_progress_analysis_reports_overall_and_domain_improvement() -> None:
     assert analysis["checkpoint_comparison"]["best_step"] is None
     assert analysis["checkpoint_comparison"]["latest_minus_best"] is None
     assert analysis["checkpoint_comparison"]["status"] == "same_checkpoint"
-    assert analysis["report_coverage"]["generation_quality"].startswith("not_collected")
+    assert analysis["report_coverage"]["generation_quality"].startswith("pending")
 
 
 def test_progress_analysis_detects_overfitting_signal() -> None:

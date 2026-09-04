@@ -52,7 +52,7 @@ def evaluation_coverage(
     if data_audit:
         status = str(data_audit.get("status", "available"))
         data_status = f"available ({status})"
-    generation_status = "not_collected; run fixed-prompt or benchmark evaluation for checkpoint response quality"
+    generation_status = "pending; no fixed-prompt or benchmark result is available"
     if generation_evaluation:
         summary = generation_evaluation.get("summary")
         accuracy = summary.get("accuracy") if isinstance(summary, dict) else None
@@ -484,7 +484,7 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "loss_and_runtime": "available",
             "checkpoint_files": "available",
             "data_quality": "not_collected; run a dataset audit for duplicates, truncation, language and token lengths",
-            "generation_quality": "not_collected; run fixed-prompt or benchmark evaluation for checkpoint response quality",
+            "generation_quality": "pending; no fixed-prompt or benchmark result is available",
             "gpu_telemetry": "partial; memory and throughput are available, utilization, temperature and power are not logged",
         },
         "runtime": {
