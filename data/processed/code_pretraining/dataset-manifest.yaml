@@ -1,0 +1,13 @@
+schema_version: 1
+name: CodeParrot bounded raw-code pretraining subset
+source: codeparrot/codeparrot-clean-valid
+version: huggingface-parquet-2026-09-04
+license:
+  identifier: LicenseRef-Mixed-Per-Record
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages:
+  - pretraining
+privacy_review: unreviewed
+review_notes:
+  basis: Bounded 81,822-record corpus; the original validation/test splits were retained while all remaining unique source records were appended to train. Upstream records contain individual license labels that require review before distribution or commercial use.

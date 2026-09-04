@@ -1,0 +1,14 @@
+schema_version: 1
+name: FineWeb-Edu bounded pretraining subset
+source: HuggingFaceFW/fineweb-edu:sample-10BT
+version: huggingface-parquet-2026-09-04
+license:
+  identifier: ODC-BY-1.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - pretraining
+privacy_review: unreviewed
+review_notes:
+  basis: Bounded 537,808-record subset downloaded from the sample-10BT configuration; the original validation/test splits were retained while unique records were appended to train and three pre-existing exact duplicates were removed.
+  terms: Use is also subject to Common Crawl terms; retain dataset attribution.

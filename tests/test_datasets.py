@@ -144,6 +144,19 @@ def test_complete_example_retains_real_eos() -> None:
     assert example["loss_mask"][-1].item()
 
 
+def test_prepacked_example_keeps_embedded_eos_without_adding_another() -> None:
+    active = tokenizer()
+    dataset = TextDataset(
+        [{"text": "first<|eos|>second<|eos|>", "prepacked": True}],
+        active,
+        max_length=128,
+    )
+    eos = active.token_to_id("<|eos|>")
+    identifiers = dataset[0]["input_ids"].tolist()
+    assert identifiers.count(eos) == 2
+    assert identifiers[-1] == eos
+
+
 def test_lazy_jsonl_reports_malformed_record_location_without_substitution(tmp_path) -> None:
     source = tmp_path / "data.jsonl"
     source.write_text('{"text": "valid"}\nnot-json\n', encoding="utf-8")

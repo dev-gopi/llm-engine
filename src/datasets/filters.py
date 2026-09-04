@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+import unicodedata
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -63,6 +64,7 @@ class CorpusFilter:
         excluded_texts: Iterable[str] = (),
         contamination_distance: int | None = 8,
         max_fingerprints: int = 1_000_000,
+        preserve_whitespace: bool = False,
     ) -> None:
         if max_fingerprints < 1:
             raise ValueError("max_fingerprints must be positive")
@@ -71,6 +73,7 @@ class CorpusFilter:
         self.english_only = english_only
         self.redact_pii = redact_pii
         self.max_fingerprints = max_fingerprints
+        self.preserve_whitespace = preserve_whitespace
         self.seen: set[bytes] = set()
         self._seen_order: deque[bytes] = deque()
         self.near_duplicates = _SimilarityIndex(near_duplicate_distance, max_fingerprints)
@@ -90,33 +93,39 @@ class CorpusFilter:
             fingerprint = _simhash(normalized)
             if fingerprint is not None:
                 self.contamination.add(fingerprint)
+        self.substring_exclusions = (
+            self.excluded_normalized if len(self.excluded_normalized) <= 256 else []
+        )
+        if len(self.excluded_normalized) > 256:
+            self.excluded_word_lengths.clear()
         self.stats = FilterStats()
 
     def apply(self, text: str) -> str | None:
-        text = _normalize(text)
-        if not text:
+        preserved = _clean_preserving_whitespace(text)
+        canonical = _normalize(preserved)
+        if not canonical:
             self.stats.empty += 1
             return None
-        if len(text) < self.min_chars:
+        if len(canonical) < self.min_chars:
             self.stats.too_short += 1
             return None
-        if len(text) > self.max_chars:
+        if len(preserved) > self.max_chars:
             self.stats.too_long += 1
             return None
-        printable = sum(character.isprintable() for character in text) / len(text)
-        alphanumeric = sum(character.isalnum() for character in text) / len(text)
+        printable = sum(character.isprintable() or character in "\n\t" for character in preserved) / len(preserved)
+        alphanumeric = sum(character.isalnum() for character in preserved) / len(preserved)
         if printable < 0.95 or alphanumeric < 0.25:
             self.stats.low_quality += 1
             return None
         if self.english_only:
-            letters = [character for character in text if character.isalpha()]
+            letters = [character for character in preserved if character.isalpha()]
             ascii_ratio = sum(character.isascii() for character in letters) / max(len(letters), 1)
             if ascii_ratio < 0.85:
                 self.stats.language += 1
                 return None
-        digest = _digest(text)
-        fingerprint = _simhash(text)
-        if digest in self.excluded_digests or self._is_contaminated(text, fingerprint):
+        digest = _digest(canonical)
+        fingerprint = _simhash(canonical)
+        if digest in self.excluded_digests or self._is_contaminated(canonical, fingerprint):
             self.stats.contamination += 1
             return None
         if digest in self.seen:
@@ -129,9 +138,9 @@ class CorpusFilter:
         if fingerprint is not None:
             self.near_duplicates.add(fingerprint)
         if self.redact_pii:
-            text = self._redact_pii(text)
+            preserved = self._redact_pii(preserved)
         self.stats.accepted += 1
-        return text
+        return preserved if self.preserve_whitespace else _normalize(preserved)
 
     def _remember_digest(self, digest: bytes) -> None:
         self.seen.add(digest)
@@ -141,7 +150,7 @@ class CorpusFilter:
 
     def _is_contaminated(self, text: str, fingerprint: int | None) -> bool:
         folded = text.casefold()
-        if any(excluded in folded for excluded in self.excluded_normalized):
+        if any(excluded in folded for excluded in self.substring_exclusions):
             return True
         if fingerprint is not None and self.contamination.contains(fingerprint):
             return True
@@ -229,6 +238,17 @@ class _SimilarityIndex:
 
 def _normalize(text: str) -> str:
     return " ".join(str(text).split())
+
+
+def _clean_preserving_whitespace(text: str) -> str:
+    text = unicodedata.normalize("NFKC", str(text)).replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(
+        character for character in text
+        if character in "\n\t" or unicodedata.category(character) != "Cc"
+    )
+    text = re.sub(r"[ \t]+(?=\n)", "", text)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text.strip()
 
 
 def _digest(text: str) -> bytes:

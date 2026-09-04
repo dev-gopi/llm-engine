@@ -245,6 +245,60 @@ python scripts/audit_datasets.py \
 the check. A manifest records review; it does not replace legal or privacy
 assessment.
 
+### Clean and pack pretraining JSONL
+
+The preparation tools produce one JSONL file per split, never binary token
+shards. Clean validation first, then exclude it while cleaning training data so
+train/validation overlap is removed:
+
+```bash
+.venv/bin/python scripts/clean_jsonl_corpus.py \
+  data/processed/wikitext_103/validation.jsonl \
+  --output data/cleaned/wikitext_103/validation.jsonl \
+  --tokenizer data/tokenizer
+
+.venv/bin/python scripts/clean_jsonl_corpus.py \
+  data/processed/wikitext_103/train.jsonl \
+  --output data/cleaned/wikitext_103/train.jsonl \
+  --tokenizer data/tokenizer \
+  --exclude data/cleaned/wikitext_103/validation.jsonl
+
+.venv/bin/python scripts/pack_jsonl_corpus.py \
+  data/cleaned/wikitext_103/train.jsonl \
+  --output data/cleaned/wikitext_103/train.packed.jsonl \
+  --tokenizer data/tokenizer --sequence-length 512
+```
+
+Repeat this workflow for TinyStories. The cleaner normalizes Unicode, filters
+low-quality and duplicate text, redacts common secrets and personal identifiers,
+detects language, measures token lengths, and writes an `.audit.json` report.
+The packer combines short documents with EOS boundaries and writes a
+`.packing.json` report. Generated files under `data/cleaned/` are ignored; the
+empty directory is retained with `.gitkeep`.
+
+`configs/pretraining.cleaned.gpu.yaml` is a separate new-stage configuration.
+It is intentionally unusable until all referenced packed files have been
+generated and audited; do not use it to resume a sampler created from
+`configs/pretraining.gpu.yaml`.
+
+### Additional local pretraining data
+
+The workspace includes two bounded, optional JSONL corpora for a later broad
+pretraining stage:
+
+- `data/processed/fineweb_edu/`: 533,797 train, 2,000 validation, and 2,011
+  test educational-web records (about 2.5 GiB processed). The source is the
+  FineWeb-Edu `sample-10BT` configuration under ODC-By-1.0 and Common Crawl
+  terms; attribution is required and privacy review is incomplete.
+- `data/processed/code_pretraining/`: 79,822 train, 1,000 validation, and
+  1,000 test raw Python-code records (about 803 MiB processed). Source files
+  carry mixed per-record licenses, so license and privacy review are incomplete.
+
+These datasets are not included in `configs/pretraining.gpu.yaml`. Keep the
+active 90% WikiText / 10% TinyStories run unchanged when resuming its existing
+checkpoint. Add the optional corpora only through a new training stage and a
+separately validated configuration.
+
 ## Future scale targets
 
 `configs/text/` contains separate, intentionally incompatible future profiles:

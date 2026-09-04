@@ -12,6 +12,8 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 | --- | --- | --- |
 | `tinystories` | V1/V2/v2 optional pretraining and tokenizer training | [roneneldan/TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) |
 | `wikitext_103` | V1/V2/v2 optional pretraining and tokenizer training | [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext) |
+| `fineweb_edu` | Optional future general/educational web pretraining | [HuggingFaceFW/fineweb-edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) (`sample-10BT`) |
+| `code_pretraining` | Optional future raw Python-code pretraining | [codeparrot/codeparrot-clean-valid](https://huggingface.co/datasets/codeparrot/codeparrot-clean-valid) |
 | `ultrachat_200k` | V1/V2/v2 SFT and tokenizer discovery | [HuggingFaceH4/ultrachat_200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k) |
 | `v2_openassistant_en` | v2 SFT and tokenizer discovery | [agentlans/OpenAssistant-oasst](https://huggingface.co/datasets/agentlans/OpenAssistant-oasst) and original [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) |
 | `helpsteer` | V1/V2/v2 SFT, tokenizer discovery, and preference derivation | [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
@@ -132,6 +134,24 @@ model mixture contains:
 
 These are plain-text pretraining datasets, not assistant-response SFT data.
 
+### Downloaded future-pretraining subsets
+
+Two bounded plain-text datasets are stored locally for a future diversified
+pretraining stage. They are **not referenced by the active 90% WikiText / 10%
+TinyStories configuration** and must not be introduced while resuming that
+run.
+
+| Local name | Train | Validation | Test | Processed size | Intended role | Governance status |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| `fineweb_edu` | 533,797 | 2,000 | 2,011 | about 2.5 GiB | Clean educational web pages, articles, and general prose | ODC-By-1.0 reviewed; Common Crawl terms and attribution apply; privacy review incomplete |
+| `code_pretraining` | 79,822 | 1,000 | 1,000 | about 803 MiB | Raw Python source-code language modelling | Mixed per-record licenses and privacy review remain incomplete |
+
+Files are under `data/processed/fineweb_edu/` and
+`data/processed/code_pretraining/`. Their raw Parquet download caches were
+deleted after conversion. Both have `dataset-manifest.yaml` provenance files.
+Do not claim commercial readiness for `code_pretraining` until every retained
+record's upstream license and privacy status have been reviewed.
+
 ## Governance and quality requirements
 
 Training currently uses `dataset_governance.policy: warn` and
@@ -157,3 +177,26 @@ Run the machine-readable audit with:
 The audit intentionally exits unsuccessfully while required reviews remain
 incomplete, even though the training profile's `warn` policy permits an
 educational local run.
+
+## JSONL quality gate (no token shards)
+
+Use `scripts/clean_jsonl_corpus.py` followed by
+`scripts/pack_jsonl_corpus.py`. Passing the automated checks does not replace
+manual license, privacy, or sample-quality review.
+
+| Check | Implementation/evidence |
+| --- | --- |
+| 1. Exact duplicates | Bounded canonical-content digest index; counts are recorded in `.audit.json`. |
+| 2. Near-duplicates/templates | Bounded SimHash index with configurable Hamming distance. Template quality still needs sampling. |
+| 3. Train/validation overlap | Clean held-out data first and pass it with `--exclude` when cleaning train. |
+| 4. Broken markup/Unicode/empty passages | NFKC and control-character cleanup plus empty, length, printable, and alphanumeric filters. |
+| 5. Secrets/PII/generated text | Common credentials, email, phone, IP, address, government and financial IDs are redacted. Generated-text quality needs manual review. |
+| 6. Language detection | Every accepted row receives a `language` field and aggregate counts are audited. |
+| 7. Length/truncation | Exact tokenizer lengths and the percentage exceeding 512 tokens are recorded. |
+| 8. Packing | Short documents are combined into bounded JSONL records instead of individually padded. |
+| 9. Document boundaries | Every document or long-document chunk ends in the EOS special token; the loader does not append a duplicate EOS to `prepacked` rows. |
+| 10. Provenance/license/preparation | Source manifests plus `.audit.json` and `.packing.json` record provenance and preparation evidence. License/privacy approvals remain human decisions. |
+
+Generated `data/cleaned/` outputs are reproducible local artifacts and are not
+committed. The cleaned pretraining configuration must only be started after all
+referenced outputs exist and their reports have been reviewed.

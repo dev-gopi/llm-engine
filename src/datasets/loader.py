@@ -78,7 +78,11 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
                     identifiers, loss_mask = self._encode_chat(messages, tokenizer, add_bos, add_eos)
                 else:
                     text = record if isinstance(record, str) else record_to_text(record)
-                    identifiers = tokenizer.encode(text, add_bos=add_bos, add_eos=add_eos, allowed_special="all")
+                    prepacked = isinstance(record, Mapping) and record.get("prepacked") is True
+                    identifiers = tokenizer.encode(
+                        text, add_bos=add_bos, add_eos=add_eos and not prepacked,
+                        allowed_special="all",
+                    )
                     loss_mask = [True] * len(identifiers)
             except (TypeError, ValueError) as error:
                 raise ValueError(f"invalid dataset record at index {record_index}: {error}") from error
