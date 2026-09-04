@@ -10,7 +10,7 @@ max_sequence_length: 256
 num_workers: 2
 pin_memory: false
 persistent_workers: true
-prefetch_factor: 2
+prefetch_factor: 1
 lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null

@@ -12,7 +12,7 @@ dataset_governance:
   commercial_use: false
 max_sequence_length: 512
 pad_to_multiple_of: 8
-num_workers: 1
+num_workers: 4
 pin_memory: true
 persistent_workers: true
 prefetch_factor: 2
