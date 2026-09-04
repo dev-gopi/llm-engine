@@ -15,7 +15,7 @@ lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
-samples_per_epoch: 500000
+samples_per_epoch: 1000000
 train_files:
   - data/processed/tinystories/train.jsonl
   - data/processed/wikitext_103/train.jsonl
