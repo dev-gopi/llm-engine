@@ -1,6 +1,6 @@
 # Continued pretraining for the active grown GPU model.
 batch_size: 1
-epochs: 3
+epochs: 5
 seed: 42
 dataset_governance:
   policy: warn

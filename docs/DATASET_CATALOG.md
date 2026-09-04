@@ -127,8 +127,8 @@ model mixture contains:
 
 | Local name | Weight | Purpose |
 | --- | ---: | --- |
-| `tinystories` | 20% | Simple narrative structure, grammar, and coherent short-form text |
-| `wikitext_103` | 80% | General encyclopedic language modeling and broader factual prose |
+| `tinystories` | 10% | Simple narrative structure, grammar, and coherent short-form text |
+| `wikitext_103` | 90% | General encyclopedic language modeling and broader factual prose |
 
 These are plain-text pretraining datasets, not assistant-response SFT data.
 
