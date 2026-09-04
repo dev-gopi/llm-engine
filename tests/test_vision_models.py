@@ -4,6 +4,7 @@ import torch
 from model.gpt import MiniGPT
 from multimodal.model import VisionLanguageModel
 from vision.encoder import VisionEncoder
+from vision.classifier import VisionClassifier
 from vision.patch_embedding import PatchEmbedding
 
 
@@ -70,3 +71,17 @@ def test_multimodal_wrapper_does_not_change_language_state_keys() -> None:
     keys_before = tuple(language.state_dict())
     VisionLanguageModel(small_vision(), language, visual_tokens=2)
     assert tuple(language.state_dict()) == keys_before
+
+
+def test_flexible_vision_resolution_interpolates_position_embeddings() -> None:
+    model = VisionEncoder(
+        image_size=32, patch_size=8, hidden_size=24, layers=1, heads=3,
+        ffn_hidden_size=48, dropout=0.0, strict_image_size=False, pool_type="mean",
+    )
+    assert model(torch.randn(2, 3, 48, 32)).shape == (2, 25, 24)
+    assert model.pooled(torch.randn(2, 3, 48, 32)).shape == (2, 24)
+
+
+def test_vision_classifier_returns_class_logits() -> None:
+    classifier = VisionClassifier(small_vision(), num_classes=5, dropout=0.1)
+    assert classifier(torch.randn(2, 3, 32, 32)).shape == (2, 5)

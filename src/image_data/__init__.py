@@ -1,5 +1,7 @@
 """Image loading and normalization utilities."""
 
-from .processor import load_image, tensor_to_image
+from .processor import ImageProcessor, load_image, tensor_to_image
+from .dataset import ImageClassificationDataset, ImageDataset, discover_images
+from .audit import ImageAudit, audit_images
 
-__all__ = ["load_image", "tensor_to_image"]
+__all__ = ["ImageAudit", "ImageClassificationDataset", "ImageDataset", "ImageProcessor", "audit_images", "discover_images", "load_image", "tensor_to_image"]

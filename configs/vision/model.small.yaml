@@ -7,3 +7,5 @@ heads: 3
 ffn_hidden_size: 768
 dropout: 0.05
 initializer_range: 0.02
+strict_image_size: true
+pool_type: cls

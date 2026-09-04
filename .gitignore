@@ -38,6 +38,7 @@ data/cache/*
 data/cleaned/*
 data/rag/*
 data/shards/*
+data/images/*
 data/tokenizer/*
 data/tokenizer-*/*
 !data/raw/.gitkeep
@@ -79,6 +80,7 @@ reports/*
 !reports/training_report.sample.json
 !reports/notification-sw.js
 artifacts/
+outputs/
 
 # Model and tensor artifacts
 *.ckpt

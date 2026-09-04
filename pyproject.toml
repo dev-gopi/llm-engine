@@ -9,22 +9,28 @@ description = "A configuration-driven GPT-style language model engine"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
-    "numpy",
-    "pyarrow",
-    "python-dotenv",
-    "pyyaml",
-    "regex",
-    "safetensors",
-    "torch",
-    "uvicorn[standard]",
+    "fastapi>=0.115",
+    "numpy>=1.26",
+    "pyarrow>=15",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "regex>=2024.5.15",
+    "safetensors>=0.4",
+    "torch>=2.4",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
-dev = ["httpx", "pytest"]
+dev = ["httpx>=0.27", "pytest>=8"]
 export = ["onnx>=1.16", "onnxruntime>=1.18"]
 rag = ["pypdf>=5"]
 images = ["pillow>=10"]
+full = [
+    "pillow>=10",
+    "pypdf>=5",
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

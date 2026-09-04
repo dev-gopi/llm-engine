@@ -113,6 +113,31 @@ def test_grouped_query_attention() -> None:
     assert v_cache.shape == (2, 2, 6, 2)
 
 
+def test_qk_normalization_stabilizes_projected_head_norms() -> None:
+    attention = MultiHeadAttention(dim=16, heads=4, kv_heads=2, qk_norm=True)
+    query, key, _ = attention.project_qkv(torch.randn(2, 5, 16))
+    expected = torch.full(query.shape[:-1], 2.0)
+    torch.testing.assert_close(query.float().norm(dim=-1), expected, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(key.float().norm(dim=-1), expected[:, :2], atol=1e-5, rtol=1e-5)
+
+
+def test_logit_softcap_bounds_outputs_and_loads_from_config() -> None:
+    model = MiniGPT.from_config({
+        "vocab_size": 32, "hidden_size": 16, "layers": 2, "heads": 4,
+        "max_position": 32, "qk_norm": True, "logit_softcap": 0.5,
+    })
+    logits = model(torch.randint(0, 32, (2, 8)))
+    assert model.blocks[0].attn.qk_norm
+    assert logits.abs().max() <= 0.5
+
+
+def test_invalid_stability_options_are_rejected() -> None:
+    with pytest.raises(ValueError, match="qk_norm_eps"):
+        MultiHeadAttention(dim=8, heads=2, qk_norm=True, qk_norm_eps=0)
+    with pytest.raises(ValueError, match="logit_softcap"):
+        MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, logit_softcap=0)
+
+
 def test_minigpt_with_gqa() -> None:
     model = MiniGPT.from_config({
         "vocab_size": 32,

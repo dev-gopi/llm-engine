@@ -38,7 +38,7 @@ without consciously accepting the configured governance policy.
 
 ## 3. Prepare the tokenizer
 
-The active 38K model uses `data/tokenizer`. The tokenizer is trained from all
+The active 40K-base model uses `data/tokenizer`. The tokenizer is trained from all
 29 active GPU fine-tuning sources plus TinyStories and WikiText-103:
 
 Its source list contains all 29 training inputs in
@@ -58,12 +58,12 @@ Verify the artifact:
   "Hello, नमस्ते, বাংলা" --add-bos --add-eos
 ```
 
-This is a new 38K tokenizer lineage. Do not reuse checkpoints created with a
+This is a new 40K tokenizer lineage. Do not reuse checkpoints created with a
 different tokenizer fingerprint.
 
 ## 4. Obtain the active model shape
 
-The active GPU model is 38K/16-layer and should be trained from scratch with
+The active GPU model is 40K/16-layer and should be trained from scratch with
 the new tokenizer. Inspect it without allocating full weights:
 
 ```bash

@@ -1,0 +1,39 @@
+# Deployment-oriented baseline. Quality still depends on licensed training data and validation.
+image_size: 256
+image_channels: 3
+base_channels: 128
+condition_size: 512
+dropout: 0.1
+# At 256px this two-level U-Net attends over 4096 tokens; leave disabled to
+# avoid quadratic memory. Enable for smaller images after profiling.
+use_attention: false
+attention_heads: 8
+timesteps: 1000
+noise_schedule: cosine
+beta_start: 0.0001
+beta_end: 0.02
+inference_steps: 100
+train_data: data/images/diffusion/train
+validation_data: data/images/diffusion/validation
+batch_size: 4
+num_workers: 8
+epochs: 100
+learning_rate: 0.0002
+weight_decay: 0.01
+max_grad_norm: 1.0
+log_every_steps: 50
+save_every_steps: 1000
+output: checkpoints/diffusion/latest.pt
+seed: 42
+validation_seed: 1234
+horizontal_flip: true
+horizontal_flip_probability: 0.5
+train_resize_mode: random_crop
+eval_resize_mode: center_crop
+image_normalization: minus_one_one
+color_jitter: 0.1
+mixed_precision: bf16
+ema_decay: 0.9999
+warmup_ratio: 0.03
+lr_schedule: cosine
+min_lr_ratio: 0.05

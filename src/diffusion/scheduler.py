@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import torch
 from torch import Tensor
 
@@ -14,13 +15,23 @@ class DiffusionScheduler:
         beta_end: float = 2e-2,
         *,
         device: torch.device | str | None = None,
+        schedule: str = "linear",
     ) -> None:
         if timesteps < 2:
             raise ValueError("timesteps must be at least two")
         if not 0.0 < beta_start < beta_end < 1.0:
             raise ValueError("betas must satisfy 0 < beta_start < beta_end < 1")
+        if schedule not in {"linear", "cosine"}:
+            raise ValueError("schedule must be linear or cosine")
         self.timesteps = timesteps
-        self.betas = torch.linspace(beta_start, beta_end, timesteps, device=device)
+        self.schedule = schedule
+        if schedule == "linear":
+            self.betas = torch.linspace(beta_start, beta_end, timesteps, device=device)
+        else:
+            steps = torch.linspace(0, timesteps, timesteps + 1, device=device)
+            alpha_bar = torch.cos(((steps / timesteps + 0.008) / 1.008) * math.pi / 2).square()
+            alpha_bar = alpha_bar / alpha_bar[0]
+            self.betas = (1 - alpha_bar[1:] / alpha_bar[:-1]).clamp(1e-5, 0.999)
         self.alphas = 1.0 - self.betas
         self.alpha_bars = torch.cumprod(self.alphas, dim=0)
 
@@ -75,6 +86,30 @@ class DiffusionScheduler:
             generator=generator,
         )
         return mean + posterior_variance.clamp_min(0).sqrt() * noise
+
+    def ddim_step(
+        self, predicted_noise: Tensor, timestep: int, previous_timestep: int,
+        sample: Tensor, *, eta: float = 0.0, generator: torch.Generator | None = None,
+    ) -> Tensor:
+        """One DDIM update, allowing fewer inference steps than training."""
+        if not 0.0 <= eta <= 1.0:
+            raise ValueError("eta must satisfy 0 <= eta <= 1")
+        alpha_bar = self.alpha_bars[timestep].to(sample)
+        previous_alpha_bar = (
+            self.alpha_bars[previous_timestep].to(sample)
+            if previous_timestep >= 0 else torch.ones((), device=sample.device, dtype=sample.dtype)
+        )
+        clean = (sample - (1 - alpha_bar).sqrt() * predicted_noise) / alpha_bar.sqrt()
+        variance = ((1 - previous_alpha_bar) / (1 - alpha_bar) *
+                    (1 - alpha_bar / previous_alpha_bar)).clamp_min(0)
+        sigma = eta * variance.sqrt()
+        direction = (1 - previous_alpha_bar - sigma.square()).clamp_min(0).sqrt() * predicted_noise
+        if previous_timestep < 0 or eta == 0:
+            noise = 0.0
+        else:
+            noise = torch.randn(sample.shape, device=sample.device, dtype=sample.dtype,
+                                generator=generator)
+        return previous_alpha_bar.sqrt() * clean + direction + sigma * noise
 
     def _validate_timesteps(self, timesteps: Tensor, batch_size: int) -> None:
         if timesteps.ndim != 1 or timesteps.shape[0] != batch_size:

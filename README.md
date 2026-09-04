@@ -26,6 +26,8 @@ foundation models.
   preparation, and governance.
 - [Deployment guide](docs/DEPLOYMENT.md) — local and container serving,
   security, monitoring, and recovery.
+- [Vision and diffusion guide](docs/IMAGE_MODELS.md) — image datasets, training,
+  checkpoint resume, classification, sampling, and production validation.
 
 Documentation and active configuration filenames are unversioned.
 
@@ -35,7 +37,7 @@ Active profiles, including the tokenizer, use unversioned filenames.
 
 | Configuration | Purpose |
 | --- | --- |
-| `configs/model.gpu.yaml` | Active 38K, 16-layer, approximately 80.3M GPU model |
+| `configs/model.gpu.yaml` | Active 40K-base, 16-layer, approximately 81.3M GPU model |
 | `configs/model.cpu.yaml` | Smaller 32K, 8-layer CPU model |
 | `configs/model.source.gpu.yaml` | Frozen 32K/10-layer shape for checkpoint growth |
 | `configs/pretraining.gpu.yaml` | GPU continued-pretraining stage |
@@ -45,7 +47,7 @@ Active profiles, including the tokenizer, use unversioned filenames.
 | `configs/finetuning.recovery.gpu.yaml` | Focused response-quality recovery |
 | `configs/dpo.gpu.yaml` / `dpo.cpu.yaml` | Preference optimization |
 | `configs/inference.yaml` | CLI and serving defaults |
-| `configs/tokenizer.yaml` | 38K tokenizer trained from all active SFT sources |
+| `configs/tokenizer.yaml` | 40K base tokenizer with a 2K fine-tuning extension |
 | `configs/evaluation.*` | Domain and fixed-case evaluation |
 | `configs/*packed*` | Memory-mapped token-shard training |
 | `configs/vision/multimodal.yaml` | Small multimodal adapter profile |
@@ -64,11 +66,13 @@ python scripts/capabilities.py
 ```
 
 Optional dependency groups are available for ONNX export, PDF RAG, and image
-support.
+support. Install every runtime feature with `python -m pip install -e '.[full]'`,
+or a development environment with all features using
+`python -m pip install -e '.[dev,full]'`.
 
 ## Quick start
 
-The active GPU model uses the 38K tokenizer written to `data/tokenizer`:
+The active GPU model uses the 40K base tokenizer written to `data/tokenizer`:
 
 ```bash
 .venv/bin/python scripts/tokenize.py train --config configs/tokenizer.yaml

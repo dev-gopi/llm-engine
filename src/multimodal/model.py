@@ -102,4 +102,9 @@ class VisionLanguageModel(nn.Module):
             rotary = self.language_model.rotary_emb(hidden_states, seq_len=hidden_states.shape[1])
         for block in self.language_model.blocks:
             hidden_states = block(hidden_states, rotary_pos_emb=rotary)
-        return self.language_model.head(self.language_model.norm(hidden_states))
+        logits = self.language_model.head(self.language_model.norm(hidden_states))
+        if self.language_model.logit_softcap is not None:
+            logits = self.language_model.logit_softcap * torch.tanh(
+                logits / self.language_model.logit_softcap
+            )
+        return logits

@@ -3,11 +3,27 @@
 > The filename is retained for existing links. This document describes the
 > current unversioned profiles.
 
+## Language-model stability features
+
+New from-scratch model profiles can enable parameter-free stability options:
+
+```yaml
+qk_norm: true
+qk_norm_eps: 0.000001
+logit_softcap: 30.0
+```
+
+`qk_norm` normalizes each projected query and key head before rotary embeddings
+and attention. `logit_softcap` smoothly bounds vocabulary logits with `tanh` for
+safer mixed-precision numerics and less extreme confidence. These options change
+model behavior, so use them for newly trained checkpoints rather than silently
+adding them to an existing checkpoint configuration.
+
 ## Active model
 
 `configs/model.gpu.yaml` defines the active laptop-GPU architecture:
 
-- 38,000-token vocabulary;
+- 40,000-token base vocabulary, expandable to the verified 42,000-token tokenizer;
 - hidden size 512;
 - 16 transformer layers;
 - 8 attention heads and 2 KV heads;
@@ -74,7 +90,7 @@ Future architecture targets live under `configs/text/`:
 - `tokenizer.future.50k.yaml` — separate 50K from-scratch tokenizer family;
 - `pretraining.future.fsdp.yaml` — opt-in FSDP training example.
 
-The future tokenizer is intentionally incompatible with the active 38K model.
+The future tokenizer is intentionally incompatible with the active 40K model.
 Using it requires new pretraining.
 
 ```bash

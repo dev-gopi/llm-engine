@@ -56,6 +56,8 @@ class MiniGPT(nn.Module):
         attention_dropout: float = 0.0,
         attention_bias: bool = True,
         causal_attention: bool = True,
+        qk_norm: bool = False,
+        qk_norm_eps: float = 1e-6,
         ffn_hidden_dim: int | None = None,
         ffn_expansion_factor: float = 4.0,
         ffn_multiple_of: int = 1,
@@ -63,6 +65,7 @@ class MiniGPT(nn.Module):
         ffn_dropout: float = 0.0,
         ffn_bias: bool = True,
         gradient_checkpointing: bool = False,
+        logit_softcap: float | None = None,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -74,6 +77,9 @@ class MiniGPT(nn.Module):
         self.position_type = str(position_type).lower()
         self.tie_word_embeddings = bool(tie_word_embeddings)
         self.gradient_checkpointing = bool(gradient_checkpointing)
+        if logit_softcap is not None and (not math.isfinite(logit_softcap) or logit_softcap <= 0):
+            raise ValueError("logit_softcap must be finite and positive when provided")
+        self.logit_softcap = float(logit_softcap) if logit_softcap is not None else None
 
         if self.position_type not in {"learned", "rotary", "sinusoidal", "none"}:
             raise ValueError(f"Unsupported position_type: {position_type!r}")
@@ -134,6 +140,8 @@ class MiniGPT(nn.Module):
                 attention_bias=attention_bias,
                 ffn_hidden_dim=ffn_hidden_dim,
                 causal_attention=causal_attention,
+                qk_norm=qk_norm,
+                qk_norm_eps=qk_norm_eps,
                 ffn_expansion_factor=ffn_expansion_factor,
                 ffn_multiple_of=ffn_multiple_of,
                 ffn_activation=ffn_activation,
@@ -313,6 +321,8 @@ class MiniGPT(nn.Module):
                     hidden_states = block_output
 
         logits = self.head(self.norm(hidden_states))
+        if self.logit_softcap is not None:
+            logits = self.logit_softcap * torch.tanh(logits / self.logit_softcap)
         return (logits, tuple(present_key_values)) if use_cache else logits
 
     def tie_weights(self) -> None:
@@ -410,6 +420,8 @@ class MiniGPT(nn.Module):
             attention_dropout=float(config.get("attention_dropout", 0.0)),
             attention_bias=bool(config.get("attention_bias", True)),
             causal_attention=bool(config.get("causal_attention", True)),
+            qk_norm=bool(config.get("qk_norm", False)),
+            qk_norm_eps=float(config.get("qk_norm_eps", 1e-6)),
             ffn_hidden_dim=(
                 int(config["ffn_hidden_size"])
                 if config.get("ffn_hidden_size") is not None
@@ -421,6 +433,10 @@ class MiniGPT(nn.Module):
             ffn_dropout=float(config.get("ffn_dropout", 0.0)),
             ffn_bias=bool(config.get("ffn_bias", True)),
             gradient_checkpointing=bool(config.get("gradient_checkpointing", False)),
+            logit_softcap=(
+                float(config["logit_softcap"])
+                if config.get("logit_softcap") is not None else None
+            ),
             device=device,
             dtype=dtype,
         )

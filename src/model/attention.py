@@ -36,6 +36,8 @@ class MultiHeadAttention(nn.Module):
         dropout: float = 0.0,
         bias: bool = True,
         causal: bool = True,
+        qk_norm: bool = False,
+        qk_norm_eps: float = 1e-6,
         initializer_range: float = 0.02,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
@@ -49,6 +51,10 @@ class MultiHeadAttention(nn.Module):
         self.head_dim = dim // heads
         self.dropout = float(dropout)
         self.causal = bool(causal)
+        if not math.isfinite(qk_norm_eps) or qk_norm_eps <= 0:
+            raise ValueError("qk_norm_eps must be finite and positive")
+        self.qk_norm = bool(qk_norm)
+        self.qk_norm_eps = float(qk_norm_eps)
         self.initializer_range = float(initializer_range)
 
         factory_kwargs = {"device": device, "dtype": dtype}
@@ -99,6 +105,10 @@ class MultiHeadAttention(nn.Module):
             key = self.k_proj(hidden_states).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
             value = self.v_proj(hidden_states).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
 
+        if self.qk_norm:
+            scale = math.sqrt(self.head_dim)
+            query = F.normalize(query.float(), dim=-1, eps=self.qk_norm_eps).to(query.dtype) * scale
+            key = F.normalize(key.float(), dim=-1, eps=self.qk_norm_eps).to(key.dtype) * scale
         return query, key, value
 
     def forward(
@@ -333,6 +343,8 @@ class MultiHeadAttention(nn.Module):
             dropout=float(config.get("attention_dropout", 0.0)),
             bias=bool(config.get("attention_bias", True)),
             causal=bool(config.get("causal_attention", True)),
+            qk_norm=bool(config.get("qk_norm", False)),
+            qk_norm_eps=float(config.get("qk_norm_eps", 1e-6)),
             initializer_range=float(config.get("initializer_range", 0.02)),
             device=device,
             dtype=dtype,

@@ -5,3 +5,8 @@ condition_size: 256
 timesteps: 100
 beta_start: 0.0001
 beta_end: 0.02
+noise_schedule: linear
+dropout: 0.0
+use_attention: false
+attention_heads: 4
+inference_steps: 100

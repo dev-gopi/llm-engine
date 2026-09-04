@@ -3,5 +3,8 @@
 from .pipeline import DiffusionPipeline
 from .scheduler import DiffusionScheduler
 from .unet import SmallUNet
+from .vae import AutoencoderKL, VAEOutput
+from .text_encoder import DiffusionTextEncoder
+from .latent_pipeline import LatentDiffusionPipeline
 
-__all__ = ["DiffusionPipeline", "DiffusionScheduler", "SmallUNet"]
+__all__ = ["AutoencoderKL", "DiffusionPipeline", "DiffusionScheduler", "DiffusionTextEncoder", "LatentDiffusionPipeline", "SmallUNet", "VAEOutput"]
