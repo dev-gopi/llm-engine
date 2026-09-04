@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
@@ -20,6 +22,10 @@ def main() -> None:
     parser.add_argument("paths", nargs="*", type=Path)
     parser.add_argument("--training-config", type=Path)
     parser.add_argument("--stage", help="override dataset_governance.stage from the training config")
+    parser.add_argument(
+        "--output", type=Path,
+        help="also write the JSON result atomically (for example reports/data_quality.json)",
+    )
     parser.add_argument(
         "--commercial-use", action=argparse.BooleanOptionalAction, default=None,
         help="override dataset_governance.commercial_use from the training config",
@@ -51,7 +57,18 @@ def main() -> None:
             for item in findings
         ],
     }
-    print(json.dumps(result, indent=2))
+    rendered = json.dumps(result, indent=2) + "\n"
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{args.output.name}.", dir=args.output.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(rendered)
+            os.replace(temporary, args.output)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    print(rendered, end="")
     if findings:
         raise SystemExit(1)
 

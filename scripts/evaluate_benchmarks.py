@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
@@ -33,6 +35,10 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=64)
     parser.add_argument("--repetition-penalty", type=float)
     parser.add_argument("--no-repeat-ngram-size", type=int)
+    parser.add_argument(
+        "--output", type=Path,
+        help="also write the JSON result atomically (for example reports/generation_quality.json)",
+    )
     args = parser.parse_args()
     for label, path in (
         ("benchmark cases", args.cases),
@@ -120,10 +126,19 @@ def main() -> None:
         score = score_answer(result.text, case)
         scored.append((case, score))
         details.append({"category": case.category, "prompt": case.prompt, "answer": result.text, "score": score})
-    print(json.dumps(
-        {"summary": summarize_scores(scored), "results": details},
-        indent=2, ensure_ascii=False,
-    ))
+    report = {"summary": summarize_scores(scored), "results": details}
+    rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{args.output.name}.", dir=args.output.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(rendered)
+            os.replace(temporary, args.output)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    print(rendered, end="")
 
 
 if __name__ == "__main__":

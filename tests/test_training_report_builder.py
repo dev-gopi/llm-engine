@@ -145,7 +145,8 @@ def test_progress_analysis_reports_overall_and_domain_improvement() -> None:
     assert analysis["overfitting"]["status"] == "no_current_signal"
     assert analysis["domain_ranking"][0]["name"] == "chat"
     assert analysis["checkpoint_comparison"]["best_step"] is None
-    assert analysis["checkpoint_comparison"]["latest_minus_best"] == 0
+    assert analysis["checkpoint_comparison"]["latest_minus_best"] is None
+    assert analysis["checkpoint_comparison"]["status"] == "same_checkpoint"
     assert analysis["report_coverage"]["generation_quality"].startswith("not_collected")
 
 
@@ -161,6 +162,29 @@ def test_progress_analysis_detects_overfitting_signal() -> None:
     assert analysis["overfitting"]["status"] == "risk_detected"
     assert analysis["checkpoint_comparison"]["best_step"] == 10
     assert analysis["checkpoint_comparison"]["latest_minus_best"] == pytest.approx(0.2)
+    assert analysis["checkpoint_comparison"]["status"] == "different_checkpoints"
+
+
+def test_evaluation_artifacts_update_report_coverage(tmp_path) -> None:
+    audit = tmp_path / "audit.json"
+    benchmark = tmp_path / "benchmark.json"
+    audit.write_text('{"status":"passed","findings":[]}')
+    benchmark.write_text('{"summary":{"accuracy":0.75},"results":[]}')
+
+    coverage = MODULE.evaluation_coverage(
+        MODULE.load_evaluation_artifact(audit),
+        MODULE.load_evaluation_artifact(benchmark),
+    )
+
+    assert coverage["data_quality"] == "available (passed)"
+    assert coverage["generation_quality"] == "available (accuracy: 75.0%)"
+
+
+def test_invalid_evaluation_artifact_is_treated_as_missing(tmp_path) -> None:
+    artifact = tmp_path / "invalid.json"
+    artifact.write_text("not json")
+
+    assert MODULE.load_evaluation_artifact(artifact) is None
 
 
 def test_pid_check_accepts_a_live_process_and_rejects_missing_process() -> None:

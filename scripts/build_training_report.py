@@ -33,6 +33,35 @@ def _number(value: str) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
+def load_evaluation_artifact(path: Path | None) -> dict[str, Any] | None:
+    """Load an optional evaluation result without breaking the live reporter."""
+    if path is None or not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def evaluation_coverage(
+    data_audit: dict[str, Any] | None,
+    generation_evaluation: dict[str, Any] | None,
+) -> dict[str, str]:
+    data_status = "not_collected; run a dataset audit for duplicates, truncation, language and token lengths"
+    if data_audit:
+        status = str(data_audit.get("status", "available"))
+        data_status = f"available ({status})"
+    generation_status = "not_collected; run fixed-prompt or benchmark evaluation for checkpoint response quality"
+    if generation_evaluation:
+        summary = generation_evaluation.get("summary")
+        accuracy = summary.get("accuracy") if isinstance(summary, dict) else None
+        generation_status = "available" + (
+            f" (accuracy: {float(accuracy):.1%})" if isinstance(accuracy, (int, float)) else ""
+        )
+    return {"data_quality": data_status, "generation_quality": generation_status}
+
+
 class SystemMonitor:
     """Collect lightweight host and NVIDIA telemetry outside the trainer."""
 
@@ -414,6 +443,11 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
         overfitting = {"status": "inconclusive", "reason": "The available loss trends are inconclusive."}
     best_validation = min(validation, key=lambda item: float(item["loss"])) if validation else None
     latest_validation = validation[-1] if validation else None
+    same_checkpoint = bool(
+        latest_validation
+        and best_validation
+        and latest_validation.get("step") == best_validation.get("step")
+    )
     return {
         "verdict": verdict,
         "overall_validation_loss": overall,
@@ -430,8 +464,10 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "latest_validation_loss": latest_validation.get("loss") if latest_validation else None,
             "latest_minus_best": (
                 float(latest_validation["loss"]) - float(best_validation["loss"])
-                if latest_validation and best_validation else None
+                if latest_validation and best_validation and not same_checkpoint else None
             ),
+            "status": "same_checkpoint" if same_checkpoint else "different_checkpoints",
+            "generation_accuracy": None,
             "note": "Loss comparison only; response quality requires a separate fixed-prompt or benchmark evaluation.",
         },
         "run_summary": {
@@ -477,6 +513,11 @@ def build_report(
     parsed = normalize_history(
         parsed or parse_training_log(args.log, raw_tail_lines=args.raw_tail_lines)
     )
+    data_audit = load_evaluation_artifact(getattr(args, "data_audit", None))
+    generation_evaluation = load_evaluation_artifact(
+        getattr(args, "generation_evaluation", None)
+    )
+    coverage = evaluation_coverage(data_audit, generation_evaluation)
     report = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -493,10 +534,21 @@ def build_report(
             "latest": checkpoint_details(args.latest_checkpoint, parsed["validation"], best=False),
             "best": checkpoint_details(args.best_checkpoint, parsed["validation"], best=True),
         },
+        "evaluations": {
+            "data_quality": data_audit,
+            "generation_quality": generation_evaluation,
+        },
         "analysis": analyze_progress(parsed),
         "telemetry": telemetry or [],
         **parsed,
     }
+    report["analysis"]["report_coverage"].update(coverage)
+    generation_summary = (generation_evaluation or {}).get("summary")
+    if isinstance(generation_summary, dict):
+        accuracy = generation_summary.get("accuracy")
+        comparison = report["analysis"]["checkpoint_comparison"]
+        comparison["generation_accuracy"] = accuracy
+        comparison["note"] = "Fixed-prompt benchmark results are included. Compare multiple checkpoint artifacts before deployment."
     latest_telemetry = report["telemetry"][-1] if report["telemetry"] else {}
     if latest_telemetry.get("gpus"):
         report["analysis"]["report_coverage"]["gpu_telemetry"] = "available"
@@ -587,6 +639,14 @@ def main() -> None:
     parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml"))
     parser.add_argument("--latest-checkpoint", type=Path, default=Path("checkpoints/finetuning/latest.pt"))
     parser.add_argument("--best-checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt"))
+    parser.add_argument(
+        "--data-audit", type=Path, default=Path("reports/data_quality.json"),
+        help="optional JSON dataset-quality audit included in report coverage",
+    )
+    parser.add_argument(
+        "--generation-evaluation", type=Path, default=Path("reports/generation_quality.json"),
+        help="optional JSON fixed-prompt/benchmark result included in report coverage",
+    )
     parser.add_argument("--raw-tail-lines", type=int, default=1000)
     parser.add_argument(
         "--telemetry-points", type=int, default=3600,

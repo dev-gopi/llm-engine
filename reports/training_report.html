@@ -413,11 +413,18 @@
       const ranking=analysis.domain_ranking||[];
       document.getElementById('domain-ranking').innerHTML=ranking.length?table(['Rank','Domain','Latest loss','Improvement %'],ranking.map((v,i)=>[fmt(i+1,0),esc(v.name),fmt(v.latest_loss),percent(v.percent_improvement)])):'Not enough domain validation data.';
       const comparison=analysis.checkpoint_comparison||{};
+      const sameCheckpoint=comparison.status==='same_checkpoint'||(comparison.best_step!=null&&comparison.best_step===comparison.latest_step);
+      const comparisonStatus=comparison.status||(sameCheckpoint?'same_checkpoint':'different_checkpoints');
+      const comparisonNote=sameCheckpoint&&comparison.generation_accuracy==null
+        ?'Best and latest are the same checkpoint; there is no loss delta. Response-quality evaluation is pending.'
+        :(comparison.note||'');
       document.getElementById('checkpoint-comparison').innerHTML=table(['Metric','Value'],[
         ['Best validation step',fmt(comparison.best_step,0)],['Best validation loss',fmt(comparison.best_validation_loss)],
         ['Latest validation step',fmt(comparison.latest_step,0)],['Latest validation loss',fmt(comparison.latest_validation_loss)],
-        ['Latest minus best',fmt(comparison.latest_minus_best,6)]
-      ])+`<p class="muted">${esc(comparison.note||'')}</p>`;
+        ['Comparison',esc(comparisonStatus.replaceAll('_',' '))],
+        ...(comparison.latest_minus_best==null||sameCheckpoint?[]:[['Latest minus best',fmt(comparison.latest_minus_best,6)]]),
+        ['Generation accuracy',comparison.generation_accuracy==null?'pending':percent(Number(comparison.generation_accuracy)*100)]
+      ])+`<p class="muted">${esc(comparisonNote)}</p>`;
       const summary=analysis.run_summary||{};
       document.getElementById('run-summary').innerHTML=table(['Metric','Value'],Object.entries(summary).map(([key,value])=>[esc(key.replaceAll('_',' ')),fmt(value)]));
       const coverage=analysis.report_coverage||{};

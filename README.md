@@ -163,6 +163,23 @@ Open `http://localhost:8000/training_report.html`.
 Select deployable checkpoints using held-out validation and fixed behavioral
 evaluation, not training loss alone.
 
+Persist the two evaluations to make them available in the live report:
+
+```bash
+.venv/bin/python scripts/audit_data_quality.py \
+  --training-config configs/finetuning.gpu.yaml \
+  --output reports/data_quality.json
+
+.venv/bin/python scripts/evaluate_benchmarks.py \
+  --cases configs/evaluation.domains.jsonl \
+  --model-config configs/model.gpu.yaml \
+  --inference-config configs/inference.yaml \
+  --tokenizer data/tokenizer \
+  --checkpoint checkpoints/finetuning/best.pt \
+  --device cuda \
+  --output reports/generation_quality.json
+```
+
 ## DPO and export
 
 ```bash
