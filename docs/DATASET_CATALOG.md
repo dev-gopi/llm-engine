@@ -12,8 +12,8 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 | --- | --- | --- |
 | `tinystories` | V1/V2/v2 optional pretraining and tokenizer training | [roneneldan/TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) |
 | `wikitext_103` | V1/V2/v2 optional pretraining and tokenizer training | [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext) |
-| `fineweb_edu` | Optional future general/educational web pretraining | [HuggingFaceFW/fineweb-edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) (`sample-10BT`) |
-| `code_pretraining` | Optional future raw Python-code pretraining | [codeparrot/codeparrot-clean-valid](https://huggingface.co/datasets/codeparrot/codeparrot-clean-valid) |
+| `fineweb_edu` | Low-weight causal-LM SFT, tokenizer extension, and optional pretraining | [HuggingFaceFW/fineweb-edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu) (`sample-10BT`) |
+| `code_pretraining` | Low-weight causal-LM SFT, tokenizer extension, and optional pretraining | [codeparrot/codeparrot-clean-valid](https://huggingface.co/datasets/codeparrot/codeparrot-clean-valid) |
 | `ultrachat_200k` | V1/V2/v2 SFT and tokenizer discovery | [HuggingFaceH4/ultrachat_200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k) |
 | `v2_openassistant_en` | v2 SFT and tokenizer discovery | [agentlans/OpenAssistant-oasst](https://huggingface.co/datasets/agentlans/OpenAssistant-oasst) and original [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) |
 | `helpsteer` | V1/V2/v2 SFT, tokenizer discovery, and preference derivation | [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
@@ -56,7 +56,7 @@ case files and therefore do not create additional training sources.
 `dataset_weights` control deterministic sampling targets for one training
 epoch. They are not raw dataset-size percentages. Small capability datasets
 can therefore retain a useful share without being overwhelmed by OpenOrca or
-UltraChat. All 24 weights total exactly 100%.
+UltraChat. All weights total exactly 100%.
 
 | Local name | Weight | Validation domain | Upstream source | Purpose | License/review status |
 | --- | ---: | --- | --- | --- | --- |
@@ -84,6 +84,8 @@ UltraChat. All 24 weights total exactly 100%.
 | `hindi_hinglish` | 2% | Hindi | `Subh775/formatted-hindi-hinglish-cot` | Hindi/Hinglish step-by-step reasoning and instruction following | Upstream license and privacy unreviewed |
 | `v2_hindi_news` | 3% | Hindi | `soketlabs/bhasha-sft` | Hindi news summarization and information extraction | Mixed licenses and privacy unreviewed |
 | `code_alpaca` | 3% | Coding | `flwrlabs/code-alpaca-20k` | Additional programming instructions and response diversity | Apache-2.0 reviewed; privacy unreviewed |
+| `fineweb_edu` | 2% | English | `HuggingFaceFW/fineweb-edu` | Low-weight educational-web causal-LM retention | ODC-By-1.0 reviewed; Common Crawl terms apply; privacy unreviewed |
+| `code_pretraining` | 2% | Coding | `codeparrot/codeparrot-clean-valid` | Low-weight raw-code causal-LM retention | Mixed per-record licenses and privacy unreviewed |
 
 ### Training shares by validation domain
 
@@ -92,11 +94,11 @@ the training mixture, not the independent validation aggregation weights.
 
 | Domain | Training share | Primary capability |
 | --- | ---: | --- |
-| English | 31% | General QA, factual answers, writing, helpfulness, and safety |
-| Chat | 13.5% | Multi-turn dialogue, identity, and informal conversation |
+| English | 31% | General QA, factual answers, educational text, writing, helpfulness, and safety |
+| Chat | 11.5% | Multi-turn dialogue, identity, and informal conversation |
 | Bengali | 14% | Bengali conversation, QA, reading comprehension, and news |
 | Hindi | 12% | Hindi/Hinglish dialogue, facts, reasoning, and news |
-| Coding | 11.5% | Code generation, debugging, explanations, and tool calls |
+| Coding | 13.5% | Code generation, raw-code retention, debugging, explanations, and tool calls |
 | GSM8K | 18% | Arithmetic and broader mathematical reasoning |
 
 Validation uses a deliberately different domain weighting: English 15%,
@@ -105,8 +107,10 @@ quality prominent in checkpoint selection without changing training sampling.
 
 ## Additional tokenizer and mixed-objective inputs
 
-`configs/tokenizer.yaml` scans every active SFT training file. The active
-fine-tuning profile uses the additional mixed-objective inputs conservatively:
+`configs/tokenizer.yaml` scans every active SFT training file. Its `extension`
+section discovers up to 2,000 expensive, frequent tokens from FineWeb-Edu and
+CodeParrot and writes an append-only artifact to `data/tokenizer-finetuning`.
+The active fine-tuning profile uses mixed-objective inputs conservatively:
 preference records train only on the chosen response,
 while Wikipedia records receive ordinary causal-language-model loss.
 
@@ -117,8 +121,10 @@ while Wikipedia records receive ordinary causal-language-model loss.
 | `data/rag/wikipedia/wikipedia-simple.jsonl` | Simpler English vocabulary and phrasing | Yes, 1% |
 | `data/rag/wikipedia/wikipedia-bn.jsonl` | Bengali knowledge vocabulary and script coverage | Yes, 1% |
 | `data/rag/wikipedia/wikipedia-hi.jsonl` | Hindi knowledge vocabulary and Devanagari coverage | Yes, 1% |
+| `data/processed/fineweb_edu/train.jsonl` | Educational-web causal-LM retention | Yes, 2% |
+| `data/processed/code_pretraining/train.jsonl` | Raw-code causal-LM retention | Yes, 2% |
 
-The remaining 94% of each mixture stays instruction-oriented, preventing raw
+The remaining 92% of the mixture stays instruction/preference-oriented, preventing raw
 knowledge text from dominating assistant behavior.
 
 ## Optional continued-pretraining inputs
@@ -136,10 +142,10 @@ These are plain-text pretraining datasets, not assistant-response SFT data.
 
 ### Downloaded future-pretraining subsets
 
-Two bounded plain-text datasets are stored locally for a future diversified
-pretraining stage. They are **not referenced by the active 90% WikiText / 10%
-TinyStories configuration** and must not be introduced while resuming that
-run.
+Two bounded plain-text datasets are stored locally for diversified training.
+They are not referenced by the active 90% WikiText / 10% TinyStories
+pretraining configuration. In GPU SFT they contribute ordinary causal-LM loss
+at 2% each; do not use the changed sampler to resume an older SFT run.
 
 | Local name | Train | Validation | Test | Processed size | Intended role | Governance status |
 | --- | ---: | ---: | ---: | ---: | --- | --- |

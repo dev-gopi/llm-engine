@@ -1,13 +1,21 @@
 # Direct training and fine-tuning guide
 
-The active 38K tokenizer is trained from all active SFT sources and saved at
-`data/tokenizer`. Because it is not an append-only extension of the older 32K
-tokenizer, start a new model family and do not initialize from old checkpoints.
+The base 40K tokenizer is saved at `data/tokenizer`. FineWeb-Edu and CodeParrot
+are used to create a safe append-only extension at
+`data/tokenizer-finetuning`, preserving every base token ID.
 
 ## 1. Train the tokenizer
 
+For a new model family only, train the base tokenizer from scratch:
+
 ```bash
 .venv/bin/python scripts/tokenize.py train --config configs/tokenizer.yaml
+```
+
+For an existing 40K checkpoint, do not retrain the tokenizer. Extend it:
+
+```bash
+.venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.yaml
 ```
 
 ## 2. Start pretraining
@@ -32,7 +40,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --init-from checkpoints/pretraining/best.pt \
   --output checkpoints/finetuning/latest.pt \
   --best-output checkpoints/finetuning/best.pt
@@ -45,7 +53,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --resume checkpoints/finetuning/latest.pt \
   --output checkpoints/finetuning/latest.pt \
   --best-output checkpoints/finetuning/best.pt

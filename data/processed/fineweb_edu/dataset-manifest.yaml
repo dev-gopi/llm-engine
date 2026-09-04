@@ -8,7 +8,9 @@ license:
   commercial_use: allowed
 allowed_stages:
   - pretraining
+  - sft
 privacy_review: unreviewed
 review_notes:
   basis: Bounded 537,808-record subset downloaded from the sample-10BT configuration; the original validation/test splits were retained while unique records were appended to train and three pre-existing exact duplicates were removed.
   terms: Use is also subject to Common Crawl terms; retain dataset attribution.
+  sft_usage: Plain-text causal-LM examples only; capped at 2% of the active GPU fine-tuning sampler.

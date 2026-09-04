@@ -8,6 +8,8 @@ license:
   commercial_use: unknown
 allowed_stages:
   - pretraining
+  - sft
 privacy_review: unreviewed
 review_notes:
   basis: Bounded 81,822-record corpus; the original validation/test splits were retained while all remaining unique source records were appended to train. Upstream records contain individual license labels that require review before distribution or commercial use.
+  sft_usage: Plain-text causal-LM examples only; capped at 2% of the active GPU fine-tuning sampler.

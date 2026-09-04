@@ -20,18 +20,18 @@ distributed_backend: null
 checkpoint_format: single_file
 samples_per_epoch: 500000
 dataset_weights:
-  # Preference data contributes chosen responses only. Wikipedia contributes
-  # causal-LM knowledge examples; keep its combined share deliberately small.
+  # Preference data contributes chosen responses only. Wikipedia, FineWeb-Edu,
+  # and CodeParrot contribute causal-LM examples at deliberately small shares.
   ultrachat_200k: 0.06
   v2_openassistant_en: 0.03
   helpsteer: 0.08
-  openorca: 0.07
+  openorca: 0.05
   gsm8k: 0.13
   v2_math_instruct: 0.05
   core_chat: 0.02
   code_instructions: 0.03
   v2_code_feedback: 0.04
-  general_qa: 0.08
+  general_qa: 0.06
   safety_alignment: 0.025
   writing_editing: 0.015
   multilingual_bn_hi: 0.05
@@ -51,6 +51,8 @@ dataset_weights:
   wikipedia_simple: 0.01
   wikipedia_bn: 0.01
   wikipedia_hi: 0.01
+  fineweb_edu: 0.02
+  code_pretraining: 0.02
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/v2_openassistant_en/train.jsonl
@@ -81,6 +83,8 @@ train_files:
   - data/rag/wikipedia/wikipedia-simple.jsonl
   - data/rag/wikipedia/wikipedia-bn.jsonl
   - data/rag/wikipedia/wikipedia-hi.jsonl
+  - data/processed/fineweb_edu/train.jsonl
+  - data/processed/code_pretraining/train.jsonl
 validation_files:
   - data/processed/ultrachat_200k/validation.jsonl
   - data/processed/v2_openassistant_en/validation.jsonl
@@ -107,6 +111,8 @@ validation_files:
   - data/processed/v2_hindi_news/validation.jsonl
   - data/processed/code_alpaca/validation.jsonl
   - data/processed/preferences/validation.jsonl
+  - data/processed/fineweb_edu/validation.jsonl
+  - data/processed/code_pretraining/validation.jsonl
 validation_domains:
     english:
       - data/processed/preferences/validation.jsonl
@@ -115,6 +121,7 @@ validation_domains:
       - data/processed/general_qa/validation.jsonl
       - data/processed/writing_editing/validation.jsonl
       - data/processed/safety_alignment/validation.jsonl
+      - data/processed/fineweb_edu/validation.jsonl
     bengali:
       - data/processed/bangla_qa/validation.jsonl
       - data/processed/v2_bengali_news/validation.jsonl
@@ -131,6 +138,7 @@ validation_domains:
       - data/processed/v2_code_feedback/validation.jsonl
       - data/processed/code_alpaca/validation.jsonl
       - data/processed/tool_calling/validation.jsonl
+      - data/processed/code_pretraining/validation.jsonl
     gsm8k:
       - data/processed/gsm8k/validation.jsonl
       - data/processed/v2_math_instruct/validation.jsonl
@@ -146,7 +154,7 @@ validation_weights:
   coding: 0.10
   gsm8k: 0.18
   chat: 0.31
-validation_metric_name: dataset_weighted_v2_sft_domains_v1
+validation_metric_name: dataset_weighted_v2_sft_domains_with_causal_v2
 learning_rate: 0.00001
 weight_decay: 0.01
 beta1: 0.9

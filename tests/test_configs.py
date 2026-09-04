@@ -93,6 +93,8 @@ def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
         "v2_openassistant_en": "chat",
         "v2_code_feedback": "coding",
         "v2_math_instruct": "gsm8k",
+        "fineweb_edu": "english",
+        "code_pretraining": "coding",
     }
     for name, domain in expected_additions.items():
         train = f"data/processed/{name}/train.jsonl"
@@ -108,7 +110,7 @@ def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
     assert config["validation_weights"]["hindi"] == pytest.approx(0.12)
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
     assert sum(config["validation_weights"].values()) == pytest.approx(1.0)
-    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_v1"
+    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"
 
 
 def test_tokenizer_sources_match_gpu_finetuning_training_files() -> None:
@@ -132,10 +134,11 @@ def test_expanded_sft_is_the_active_gpu_stage() -> None:
     assert config["validation_batch_size"] > config["batch_size"]
     assert config["pad_to_multiple_of"] == 8
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
-    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_v1"
-    assert tokenizer["vocab_size"] == 38_000
+    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"
+    assert tokenizer["vocab_size"] == 40_000
     assert tokenizer["output_dir"] == "data/tokenizer"
-    assert "extension" not in tokenizer
+    assert tokenizer["extension"]["output_dir"] == "data/tokenizer-finetuning"
+    assert tokenizer["extension"]["max_new_tokens"] == 2_000
 
 
 def test_expanded_finetuning_includes_every_tokenizer_source() -> None:
@@ -155,8 +158,8 @@ def test_active_sft_fits_the_laptop_growth_route() -> None:
     assert config["gradient_accumulation_steps"] == 16
     assert config["learning_rate"] == pytest.approx(1e-5)
     assert config["epochs"] == 2
-    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_v1"
-    assert model["vocab_size"] == 38_000
+    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"
+    assert model["vocab_size"] == 40_000
     assert model["layers"] == 16
 
 

@@ -281,7 +281,7 @@ It is intentionally unusable until all referenced packed files have been
 generated and audited; do not use it to resume a sampler created from
 `configs/pretraining.gpu.yaml`.
 
-### Additional local pretraining data
+### Additional local causal-LM data
 
 The workspace includes two bounded, optional JSONL corpora for a later broad
 pretraining stage:
@@ -296,8 +296,10 @@ pretraining stage:
 
 These datasets are not included in `configs/pretraining.gpu.yaml`. Keep the
 active 90% WikiText / 10% TinyStories run unchanged when resuming its existing
-checkpoint. Add the optional corpora only through a new training stage and a
-separately validated configuration.
+checkpoint. The GPU fine-tuning profile uses each corpus at 2% for causal-LM
+retention and `configs/tokenizer.yaml` uses them to build the append-only
+`data/tokenizer-finetuning` artifact. Start this as a new fine-tuning stage; do
+not resume an older sampler with the changed mixture.
 
 ## Future scale targets
 
