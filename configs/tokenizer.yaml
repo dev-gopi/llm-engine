@@ -46,14 +46,15 @@ sources:
   - data/rag/wikipedia/wikipedia-simple.jsonl
   - data/rag/wikipedia/wikipedia-bn.jsonl
   - data/rag/wikipedia/wikipedia-hi.jsonl
-extension:
-  base_tokenizer: data/tokenizer
-  output_dir: data/tokenizer-finetuning
-  sources:
-    - data/processed/fineweb_edu/train.jsonl
-    - data/processed/code_pretraining/train.jsonl
-  source_sampling: balanced_bytes
-  max_new_tokens: 2000
-  min_frequency: 10
-  min_existing_tokens: 3
-  max_scan_bytes: 33554432
+extensions:
+  - name: finetuning
+    base_tokenizer: data/tokenizer
+    output_dir: data/tokenizer-finetuning
+    sources:
+      - data/processed/fineweb_edu/train.jsonl
+      - data/processed/code_pretraining/train.jsonl
+    source_sampling: balanced_bytes
+    max_new_tokens: 2000
+    min_frequency: 10
+    min_existing_tokens: 3
+    max_scan_bytes: 33554432

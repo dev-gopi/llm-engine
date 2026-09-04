@@ -152,8 +152,9 @@ def test_expanded_sft_is_the_active_gpu_stage() -> None:
     assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"
     assert tokenizer["vocab_size"] == 40_000
     assert tokenizer["output_dir"] == "data/tokenizer"
-    assert tokenizer["extension"]["output_dir"] == "data/tokenizer-finetuning"
-    assert tokenizer["extension"]["max_new_tokens"] == 2_000
+    extensions = {item["name"]: item for item in tokenizer["extensions"]}
+    assert extensions["finetuning"]["output_dir"] == "data/tokenizer-finetuning"
+    assert extensions["finetuning"]["max_new_tokens"] == 2_000
 
 
 def test_expanded_finetuning_includes_every_tokenizer_source() -> None:

@@ -1,6 +1,13 @@
 import json
 
-from scripts.tokenize import discover_extension_tokens, extract_text, iter_corpus
+import pytest
+
+from scripts.tokenize import (
+    discover_extension_tokens,
+    extract_text,
+    get_extension_configs,
+    iter_corpus,
+)
 from tokenizer.trainer import BPETokenizerTrainer
 
 
@@ -81,3 +88,20 @@ def test_extension_discovery_selects_frequent_expensive_multilingual_tokens():
     )
     assert " বাংলা" in tokens
     assert "👨‍👩‍👧‍👦" in tokens
+
+
+def test_multiple_extension_stages_accept_arbitrary_names_and_keep_order():
+    stages = [
+        {"name": "finetuning", "base_tokenizer": "base", "output_dir": "fine"},
+        {"name": "my-domain/v2", "base_tokenizer": "fine", "output_dir": "domain"},
+    ]
+
+    assert get_extension_configs({"extensions": stages}) == stages
+    assert get_extension_configs({"extensions": stages}, "my-domain/v2") == [stages[1]]
+
+
+def test_multiple_extension_stages_require_unique_nonempty_names():
+    with pytest.raises(ValueError, match="non-empty string name"):
+        get_extension_configs({"extensions": [{"name": "", "sources": ["corpus"]}]})
+    with pytest.raises(ValueError, match="must be unique"):
+        get_extension_configs({"extensions": [{"name": "same"}, {"name": "same"}]})

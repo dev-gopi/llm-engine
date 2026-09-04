@@ -1,7 +1,7 @@
 # Direct training and fine-tuning guide
 
-The base 40K tokenizer is saved at `data/tokenizer`. FineWeb-Edu and CodeParrot
-are used to create a safe append-only extension at
+The base 40K tokenizer is saved at `data/tokenizer`. The configured FineWeb-Edu
+and CodeParrot sources create a safe append-only extension at
 `data/tokenizer-finetuning`, preserving every base token ID.
 
 ## 1. Train the tokenizer
@@ -12,11 +12,23 @@ For a new model family only, train the base tokenizer from scratch:
 .venv/bin/python scripts/tokenize.py train --config configs/tokenizer.yaml
 ```
 
-For an existing 40K checkpoint, do not retrain the tokenizer. Extend it:
+For an existing 40K checkpoint, do not retrain the tokenizer. Build every
+configured extension:
 
 ```bash
 .venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.yaml
 ```
+
+Build only one named extension when needed:
+
+```bash
+.venv/bin/python scripts/tokenize.py extend \
+  --config configs/tokenizer.yaml --extension finetuning
+```
+
+Extension names are user-defined labels. Each item declares its own
+`base_tokenizer`, so extensions can be independent or chained by using an
+earlier item's `output_dir` as the next item's `base_tokenizer`.
 
 ## 2. Start pretraining
 

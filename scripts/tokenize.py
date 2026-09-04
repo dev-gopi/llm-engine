@@ -271,48 +271,80 @@ def discover_extension_tokens(
     return [token for _, _, token in ranked[:max_new_tokens]]
 
 
+def get_extension_configs(
+    config: dict[str, Any], requested_name: str | None = None
+) -> list[dict[str, Any]]:
+    """Return configured extension stages, preserving their declared order."""
+    extension_configs = config.get("extensions")
+    if extension_configs is None:
+        legacy_config = config.get("extension", {})
+        if not isinstance(legacy_config, dict):
+            raise ValueError("tokenizer extension configuration must be a mapping")
+        extension_configs = [legacy_config]
+    if not isinstance(extension_configs, list) or not all(
+        isinstance(item, dict) for item in extension_configs
+    ):
+        raise ValueError("tokenizer extensions configuration must be a list of mappings")
+
+    names = [item.get("name") for item in extension_configs]
+    if config.get("extensions") is not None and any(
+        not isinstance(name, str) or not name.strip() for name in names
+    ):
+        raise ValueError("every tokenizer extension must have a non-empty string name")
+    if len(names) != len(set(names)):
+        raise ValueError("tokenizer extension names must be unique")
+
+    if requested_name is None:
+        return extension_configs
+    selected = [item for item in extension_configs if item.get("name") == requested_name]
+    if not selected:
+        raise ValueError(f"unknown tokenizer extension: {requested_name}")
+    return selected
+
+
 def extend_command(args: argparse.Namespace) -> None:
     config = load_config(args.config) if args.config else {}
-    extension_config = config.get("extension", {})
-    if extension_config and not isinstance(extension_config, dict):
-        raise ValueError("tokenizer extension configuration must be a mapping")
-    tokenizer_path = args.tokenizer or Path(
-        extension_config.get("base_tokenizer", config.get("output_dir", "data/tokenizer"))
-    )
-    tokenizer = Tokenizer.load(tokenizer_path)
-    requested = list(args.token or ())
-    if args.tokens_file:
-        requested.extend(
-            line.rstrip("\r\n")
-            for line in args.tokens_file.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+    extension_configs = get_extension_configs(config, args.extension)
+
+    for extension_config in extension_configs:
+        tokenizer_path = args.tokenizer or Path(
+            extension_config.get("base_tokenizer", config.get("output_dir", "data/tokenizer"))
         )
-    sources = args.source or extension_config.get("sources", ())
-    if sources:
-        requested.extend(discover_extension_tokens(
-            tokenizer,
-            iter_corpus(sources, sampling=str(extension_config.get("source_sampling", "balanced_bytes"))),
-            max_new_tokens=int(extension_config.get("max_new_tokens", 2000)),
-            min_frequency=int(extension_config.get("min_frequency", 5)),
-            min_existing_tokens=int(extension_config.get("min_existing_tokens", 3)),
-            max_scan_bytes=extension_config.get("max_scan_bytes"),
+        tokenizer = Tokenizer.load(tokenizer_path)
+        requested = list(args.token or ())
+        if args.tokens_file:
+            requested.extend(
+                line.rstrip("\r\n")
+                for line in args.tokens_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        sources = args.source or extension_config.get("sources", ())
+        if sources:
+            requested.extend(discover_extension_tokens(
+                tokenizer,
+                iter_corpus(sources, sampling=str(extension_config.get("source_sampling", "balanced_bytes"))),
+                max_new_tokens=int(extension_config.get("max_new_tokens", 2000)),
+                min_frequency=int(extension_config.get("min_frequency", 5)),
+                min_existing_tokens=int(extension_config.get("min_existing_tokens", 3)),
+                max_scan_bytes=extension_config.get("max_scan_bytes"),
+            ))
+        if not requested:
+            raise ValueError("provide tokens directly or configure extension.sources")
+        extended = tokenizer.extend(requested)
+        tokenizer_dir = tokenizer_path.parent if tokenizer_path.name == "tokenizer.json" else tokenizer_path
+        output = args.output or Path(extension_config.get(
+            "output_dir", tokenizer_dir.with_name(f"{tokenizer_dir.name}-extended")
         ))
-    if not requested:
-        raise ValueError("provide tokens directly or configure extension.sources")
-    extended = tokenizer.extend(requested)
-    tokenizer_dir = tokenizer_path.parent if tokenizer_path.name == "tokenizer.json" else tokenizer_path
-    output = args.output or Path(extension_config.get(
-        "output_dir", tokenizer_dir.with_name(f"{tokenizer_dir.name}-extended")
-    ))
-    artifact = extended.save(output)
-    print(json.dumps({
-        "artifact": str(artifact),
-        "base_fingerprint": tokenizer.fingerprint,
-        "fingerprint": extended.fingerprint,
-        "old_vocab_size": tokenizer.vocab_size,
-        "new_vocab_size": extended.vocab_size,
-        "added_vocab_size": extended.vocab_size - tokenizer.vocab_size,
-    }, indent=2))
+        artifact = extended.save(output)
+        print(json.dumps({
+            "name": extension_config.get("name"),
+            "artifact": str(artifact),
+            "base_fingerprint": tokenizer.fingerprint,
+            "fingerprint": extended.fingerprint,
+            "old_vocab_size": tokenizer.vocab_size,
+            "new_vocab_size": extended.vocab_size,
+            "added_vocab_size": extended.vocab_size - tokenizer.vocab_size,
+        }, indent=2))
 
 
 def parse_args() -> argparse.Namespace:
@@ -341,6 +373,7 @@ def parse_args() -> argparse.Namespace:
         "--config", type=Path, required=True,
         help="configuration containing an extension section",
     )
+    extend_parser.add_argument("--extension", help="run only the named extension")
     extend_parser.add_argument("--tokenizer", type=Path)
     extend_parser.add_argument("--source", action="append", help="dataset glob to scan; repeatable")
     extend_parser.add_argument("--token", action="append", help="token text; repeatable")
