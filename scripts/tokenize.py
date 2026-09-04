@@ -1,4 +1,4 @@
-"""Train and inspect the project's byte-level BPE tokenizer."""
+"""Train and inspect the project's configurable tokenizers."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ import pyarrow.parquet as pq
 import regex
 import yaml
 
-from tokenizer.encoder import Tokenizer
-from tokenizer.trainer import BPETokenizerTrainer
+from tokenizer.encoder import DEFAULT_PATTERN, Tokenizer
+from tokenizer.trainer import create_tokenizer_trainer
 
 
 def extract_text(value: Any) -> Iterator[str]:
@@ -173,17 +173,20 @@ def load_config(path: Path) -> dict[str, Any]:
         config = yaml.safe_load(stream)
     if not isinstance(config, dict):
         raise ValueError("tokenizer configuration must be a YAML mapping")
-    if config.get("type") != "byte_level_bpe":
-        raise ValueError("only type=byte_level_bpe is supported")
+    tokenizer_type = config.get("type", "byte_level_bpe")
+    if not isinstance(tokenizer_type, str):
+        raise ValueError("tokenizer type must be a string")
     return config
 
 
 def train_command(args: argparse.Namespace) -> None:
     config = load_config(args.config)
-    trainer = BPETokenizerTrainer(
+    trainer = create_tokenizer_trainer(
+        str(config.get("type", "byte_level_bpe")),
         vocab_size=args.vocab_size or int(config["vocab_size"]),
         min_frequency=int(config.get("min_frequency", 2)),
         special_tokens=config.get("special_tokens", ()),
+        pattern=str(config.get("pattern", DEFAULT_PATTERN)),
         max_training_bytes=(
             args.max_training_bytes
             if args.max_training_bytes is not None

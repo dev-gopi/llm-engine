@@ -4,7 +4,7 @@ import pytest
 
 from tokenizer.bpe import BYTE_ENCODER, merge_pair
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
-from tokenizer.trainer import BPETokenizerTrainer
+from tokenizer.trainer import BPETokenizerTrainer, create_tokenizer_trainer
 
 
 CORPUS = [
@@ -120,3 +120,35 @@ def test_invalid_configuration_and_ids(tokenizer: Tokenizer):
         BPETokenizerTrainer(vocab_size=len(DEFAULT_SPECIAL_TOKENS) + 255)
     with pytest.raises(ValueError, match="outside"):
         tokenizer.decode([tokenizer.vocab_size])
+
+
+@pytest.mark.parametrize("tokenizer_type", ["bpe", "character", "word_level"])
+def test_configurable_tokenizer_types_round_trip_and_persist(tokenizer_type, tmp_path):
+    corpus = ["hello world नमस्ते!\n"] * 5
+    trained = create_tokenizer_trainer(
+        tokenizer_type,
+        vocab_size=80,
+        min_frequency=1,
+    ).train(corpus)
+
+    assert trained.tokenizer_type == tokenizer_type
+    assert trained.decode(trained.encode(corpus[0])) == corpus[0]
+
+    restored = Tokenizer.load(trained.save(tmp_path / tokenizer_type))
+    assert restored.tokenizer_type == tokenizer_type
+    assert restored.fingerprint == trained.fingerprint
+    assert restored.decode(restored.encode(corpus[0])) == corpus[0]
+
+
+@pytest.mark.parametrize(
+    ("alias", "expected"),
+    [("normal_bpe", "bpe"), ("char", "character"), ("word", "word_level")],
+)
+def test_tokenizer_type_aliases(alias, expected):
+    trainer = create_tokenizer_trainer(alias, vocab_size=40, min_frequency=1)
+    assert trainer.tokenizer_type == expected
+
+
+def test_unknown_tokenizer_type_has_actionable_error():
+    with pytest.raises(ValueError, match="supported types"):
+        create_tokenizer_trainer("sentencepiece", vocab_size=100)

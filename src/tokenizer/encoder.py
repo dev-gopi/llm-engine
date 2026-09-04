@@ -1,4 +1,4 @@
-"""Public byte-level BPE tokenizer API and artifact persistence."""
+"""Public tokenizer API and artifact persistence."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from .bpe import BPE, BYTE_DECODER, BYTE_ENCODER
 
 
 TOKENIZER_VERSION = 1
+TOKENIZER_TYPES = frozenset({"byte_level_bpe", "bpe", "character", "word_level"})
 DEFAULT_PATTERN = (
     r"'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|"
     r"[^\r\n\p{L}\p{N}]?+\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|"
@@ -34,7 +35,7 @@ DEFAULT_SPECIAL_TOKENS = (
 
 
 class Tokenizer:
-    """A reversible byte-level BPE tokenizer with explicit special-token handling."""
+    """A configurable tokenizer with explicit special-token handling."""
 
     def __init__(
         self,
@@ -44,7 +45,10 @@ class Tokenizer:
         special_tokens: dict[str, int] | None = None,
         pattern: str = DEFAULT_PATTERN,
         metadata: dict[str, Any] | None = None,
+        tokenizer_type: str = "byte_level_bpe",
     ):
+        if tokenizer_type not in TOKENIZER_TYPES:
+            raise ValueError(f"unsupported tokenizer type: {tokenizer_type!r}")
         if len(vocab) != len(set(vocab.values())):
             raise ValueError("vocabulary IDs must be unique")
         if set(vocab.values()) != set(range(len(vocab))):
@@ -61,6 +65,7 @@ class Tokenizer:
         self._pattern = regex.compile(pattern)
         self.bpe = BPE(merges)
         self.metadata = dict(metadata or {})
+        self.tokenizer_type = tokenizer_type
 
     @property
     def vocab_size(self) -> int:
@@ -75,6 +80,9 @@ class Tokenizer:
             "merges": list(self.bpe.merges),
             "special_tokens": sorted(self.special_tokens.items()),
         }
+        # Preserve identities of version-1 byte-level artifacts.
+        if self.tokenizer_type != "byte_level_bpe":
+            payload["type"] = self.tokenizer_type
         if self.added_tokens:
             payload["added_tokens"] = list(self.added_tokens)
         encoded = json.dumps(
@@ -123,7 +131,7 @@ class Tokenizer:
                 raise ValueError(f"special token cannot be added as an ordinary token: {text!r}")
             if text in added_texts:
                 continue
-            piece = "".join(BYTE_ENCODER[value] for value in text.encode("utf-8"))
+            piece = self._text_to_piece(text)
             if piece not in vocab:
                 vocab[piece] = len(vocab)
                 added_pieces.append(piece)
@@ -146,6 +154,7 @@ class Tokenizer:
             special_tokens=self.special_tokens,
             pattern=self.pattern,
             metadata=metadata,
+            tokenizer_type=self.tokenizer_type,
         )
 
     def token_to_id(self, token: str) -> int | None:
@@ -203,7 +212,7 @@ class Tokenizer:
             if not chunk:
                 continue
             if chunk in self.added_tokens:
-                piece = "".join(BYTE_ENCODER[value] for value in chunk.encode("utf-8"))
+                piece = self._text_to_piece(chunk)
                 identifiers.append(self.vocab[piece])
                 continue
             identifiers.extend(self._encode_bpe_chunk(chunk))
@@ -211,16 +220,42 @@ class Tokenizer:
 
     def _encode_bpe_chunk(self, text: str) -> list[int]:
         identifiers: list[int] = []
+        unknown_id = self.special_tokens.get("<|unk|>")
+        if self.tokenizer_type == "character":
+            pieces = tuple(text)
+            for piece in pieces:
+                identifier = self.vocab.get(piece, unknown_id)
+                if identifier is None:
+                    raise ValueError(f"character is absent from vocabulary: {piece!r}")
+                identifiers.append(identifier)
+            return identifiers
         for match in self._pattern.finditer(text):
-            symbols = tuple(BYTE_ENCODER[value] for value in match.group(0).encode("utf-8"))
-            for piece in self.bpe.apply(symbols):
-                try:
-                    identifiers.append(self.vocab[piece])
-                except KeyError as error:
-                    raise ValueError(f"BPE piece is absent from vocabulary: {piece!r}") from error
+            token = match.group(0)
+            if self.tokenizer_type == "word_level":
+                pieces = (token,)
+            elif self.tokenizer_type == "byte_level_bpe":
+                pieces = self.bpe.apply(tuple(BYTE_ENCODER[value] for value in token.encode("utf-8")))
+            else:
+                pieces = self.bpe.apply(tuple(token))
+            for piece in pieces:
+                identifier = self.vocab.get(piece, unknown_id)
+                if identifier is None:
+                    raise ValueError(f"token piece is absent from vocabulary: {piece!r}")
+                identifiers.append(identifier)
         return identifiers
 
     def decode(self, identifiers: Iterable[int], *, skip_special_tokens: bool = False) -> str:
+        if self.tokenizer_type != "byte_level_bpe":
+            output: list[str] = []
+            for raw_identifier in identifiers:
+                identifier = int(raw_identifier)
+                if identifier not in self.id_to_token:
+                    raise ValueError(f"token ID is outside the vocabulary: {identifier}")
+                if identifier in self.special_ids and skip_special_tokens:
+                    continue
+                output.append(self.id_to_token[identifier])
+            return "".join(output)
+
         output: list[str] = []
         byte_buffer = bytearray()
 
@@ -252,7 +287,7 @@ class Tokenizer:
         artifact = destination / "tokenizer.json"
         payload = {
             "version": TOKENIZER_VERSION,
-            "type": "byte_level_bpe",
+            "type": self.tokenizer_type,
             "fingerprint": self.fingerprint,
             "pattern": self.pattern,
             "vocab": self.vocab,
@@ -277,7 +312,7 @@ class Tokenizer:
             payload = json.load(stream)
         if payload.get("version") != TOKENIZER_VERSION:
             raise ValueError(f"unsupported tokenizer version: {payload.get('version')!r}")
-        if payload.get("type") != "byte_level_bpe":
+        if payload.get("type") not in TOKENIZER_TYPES:
             raise ValueError(f"unsupported tokenizer type: {payload.get('type')!r}")
         tokenizer = cls(
             payload["vocab"],
@@ -285,11 +320,17 @@ class Tokenizer:
             special_tokens=payload["special_tokens"],
             pattern=payload["pattern"],
             metadata=payload.get("metadata"),
+            tokenizer_type=payload["type"],
         )
         expected_fingerprint = payload.get("fingerprint")
         if expected_fingerprint is not None and expected_fingerprint != tokenizer.fingerprint:
             raise ValueError("tokenizer artifact fingerprint does not match its contents")
         return tokenizer
+
+    def _text_to_piece(self, text: str) -> str:
+        if self.tokenizer_type == "byte_level_bpe":
+            return "".join(BYTE_ENCODER[value] for value in text.encode("utf-8"))
+        return text
 
     def _resolve_allowed_special(self, allowed: Collection[str] | str) -> set[str]:
         if allowed == "all":

@@ -1,3 +1,4 @@
+# Supported: byte_level_bpe, bpe (alias: normal_bpe), character, word_level.
 type: byte_level_bpe
 vocab_size: 40000
 min_frequency: 5
