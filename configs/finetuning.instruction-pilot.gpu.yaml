@@ -1,0 +1,86 @@
+# Use data/tokenizer, preserving the pretraining vocabulary.
+# Prepare with prepare_recovery_sft.py --output data/cleaned/instruction-pilot.
+batch_size: 1
+validation_batch_size: 2
+epochs: 1
+seed: 42
+dataset_governance:
+  policy: warn
+  stage: sft
+  commercial_use: false
+max_sequence_length: 512
+pad_to_multiple_of: 8
+num_workers: 1
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+lazy_dataset: true
+distributed_strategy: ddp
+distributed_backend: null
+checkpoint_format: single_file
+samples_per_epoch: 4096
+dataset_weights:
+  chat: 0.3
+  english: 0.2
+  bengali: 0.15
+  hindi: 0.1
+  math: 0.15
+  coding: 0.1
+train_files:
+- data/cleaned/instruction-pilot/chat/train.jsonl
+- data/cleaned/instruction-pilot/english/train.jsonl
+- data/cleaned/instruction-pilot/bengali/train.jsonl
+- data/cleaned/instruction-pilot/hindi/train.jsonl
+- data/cleaned/instruction-pilot/math/train.jsonl
+- data/cleaned/instruction-pilot/coding/train.jsonl
+validation_files:
+- data/cleaned/instruction-pilot/chat/validation.jsonl
+- data/cleaned/instruction-pilot/english/validation.jsonl
+- data/cleaned/instruction-pilot/bengali/validation.jsonl
+- data/cleaned/instruction-pilot/hindi/validation.jsonl
+- data/cleaned/instruction-pilot/math/validation.jsonl
+- data/cleaned/instruction-pilot/coding/validation.jsonl
+validation_domains:
+  chat:
+  - data/cleaned/instruction-pilot/chat/validation.jsonl
+  english:
+  - data/cleaned/instruction-pilot/english/validation.jsonl
+  bengali:
+  - data/cleaned/instruction-pilot/bengali/validation.jsonl
+  hindi:
+  - data/cleaned/instruction-pilot/hindi/validation.jsonl
+  math:
+  - data/cleaned/instruction-pilot/math/validation.jsonl
+  coding:
+  - data/cleaned/instruction-pilot/coding/validation.jsonl
+validation_weights:
+  chat: 0.3
+  english: 0.2
+  bengali: 0.15
+  hindi: 0.1
+  math: 0.15
+  coding: 0.1
+validation_metric_name: instruction_pilot_v1
+learning_rate: 8.0e-06
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 1.0e-08
+fused_optimizer: false
+gradient_clip_norm: 1.0
+gradient_accumulation_steps: 32
+mixed_precision: fp16
+lr_schedule: cosine
+warmup_ratio: 0.05
+min_lr_ratio: 0.1
+ema_decay: 0.999
+log_every: 25
+checkpoint_every: 1000
+evaluate_every: 1000
+early_stopping_patience: 3
+early_stopping_min_delta: 0.001
+ignore_index: -100
+label_smoothing: 0.0
+z_loss_coefficient: 0.0001
+shift_labels: true
+loss_reduction: mean

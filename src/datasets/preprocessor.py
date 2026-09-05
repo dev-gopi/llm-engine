@@ -16,7 +16,8 @@ def clean(text: str) -> str:
         raise TypeError("text must be a string")
     text = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\r", "\n")
     text = "".join(character for character in text if character in "\n\t" or unicodedata.category(character) != "Cc")
-    text = re.sub(r"[ \t]+", " ", text)
+    # Spaces and tabs can be syntax (Python indentation) or literal content.
+    # Keep them identical in plain training records and inference templates.
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 

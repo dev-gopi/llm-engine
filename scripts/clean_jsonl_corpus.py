@@ -91,6 +91,8 @@ def main() -> None:
     with temporary.open("w", encoding="utf-8") as stream:
         for input_path in args.inputs:
             for record in iter_records(input_path):
+                if record.get("prepacked"):
+                    raise ValueError("clean original documents before packing")
                 input_records += 1
                 try:
                     original = record_to_text(record)

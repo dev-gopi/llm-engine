@@ -12,6 +12,9 @@ foundation models.
 
 ## Guides
 
+- [Step-by-step MiniGPT training plan](docs/README_MODEL_TRAINING.md) — detailed
+  commands for your current checkpoint, data checks, controlled pretraining,
+  instruction fine-tuning, evaluation, resuming, and troubleshooting.
 - [Training guide](docs/TRAINING_GUIDE.md) — prepare datasets and the
   tokenizer, pretrain, fine-tune, run recovery or DPO, evaluate, and export.
 - [Direct model-growth guide](docs/DIRECT_TRAINING_GUIDE.md) — extend the

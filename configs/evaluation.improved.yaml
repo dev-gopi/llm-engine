@@ -1,0 +1,14 @@
+domains:
+  tinystories:
+  - data/cleaned/pretraining-pilot/tinystories/validation.packed.jsonl
+  wikitext_103:
+  - data/cleaned/pretraining-pilot/wikitext_103/validation.packed.jsonl
+  fineweb_edu:
+  - data/cleaned/pretraining-pilot/fineweb_edu/validation.packed.jsonl
+  code_pretraining:
+  - data/cleaned/pretraining-pilot/code_pretraining/validation.packed.jsonl
+weights:
+  tinystories: 0.2
+  wikitext_103: 0.35
+  fineweb_edu: 0.4
+  code_pretraining: 0.05

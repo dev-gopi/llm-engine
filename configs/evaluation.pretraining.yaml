@@ -4,5 +4,5 @@ domains:
   wikitext_103:
     - data/processed/wikitext_103/validation.jsonl
 weights:
-  tinystories: 0.35
-  wikitext_103: 0.65
+  tinystories: 0.10
+  wikitext_103: 0.90

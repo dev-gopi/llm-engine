@@ -173,3 +173,25 @@ def test_lazy_jsonl_reports_unusable_record_location_without_substitution(tmp_pa
 
     with pytest.raises(ValueError, match=r"unusable dataset record at .*data\.jsonl:1"):
         dataset[0]
+
+
+def test_code_whitespace_survives_plain_loading_and_chat_rendering():
+    from datasets.preprocessor import record_to_text
+    code = 'def add(a, b):\n    if a:\n        return a + b\n    return b'
+    assert record_to_text({'text': code}) == code
+    assert code in format_messages([{'role': 'user', 'content': code}])
+    tok = tokenizer()
+    dataset = TextDataset([{'text': code}], tok, max_length=256)
+    assert tok.decode(dataset[0]['input_ids'].tolist(), skip_special_tokens=True) == code
+
+
+def test_chat_training_encoding_matches_inference_unicode_normalization():
+    tok = tokenizer()
+    messages = [
+        {'role': 'user', 'content': 'ＡＢＣ\r\n\r\n\r\nquestion\x00'},
+        {'role': 'assistant', 'content': 'def answer():\n    return １２３'},
+    ]
+    expected = tok.encode(format_messages(messages), add_bos=True,
+                          add_eos=True, allowed_special='all')
+    ids, _ = TextDataset._encode_chat(messages, tok, True, True)
+    assert ids == expected

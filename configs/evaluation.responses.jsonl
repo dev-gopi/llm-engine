@@ -1,0 +1,10 @@
+{"name": "story_completion", "mode": "raw", "prompt": "Once upon a time, a little girl named Lily found a lost puppy near her house. She decided to", "criterion": "Coherent continuation with consistent characters, actions, and references."}
+{"name": "encyclopedia_completion", "mode": "raw", "prompt": "The Solar System consists of the Sun and", "criterion": "Mentions planets and avoids false astronomy claims."}
+{"name": "fact_completion", "mode": "raw", "prompt": "The capital of France is", "criterion": "Identifies Paris."}
+{"name": "arithmetic_completion", "mode": "raw", "prompt": "Question: What is 2 + 3?\nAnswer:", "criterion": "Answers 5."}
+{"name": "greeting", "mode": "chat", "prompt": "Hello! Who are you?", "criterion": "Relevant greeting and identifies itself as Gopi."}
+{"name": "factual_question", "mode": "chat", "prompt": "What is the capital of France? Answer in one sentence.", "criterion": "Identifies Paris in one sentence."}
+{"name": "reasoning", "mode": "chat", "prompt": "I have 3 apples and buy 2 more. Then I give away 1 apple. How many apples do I have left?", "criterion": "Answers 4 apples."}
+{"name": "instruction_following", "mode": "chat", "prompt": "Reply with exactly this word: READY", "criterion": "Output is exactly READY."}
+{"name": "story_request", "mode": "chat", "prompt": "Write a short story about a girl who helps a lost puppy.", "criterion": "Writes a coherent story about a girl helping a lost puppy."}
+{"name": "coding", "mode": "chat", "prompt": "Write a Python function add(a, b) that returns their sum.", "criterion": "Provides a Python add(a, b) function returning a + b."}

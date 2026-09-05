@@ -34,6 +34,27 @@ def test_gpt_logits_are_causal():
     torch.testing.assert_close(model(original)[:, :5], model(modified)[:, :5])
 
 
+@pytest.mark.parametrize("position_type", ["learned", "rotary"])
+def test_binary_float_mask_excludes_padding_in_forward_and_cache(position_type):
+    torch.manual_seed(12)
+    model = MiniGPT(vocab_size=64, dim=16, layers=2, heads=4, kv_heads=2,
+                    max_pos=16, position_type=position_type).eval()
+    tokens = torch.tensor([[0, 0, 4, 5]])
+    mask = torch.tensor([[0, 0, 1, 1]], dtype=torch.bool)
+    expected, cache = model(tokens, attention_mask=mask, use_cache=True)
+    actual, float_cache = model(tokens, attention_mask=mask.float(), use_cache=True)
+    torch.testing.assert_close(actual, expected)
+    changed = tokens.clone()
+    changed[:, :2] = 9
+    torch.testing.assert_close(model(changed, attention_mask=mask.float())[:, 2:], expected[:, 2:])
+    next_mask = torch.cat([mask, torch.ones((1, 1), dtype=torch.bool)], dim=1)
+    next_token = torch.tensor([[6]])
+    torch.testing.assert_close(
+        model(next_token, attention_mask=next_mask, past_key_values=cache),
+        model(next_token, attention_mask=next_mask.float(), past_key_values=float_cache),
+    )
+
+
 def test_gpt_ties_embedding_and_lm_head_weights():
     model = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2)
     assert model.head.weight is model.tok.weight

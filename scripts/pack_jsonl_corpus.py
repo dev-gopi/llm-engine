@@ -29,6 +29,7 @@ def main() -> None:
         parser.error("--sequence-length must be at least 2")
 
     tokenizer = Tokenizer.load(args.tokenizer)
+    tokenizer_fingerprint = tokenizer.fingerprint
     eos = tokenizer.token_to_id("<|eos|>")
     if eos is None:
         raise ValueError("tokenizer does not define <|eos|>")
@@ -48,6 +49,10 @@ def main() -> None:
             "id": f"packed-{output_records:09d}",
             "source": sorted(source_names),
             "text": tokenizer.decode(identifiers),
+            # Text is a preview only: byte-level token boundaries need not
+            # coincide with Unicode boundaries, so decoding is not lossless.
+            "token_ids": identifiers,
+            "tokenizer_fingerprint": tokenizer_fingerprint,
             "prepacked": True,
             "document_count": docs,
             "token_count": len(identifiers) + 1,
@@ -57,35 +62,37 @@ def main() -> None:
     with temporary.open("w", encoding="utf-8") as stream:
         for input_path in args.inputs:
             for record in iter_records(input_path):
+                if record.get("prepacked"):
+                    raise ValueError("input is already packed; repack from original documents")
                 document = tokenizer.encode(record_to_text(record), allowed_special="all")
                 source = str(record.get("source", input_path.stem))
-                pieces = [document[index:index + capacity - 1] + [eos]
-                          for index in range(0, len(document), capacity - 1)] or [[eos]]
-                split_chunks += max(0, len(pieces) - 1)
-                for piece in pieces:
-                    if buffer and len(buffer) + len(piece) > capacity:
-                        write_record(stream, buffer, document_count, sources)
-                        buffer, sources, document_count = [], set(), 0
-                    buffer.extend(piece)
+                # One EOS per document, never at artificial chunk boundaries.
+                document.append(eos)
+                offset = 0
+                while offset < len(document):
+                    take = min(capacity - len(buffer), len(document) - offset)
+                    buffer.extend(document[offset:offset + take])
+                    offset += take
                     sources.add(source)
                     document_count += 1
                     if len(buffer) == capacity:
                         write_record(stream, buffer, document_count, sources)
                         buffer, sources, document_count = [], set(), 0
+                        split_chunks += int(offset < len(document))
         if buffer:
             write_record(stream, buffer, document_count, sources)
     temporary.replace(args.output)
     metadata = {
-        "format": "packed-jsonl-v1",
+        "format": "packed-jsonl-v2",
         "inputs": [str(path) for path in args.inputs],
         "output": str(args.output),
         "sequence_length": args.sequence_length,
-        "tokenizer_fingerprint": tokenizer.fingerprint,
+        "tokenizer_fingerprint": tokenizer_fingerprint,
         "vocab_size": tokenizer.vocab_size,
         "output_records": output_records,
         "split_chunks": split_chunks,
         "boundary_token": "<|eos|>",
-        "loader_behavior": "BOS is added; EOS is already embedded",
+        "loader_behavior": "token_ids are authoritative; BOS is added; EOS only at document ends",
     }
     args.output.with_suffix(".packing.json").write_text(
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8"

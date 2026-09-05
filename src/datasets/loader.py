@@ -12,7 +12,7 @@ from torch.utils.data import ConcatDataset, Dataset
 
 from tokenizer.encoder import Tokenizer
 
-from .preprocessor import record_to_text
+from .preprocessor import clean, record_to_text
 
 
 def iter_records(path: str | Path) -> Iterator[dict[str, Any]]:
@@ -43,6 +43,26 @@ def iter_records(path: str | Path) -> Iterator[dict[str, Any]]:
             raise ValueError("dataset must be .json or .jsonl")
 
 
+def _packed_identifiers(record, tokenizer, max_length, add_bos, fingerprint):
+    if record.get("tokenizer_fingerprint") != fingerprint:
+        raise ValueError("packed record tokenizer fingerprint does not match")
+    packed_ids = record["token_ids"]
+    if not isinstance(packed_ids, list) or not packed_ids or any(
+        not isinstance(value, int) or isinstance(value, bool)
+        or not 0 <= value < tokenizer.vocab_size for value in packed_ids
+    ):
+        raise ValueError("packed token_ids must be a non-empty list of valid token IDs")
+    identifiers = list(packed_ids)
+    if add_bos:
+        bos = tokenizer.token_to_id("<|bos|>")
+        if bos is None:
+            raise ValueError("tokenizer does not define <|bos|>")
+        identifiers.insert(0, bos)
+    if len(identifiers) > max_length:
+        raise ValueError("packed record exceeds max_length; repack with the selected context length")
+    return identifiers
+
+
 class TextDataset(Dataset[dict[str, torch.Tensor]]):
     """Tokenize records into bounded causal-LM sequences."""
 
@@ -60,9 +80,15 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
             raise ValueError("max_length must be at least two")
         self.examples: list[torch.Tensor] = []
         self.loss_masks: list[torch.Tensor] = []
+        packed_fingerprint = None
         for record_index, record in enumerate(records):
             try:
-                if isinstance(record, Mapping) and isinstance(record.get("messages"), list):
+                if isinstance(record, Mapping) and record.get("prepacked") is True and "token_ids" in record:
+                    if packed_fingerprint is None:
+                        packed_fingerprint = tokenizer.fingerprint
+                    identifiers = _packed_identifiers(record, tokenizer, max_length, add_bos, packed_fingerprint)
+                    loss_mask = [True] * len(identifiers)
+                elif isinstance(record, Mapping) and isinstance(record.get("messages"), list):
                     identifiers, loss_mask = self._encode_chat(record["messages"], tokenizer, add_bos, add_eos)
                 elif (
                     isinstance(record, Mapping)
@@ -108,7 +134,7 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
             if not isinstance(message, Mapping):
                 continue
             role = message.get("role")
-            content = str(message.get("content", "")).strip()
+            content = clean(str(message.get("content", "")))
             if role not in {"system", "user", "assistant"} or not content:
                 continue
             piece = tokenizer.encode(f"<|{role}|>\n{content}\n", allowed_special="all")
@@ -145,6 +171,7 @@ class LazyJSONLDataset(Dataset[dict[str, torch.Tensor]]):
         self.path = Path(path)
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self._packed_fingerprint = None
         self.offsets: list[int] = []
         self.line_numbers: list[int] = []
         self.lengths: list[int] = []
@@ -176,6 +203,13 @@ class LazyJSONLDataset(Dataset[dict[str, torch.Tensor]]):
         if not isinstance(record, dict):
             raise ValueError(f"record at {location} must be an object")
         try:
+            if record.get("prepacked") is True and "token_ids" in record:
+                if self._packed_fingerprint is None:
+                    self._packed_fingerprint = self.tokenizer.fingerprint
+                identifiers = _packed_identifiers(record, self.tokenizer, self.max_length,
+                                                  True, self._packed_fingerprint)
+                return {"input_ids": torch.tensor(identifiers, dtype=torch.long),
+                        "loss_mask": torch.ones(len(identifiers), dtype=torch.bool)}
             dataset = TextDataset([record], self.tokenizer, max_length=self.max_length)
         except (TypeError, ValueError) as error:
             raise ValueError(f"unusable dataset record at {location}: {error}") from error

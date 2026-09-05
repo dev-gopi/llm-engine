@@ -221,6 +221,11 @@ class MiniGPT(nn.Module):
             sequence_length=seq_len,
             cached_length=cached_length,
         )
+        # MiniGPT's public mask is binary, whereas attention also accepts
+        # floating additive biases. Normalize here so float 0/1 masks really
+        # exclude padding rather than merely adding 0/1 to attention scores.
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(device=token_ids.device, dtype=torch.bool)
         current_attention_mask = attention_mask
         if attention_mask is not None and attention_mask.shape[1] != seq_len:
             current_attention_mask = attention_mask[:, -seq_len:]
