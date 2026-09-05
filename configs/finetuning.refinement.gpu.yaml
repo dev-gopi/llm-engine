@@ -1,6 +1,8 @@
-# Clean response-quality recovery for the active 80.29M, 16-layer model.
-# Initialize from checkpoints/finetuning/best.pt with the same tokenizer used
-# for that SFT checkpoint (the standard pipeline uses data/tokenizer).
+# Conservative post-SFT refinement stage. Put reviewed correction examples in
+# data/processed/refinement/{train,validation}.jsonl, then mix them with the
+# cleaned recovery corpus to retain broad instruction-following ability.
+# Initialize from the current best SFT or recovery checkpoint; never use this
+# profile with --resume when the data mixture has changed.
 batch_size: 1
 validation_batch_size: 2
 epochs: 2
@@ -9,7 +11,7 @@ dataset_governance:
   policy: warn
   stage: sft
   commercial_use: false
-max_sequence_length: 256
+max_sequence_length: 512
 pad_to_multiple_of: 8
 num_workers: 1
 pin_memory: true
@@ -19,15 +21,18 @@ lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
-samples_per_epoch: 100000
+# A bounded stage reduces overfitting when the correction corpus is small.
+samples_per_epoch: 10000
 dataset_weights:
-  chat: 0.30
-  english: 0.20
-  bengali: 0.15
-  hindi: 0.10
-  math: 0.15
-  coding: 0.10
+  refinement: 0.60
+  chat: 0.12
+  english: 0.08
+  bengali: 0.06
+  hindi: 0.04
+  math: 0.06
+  coding: 0.04
 train_files:
+  - data/processed/refinement/train.jsonl
   - data/processed/recovery_sft/chat/train.jsonl
   - data/processed/recovery_sft/english/train.jsonl
   - data/processed/recovery_sft/bengali/train.jsonl
@@ -35,6 +40,7 @@ train_files:
   - data/processed/recovery_sft/math/train.jsonl
   - data/processed/recovery_sft/coding/train.jsonl
 validation_files:
+  - data/processed/refinement/validation.jsonl
   - data/processed/recovery_sft/chat/validation.jsonl
   - data/processed/recovery_sft/english/validation.jsonl
   - data/processed/recovery_sft/bengali/validation.jsonl
@@ -42,6 +48,7 @@ validation_files:
   - data/processed/recovery_sft/math/validation.jsonl
   - data/processed/recovery_sft/coding/validation.jsonl
 validation_domains:
+  refinement: [data/processed/refinement/validation.jsonl]
   chat: [data/processed/recovery_sft/chat/validation.jsonl]
   english: [data/processed/recovery_sft/english/validation.jsonl]
   bengali: [data/processed/recovery_sft/bengali/validation.jsonl]
@@ -49,14 +56,15 @@ validation_domains:
   math: [data/processed/recovery_sft/math/validation.jsonl]
   coding: [data/processed/recovery_sft/coding/validation.jsonl]
 validation_weights:
-  chat: 0.30
-  english: 0.20
-  bengali: 0.15
-  hindi: 0.10
-  math: 0.15
-  coding: 0.10
-validation_metric_name: dataset_weighted_v2_recovery_domains_v1
-learning_rate: 0.000008
+  refinement: 0.60
+  chat: 0.12
+  english: 0.08
+  bengali: 0.06
+  hindi: 0.04
+  math: 0.06
+  coding: 0.04
+validation_metric_name: refinement_weighted_v1
+learning_rate: 0.000005
 weight_decay: 0.01
 beta1: 0.9
 beta2: 0.95
@@ -70,8 +78,8 @@ warmup_ratio: 0.05
 min_lr_ratio: 0.1
 ema_decay: 0.999
 log_every: 25
-checkpoint_every: 1000
-evaluate_every: 1000
+checkpoint_every: 250
+evaluate_every: 250
 early_stopping_patience: 3
 early_stopping_min_delta: 0.001
 ignore_index: -100
