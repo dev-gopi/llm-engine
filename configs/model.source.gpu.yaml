@@ -4,7 +4,7 @@ hidden_size: 512
 layers: 10
 heads: 8
 kv_heads: 2
-max_position: 512
+max_position: 1024
 position_type: rotary
 rope_base: 10000.0
 rope_scale: 1.0
