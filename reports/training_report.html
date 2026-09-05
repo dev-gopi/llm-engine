@@ -465,7 +465,11 @@
     function setCompact(enabled){document.body.classList.toggle('compact',enabled);compactButton.setAttribute('aria-pressed',String(enabled));compactButton.textContent=enabled?'Detailed view':'Compact';localStorage.setItem('gopi-report-compact',String(enabled))}
     function updateNotificationButton(){notificationButton.setAttribute('aria-pressed',String(notificationsEnabled));notificationButton.textContent=notificationsEnabled?'Notifications on':'Notifications off'}
     compactButton.onclick=()=>setCompact(!document.body.classList.contains('compact'));
-    document.getElementById('fullscreen').onclick=async()=>{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()};
+    const fullscreenButton=document.getElementById('fullscreen');
+    function updateFullscreenButton(){fullscreenButton.textContent=document.fullscreenElement?'Exit full screen':'Full screen'}
+    fullscreenButton.onclick=async()=>{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()};
+    document.addEventListener('fullscreenchange',updateFullscreenButton);
+    updateFullscreenButton();
     notificationButton.onclick=async()=>{if(typeof Notification==='undefined'){notificationButton.textContent='Notifications unavailable';return}const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();notificationsEnabled=permission==='granted'?!notificationsEnabled:false;if(notificationsEnabled)await getNotificationWorker();localStorage.setItem('gopi-report-notifications',String(notificationsEnabled));updateNotificationButton()};
     setCompact(localStorage.getItem('gopi-report-compact')==='true');updateNotificationButton();
     load(); setInterval(load,REFRESH_MS);
