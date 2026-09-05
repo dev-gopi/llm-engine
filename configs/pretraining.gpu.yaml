@@ -8,7 +8,7 @@ dataset_governance:
   policy: warn
   stage: pretraining
   commercial_use: false
-max_sequence_length: 1024
+max_sequence_length: 512
 num_workers: 4
 pin_memory: true
 persistent_workers: true
@@ -53,7 +53,7 @@ min_lr_ratio: 0.1
 # Smooth long-run pretraining updates; select the deployable checkpoint using
 # held-out validation rather than loss alone.
 ema_decay: 0.999
-log_every: 100
+log_every: 25
 checkpoint_every: 1000
 evaluate_every: 2000
 early_stopping_patience: 3

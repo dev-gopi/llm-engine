@@ -11,7 +11,7 @@ dataset_governance:
   policy: warn
   stage: sft
   commercial_use: false
-max_sequence_length: 1024
+max_sequence_length: 512
 pad_to_multiple_of: 8
 num_workers: 1
 pin_memory: true
