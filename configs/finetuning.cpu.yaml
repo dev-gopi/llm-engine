@@ -1,12 +1,16 @@
-# Quality-balanced CPU supervised fine-tuning profile.
+# Broad-quality CPU supervised fine-tuning profile. This is the slower,
+# lower-capacity counterpart to finetuning.gpu.yaml; its sequence length uses
+# the full context available in model.cpu.yaml.
 batch_size: 1
-epochs: 3
+# At most 100K sampled examples. Retain early stopping and select the best
+# held-out checkpoint instead of assuming a third pass improves SFT quality.
+epochs: 2
 seed: 42
 dataset_governance:
   policy: warn
   stage: sft
   commercial_use: false
-max_sequence_length: 256
+max_sequence_length: 512
 num_workers: 2
 pin_memory: false
 persistent_workers: true
@@ -17,26 +21,26 @@ distributed_backend: null
 checkpoint_format: single_file
 samples_per_epoch: 50000
 dataset_weights:
-  # Exact source-group totals: chat 17.5%, factual/general 33%, reasoning 13%,
-  # code 10%, Bengali 14%, Hindi/Hinglish 7%, and safety/tools/writing 5.5%.
-  ultrachat_200k: 0.15
-  helpsteer: 0.08
-  openorca: 0.13
-  gsm8k: 0.13
-  core_chat: 0.02
+  # Example-level weights total exactly 1.0. Audit sampled token shares before
+  # training because source records have different average lengths.
+  ultrachat_200k: 0.14
+  helpsteer: 0.06
+  openorca: 0.10
+  gsm8k: 0.14
+  core_chat: 0.03
   code_instructions: 0.07
-  general_qa: 0.12
-  safety_alignment: 0.025
-  writing_editing: 0.015
-  multilingual_bn_hi: 0.05
-  multilingual_hi: 0.04
-  tool_calling: 0.015
-  emoji_chat: 0.005
-  bangla_qa: 0.05
+  general_qa: 0.10
+  safety_alignment: 0.02
+  writing_editing: 0.01
+  multilingual_bn_hi: 0.06
+  multilingual_hi: 0.055
+  tool_calling: 0.025
+  emoji_chat: 0.01
+  bangla_qa: 0.055
   bangla_reading_qa: 0.04
-  hindi_history_qa: 0.02
-  hinglish_chat: 0.01
-  code_alpaca: 0.03
+  hindi_history_qa: 0.025
+  hinglish_chat: 0.015
+  code_alpaca: 0.045
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/helpsteer/train.jsonl
@@ -101,13 +105,15 @@ validation_domains:
       - data/processed/core_chat/validation.jsonl
       - data/processed/emoji_chat/validation.jsonl
 validation_weights:
-  english: 0.15
+  # Do not select a CPU checkpoint that improves one priority while regressing
+  # chat, reasoning, coding, Bengali, Hindi, or general English.
+  english: 0.13
   bengali: 0.14
-  hindi: 0.07
-  coding: 0.10
-  gsm8k: 0.13
-  chat: 0.41
-validation_metric_name: dataset_weighted_sft_domains_v2
+  hindi: 0.15
+  coding: 0.17
+  gsm8k: 0.18
+  chat: 0.23
+validation_metric_name: dataset_weighted_v3_broad_cpu_sft_domains
 learning_rate: 0.00003
 weight_decay: 0.01
 beta1: 0.9
@@ -120,7 +126,8 @@ mixed_precision: none
 lr_schedule: cosine
 warmup_ratio: 0.03
 min_lr_ratio: 0.1
-ema_decay: 0.999
+# A short SFT stage uses direct broad-validation selection instead of EMA.
+ema_decay: null
 log_every: 25
 checkpoint_every: 1000
 evaluate_every: 1000

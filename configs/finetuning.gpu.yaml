@@ -1,7 +1,12 @@
-# Quality-first SFT profile for the 16-layer model and its 42K append-only
+# Quality-first final SFT profile for the 16-layer model and its 42K append-only
 # fine-tuning tokenizer (40K pretrained tokens plus 2K new tokens).
-# The 1M-sample epoch matches pretraining coverage while the effective batch of
-# 64 keeps updates stable and preserves the conservative 1e-5 SFT learning rate.
+# Sampling covers useful multi-turn chat, mathematical reasoning, coding/tool
+# use, Bengali/Hindi responses, and general knowledge. The small causal-LM
+# retention share helps preserve broad knowledge without overwhelming SFT.
+# Each epoch samples 1M examples (2M total at the configured maximum of two
+# epochs). Select the best held-out checkpoint and let early stopping end the
+# run sooner when the second pass is no longer improving quality. The effective
+# batch of 64 keeps updates stable and preserves the conservative 1e-5 SFT LR.
 batch_size: 2
 validation_batch_size: 4
 epochs: 2
@@ -10,6 +15,8 @@ dataset_governance:
   policy: warn
   stage: sft
   commercial_use: false
+# This must not exceed model.gpu.yaml:max_position (512). Use a separately
+# grown 1,024-token model/checkpoint before raising it.
 max_sequence_length: 512
 pad_to_multiple_of: 8
 num_workers: 4
@@ -24,37 +31,37 @@ samples_per_epoch: 1000000
 dataset_weights:
   # Preference data contributes chosen responses only. Wikipedia, FineWeb-Edu,
   # and CodeParrot contribute causal-LM examples at deliberately small shares.
-  ultrachat_200k: 0.06
-  v2_openassistant_en: 0.03
-  helpsteer: 0.08
+  ultrachat_200k: 0.10
+  v2_openassistant_en: 0.05
+  helpsteer: 0.06
   openorca: 0.05
   gsm8k: 0.13
-  v2_math_instruct: 0.05
-  core_chat: 0.02
-  code_instructions: 0.03
+  v2_math_instruct: 0.06
+  core_chat: 0.03
+  code_instructions: 0.04
   v2_code_feedback: 0.04
-  general_qa: 0.06
-  safety_alignment: 0.025
-  writing_editing: 0.015
+  general_qa: 0.04
+  safety_alignment: 0.02
+  writing_editing: 0.01
   multilingual_bn_hi: 0.05
-  multilingual_hi: 0.04
-  tool_calling: 0.015
-  emoji_chat: 0.005
-  bangla_qa: 0.02
+  multilingual_hi: 0.035
+  tool_calling: 0.02
+  emoji_chat: 0.01
+  bangla_qa: 0.025
   v2_bengali_news: 0.03
-  bangla_reading_qa: 0.04
+  bangla_reading_qa: 0.035
   hindi_history_qa: 0.02
   hinglish_chat: 0.01
   hindi_hinglish: 0.02
-  v2_hindi_news: 0.03
+  v2_hindi_news: 0.025
   code_alpaca: 0.03
   preferences: 0.02
-  wikipedia_en: 0.01
-  wikipedia_simple: 0.01
-  wikipedia_bn: 0.01
-  wikipedia_hi: 0.01
-  fineweb_edu: 0.02
-  code_pretraining: 0.02
+  wikipedia_en: 0.005
+  wikipedia_simple: 0.005
+  wikipedia_bn: 0.005
+  wikipedia_hi: 0.005
+  fineweb_edu: 0.01
+  code_pretraining: 0.01
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
   - data/processed/v2_openassistant_en/train.jsonl
@@ -150,13 +157,15 @@ validation_domains:
       - data/processed/core_chat/validation.jsonl
       - data/processed/emoji_chat/validation.jsonl
 validation_weights:
-  english: 0.15
-  bengali: 0.14
-  hindi: 0.12
-  coding: 0.10
+  # A broad final-stage gate: do not select a checkpoint that improves one
+  # capability by noticeably regressing chat, knowledge, languages, or tools.
+  chat: 0.22
   gsm8k: 0.18
-  chat: 0.31
-validation_metric_name: dataset_weighted_v2_sft_domains_with_causal_v2
+  coding: 0.17
+  bengali: 0.15
+  hindi: 0.15
+  english: 0.13
+validation_metric_name: dataset_weighted_v3_broad_sft_domains
 learning_rate: 0.00001
 weight_decay: 0.01
 beta1: 0.9
@@ -169,6 +178,8 @@ mixed_precision: bf16
 lr_schedule: cosine
 warmup_ratio: 0.05
 min_lr_ratio: 0.1
+# EMA smooths short-term update noise; broad validation still determines the
+# deployable checkpoint. It requires a second full parameter copy on the GPU.
 ema_decay: 0.999
 log_every: 25
 checkpoint_every: 1000

@@ -1,4 +1,6 @@
-# Continued pretraining for the active grown GPU model.
+# Continued pretraining for the active grown GPU model. Five epochs request up
+# to 5M sampled examples; use held-out validation and early stopping to choose
+# the actual stopping point. Sequence length matches model.gpu.yaml (512).
 batch_size: 2
 epochs: 5
 seed: 42
@@ -48,6 +50,8 @@ grad_scaler_growth_interval: 20000
 lr_schedule: cosine
 warmup_ratio: 0.05
 min_lr_ratio: 0.1
+# Smooth long-run pretraining updates; select the deployable checkpoint using
+# held-out validation rather than loss alone.
 ema_decay: 0.999
 log_every: 25
 checkpoint_every: 1000

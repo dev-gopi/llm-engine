@@ -85,11 +85,27 @@ def test_gpu_finetuning_profile_targets_balanced_quality() -> None:
     assert "grad_scaler_initial_scale" not in config
     assert "grad_scaler_growth_interval" not in config
     assert config["max_sequence_length"] == 512
+    assert config["ema_decay"] == pytest.approx(0.999)
     assert config["label_smoothing"] == 0.0
     assert weights["gsm8k"] >= 0.12
     assert sum(weights[name] for name in (
         "multilingual_bn_hi", "bangla_qa", "bangla_reading_qa", "v2_bengali_news",
     )) >= 0.14
+
+
+def test_cpu_finetuning_and_pretraining_profiles_use_direct_validation() -> None:
+    cpu_sft = load_yaml(CONFIGS / "finetuning.cpu.yaml")
+    gpu_pretraining = load_yaml(CONFIGS / "pretraining.gpu.yaml")
+    cpu_pretraining = load_yaml(CONFIGS / "pretraining.cpu.yaml")
+
+    assert cpu_sft["max_sequence_length"] == 512
+    assert cpu_sft["epochs"] == 2
+    assert cpu_sft["ema_decay"] is None
+    assert sum(cpu_sft["dataset_weights"].values()) == pytest.approx(1.0)
+    assert sum(cpu_sft["validation_weights"].values()) == pytest.approx(1.0)
+    assert gpu_pretraining["ema_decay"] == pytest.approx(0.999)
+    assert cpu_pretraining["ema_decay"] is None
+    assert cpu_pretraining["evaluate_every"] == 1000
 
 
 def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
@@ -122,10 +138,10 @@ def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
     assert "data/processed/hindi_hinglish/train.jsonl" in config["train_files"]
     assert "data/processed/hindi_hinglish/validation.jsonl" in config["validation_files"]
     assert "data/processed/hindi_hinglish/validation.jsonl" in config["validation_domains"]["hindi"]
-    assert config["validation_weights"]["hindi"] == pytest.approx(0.12)
+    assert config["validation_weights"]["hindi"] == pytest.approx(0.15)
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
     assert sum(config["validation_weights"].values()) == pytest.approx(1.0)
-    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"
+    assert config["validation_metric_name"] == "dataset_weighted_v3_broad_sft_domains"
 
 
 def test_tokenizer_sources_match_gpu_finetuning_training_files() -> None:
@@ -149,7 +165,7 @@ def test_expanded_sft_is_the_active_gpu_stage() -> None:
     assert config["validation_batch_size"] > config["batch_size"]
     assert config["pad_to_multiple_of"] == 8
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
-    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"
+    assert config["validation_metric_name"] == "dataset_weighted_v3_broad_sft_domains"
     assert tokenizer["vocab_size"] == 40_000
     assert tokenizer["output_dir"] == "data/tokenizer"
     extensions = {item["name"]: item for item in tokenizer["extensions"]}
@@ -176,7 +192,7 @@ def test_active_sft_fits_the_laptop_growth_route() -> None:
     assert config["samples_per_epoch"] == 1_000_000
     assert config["learning_rate"] == pytest.approx(1e-5)
     assert config["epochs"] == 2
-    assert config["validation_metric_name"] == "dataset_weighted_v2_sft_domains_with_causal_v2"
+    assert config["validation_metric_name"] == "dataset_weighted_v3_broad_sft_domains"
     assert model["vocab_size"] == 40_000
     assert model["layers"] == 16
 

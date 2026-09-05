@@ -215,8 +215,9 @@ def main() -> None:
     scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
     # A conventional EMA duplicates every parameter and defeats FSDP memory
     # sharding. Large FSDP jobs should average selected exported checkpoints.
-    ema = None if strategy.startswith("fsdp") else EMA(
-        training_model, decay=float(config.get("ema_decay", 0.999))
+    ema_decay = config.get("ema_decay", 0.999)
+    ema = None if strategy.startswith("fsdp") or ema_decay is None else EMA(
+        training_model, decay=float(ema_decay)
     )
     loss_fn = CausalLanguageModelLoss.from_config(config)
     trainer = Trainer(
