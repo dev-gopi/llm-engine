@@ -93,3 +93,23 @@ wc -l data/processed/preferences/*.jsonl
 Use `scripts/prepare_hf_dataset.py --help` for the supported Hugging Face
 download and normalization workflow. Review each dataset card and license
 before downloading or using it.
+
+## Web and Hugging Face corpus pipeline
+
+`scripts/prepare_corpus.py` is a configuration-driven, DataTrove-compatible
+pretraining path. It streams Hugging Face datasets through the `datasets`
+library or reads extracted web JSONL, then performs text extraction, quality
+filtering, language selection, PII redaction, exact/near deduplication,
+statistics, and JSONL sharding. Start from `configs/corpus.web.yaml`:
+
+```bash
+python -m pip install -e '.[data]'
+python scripts/prepare_corpus.py --config configs/corpus.web.yaml
+python scripts/build_token_shards.py 'data/processed/web-corpus/shard-*.jsonl' \
+  --tokenizer data/tokenizer --output data/tokens/web-corpus
+```
+
+For WARC/Common Crawl-scale processing, use DataTrove's WARC reader with the
+same source/extraction/filter/output settings; the checked-in script keeps a
+portable JSONL reader for local and testable runs. Always record the dataset
+card, license, revision, and filtering policy in the generated manifest.

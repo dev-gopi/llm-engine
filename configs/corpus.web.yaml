@@ -1,0 +1,25 @@
+# DataTrove-compatible corpus preparation. Install: pip install -e '.[data]'
+# For Common Crawl WARC-scale runs, use the equivalent DataTrove WARC reader;
+# this portable entry point consumes extracted JSONL web records.
+source:
+  kind: web                         # web or huggingface
+  name: example-web-corpus
+  paths: [data/raw/web/documents.jsonl]
+  text_fields: [raw_content, content, text, html]
+extraction:
+  html: true
+quality:
+  min_chars: 100
+  max_chars: 100000
+languages:
+  allow: [en, bn, hi]
+pii:
+  redact: true
+unwanted_content:
+  patterns: ['(?i)terms of service', '(?i)all rights reserved']
+deduplication:
+  near_duplicate_distance: 3
+  max_fingerprints: 1000000
+output:
+  directory: data/processed/web-corpus
+  shard_size: 100000
