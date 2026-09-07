@@ -101,8 +101,8 @@
     </section>
     <section class="panel" style="margin-bottom:16px"><h2>Improvement verdict</h2><div id="verdict"></div><div id="improvement-summary" style="margin-top:14px"></div></section>
     <section class="grid">
-      <div class="panel"><h2>Dataset sampling distribution</h2><svg id="dataset-weight-chart" class="distribution-chart"></svg></div>
-      <div class="panel"><h2>Validation domain weights</h2><svg id="validation-weight-chart" class="distribution-chart"></svg></div>
+      <div class="panel"><h2>Dataset sampling distribution</h2><div class="chart-scroll"><svg id="dataset-weight-chart" class="distribution-chart"></svg></div></div>
+      <div class="panel"><h2>Validation domain weights</h2><div class="chart-scroll"><svg id="validation-weight-chart" class="distribution-chart"></svg></div></div>
       <div class="panel"><h2>Latest domain loss</h2><svg id="domain-loss-chart" class="distribution-chart"></svg></div>
       <div class="panel"><h2>Latest domain perplexity</h2><svg id="domain-perplexity-chart" class="distribution-chart"></svg></div>
     </section>
@@ -250,19 +250,25 @@
 
     function pieChart(svg, entries) {
       const values=entries.filter(([,value])=>Number.isFinite(Number(value))&&Number(value)>0);
-      if(!values.length){svg.setAttribute('viewBox','0 0 760 360');svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No weight data yet</text>';return}
+      if(!values.length){svg.style.width='100%';svg.setAttribute('viewBox','0 0 760 360');svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No weight data yet</text>';return}
       const total=values.reduce((sum,[,value])=>sum+Number(value),0),cx=175,cy=180,r=125;
-      let angle=-Math.PI/2,out='<rect width="760" height="360" fill="#0a1728" rx="8"/>';
+      // Dataset mixtures can contain 30+ sources.  Keep the pie and every
+      // legend item readable instead of squeezing later columns into a fixed
+      // 760px viewBox; the surrounding chart-scroll provides horizontal access.
+      const rowsPerColumn=12,legendStart=340,legendColumnWidth=205;
+      const columns=Math.max(1,Math.ceil(values.length/rowsPerColumn));
+      const width=Math.max(760,legendStart+columns*legendColumnWidth+18),height=360;
+      let angle=-Math.PI/2,out=`<rect width="${width}" height="${height}" fill="#0a1728" rx="8"/>`;
       values.forEach(([name,value],index)=>{
         const share=Number(value)/total,next=angle+share*Math.PI*2,color=categoryColor(index,values.length);
         const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle),x2=cx+r*Math.cos(next),y2=cy+r*Math.sin(next),large=share>.5?1:0;
         out+=`<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z" fill="${color}" stroke="#07111f" stroke-width="2"><title>${esc(name)}: ${(share*100).toFixed(2)}%</title></path>`;
-        const column=Math.floor(index/12),row=index%12,lx=340+column*205,ly=28+row*27;
+        const column=Math.floor(index/rowsPerColumn),row=index%rowsPerColumn,lx=legendStart+column*legendColumnWidth,ly=28+row*27;
         out+=`<rect x="${lx}" y="${ly-10}" width="13" height="13" rx="2" fill="${color}"/><text x="${lx+20}" y="${ly}" fill="#e7eef8" font-size="11">${esc(name)} ${(share*100).toFixed(1)}%</text>`;
         angle=next;
       });
       out+=`<circle cx="${cx}" cy="${cy}" r="54" fill="#0a1728"/><text x="${cx}" y="${cy-2}" text-anchor="middle" fill="#e7eef8" font-size="20" font-weight="700">${values.length}</text><text x="${cx}" y="${cy+18}" text-anchor="middle" fill="#91a4ba" font-size="11">datasets</text>`;
-      svg.setAttribute('viewBox','0 0 760 360');svg.innerHTML=out;
+      svg.style.width=`${width}px`;svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.innerHTML=out;
     }
 
     function horizontalBarChart(svg, entries, valueLabel=value=>fmt(value,3)) {
