@@ -219,6 +219,11 @@ class MultiHeadAttention(nn.Module):
                 dtype=dtype,
             )
 
+        # A single final query may attend to every key in its prefix.
+        # Preserve the user mask, but no causal matrix is needed.
+        if causal and query_length == 1 and key_length == past_length + 1:
+            return prepared, False
+
         if causal:
             cache_key = (query_length, key_length, past_length, str(device))
             if cache_key in self._mask_cache:

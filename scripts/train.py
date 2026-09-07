@@ -34,7 +34,7 @@ from training.elastic import PreemptionCoordinator
 from training.reporting import archive_previous_report_files
 from dotenv import load_dotenv
 
-from utils.config import load_yaml
+from utils.config import apply_cli_defaults, load_yaml
 from utils.logger import configure_logging, get_logger
 from utils.seed import set_seed
 
@@ -91,25 +91,36 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--training-config", type=Path, default=Path("configs/pretraining.gpu.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
-    parser.add_argument("--output", type=Path, default=Path("checkpoints/training/latest.pt"))
-    parser.add_argument("--best-output", type=Path, default=Path("checkpoints/training/best.pt"))
+    parser.add_argument("--tokenizer", type=Path, default=None)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--best-output", type=Path, default=None)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--init-from", type=Path, help="load model weights only for a new training stage")
     parser.add_argument("--epochs", type=int)
     parser.add_argument(
-        "--log-file", type=Path, default=Path("logs/training.log"),
+        "--log-file", type=Path, default=None,
         help="append training logs for the standalone live report viewer",
     )
-    parser.add_argument("--report-json", type=Path, default=Path("reports/training_report.json"))
-    parser.add_argument("--report-refresh-seconds", type=float, default=2.0)
-    parser.add_argument("--report-telemetry-seconds", type=float, default=2.0)
-    parser.add_argument("--report-telemetry-points", type=int, default=3600)
+    parser.add_argument("--report-json", type=Path, default=None)
+    parser.add_argument("--report-refresh-seconds", type=float, default=None)
+    parser.add_argument("--report-telemetry-seconds", type=float, default=None)
+    parser.add_argument("--report-telemetry-points", type=int, default=None)
     parser.add_argument(
         "--no-live-report", action="store_true",
         help="do not launch the isolated JSON report watcher",
     )
     args = parser.parse_args()
+    config = load_yaml(args.training_config)
+    apply_cli_defaults(args, config.get("runtime", {}), {
+        "tokenizer": Path("data/tokenizer"),
+        "output": Path("checkpoints/training/latest.pt"),
+        "best_output": Path("checkpoints/training/best.pt"),
+        "log_file": Path("logs/training.log"),
+        "report_json": Path("reports/training_report.json"),
+        "report_refresh_seconds": 2.0,
+        "report_telemetry_seconds": 2.0,
+        "report_telemetry_points": 3600,
+    })
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
 
@@ -130,7 +141,7 @@ def main() -> None:
     if args.report_telemetry_points < 1:
         parser.error("--report-telemetry-points must be positive")
     _start_reporter(args)
-    model_config, config = load_yaml(args.model_config), load_yaml(args.training_config)
+    model_config = load_yaml(args.model_config)
     precision = str(config.get("mixed_precision", "none"))
     if precision == "fp16" and not torch.cuda.is_available():
         parser.error(

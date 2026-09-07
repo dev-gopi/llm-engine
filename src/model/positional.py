@@ -49,8 +49,13 @@ def apply_rotary_pos_emb(
                 )
         cos = cos.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)  # [batch, 1, seq, head_dim]
         sin = sin.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
+    # Autocast projections can be BF16/FP16 while the position tables are
+    # FP32. Keep rotated states in the projection dtype so cached K and V
+    # remain compatible and do not silently double key-cache storage.
+    q_cos, q_sin = cos.to(dtype=q.dtype), sin.to(dtype=q.dtype)
+    k_cos, k_sin = (q_cos, q_sin) if k.dtype == q.dtype else (cos.to(dtype=k.dtype), sin.to(dtype=k.dtype))
+    q_embed = (q * q_cos) + (rotate_half(q) * q_sin)
+    k_embed = (k * k_cos) + (rotate_half(k) * k_sin)
     return q_embed, k_embed
 
 
@@ -93,7 +98,14 @@ class RotaryPositionalEmbedding(nn.Module):
         self, seq_len: int, device: torch.device | str | None = None, dtype: torch.dtype | None = None
     ) -> None:
         self.max_seq_len_cached = seq_len
-        t = torch.arange(seq_len, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+        # Reconstruct from the scalar base: module.half()/bfloat16() may have
+        # rounded the non-persistent frequency buffer. Position arithmetic must
+        # remain FP32, especially beyond BF16's consecutive integer range.
+        target_device = device if device is not None else self.inv_freq.device
+        self.inv_freq = 1.0 / (
+            self.base ** (torch.arange(0, self.dim, 2, device=target_device, dtype=torch.float32) / self.dim)
+        )
+        t = torch.arange(seq_len, device=target_device, dtype=torch.float32)
         if self.scaling_factor != 1.0:
             t = t / self.scaling_factor
 
@@ -101,6 +113,15 @@ class RotaryPositionalEmbedding(nn.Module):
         emb = torch.cat((freqs, freqs), dim=-1)
         self.register_buffer("cos_cached", emb.cos()[None, None, :, :].to(dtype=dtype, device=device), persistent=False)
         self.register_buffer("sin_cached", emb.sin()[None, None, :, :].to(dtype=dtype, device=device), persistent=False)
+
+    def _apply(self, fn, recurse=True):
+        result = super()._apply(fn, recurse=recurse)
+        # Regenerate derived tables after device/dtype moves instead of
+        # retaining rounded values when returning to higher precision.
+        self._build_cos_sin_cache(
+            self.max_seq_len_cached, device=self.cos_cached.device, dtype=self.cos_cached.dtype
+        )
+        return result
 
     def forward(self, x: Tensor, seq_len: int | None = None) -> tuple[Tensor, Tensor]:
         """Return (cos, sin) tensors cached up to max(seq_len, x.shape[2])."""
@@ -136,13 +157,30 @@ class SinusoidalPositionalEmbedding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term[: dim // 2])
         self.register_buffer("weight", pe, persistent=True)
 
-    def forward(self, inputs: Tensor, position_offset: int = 0) -> Tensor:
+    def forward(
+        self, inputs: Tensor, position_offset: int = 0, *, position_ids: Tensor | None = None
+    ) -> Tensor:
         batch_size, sequence_length = inputs.shape[:2]
-        end_pos = position_offset + sequence_length
-        if end_pos > self.max_positions:
-            raise IndexError(f"End position {end_pos} exceeds max_positions {self.max_positions}")
-        embeddings = self.weight[position_offset:end_pos].unsqueeze(0).expand(batch_size, -1, -1)
-        return embeddings.to(dtype=inputs.dtype, device=inputs.device)
+        if not isinstance(position_offset, int) or isinstance(position_offset, bool) or position_offset < 0:
+            raise ValueError("position_offset must be a non-negative integer")
+        if position_ids is None:
+            end_pos = position_offset + sequence_length
+            if end_pos > self.max_positions:
+                raise IndexError(f"End position {end_pos} exceeds max_positions {self.max_positions}")
+            embeddings = self.weight[position_offset:end_pos].unsqueeze(0).expand(batch_size, -1, -1)
+        else:
+            if position_ids.dtype not in (torch.int32, torch.int64):
+                raise TypeError("position_ids must use an integer dtype")
+            if position_ids.ndim == 1 and position_ids.shape[0] == sequence_length:
+                position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+            if position_ids.shape != (batch_size, sequence_length):
+                raise ValueError("position_ids must have shape [sequence] or [batch, sequence]")
+            if not torch.compiler.is_compiling() and position_ids.numel():
+                if int(position_ids.min()) < 0 or int(position_ids.max()) >= self.max_positions:
+                    raise IndexError("position IDs exceed sinusoidal position bounds")
+            embeddings = self.weight[position_ids.to(device=self.weight.device, dtype=torch.long)]
+        dtype = inputs.dtype if inputs.is_floating_point() else self.weight.dtype
+        return embeddings.to(dtype=dtype, device=inputs.device)
 
 
 class PositionalEmbedding(nn.Module):

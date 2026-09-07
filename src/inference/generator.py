@@ -9,6 +9,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
 from utils.device import resolve_device
 from utils.logger import get_logger
@@ -146,9 +147,9 @@ class Generator:
         stop_sequences = stop or []
 
         logits, raw_cache = self._prefill(prompt_ids)
-        cache = KVCache(raw_cache, capacity=self.max_positions)
-        for _ in range(limit):
-            next_logits = logits[:, -1, :]
+        cache = KVCache(raw_cache, capacity=len(prompt_ids) + limit)
+        for step in range(limit):
+            next_logits = logits[:, -1, :].clone()
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, no_repeat_ngram_size)
             self._suppress_special_tokens(next_logits, len(generated), min_tokens)
@@ -163,13 +164,15 @@ class Generator:
                 break
             generated.append(next_id)
             all_ids.append(next_id)
-            text = self.tokenizer.decode(generated, skip_special_tokens=True)
+            text = self.tokenizer.decode(generated, skip_special_tokens=True) if stop_sequences else ""
             if any(sequence in text for sequence in stop_sequences):
                 finish_reason = "stop"
                 text = self._trim_stop(text, stop_sequences)
                 return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
+            if step + 1 == limit:
+                break
             step_input = torch.tensor([[next_id]], dtype=torch.long, device=self.device)
-            model_output = self.model(step_input, past_key_values=cache.values, use_cache=True)
+            model_output = self._forward_model(step_input, past_key_values=cache.values, use_cache=True)
             if not isinstance(model_output, tuple):
                 raise RuntimeError("model did not return a requested KV cache")
             logits, raw_cache = model_output
@@ -298,7 +301,7 @@ class Generator:
                     keys.append(F.pad(key, (0, 0, padding, 0)))
                     values.append(F.pad(value, (0, 0, padding, 0)))
                 batched_layers.append((torch.cat(keys), torch.cat(values)))
-            output = self.model(
+            output = self._forward_model(
                 torch.tensor([token for _, _, token in survivors], device=self.device).unsqueeze(1),
                 attention_mask=torch.stack(masks),
                 position_ids=torch.tensor(positions, device=self.device).unsqueeze(1),
@@ -378,7 +381,7 @@ class Generator:
             if seed is not None:
                 for offset, random in enumerate(randoms):
                     random.manual_seed(int(seed) + indexes[offset])
-            output = self.model(torch.tensor([encoded[i] for i in active], device=self.device), use_cache=True)
+            output = self._forward_model(torch.tensor([encoded[i] for i in active], device=self.device), use_cache=True)
             if not isinstance(output, tuple):
                 raise RuntimeError("model did not return a requested KV cache")
             logits, cache = output
@@ -419,7 +422,7 @@ class Generator:
                 all_ids = [all_ids[row] for row in survivors]
                 generated = [generated[row] for row in survivors]
                 randoms = [randoms[row] for row in survivors]
-                output = self.model(torch.tensor(next_tokens, device=self.device).unsqueeze(1),
+                output = self._forward_model(torch.tensor(next_tokens, device=self.device).unsqueeze(1),
                                     past_key_values=cache, use_cache=True)
                 if not isinstance(output, tuple):
                     raise RuntimeError("model did not return a requested KV cache")
@@ -461,10 +464,11 @@ class Generator:
         all_ids, generated = list(prompt_ids), []
         emitted_text = ""
         logits, raw_cache = self._prefill(prompt_ids)
-        cache = KVCache(raw_cache, capacity=self.max_positions)
+        limit = min(max_tokens, self.max_positions - len(prompt_ids))
+        cache = KVCache(raw_cache, capacity=len(prompt_ids) + limit)
         finish_reason = "length"
-        for _ in range(min(max_tokens, self.max_positions - len(prompt_ids))):
-            next_logits = logits[:, -1, :]
+        for step in range(limit):
+            next_logits = logits[:, -1, :].clone()
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, ngram_size)
             self._suppress_special_tokens(next_logits, len(generated), min_tokens)
@@ -487,7 +491,9 @@ class Generator:
             if stopped:
                 finish_reason = "stop"
                 break
-            output = self.model(
+            if step + 1 == limit:
+                break
+            output = self._forward_model(
                 torch.tensor([[token_id]], device=self.device),
                 past_key_values=cache.values,
                 use_cache=True,
@@ -556,6 +562,12 @@ class Generator:
         endings = [text.find(sequence) for sequence in stop_sequences if sequence in text]
         return text[: min(endings)] if endings else text
 
+    def _forward_model(self, token_ids: torch.Tensor, **kwargs):
+        """Project only the next-token logits for MiniGPT inference."""
+        if isinstance(self.model, MiniGPT):
+            kwargs["logits_to_keep"] = 1
+        return self.model(token_ids, **kwargs)
+
     def _prefill(self, prompt_ids: list[int]):
         key = tuple(prompt_ids)
         if self.prefix_cache is not None:
@@ -567,16 +579,15 @@ class Generator:
                     logits, raw_cache = cached
                 return logits, raw_cache
             self.prefix_cache_misses += 1
-        output = self.model(torch.tensor([prompt_ids], dtype=torch.long, device=self.device), use_cache=True)
+        output = self._forward_model(torch.tensor([prompt_ids], dtype=torch.long, device=self.device), use_cache=True)
         if not isinstance(output, tuple):
             raise RuntimeError("model did not return a requested KV cache")
         logits, raw_cache = output
         if self.prefix_cache is not None:
-            value = (logits.detach().clone(), tuple(
-                (key.detach().clone(), value.detach().clone()) for key, value in raw_cache
-            ))
             if isinstance(self.prefix_cache, PagedPrefixCache):
                 self.prefix_cache.put(key, logits, raw_cache)
             else:
-                self.prefix_cache.put(key, value)
+                self.prefix_cache.put(key, (logits.detach().clone(), tuple(
+                    (k.detach().clone(), v.detach().clone()) for k, v in raw_cache
+                )))
         return logits, raw_cache

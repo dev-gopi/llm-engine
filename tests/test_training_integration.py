@@ -88,3 +88,39 @@ def test_trainer_validates_grad_scaler_configuration() -> None:
         Trainer(model, optimizer, grad_scaler_initial_scale=0)
     with pytest.raises(ValueError, match="grad_scaler_growth_interval"):
         Trainer(model, optimizer, grad_scaler_growth_interval=0)
+
+
+def test_token_metrics_follow_configured_shift_and_ignore_index():
+    from model.loss import CausalLanguageModelLoss
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3),
+                      loss_fn=CausalLanguageModelLoss(shift_labels=False, ignore_index=-1))
+    trainer.train_step({"input_ids": torch.tensor([[1, 2, 3]]),
+                        "labels": torch.tensor([[4, -1, 5]]),
+                        "loss_mask": torch.tensor([[1, 1, 0]])})
+    assert trainer.tokens_processed == 1
+
+
+def test_nonfinite_loss_resets_discarded_accumulation_window():
+    class ToggleLoss:
+        fail = False
+        def __call__(self, logits, targets, *, loss_mask=None):
+            from model.loss import CausalLanguageModelLoss
+            if self.fail:
+                return logits.sum() * float("nan")
+            return CausalLanguageModelLoss()(logits, targets)
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    objective = ToggleLoss()
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3),
+                      loss_fn=objective, gradient_accumulation_steps=2)
+    batch = Collator(0)([torch.tensor([1, 2, 3])])
+    trainer.train_step(batch)
+    objective.fail = True
+    with pytest.raises(FloatingPointError):
+        trainer.train_step(batch)
+    assert trainer.micro_step == 0
+    objective.fail = False
+    trainer.train_step(batch)
+    assert trainer.global_step == 0
+    trainer.train_step(batch)
+    assert trainer.global_step == 1

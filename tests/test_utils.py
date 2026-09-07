@@ -54,3 +54,44 @@ def test_logging_can_append_to_a_report_file(tmp_path) -> None:
     for handler in logger.parent.handlers if logger.parent else ():
         handler.flush()
     assert "report marker" in destination.read_text(encoding="utf-8")
+
+
+def test_yaml_inheritance_merges_nested_defaults_and_replaces_lists(tmp_path):
+    (tmp_path / "base.yaml").write_text("runtime:\n  device: cpu\n  count: 2\nfiles: [a, b]\n")
+    (tmp_path / "second.yaml").write_text("runtime:\n  count: 4\n")
+    child = tmp_path / "child.yaml"
+    child.write_text("extends: [base.yaml, second.yaml]\nruntime:\n  device: cuda\nfiles: [c]\n")
+    assert load_yaml(child) == {"runtime": {"device": "cuda", "count": 4}, "files": ["c"]}
+    assert load_yaml(tmp_path / "base.yaml")["runtime"]["count"] == 2
+
+
+def test_yaml_inheritance_rejects_cycles_and_invalid_parent(tmp_path):
+    config = tmp_path / "cycle.yaml"
+    config.write_text("extends: cycle.yaml\n")
+    with pytest.raises(ValueError, match="cycle"):
+        load_yaml(config)
+    config.write_text("extends: 123\n")
+    with pytest.raises(ValueError, match="extends"):
+        load_yaml(config)
+
+
+def test_cli_overrides_config_and_preserves_explicit_zero():
+    from argparse import Namespace
+    from pathlib import Path
+    from utils.config import apply_cli_defaults
+    args = Namespace(count=0, output=None, device=None)
+    apply_cli_defaults(args, {"count": 5, "output": "custom.pt"},
+                       {"count": 2, "output": Path("default.pt"), "device": "cpu"})
+    assert args.count == 0
+    assert args.output == Path("custom.pt")
+    assert args.device == "cpu"
+
+
+def test_every_repository_yaml_loads_with_shared_defaults():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for path in (root / "configs").rglob("*.yaml"):
+        assert isinstance(load_yaml(path), dict)
+    fine = load_yaml(root / "configs/finetuning.gpu.yaml")
+    assert fine["runtime"]["report_telemetry_points"] == 3600
+    assert fine["runtime"]["tokenizer"] == "data/tokenizer-finetuning"

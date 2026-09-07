@@ -195,3 +195,32 @@ def test_chat_training_encoding_matches_inference_unicode_normalization():
                           add_eos=True, allowed_special='all')
     ids, _ = TextDataset._encode_chat(messages, tok, True, True)
     assert ids == expected
+
+
+def test_collator_preserves_explicit_targets_and_combines_masks():
+    batch = Collator(0)([
+        {"input_ids": torch.tensor([1, 2, 3, 4]),
+         "labels": torch.tensor([5, 6, -100, 8]),
+         "attention_mask": torch.tensor([1, 0, 1, 1]),
+         "loss_mask": torch.tensor([1, 1, 1, 0])},
+        torch.tensor([2, 3]),
+    ])
+    assert batch["labels"].tolist() == [[5, -100, -100, -100], [2, 3, -100, -100]]
+    assert batch["attention_mask"][0].tolist() == [True, False, True, True]
+    assert batch["loss_mask"][0].tolist() == [True, False, False, False]
+
+
+def test_collator_rejects_mismatched_label_shape():
+    with pytest.raises(ValueError, match="labels"):
+        Collator(0)([{"input_ids": torch.tensor([1, 2]), "labels": torch.tensor([3])}])
+
+
+@pytest.mark.parametrize("field", ["attention_mask", "loss_mask"])
+def test_collator_rejects_nonbinary_masks(field):
+    with pytest.raises(ValueError, match="binary"):
+        Collator(0)([{"input_ids": torch.tensor([1, 2]), field: torch.tensor([1.0, float("nan")])}])
+
+
+def test_collator_accepts_optional_null_labels():
+    batch = Collator(0)([{"input_ids": torch.tensor([1, 2]), "labels": None}])
+    assert batch["labels"].tolist() == [[1, 2]]

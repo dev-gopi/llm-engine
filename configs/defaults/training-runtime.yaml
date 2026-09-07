@@ -1,0 +1,10 @@
+# Shared training paths and report controls. Explicit CLI options take priority.
+runtime:
+  tokenizer: data/tokenizer
+  output: checkpoints/training/latest.pt
+  best_output: checkpoints/training/best.pt
+  log_file: logs/training.log
+  report_json: reports/training_report.json
+  report_refresh_seconds: 2.0
+  report_telemetry_seconds: 2.0
+  report_telemetry_points: 3600

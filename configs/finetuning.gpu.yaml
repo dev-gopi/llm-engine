@@ -190,3 +190,13 @@ label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
+
+# Bound FP32 loss intermediates; backward recomputes each chunk to save memory.
+# Set to 0 for the original unchunked loss (less recomputation).
+loss_chunk_size: 128
+
+extends: defaults/training-runtime.yaml
+runtime:
+  tokenizer: data/tokenizer-finetuning
+  output: checkpoints/finetuning/latest.pt
+  best_output: checkpoints/finetuning/best.pt

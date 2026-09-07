@@ -118,11 +118,15 @@ class Trainer:
         if not bool(torch.isfinite(loss.detach())):
             self.nonfinite_updates += 1
             self.opt.zero_grad(set_to_none=True)
+            self.micro_step = 0
             raise FloatingPointError(
                 f"non-finite training loss at optimizer step {self.global_step}"
             )
         self.scaler.scale(loss / self.gradient_accumulation_steps).backward()
-        self.tokens_processed += self._count_target_tokens(targets, loss_mask, is_batch)
+        self.tokens_processed += self._count_target_tokens(
+            targets, loss_mask, getattr(loss_function, "shift_labels", is_batch),
+            getattr(loss_function, "ignore_index", -100),
+        )
         self.micro_step += 1
         if self.micro_step % self.gradient_accumulation_steps == 0:
             self._optimizer_step()
@@ -173,11 +177,15 @@ class Trainer:
         return torch.stack([norm.to(self.device) for norm in norms]).norm(2)
 
     @staticmethod
-    def _count_target_tokens(targets: Tensor, loss_mask: Tensor | None, is_batch: bool) -> int:
+    def _count_target_tokens(
+        targets: Tensor, loss_mask: Tensor | None, shift_labels: bool, ignore_index: int = -100
+    ) -> int:
+        selected = targets.ne(ignore_index)
         if loss_mask is not None:
-            selected = loss_mask[:, 1:] if is_batch and loss_mask.ndim == 2 else loss_mask
-            return int(selected.sum().item())
-        return int(targets[:, 1:].numel() if is_batch and targets.ndim == 2 else targets.numel())
+            selected = selected & loss_mask.bool()
+        if shift_labels and targets.ndim == 2:
+            selected = selected[:, 1:]
+        return int(selected.sum().item())
 
     @property
     def learning_rate(self) -> float:

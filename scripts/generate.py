@@ -24,7 +24,7 @@ from serving.backend import ConfiguredModelBackend
 from serving.schemas import GenerateRequest
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
-from utils.config import load_yaml
+from utils.config import apply_cli_defaults, load_yaml
 from utils.device import resolve_device
 from utils.logger import configure_logging
 
@@ -36,11 +36,11 @@ def main() -> None:
         "--prompt", dest="prompt_option",
         help="text to generate a response for (alternative to the positional prompt)",
     )
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--model-config", type=Path, default=None)
     parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
+    parser.add_argument("--tokenizer", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
-    parser.add_argument("--device", default="auto")
+    parser.add_argument("--device", default=None)
     parser.add_argument(
         "--max-tokens", "--max-new-tokens", dest="max_tokens", type=int,
         help="maximum number of tokens to generate",
@@ -56,6 +56,19 @@ def main() -> None:
     parser.add_argument("--mcp-server", help="Restrict MCP routing to one configured server")
     parser.add_argument("--mcp-config", type=Path, default=Path("configs/mcp.yaml"))
     args = parser.parse_args()
+    inference_config = load_yaml(args.inference_config)
+    serving = inference_config.get("serving", {})
+    apply_cli_defaults(args, {
+        "model_config": serving.get("model_config"),
+        "tokenizer": serving.get("tokenizer_path"),
+        "checkpoint": serving.get("checkpoint_path"),
+        "device": serving.get("device"),
+    }, {
+        "model_config": Path("configs/model.gpu.yaml"),
+        "tokenizer": Path("data/tokenizer"),
+        "checkpoint": Path("checkpoints/finetuning/best.pt"),
+        "device": "auto",
+    })
     if args.prompt is not None and args.prompt_option is not None:
         parser.error("provide the prompt either positionally or with --prompt, not both")
     args.prompt = args.prompt_option if args.prompt_option is not None else args.prompt
@@ -64,7 +77,6 @@ def main() -> None:
 
     configure_logging()
     model_config = load_yaml(args.model_config)
-    inference_config = load_yaml(args.inference_config)
     tokenizer = Tokenizer.load(args.tokenizer)
     try:
         model_config = adapt_config_to_tokenizer(model_config, tokenizer)
@@ -72,21 +84,6 @@ def main() -> None:
         parser.error(str(error))
 
     checkpoint_path = args.checkpoint
-    if checkpoint_path is None:
-        for candidate in (
-            Path("checkpoints/finetuning/best.pt"),
-            Path("checkpoints/finetuning/latest.pt"),
-            Path("checkpoints/training/best.pt"),
-            Path("checkpoints/training/latest.pt"),
-            Path("checkpoints/pretraining/best.pt"),
-            Path("checkpoints/pretraining/latest.pt"),
-        ):
-            if candidate.exists():
-                checkpoint_path = candidate
-                break
-        if checkpoint_path is None:
-            checkpoint_path = Path("checkpoints/finetuning/best.pt")
-
     print(f"Loading checkpoint: {checkpoint_path}")
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device=device)
@@ -185,7 +182,7 @@ def main() -> None:
 
     result = generator.generate(
         rendered_prompt,
-        max_tokens=args.max_tokens or int(inference_config.get("max_tokens", 512)),
+        max_tokens=args.max_tokens if args.max_tokens is not None else int(inference_config.get("max_tokens", 128)),
         temperature=(args.temperature if args.temperature is not None else float(inference_config.get("temperature", 0.8))),
         top_k=int(inference_config.get("top_k", 40)),
         top_p=float(inference_config.get("top_p", 1.0)),

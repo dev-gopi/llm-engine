@@ -346,3 +346,63 @@ def test_configured_backend_token_step_adapter(tmp_path) -> None:
     events = asyncio.run(exercise())
     assert all(values[-1].finish_reason is not None for values in events)
     assert backend._session_locks == {}
+
+
+def test_minigpt_generation_projects_only_last_token_and_skips_final_forward():
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=16, layers=1,
+                    heads=2, max_pos=64)
+    generator = Generator(model, tokenizer, device="cpu")
+    shapes = []
+    hook = model.head.register_forward_pre_hook(lambda module, args: shapes.append(args[0].shape))
+    try:
+        result = generator.generate("hello", max_tokens=1, temperature=0)
+        assert len(result.token_ids) == 1
+        assert len(shapes) == 1
+        assert shapes[0][1] == 1
+        shapes.clear()
+        list(generator.stream("hello", max_tokens=1, temperature=0))
+        assert len(shapes) == 1
+    finally:
+        hook.remove()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_generation_does_not_mutate_prefix_logits(streaming):
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=16, layers=1,
+                    heads=2, max_pos=64)
+    generator = Generator(model, tokenizer, device="cpu", prefix_cache_capacity=2)
+    prompt_ids = tokenizer.encode("hello", add_bos=True)
+    with torch.inference_mode():
+        generator._prefill(prompt_ids)
+        cached_logits = generator.prefix_cache.get(tuple(prompt_ids))[0]
+        original = cached_logits.clone()
+    options = dict(max_tokens=2, temperature=0, repetition_penalty=1.5)
+    if streaming:
+        first = list(generator.stream("hello", **options))
+        second = list(generator.stream("hello", **options))
+    else:
+        first = generator.generate("hello", **options)
+        second = generator.generate("hello", **options)
+    assert first == second
+    torch.testing.assert_close(cached_logits, original)
+
+
+@pytest.mark.parametrize("temperature", [0, 1])
+@pytest.mark.parametrize("values", [[float("-inf"), float("-inf")], [float("nan"), 0.0], [float("inf"), 0.0]])
+def test_sampler_rejects_invalid_rows_for_greedy_and_sampling(temperature, values):
+    with pytest.raises(ValueError, match="logits"):
+        TopKSampler()(torch.tensor([values]), temperature=temperature)
+
+
+@pytest.mark.parametrize("temperature", [0, 1])
+def test_sampler_preserves_blocked_tokens(temperature):
+    result = TopKSampler()(torch.tensor([[float("-inf"), 1.0]]), temperature=temperature)
+    assert result.tolist() == [1]
+
+
+@pytest.mark.parametrize("top_k", [1.5, True, -1])
+def test_sampler_rejects_noninteger_or_negative_top_k(top_k):
+    with pytest.raises(ValueError, match="top_k"):
+        TopKSampler()(torch.zeros(1, 4), top_k=top_k)

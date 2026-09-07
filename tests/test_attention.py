@@ -166,3 +166,16 @@ def test_invalid_input_mask_and_cache():
         module(torch.randn(2, 3, 16), torch.ones(2, 2, dtype=torch.bool))
     with pytest.raises(TypeError, match="tuple"):
         module(torch.randn(2, 3, 16), past_key_value=torch.empty(0))
+
+
+def test_single_cached_query_preserves_padding_without_causal_cache():
+    attention = MultiHeadAttention(dim=8, heads=2).eval()
+    hidden = torch.randn(1, 4, 8)
+    mask = torch.tensor([[False, True, True, True]])
+    with torch.no_grad():
+        expected = attention(hidden, attention_mask=mask)[:, -1:]
+        _, cache = attention(hidden[:, :3], attention_mask=mask[:, :3], use_cache=True)
+        attention._mask_cache.clear()
+        actual = attention(hidden[:, -1:], attention_mask=mask, past_key_value=cache)
+    torch.testing.assert_close(actual, expected)
+    assert not attention._mask_cache

@@ -21,7 +21,7 @@ from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
-from utils.config import load_yaml
+from utils.config import apply_cli_defaults, load_yaml
 from utils.device import resolve_device
 
 load_dotenv()
@@ -29,23 +29,35 @@ load_dotenv()
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument("--model-config", type=Path, default=None)
     parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
-    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt"))
-    parser.add_argument("--device", default="auto")
+    parser.add_argument("--tokenizer", type=Path, default=None)
+    parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--device", default=None)
     parser.add_argument("--max-tokens", type=int)
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--repetition-penalty", type=float)
     parser.add_argument("--no-repeat-ngram-size", type=int)
     parser.add_argument("--response-format", choices=("plain", "markdown"))
     args = parser.parse_args()
+    inference_config = load_yaml(args.inference_config)
+    serving = inference_config.get("serving", {})
+    apply_cli_defaults(args, {
+        "model_config": serving.get("model_config"),
+        "tokenizer": serving.get("tokenizer_path"),
+        "checkpoint": serving.get("checkpoint_path"),
+        "device": serving.get("device"),
+    }, {
+        "model_config": Path("configs/model.gpu.yaml"),
+        "tokenizer": Path("data/tokenizer"),
+        "checkpoint": Path("checkpoints/finetuning/best.pt"),
+        "device": "auto",
+    })
 
     if not args.checkpoint.is_file():
         parser.error(f"checkpoint not found: {args.checkpoint}; finish v2 fine-tuning first")
 
     model_config = load_yaml(args.model_config)
-    inference_config = load_yaml(args.inference_config)
     tokenizer = Tokenizer.load(args.tokenizer)
     try:
         model_config = adapt_config_to_tokenizer(model_config, tokenizer)
@@ -59,7 +71,7 @@ def main() -> None:
     )
     generator = Generator(model, tokenizer, device=device)
 
-    max_tokens = args.max_tokens or int(inference_config.get("max_tokens", 128))
+    max_tokens = args.max_tokens if args.max_tokens is not None else int(inference_config.get("max_tokens", 128))
     configured_context = int(inference_config.get("context_memory", {}).get("max_tokens", 1536))
     active_system_prompt = str(inference_config.get("system_prompt", "You are Gopi, a helpful AI assistant."))
     response_format = (

@@ -120,3 +120,15 @@ def test_invalid_hidden_states():
         module(torch.randn(2, 7))
     with pytest.raises(TypeError, match="floating-point"):
         module(torch.ones(2, 8, dtype=torch.long))
+
+
+def test_rms_norm_small_fp16_values_do_not_overflow_reciprocal_scale():
+    module = RMSNorm(8, eps=1e-12, dtype=torch.float16)
+    inputs = torch.full((2, 8), 1e-6, dtype=torch.float16, requires_grad=True)
+    actual = module(inputs)
+    expected = (inputs.float() * torch.rsqrt(inputs.float().square().mean(-1, keepdim=True) + module.eps)).half()
+    assert torch.isfinite(actual).all()
+    torch.testing.assert_close(actual, expected)
+    # Scale the objective to keep the mathematically large derivative within FP16.
+    (actual.float().sum() * 1e-3).backward()
+    assert torch.isfinite(inputs.grad).all()

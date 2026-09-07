@@ -105,9 +105,10 @@ class Evaluator:
                     details = self.loss_fn(logits, labels, loss_mask=loss_mask, return_details=True)
                 if not isinstance(details, LanguageModelLossOutput):
                     raise RuntimeError("loss function did not return detailed metrics")
-                loss_sum += float(details.loss) * details.token_count
-                cross_entropy_sum += float(details.cross_entropy) * details.token_count
-                z_loss_sum += float(details.z_loss) * details.token_count
+                weight = details.token_count if self.loss_fn.reduction == "mean" else 1
+                loss_sum += float(details.loss) * weight
+                cross_entropy_sum += float(details.cross_entropy) * weight
+                z_loss_sum += float(details.z_loss) * weight
                 token_count += details.token_count
         finally:
             self.model.train(was_training)

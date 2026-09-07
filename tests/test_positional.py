@@ -85,3 +85,27 @@ def test_rotary_gpt_sizes_cache_for_explicit_position_ids() -> None:
     tokens = torch.tensor([[1, 2]])
     logits = model(tokens, position_ids=torch.tensor([10, 11]))
     assert logits.shape == (1, 2, 16)
+
+
+def test_sinusoidal_token_ids_preserve_fractional_embeddings():
+    module = SinusoidalPositionalEmbedding(16, 8)
+    tokens = torch.tensor([[1, 2, 3]])
+    actual = module(tokens, position_offset=2)
+    assert actual.is_floating_point()
+    torch.testing.assert_close(actual, module.weight[2:5].unsqueeze(0))
+    assert ((actual != actual.round())).any()
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_rotary_cache_growth_after_dtype_conversion_matches_fp32(dtype):
+    from model.positional import RotaryPositionalEmbedding
+    reference = RotaryPositionalEmbedding(16, max_position_embeddings=1024)
+    module = RotaryPositionalEmbedding(16, max_position_embeddings=8).to(dtype=dtype)
+    x = torch.zeros(1, 2, 1024, 16, dtype=dtype)
+    actual = module(x, seq_len=1024)
+    expected = reference(x, seq_len=1024)
+    for result, target in zip(actual, expected):
+        torch.testing.assert_close(result, target, atol=0, rtol=0)
+    module.float()
+    for result, target in zip(module(x.float(), seq_len=1024), reference(x.float(), seq_len=1024)):
+        torch.testing.assert_close(result, target, atol=0, rtol=0)

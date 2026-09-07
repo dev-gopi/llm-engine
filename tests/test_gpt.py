@@ -119,3 +119,73 @@ def test_gpt_cached_padding_mask_matches_full_sequence(position_type):
         _, cache = model(tokens[:, :3], attention_mask=mask[:, :3], use_cache=True)
         step = model(tokens[:, 3:], attention_mask=mask, past_key_values=cache)
     torch.testing.assert_close(step[:, -1], full[:, -1], atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("position_type", ["learned", "rotary"])
+def test_last_token_projection_preserves_logits_and_full_cache(position_type):
+    model = MiniGPT(vocab_size=32, dim=16, layers=2, heads=4,
+                    max_pos=16, position_type=position_type).eval()
+    ids = torch.tensor([[1, 2, 3, 4], [4, 3, 2, 1]])
+    with torch.no_grad():
+        full, full_cache = model(ids, use_cache=True)
+        last, last_cache = model(ids, use_cache=True, logits_to_keep=1)
+    assert last.shape == (2, 1, 32)
+    torch.testing.assert_close(last, full[:, -1:])
+    for expected, actual in zip(full_cache, last_cache):
+        for x, y in zip(expected, actual):
+            torch.testing.assert_close(x, y)
+
+
+@pytest.mark.parametrize("value", [-1, True, 1.5])
+def test_invalid_logits_to_keep(value):
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2)
+    with pytest.raises((TypeError, ValueError), match="logits_to_keep"):
+        model(torch.tensor([[1, 2]]), logits_to_keep=value)
+
+
+@pytest.mark.parametrize("position_type", ["learned", "rotary", "sinusoidal"])
+def test_padding_aware_positions_match_unpadded_prefill_and_decode(position_type):
+    torch.manual_seed(95)
+    model = MiniGPT(vocab_size=32, dim=16, layers=2, heads=4, kv_heads=2,
+                    max_pos=16, position_type=position_type).eval()
+    # Include an internal masked position, so relative distances matter for RoPE.
+    padded = torch.tensor([[0, 3, 0, 4, 5]])
+    mask = torch.tensor([[0, 1, 0, 1, 1]])
+    plain = torch.tensor([[3, 4, 5]])
+    with torch.no_grad():
+        expected, plain_cache = model(plain, use_cache=True)
+        actual, padded_cache = model(padded, attention_mask=mask, use_cache=True)
+        torch.testing.assert_close(actual[:, [1, 3, 4]], expected)
+        expected_next, _ = model(torch.tensor([[6]]), past_key_values=plain_cache, use_cache=True)
+        actual_next, _ = model(torch.tensor([[6]]),
+                               attention_mask=torch.tensor([[0, 1, 0, 1, 1, 1]]),
+                               past_key_values=padded_cache, use_cache=True)
+    torch.testing.assert_close(actual_next, expected_next)
+
+
+def test_sinusoidal_model_honors_explicit_position_ids():
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2,
+                    max_pos=16, position_type="sinusoidal").eval()
+    tokens = torch.tensor([[1, 2, 3]])
+    with torch.no_grad():
+        expected = model(tokens, position_offset=4)
+        actual = model(tokens, position_ids=torch.tensor([4, 5, 6]))
+    torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize("static_cache", [False, True])
+def test_rotary_autocast_cached_decoding_matches_full_forward(static_cache):
+    from model.kv_cache import StaticLayerKVCache
+    torch.manual_seed(121)
+    model = MiniGPT(vocab_size=32, dim=16, layers=2, heads=4, kv_heads=2,
+                    max_pos=16, position_type="rotary").eval()
+    tokens = torch.tensor([[1, 2, 3, 4]])
+    with torch.no_grad(), torch.autocast("cpu", dtype=torch.bfloat16):
+        full = model(tokens)
+        _, cache = model(tokens[:, :3], use_cache=True)
+        for key, value in cache:
+            assert key.dtype == value.dtype == torch.bfloat16
+        if static_cache:
+            cache = tuple(StaticLayerKVCache(k, v, capacity=16) for k, v in cache)
+        actual, _ = model(tokens[:, 3:], past_key_values=cache, use_cache=True)
+    torch.testing.assert_close(actual, full[:, -1:], atol=2e-3, rtol=2e-2)

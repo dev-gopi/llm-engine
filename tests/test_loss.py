@@ -178,3 +178,88 @@ def test_invalid_inputs_and_labels():
 def test_shift_requires_two_tokens():
     with pytest.raises(ValueError, match="at least two"):
         CausalLanguageModelLoss()(torch.randn(2, 1, 9), torch.ones(2, 1, dtype=torch.long))
+
+
+@pytest.mark.parametrize("masked", [False, True])
+def test_shifted_loss_gradients_match_reference(masked):
+    logits = torch.randn(2, 5, 11, requires_grad=True)
+    reference = logits.detach().clone().requires_grad_()
+    labels = torch.randint(0, 11, (2, 5))
+    if masked:
+        labels[0, 2:] = -100
+    actual = CausalLanguageModelLoss(label_smoothing=0.1)(logits, labels)
+    expected = F.cross_entropy(
+        reference[:, :-1].reshape(-1, 11), labels[:, 1:].reshape(-1),
+        label_smoothing=0.1,
+    )
+    actual.backward()
+    expected.backward()
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(logits.grad, reference.grad)
+
+
+def test_all_ignored_nonfinite_logits_return_zero():
+    logits = torch.full((2, 4, 9), float("nan"), requires_grad=True)
+    loss = CausalLanguageModelLoss()(logits, torch.full((2, 4), -100))
+    assert loss.item() == 0
+    loss.backward()
+    assert logits.grad.count_nonzero().item() == 0
+
+
+@pytest.mark.parametrize("reduction", ["mean", "sum"])
+@pytest.mark.parametrize("shift", [False, True])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_chunked_loss_matches_values_and_gradients(reduction, shift, dtype):
+    torch.manual_seed(83)
+    logits = torch.randn(2, 7, 17, dtype=dtype, requires_grad=True)
+    reference = logits.detach().clone().requires_grad_()
+    labels = torch.randint(0, 17, (2, 7))
+    labels[0, 2] = -100
+    mask = torch.ones_like(labels, dtype=torch.bool)
+    mask[1, 3:5] = False
+    options = dict(reduction=reduction, shift_labels=shift,
+                   label_smoothing=0.1, z_loss_coefficient=0.001)
+    actual = CausalLanguageModelLoss(**options, chunk_size=3)(
+        logits, labels, loss_mask=mask, return_details=True)
+    expected = CausalLanguageModelLoss(**options)(
+        reference, labels, loss_mask=mask, return_details=True)
+    assert actual.token_count == expected.token_count
+    for name in ("loss", "cross_entropy", "z_loss"):
+        torch.testing.assert_close(getattr(actual, name), getattr(expected, name))
+    actual.loss.backward()
+    expected.loss.backward()
+    torch.testing.assert_close(logits.grad, reference.grad)
+    with torch.inference_mode():
+        evaluated = CausalLanguageModelLoss(**options, chunk_size=3)(
+            logits, labels, loss_mask=mask)
+    torch.testing.assert_close(evaluated, expected.loss)
+
+
+def test_chunked_loss_retains_less_intermediate_storage():
+    logits = torch.randn(2, 16, 257, requires_grad=True)
+    labels = torch.randint(0, 257, (2, 16))
+
+    def saved_bytes(chunk_size):
+        storages = {}
+        def pack(tensor):
+            storage = tensor.untyped_storage()
+            if storage.data_ptr() != logits.untyped_storage().data_ptr():
+                storages[storage.data_ptr()] = storage.nbytes()
+            return tensor
+        with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
+            loss = CausalLanguageModelLoss(chunk_size=chunk_size)(logits, labels)
+        assert loss.requires_grad
+        return sum(storages.values())
+
+    assert saved_bytes(4) < saved_bytes(0)
+
+
+@pytest.mark.parametrize("value", [-1, True, 1.5, "128"])
+def test_invalid_loss_chunk_size(value):
+    with pytest.raises(ValueError, match="chunk_size"):
+        CausalLanguageModelLoss.from_config({"loss_chunk_size": value})
+
+
+def test_loss_chunk_size_from_config():
+    assert CausalLanguageModelLoss.from_config({"loss_chunk_size": 128}).chunk_size == 128
+    assert CausalLanguageModelLoss.from_config({}).chunk_size == 0

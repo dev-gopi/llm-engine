@@ -397,3 +397,17 @@ def test_checkpoint_rng_state_loading(tmp_path) -> None:
 
     # With restore_rng=True
     load_checkpoint(path, restored, restore_rng=True)
+
+
+def test_evaluation_sum_and_mean_reductions_agree():
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    batches = [
+        {"input_ids": torch.tensor([[1, 2, 3, 4]]),
+         "labels": torch.tensor([[1, 2, 3, 4]])},
+        {"input_ids": torch.tensor([[2, 3, 4]]),
+         "labels": torch.tensor([[2, -100, 4]])},
+    ]
+    results = [Evaluator(model, loss_fn=CausalLanguageModelLoss(
+        reduction=reduction, z_loss_coefficient=0.01,
+    )).evaluate(batches) for reduction in ("mean", "sum")]
+    assert results[0] == pytest.approx(results[1])

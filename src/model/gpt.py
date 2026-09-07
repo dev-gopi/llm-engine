@@ -179,7 +179,14 @@ class MiniGPT(nn.Module):
         position_offset: int = 0,
         past_key_values: tuple[KeyValueCache, ...] | None = None,
         use_cache: bool = False,
+        logits_to_keep: int = 0,
     ) -> Tensor | tuple[Tensor, tuple[KeyValueCache, ...]]:
+        # Zero preserves full-sequence training/export behavior. Generation
+        # only needs the final token projection, while KV caches stay complete.
+        if not isinstance(logits_to_keep, int) or isinstance(logits_to_keep, bool):
+            raise TypeError("logits_to_keep must be an integer")
+        if logits_to_keep < 0:
+            raise ValueError("logits_to_keep must be non-negative")
         self._validate_inputs(token_ids)
         if not isinstance(position_offset, int) or isinstance(position_offset, bool):
             raise TypeError("position_offset must be an integer")
@@ -239,33 +246,32 @@ class MiniGPT(nn.Module):
             block_attention_mask = torch.cat((prefix_mask, attention_mask), dim=1)
         rotary_pos_emb: tuple[Tensor, Tensor] | None = None
 
+        # All position mechanisms use logical (non-padding) token positions.
+        # A complete mask also accounts for padding already stored in the cache.
+        if position_ids is None and block_attention_mask is not None:
+            position_ids = block_attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)[:, -seq_len:]
+            if not cached_length:
+                position_ids = position_ids + position_offset
+        if position_ids is not None:
+            position_ids = self._validate_position_ids(
+                position_ids, token_ids.shape[0], seq_len, token_ids.device
+            )
+
         if self.position_type == "learned" and self.pos is not None:
-            learned_position_ids = position_ids
-            if (
-                learned_position_ids is None
-                and attention_mask is not None
-                and attention_mask.shape[1] != seq_len
-            ):
-                learned_position_ids = (
-                    attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)[:, -seq_len:]
-                )
             positions = self.pos(
                 token_ids,
-                position_ids=learned_position_ids,
+                position_ids=position_ids,
                 position_offset=position_offset,
                 attention_mask=current_attention_mask,
             )
             hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
         elif self.position_type == "sinusoidal" and self.pos is not None:
-            positions = self.pos(token_ids, position_offset=position_offset)
+            positions = self.pos(token_ids, position_offset=position_offset, position_ids=position_ids)
             hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
         elif self.position_type == "rotary" and self.rotary_emb is not None:
             hidden_states = self.embedding_dropout(self.tok(token_ids))
             rope_length = position_offset + seq_len
             if position_ids is not None:
-                position_ids = self._validate_position_ids(
-                    position_ids, token_ids.shape[0], seq_len, token_ids.device
-                )
                 if not torch.compiler.is_compiling() and position_ids.numel():
                     rope_length = max(rope_length, int(position_ids.max()) + 1)
             rotary_pos_emb = self.rotary_emb(hidden_states, seq_len=rope_length)
@@ -325,6 +331,8 @@ class MiniGPT(nn.Module):
                         raise RuntimeError("Transformer block unexpectedly returned a cache")
                     hidden_states = block_output
 
+        if logits_to_keep:
+            hidden_states = hidden_states[:, -logits_to_keep:, :]
         logits = self.head(self.norm(hidden_states))
         if self.logit_softcap is not None:
             logits = self.logit_softcap * torch.tanh(logits / self.logit_softcap)

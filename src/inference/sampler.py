@@ -18,16 +18,23 @@ class TopKSampler:
         top_p: float = 1.0,
         generator: torch.Generator | None = None,
     ) -> Tensor:
-        if logits.ndim != 2:
+        if not isinstance(logits, Tensor) or not logits.is_floating_point():
+            raise TypeError("logits must be a floating-point tensor")
+        if logits.ndim != 2 or logits.size(-1) == 0:
             raise ValueError("logits must have shape [batch, vocabulary]")
-        if top_k < 0:
-            raise ValueError("top_k must be non-negative")
+        if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 0:
+            raise ValueError("top_k must be a non-negative integer")
         if not 0 < top_p <= 1:
             raise ValueError("top_p must satisfy 0 < top_p <= 1")
+        # Validate both greedy and stochastic paths. Negative infinity is a
+        # legitimate blocked token, but each row must retain a usable token.
+        if torch.isnan(logits).any() or torch.isposinf(logits).any():
+            raise ValueError("logits cannot contain NaN or positive infinity")
+        if not torch.isfinite(logits).any(dim=-1).all():
+            raise ValueError("each logits row must contain an unblocked finite token")
+        filtered = apply_temperature(logits.float(), temperature)
         if temperature == 0:
             return logits.argmax(dim=-1)
-
-        filtered = apply_temperature(logits.float(), temperature)
         if top_k:
             k = min(top_k, filtered.size(-1))
             threshold = filtered.topk(k, dim=-1).values[:, -1, None]
