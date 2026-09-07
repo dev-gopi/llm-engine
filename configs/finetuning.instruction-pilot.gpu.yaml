@@ -1,7 +1,9 @@
 # Use data/tokenizer, preserving the pretraining vocabulary.
 # Prepare with prepare_recovery_sft.py --output data/cleaned/instruction-pilot.
-batch_size: 2
-validation_batch_size: 2
+# Fit the 16-layer model, optimizer state, and activations on a 4 GB GPU.
+# Accumulation below preserves the effective batch size of 32 sequences.
+batch_size: 1
+validation_batch_size: 1
 epochs: 1
 seed: 42
 dataset_governance:
@@ -68,8 +70,12 @@ beta2: 0.95
 adam_epsilon: 1.0e-08
 fused_optimizer: false
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 16
+gradient_accumulation_steps: 32
 mixed_precision: fp16
+# The trainer default (65536) is prone to initial FP16 gradient overflows on
+# this model; start lower and allow GradScaler to grow only after stability.
+grad_scaler_initial_scale: 128
+grad_scaler_growth_interval: 20000
 lr_schedule: cosine
 warmup_ratio: 0.05
 min_lr_ratio: 0.1

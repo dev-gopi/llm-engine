@@ -30,4 +30,7 @@ norm_bias: false
 pre_norm: true
 residual_dropout: 0.0
 residual_scale: 1.0
-gradient_checkpointing: false
+# Required for stable training on 4 GB GPUs.  This recomputes layer activations
+# during backward rather than retaining them, trading some speed for much lower
+# peak VRAM use.
+gradient_checkpointing: true
