@@ -111,6 +111,8 @@ def main() -> None:
     )
     args = parser.parse_args()
     config = load_yaml(args.training_config)
+    if config.get("planning_only", False):
+        parser.error("planning-only training profile; use scripts/plan_training.py")
     apply_cli_defaults(args, config.get("runtime", {}), {
         "tokenizer": Path("data/tokenizer"),
         "output": Path("checkpoints/training/latest.pt"),

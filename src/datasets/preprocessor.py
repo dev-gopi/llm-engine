@@ -34,6 +34,8 @@ def format_messages(messages: Sequence[Mapping[str, Any]], *, add_generation_pro
             raise ValueError(f"unsupported message role: {role!r}")
         if not content:
             raise ValueError("message content cannot be empty")
+        # Content must never introduce tokenizer control/role boundaries.
+        content = content.replace("<|", "< |")
         chunks.append(f"<|{role}|>\n{content}\n")
     if add_generation_prompt:
         chunks.append("<|assistant|>\n")

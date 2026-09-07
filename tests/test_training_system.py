@@ -411,3 +411,52 @@ def test_evaluation_sum_and_mean_reductions_agree():
         reduction=reduction, z_loss_coefficient=0.01,
     )).evaluate(batches) for reduction in ("mean", "sum")]
     assert results[0] == pytest.approx(results[1])
+
+
+def test_train_step_reuses_loss_token_count_with_mask(monkeypatch):
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model), CausalLanguageModelLoss())
+
+    def unexpected_recount(*args, **kwargs):
+        raise AssertionError("standard loss already counted the valid targets")
+
+    monkeypatch.setattr(trainer, "_count_target_tokens", unexpected_recount)
+    value = trainer.train_step({
+        "input_ids": torch.tensor([[1, 2, 3, 4]]),
+        "labels": torch.tensor([[1, 2, -100, 4]]),
+        "loss_mask": torch.tensor([[1, 1, 1, 0]]),
+    })
+    assert math.isfinite(value)
+    assert trainer.tokens_processed == 1
+
+
+def test_custom_loss_keeps_tensor_contract_and_token_count():
+    class CustomLoss(torch.nn.Module):
+        shift_labels = False
+        ignore_index = -100
+
+        def forward(self, logits, labels, *, loss_mask=None):
+            return torch.nn.functional.cross_entropy(logits.flatten(0, 1), labels.flatten())
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model), CustomLoss())
+    assert math.isfinite(trainer.train_step(torch.tensor([[1, 2]]), torch.tensor([[2, 3]])))
+    assert trainer.tokens_processed == 2
+
+
+def test_evaluator_reduces_metrics_before_host_conversion(monkeypatch):
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    evaluator = Evaluator(model)
+    batches = list(make_loader())
+    expected = evaluator.evaluate(batches)
+    monkeypatch.setattr("training.evaluator.dist.is_initialized", lambda: True)
+
+    def simulated_two_ranks(totals, op):
+        assert totals.shape == (5,)
+        totals.mul_(2)
+
+    monkeypatch.setattr("training.evaluator.dist.all_reduce", simulated_two_ranks)
+    actual = evaluator.evaluate(batches)
+    assert actual["loss"] == pytest.approx(expected["loss"])
+    assert actual["tokens"] == 2 * expected["tokens"]
+    assert actual["batches"] == 2 * expected["batches"]

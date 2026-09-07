@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from model.loss import CausalLanguageModelLoss
+from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
 from optim.ema import EMA
 from training.evaluator import aggregate_domain_metrics
 from utils.logger import get_logger
@@ -114,7 +114,12 @@ class Trainer:
             if isinstance(logits, tuple):
                 logits = logits[0]
             loss_function = self.batch_loss_fn if is_batch else self.tensor_loss_fn
-            loss = loss_function(logits, targets, loss_mask=loss_mask)
+            # Reuse the count already computed by the standard loss. Custom
+            # objectives retain their existing tensor-returning contract.
+            details = (loss_function(logits, targets, loss_mask=loss_mask, return_details=True)
+                       if type(loss_function) is CausalLanguageModelLoss else None)
+            loss = (details.loss if isinstance(details, LanguageModelLossOutput)
+                    else loss_function(logits, targets, loss_mask=loss_mask))
         if not bool(torch.isfinite(loss.detach())):
             self.nonfinite_updates += 1
             self.opt.zero_grad(set_to_none=True)
@@ -123,10 +128,11 @@ class Trainer:
                 f"non-finite training loss at optimizer step {self.global_step}"
             )
         self.scaler.scale(loss / self.gradient_accumulation_steps).backward()
-        self.tokens_processed += self._count_target_tokens(
-            targets, loss_mask, getattr(loss_function, "shift_labels", is_batch),
-            getattr(loss_function, "ignore_index", -100),
-        )
+        self.tokens_processed += (details.token_count if isinstance(details, LanguageModelLossOutput)
+                                  else self._count_target_tokens(
+                                      targets, loss_mask, getattr(loss_function, "shift_labels", is_batch),
+                                      getattr(loss_function, "ignore_index", -100),
+                                  ))
         self.micro_step += 1
         if self.micro_step % self.gradient_accumulation_steps == 0:
             self._optimizer_step()

@@ -150,3 +150,18 @@ def test_text_encoder_and_cross_attention_condition_latent_diffusion() -> None:
         inference_steps=2,
     )
     assert generated.shape == (2, 3, 32, 32)
+
+
+@pytest.mark.parametrize("options,match", [
+    ({"inference_steps": 0}, "inference_steps"),
+    ({"inference_steps": 5}, "inference_steps"),
+    ({"eta": float("nan")}, "eta"),
+    ({"eta": -1}, "eta"),
+])
+def test_sampling_rejects_invalid_schedule_without_changing_mode(options, match):
+    model = SmallUNet(image_channels=3, base_channels=8, condition_size=16)
+    model.train()
+    pipeline = DiffusionPipeline(model, DiffusionScheduler(timesteps=4))
+    with pytest.raises(ValueError, match=match):
+        pipeline.sample(1, 8, device="cpu", **options)
+    assert model.training

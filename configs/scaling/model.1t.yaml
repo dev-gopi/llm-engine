@@ -1,0 +1,11 @@
+# Architecture/planning template, not a validated trillion-scale runtime.
+extends: ../model.gpu.yaml
+planning_only: true
+vocab_size: 40000
+hidden_size: 24576
+layers: 164
+heads: 192
+kv_heads: 8
+ffn_hidden_size: 65536
+max_position: 8192
+gradient_checkpointing: true

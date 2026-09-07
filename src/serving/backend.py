@@ -286,9 +286,9 @@ class ConfiguredModelBackend:
         user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
         options = dict(
             max_tokens=request.max_tokens, temperature=request.temperature,
-            top_k=request.top_k, top_p=request.top_p,
+            top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
             repetition_penalty=request.repetition_penalty,
-            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
             seed=request.seed, stop=request.stop,
             allow_special_tokens=True,
         )
@@ -350,7 +350,17 @@ class ConfiguredModelBackend:
         if request.session_id:
             lock = self._session_locks[request.session_id]
             self._session_lock_users[request.session_id] += 1
-            await lock.acquire()
+            try:
+                await lock.acquire()
+            except BaseException:
+                # This request never owned the lock: do not release the owner.
+                remaining = self._session_lock_users[request.session_id] - 1
+                if remaining:
+                    self._session_lock_users[request.session_id] = remaining
+                else:
+                    self._session_lock_users.pop(request.session_id, None)
+                    self._session_locks.pop(request.session_id, None)
+                raise
         try:
             refusal = blocked_prompt_message(request.prompt)
             direct = refusal or direct_tool_answer(request.prompt, request.tools)
@@ -391,9 +401,9 @@ class ConfiguredModelBackend:
             self._validate_prompt(prompt)
             options = dict(
                 max_tokens=request.max_tokens, temperature=request.temperature,
-                top_k=request.top_k, top_p=request.top_p,
+                top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
-                no_repeat_ngram_size=request.no_repeat_ngram_size, seed=request.seed,
+                no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens, seed=request.seed,
                 stop=request.stop, allow_special_tokens=True,
             )
             state.generation = self.generator.start_batched_stream(prompt, **options)
@@ -552,9 +562,9 @@ class ConfiguredModelBackend:
         generated_ids: list[int] = []
         pieces: list[str] = []
         options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
-                       top_k=request.top_k, top_p=request.top_p,
+                       top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
                        repetition_penalty=request.repetition_penalty,
-                       no_repeat_ngram_size=request.no_repeat_ngram_size,
+                       no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
                        seed=request.seed, stop=request.stop,
                        allow_special_tokens=True)
         async for step in self._stream_steps(prompt, options):

@@ -114,6 +114,7 @@ class Generator:
         temperature: float = 0.8,
         top_k: int = 40,
         top_p: float = 1.0,
+        min_p: float = 0.0,
         repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
         no_repeat_ngram_size: int = DEFAULT_NO_REPEAT_NGRAM_SIZE,
         min_tokens: int = DEFAULT_MIN_TOKENS,
@@ -156,7 +157,7 @@ class Generator:
             next_id = int(
                 self.sampler(
                     next_logits, temperature=temperature, top_k=top_k,
-                    top_p=top_p, generator=random,
+                    top_p=top_p, min_p=min_p, generator=random,
                 ).item()
             )
             if self.eos_token_id is not None and next_id == self.eos_token_id:
@@ -255,6 +256,7 @@ class Generator:
             token_id = int(self.sampler(
                 logits, temperature=float(options.get("temperature", .8)),
                 top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
+                min_p=float(options.get("min_p", 0.0)),
                 generator=state.random,
             ).item())
             state.steps += 1
@@ -267,10 +269,16 @@ class Generator:
             positions = [text.find(value) for value in stops if value in text]
             stopped = bool(positions)
             visible = text[:min(positions)] if stopped else text
-            delta = visible[len(state.emitted_text):] if visible.startswith(state.emitted_text) else ""
-            state.emitted_text = visible
             limit = min(int(options.get("max_tokens", 128)), self.max_positions - len(state.prompt_ids))
             done = eos or stopped or state.steps >= limit
+            if not done:
+                # Hold possible stop prefixes and incomplete UTF-8 bytes until
+                # the next token determines whether they belong in the output.
+                if stops:
+                    visible = visible[:max(0, len(visible) - max(map(len, stops)) + 1)]
+                visible = visible.rstrip("\ufffd")
+            delta = visible[len(state.emitted_text):] if visible.startswith(state.emitted_text) else ""
+            state.emitted_text = visible
             finish = "stop" if eos or stopped else ("length" if done else None)
             results[index] = (GenerationStep(
                 delta, None if eos else token_id, len(state.prompt_ids),
@@ -292,7 +300,7 @@ class Generator:
                     state.cache_mask,
                     torch.ones(1, dtype=torch.bool, device=self.device),
                 )))
-                positions.append(int(state.cache_mask.sum()))
+                positions.append(len(state.all_ids) - 1)
             for layer in range(len(survivors[0][1].cache)):
                 keys, values = [], []
                 for _, state, _ in survivors:
@@ -301,9 +309,10 @@ class Generator:
                     keys.append(F.pad(key, (0, 0, padding, 0)))
                     values.append(F.pad(value, (0, 0, padding, 0)))
                 batched_layers.append((torch.cat(keys), torch.cat(values)))
+            batched_mask = torch.stack(masks)
             output = self._forward_model(
                 torch.tensor([token for _, _, token in survivors], device=self.device).unsqueeze(1),
-                attention_mask=torch.stack(masks),
+                attention_mask=batched_mask,
                 position_ids=torch.tensor(positions, device=self.device).unsqueeze(1),
                 past_key_values=tuple(batched_layers), use_cache=True,
             )
@@ -322,7 +331,7 @@ class Generator:
                     )
                 else:
                     state.cache = tuple((key[row:row + 1], value[row:row + 1]) for key, value in cache)
-                    state.cache_mask = torch.stack(masks)[row]
+                    state.cache_mask = batched_mask[row]
         return [result for result in results if result is not None]
 
     def release_batched_stream(self, state: BatchedGenerationState) -> None:
@@ -386,6 +395,9 @@ class Generator:
                 raise RuntimeError("model did not return a requested KV cache")
             logits, cache = output
             limit = min(max_tokens, self.max_positions - prompt_length)
+            cache = KVCache(cache, capacity=prompt_length + limit
+                            if isinstance(self.model, MiniGPT) else None)
+            stop_sequences = options.get("stop") or []
             for step in range(limit):
                 survivors: list[int] = []
                 next_tokens: list[int] = []
@@ -397,15 +409,18 @@ class Generator:
                     token_id = int(self.sampler(
                         row_logits, temperature=float(options.get("temperature", .8)),
                         top_k=int(options.get("top_k", 40)), top_p=float(options.get("top_p", 1.0)),
+                        min_p=float(options.get("min_p", 0.0)),
                         generator=randoms[row],
                     ).item())
                     eos = self.eos_token_id is not None and token_id == self.eos_token_id
                     if not eos:
                         generated[row].append(token_id)
                         all_ids[row].append(token_id)
-                    text = self.tokenizer.decode(generated[row], skip_special_tokens=True)
-                    stopped = any(value in text for value in (options.get("stop") or []))
-                    done = eos or stopped or step + 1 == limit
+                    done = eos or step + 1 == limit
+                    text = (self.tokenizer.decode(generated[row], skip_special_tokens=True)
+                            if stop_sequences or done else "")
+                    stopped = any(value in text for value in stop_sequences)
+                    done = done or stopped
                     if done:
                         results[original_index] = GenerationResult(
                             self._trim_stop(text, options.get("stop") or []), tuple(generated[row]),
@@ -416,17 +431,22 @@ class Generator:
                         next_tokens.append(token_id)
                 if not survivors:
                     break
-                select = torch.tensor(survivors, device=self.device)
-                cache = tuple((key.index_select(0, select), value.index_select(0, select)) for key, value in cache)
+                if len(survivors) != len(active):
+                    select = torch.tensor(survivors, device=self.device)
+                    selected = tuple((key.index_select(0, select), value.index_select(0, select))
+                                     for key, value in cache.values)
+                    cache = KVCache(selected, capacity=prompt_length + limit
+                                    if isinstance(self.model, MiniGPT) else None)
                 active = [active[row] for row in survivors]
                 all_ids = [all_ids[row] for row in survivors]
                 generated = [generated[row] for row in survivors]
                 randoms = [randoms[row] for row in survivors]
                 output = self._forward_model(torch.tensor(next_tokens, device=self.device).unsqueeze(1),
-                                    past_key_values=cache, use_cache=True)
+                                    past_key_values=cache.values, use_cache=True)
                 if not isinstance(output, tuple):
                     raise RuntimeError("model did not return a requested KV cache")
-                logits, cache = output
+                logits, raw_cache = output
+                cache.update(raw_cache)
         if any(result is None for result in results):
             raise RuntimeError("batched generation did not finalize every request")
         return [result for result in results if result is not None]
@@ -442,6 +462,7 @@ class Generator:
         temperature = float(options.get("temperature", 0.8))
         top_k = int(options.get("top_k", 40))
         top_p = float(options.get("top_p", 1.0))
+        min_p = float(options.get("min_p", 0.0))
         repetition_penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
         ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
         min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
@@ -472,7 +493,7 @@ class Generator:
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, ngram_size)
             self._suppress_special_tokens(next_logits, len(generated), min_tokens)
-            token_id = int(self.sampler(next_logits, temperature=temperature, top_k=top_k, top_p=top_p, generator=random).item())
+            token_id = int(self.sampler(next_logits, temperature=temperature, top_k=top_k, top_p=top_p, min_p=min_p, generator=random).item())
             if self.eos_token_id is not None and token_id == self.eos_token_id:
                 finish_reason = "stop"
                 break

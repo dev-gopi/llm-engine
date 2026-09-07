@@ -132,3 +132,9 @@ button.secondary { color: var(--text); border: 1px solid var(--line); background
   .composer-footer > div { display: flex; gap: 8px; }
   .mode-bar span { display: none; }
 }
+
+.training-review { padding: 12px 18px; border-top: 1px solid #8993a440; }
+.training-review summary { cursor: pointer; font-weight: 600; }
+.training-review label { display: block; margin-top: 10px; }
+.training-review textarea { display: block; width: 100%; box-sizing: border-box; }
+.training-review p { font-size: 0.85rem; }

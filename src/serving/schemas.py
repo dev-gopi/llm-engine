@@ -44,8 +44,10 @@ class GenerateRequest(StrictSchema):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, allow_inf_nan=False)
     top_k: int = Field(default=40, ge=0, le=100_000)
     top_p: float = Field(default=0.9, gt=0.0, le=1.0, allow_inf_nan=False)
+    min_p: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     repetition_penalty: float = Field(default=1.1, ge=0.1, le=2.0, allow_inf_nan=False)
     no_repeat_ngram_size: int = Field(default=3, ge=0, le=16)
+    min_tokens: int = Field(default=1, ge=0, le=8192)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     stop: list[str] = Field(default_factory=list, max_length=16)
 
@@ -166,6 +168,7 @@ class OpenAIChatCompletionRequest(BaseModel):
     max_completion_tokens: int | None = Field(default=None, ge=1, le=8_192)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, allow_inf_nan=False)
     top_p: float = Field(default=0.9, gt=0.0, le=1.0, allow_inf_nan=False)
+    min_p: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     stop: str | list[str] | None = None
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     user: str | None = Field(default=None, max_length=128)
@@ -190,6 +193,7 @@ class OpenAIChatCompletionRequest(BaseModel):
             max_tokens=maximum,
             temperature=self.temperature,
             top_p=self.top_p,
+            min_p=self.min_p,
             seed=self.seed,
             stop=stops,
         )

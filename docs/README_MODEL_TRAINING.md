@@ -648,3 +648,98 @@ Save the chosen checkpoint and tokenizer together with:
 
 A run is successful when it produces a reproducible improvement on your intended
 tasks. Finishing an epoch or writing `best.pt` is only an intermediate milestone.
+
+### Image workflow resource controls
+
+`scripts/prepare_hf_image_dataset.py --batch-size 64` bounds the number of
+encoded images materialized per Parquet batch. Lower this value for large source
+images or limited RAM. Only image and label columns are read, and conversion stops
+at the requested split size. Each source shard is still downloaded to temporary
+disk in full; this option does not limit download size or individual image size.
+
+Vision training accepts `num_workers`, `prefetch_factor` (default `2`), and
+`persistent_workers` (default `false`) in its YAML config. Use `num_workers: 0`
+for in-process loading. With workers enabled, lower `prefetch_factor` to reduce
+queued batches. Persistent workers avoid restarting processes each epoch, but
+retain worker memory; training and validation have separate worker pools.
+Validation uses the same configured mixed precision as training. Accuracy and
+validation loss accumulate on the device and transfer to the CPU once per epoch.
+
+Diffusion sampling reuses unconditional conditioning tensors across denoising
+steps. `inference_steps` must be between one and the scheduler's timestep count;
+smaller values reduce model evaluations but can affect image quality. Guidance
+still uses sequential model calls to avoid doubling the activation batch size.
+Benchmark throughput, peak RAM/VRAM, and output quality on deployment hardware
+before selecting production settings.
+
+### MiniGPT text engine resource use
+
+Equal-length cohorts in `Generator.generate_batch` now preallocate MiniGPT KV
+storage up to the prompt length plus the bounded generation limit. Decode steps
+append in place; cache rows are copied only when requests finish and the cohort
+shrinks. This removes repeated growing-cache concatenations, at the cost of
+reserving the requested capacity upfront. Set `max_tokens` to the completion
+budget you actually need, especially for concurrent requests. Other model types
+retain the tuple-cache interface.
+
+Without stop strings, non-streaming batched generation decodes text once when
+each result finishes. Stop-string requests continue decoding at each step to
+preserve stopping behavior. The token-level streaming scheduler reuses one
+batched attention mask per forward call and derives positions from request
+history without reading GPU mask sums back to the CPU.
+
+Standard MiniGPT training reuses the loss function's valid-target count for
+throughput accounting. Custom loss modules retain their original calling
+convention. Validation accumulates loss metrics on the device, performs the
+existing distributed sum, and transfers the totals together at completion.
+Loss validation and non-finite training guards remain enabled.
+
+These changes require no checkpoint migration or configuration changes. Cache
+storage reuse, greedy output parity, request compaction, target masking, and
+metric reduction are covered by CPU tests. GPU throughput and peak memory still
+need measurement with the intended model, context lengths, and concurrency.
+
+The active `configs/finetuning.gpu.yaml` profile uses
+`fused_optimizer: auto`: fused AdamW is selected when all trainable parameters
+are on CUDA, with ordinary AdamW on other devices. Explicit `true`, `false`, and
+`null` remain supported. Set `false` if the deployment's CUDA/PyTorch combination
+does not support fused AdamW; GPU execution was not available during these checks.
+
+Validation has a separate worker budget through `validation_num_workers` and
+`validation_persistent_workers`. The active fine-tuning profile uses one
+nonpersistent worker per validation loader so completed domain evaluations do
+not retain worker pools. Training keeps its four persistent workers. This lowers
+idle process/memory use but incurs worker startup for each domain evaluation.
+
+The existing fine-tuning command picks up these settings automatically. The
+model architecture, data mixture, learning rate, effective batch size, EMA,
+loss chunking, and held-out checkpoint selection are unchanged. The batched
+streaming path also withholds incomplete stop strings and flushes pending text
+at completion, preventing stop-marker fragments from appearing in responses.
+These are efficiency and output-correctness changes; compare held-out domain
+metrics and representative generated answers before claiming better model quality.
+
+### Additional text generation controls
+
+`min_p` is an optional relative probability cutoff in `[0, 1]`. After temperature
+scaling, candidates whose probability is below `min_p` times the highest token
+probability are removed before top-k/top-p filtering. Zero disables this filter;
+one retains only the highest-probability candidates, including ties. Greedy
+sampling (`temperature: 0`) still selects the highest logit. An excessive cutoff
+can reduce variety, so evaluate it against your own prompts.
+
+Both `scripts/generate.py` and `scripts/chat.py` accept `--top-k`, `--top-p`,
+`--min-p`, `--min-tokens`, and repeatable `--stop` arguments. CLI values override
+`configs/inference.yaml`. For example, to try the new filter:
+
+```bash
+.venv/bin/python scripts/generate.py "Explain how a Python dictionary works" \
+  --max-tokens 128 --temperature 0.7 --top-k 0 --top-p 1.0 --min-p 0.05
+```
+
+`min_tokens` delays EOS, but explicit stop strings and the context/token limit
+can still end a response earlier. Stop strings are literal text. The native API
+and the local chat-completions endpoint accept `min_p` as well; it is a local
+extension to the chat-completions request. Single, batched, streaming, and
+scheduled streaming generation all pass it to the sampler. Defaults retain
+existing behavior and checkpoint formats are unchanged.

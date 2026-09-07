@@ -44,12 +44,17 @@ def image_bytes(value: Any) -> bytes:
 def prepare_split(
     dataset: str, config: str, source_split: str, destination: Path, *,
     image_column: str, label_column: str, labels: tuple[str, ...], limit: int,
-    timeout: float,
+    timeout: float, batch_size: int = 64,
 ) -> int:
     from PIL import Image
 
     if limit < 1:
         raise ValueError("split limit must be positive")
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    if not labels or any(name in {"", ".", ".."} or "/" in name or "\\" in name
+                         for name in labels):
+        raise ValueError("labels must be safe directory names")
     destination.mkdir(parents=True, exist_ok=True)
     written = 0
     for url in parquet_urls(dataset, config, source_split, timeout):
@@ -60,22 +65,26 @@ def prepare_split(
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 shutil.copyfileobj(response, temporary)
             temporary.flush()
-            parquet = pq.ParquetFile(temporary.name)
-            for batch in parquet.iter_batches(columns=[image_column, label_column]):
-                for row in batch.to_pylist():
-                    label_id = int(row[label_column])
-                    if not 0 <= label_id < len(labels):
-                        raise ValueError(f"label ID {label_id} is outside configured label names")
-                    class_directory = destination / labels[label_id]
-                    class_directory.mkdir(parents=True, exist_ok=True)
-                    output = class_directory / f"{written:06d}.png"
-                    with Image.open(io.BytesIO(image_bytes(row[image_column]))) as image:
-                        image.convert("RGB").save(output, format="PNG")
-                    written += 1
+            with pq.ParquetFile(temporary.name) as parquet:
+                batches = parquet.iter_batches(
+                    batch_size=min(batch_size, limit - written),
+                    columns=[image_column, label_column], use_threads=False,
+                )
+                for batch in batches:
+                    for row in batch.slice(0, limit - written).to_pylist():
+                        label_id = int(row[label_column])
+                        if not 0 <= label_id < len(labels):
+                            raise ValueError(f"label ID {label_id} is outside configured label names")
+                        class_directory = destination / labels[label_id]
+                        class_directory.mkdir(parents=True, exist_ok=True)
+                        output = class_directory / f"{written:06d}.png"
+                        with Image.open(io.BytesIO(image_bytes(row[image_column]))) as image:
+                            image.convert("RGB").save(output, format="PNG")
+                        written += 1
+                        if written >= limit:
+                            break
                     if written >= limit:
                         break
-                if written >= limit:
-                    break
     if written < limit:
         raise ValueError(f"requested {limit} images but Hugging Face supplied only {written}")
     return written
@@ -95,6 +104,8 @@ def main() -> None:
     parser.add_argument("--train-size", type=int, default=1000)
     parser.add_argument("--validation-size", type=int, default=200)
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--batch-size", type=int, default=64,
+                        help="maximum encoded images buffered per Parquet batch")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     labels = tuple(label.strip() for label in args.labels.split(",") if label.strip())
@@ -108,12 +119,12 @@ def main() -> None:
         "train": prepare_split(
             args.dataset, args.dataset_config, args.train_split, args.output / "train",
             image_column=args.image_column, label_column=args.label_column, labels=labels,
-            limit=args.train_size, timeout=args.timeout,
+            limit=args.train_size, timeout=args.timeout, batch_size=args.batch_size,
         ),
         "validation": prepare_split(
             args.dataset, args.dataset_config, args.validation_split, args.output / "validation",
             image_column=args.image_column, label_column=args.label_column, labels=labels,
-            limit=args.validation_size, timeout=args.timeout,
+            limit=args.validation_size, timeout=args.timeout, batch_size=args.batch_size,
         ),
     }
     manifest = {

@@ -89,3 +89,20 @@ def test_context_memory_rejects_negative_reserve_tokens() -> None:
     memory.add("user", "Hello")
     with pytest.raises(ValueError, match="reserve_tokens must be non-negative"):
         memory.render(reserve_tokens=-1)
+
+
+def test_session_store_closes_connections_and_rolls_back(tmp_path):
+    import sqlite3
+    store = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer(), max_tokens=100, system_prompt="Gopi")
+    with store._connect() as connection:
+        connection.execute("SELECT 1")
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connection.execute("SELECT 1")
+    with pytest.raises(RuntimeError):
+        with store._connect() as failed:
+            failed.execute("INSERT INTO sessions VALUES (?, ?, ?)", ("rollback", "[]", 0))
+            raise RuntimeError("abort")
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        failed.execute("SELECT 1")
+    with store._connect() as check:
+        assert check.execute("SELECT count(*) FROM sessions WHERE id = 'rollback'").fetchone()[0] == 0

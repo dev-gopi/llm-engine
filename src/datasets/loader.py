@@ -137,6 +137,7 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
             content = clean(str(message.get("content", "")))
             if role not in {"system", "user", "assistant"} or not content:
                 continue
+            content = content.replace("<|", "< |")
             piece = tokenizer.encode(f"<|{role}|>\n{content}\n", allowed_special="all")
             identifiers.extend(piece)
             mask.extend([role == "assistant"] * len(piece))

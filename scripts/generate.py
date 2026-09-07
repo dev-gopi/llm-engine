@@ -46,6 +46,11 @@ def main() -> None:
         help="maximum number of tokens to generate",
     )
     parser.add_argument("--temperature", type=float)
+    parser.add_argument("--top-k", type=int)
+    parser.add_argument("--top-p", type=float)
+    parser.add_argument("--min-p", type=float, help="relative probability cutoff; 0 disables")
+    parser.add_argument("--min-tokens", type=int)
+    parser.add_argument("--stop", action="append", help="stop string; may be repeated")
     parser.add_argument("--repetition-penalty", type=float)
     parser.add_argument("--no-repeat-ngram-size", type=int)
     parser.add_argument("--seed", type=int)
@@ -184,8 +189,11 @@ def main() -> None:
         rendered_prompt,
         max_tokens=args.max_tokens if args.max_tokens is not None else int(inference_config.get("max_tokens", 128)),
         temperature=(args.temperature if args.temperature is not None else float(inference_config.get("temperature", 0.8))),
-        top_k=int(inference_config.get("top_k", 40)),
-        top_p=float(inference_config.get("top_p", 1.0)),
+        top_k=args.top_k if args.top_k is not None else int(inference_config.get("top_k", 40)),
+        top_p=args.top_p if args.top_p is not None else float(inference_config.get("top_p", 1.0)),
+        min_p=args.min_p if args.min_p is not None else float(inference_config.get("min_p", 0.0)),
+        min_tokens=args.min_tokens if args.min_tokens is not None else int(inference_config.get("min_tokens", 1)),
+        stop=args.stop if args.stop is not None else inference_config.get("stop", []),
         repetition_penalty=(
             args.repetition_penalty if args.repetition_penalty is not None
             else float(inference_config.get("repetition_penalty", 1.1))

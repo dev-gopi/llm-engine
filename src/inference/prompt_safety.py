@@ -46,7 +46,11 @@ _HARMFUL_PATTERNS = (
 
 def blocked_prompt_message(prompt: str) -> str | None:
     """Return a safe refusal for a high-confidence unsafe prompt, otherwise ``None``."""
-    normalized = " ".join(unicodedata.normalize("NFKC", prompt).casefold().split())
+    # Ignore invisible format characters for detection only; preserve original
+    # user text for display and legitimate multilingual content.
+    normalized = unicodedata.normalize("NFKC", prompt).casefold()
+    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
+    normalized = " ".join(normalized.split())
     normalized = normalized.translate(_LEET_TRANSLATION)
     if any(re.search(pattern, normalized, flags=re.DOTALL) for pattern in _INJECTION_PATTERNS):
         return PROMPT_INJECTION_REFUSAL

@@ -118,3 +118,20 @@ def test_multiple_token_shards_preserve_dataset_mixture_groups(tmp_path) -> None
     ]
     assert loader.persistent_workers is True
     assert loader.prefetch_factor == 3
+
+
+def test_validation_worker_budget_is_independent(tmp_path):
+    pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
+    vocab = {piece: index for index, piece in enumerate(pieces)}
+    tokenizer = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    source = tmp_path / "records.jsonl"
+    source.write_text(json.dumps({"text": "hello"}) + "\n")
+    config = dict(batch_size=1, max_sequence_length=32, num_workers=4,
+                  persistent_workers=True, validation_num_workers=1,
+                  validation_persistent_workers=False)
+    train = build_loader([source], tokenizer, config, shuffle=True)
+    validation = build_loader([source], tokenizer, config, shuffle=False)
+    assert train.num_workers == 4 and train.persistent_workers
+    assert validation.num_workers == 1 and not validation.persistent_workers
+    config["validation_num_workers"] = 0
+    assert build_loader([source], tokenizer, config, shuffle=False).num_workers == 0

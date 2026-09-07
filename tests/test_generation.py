@@ -406,3 +406,138 @@ def test_sampler_preserves_blocked_tokens(temperature):
 def test_sampler_rejects_noninteger_or_negative_top_k(top_k):
     with pytest.raises(ValueError, match="top_k"):
         TopKSampler()(torch.zeros(1, 4), top_k=top_k)
+
+
+@pytest.mark.parametrize("position_type", ["learned", "rotary", "sinusoidal"])
+def test_batch_static_cache_reuses_storage_and_matches_single_generation(position_type, monkeypatch):
+    torch.manual_seed(7)
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=16, layers=2, heads=2,
+                    max_pos=32, position_type=position_type)
+    generator = Generator(model, tokenizer, device="cpu")
+    options = dict(max_tokens=5, min_tokens=5, temperature=0,
+                   repetition_penalty=1.0, no_repeat_ngram_size=0)
+    expected = [generator.generate(prompt, **options) for prompt in ("a", "b")]
+    pointers = []
+    forward = model.forward
+
+    def recording_forward(*args, **kwargs):
+        cache = kwargs.get("past_key_values")
+        if cache:
+            assert all(isinstance(layer, StaticLayerKVCache) for layer in cache)
+            pointers.append(tuple(layer.key.data_ptr() for layer in cache))
+        return forward(*args, **kwargs)
+
+    monkeypatch.setattr(model, "forward", recording_forward)
+    decode = tokenizer.decode
+    decoded_lengths = []
+
+    def recording_decode(ids, **kwargs):
+        decoded_lengths.append(len(ids))
+        return decode(ids, **kwargs)
+
+    monkeypatch.setattr(tokenizer, "decode", recording_decode)
+    actual = generator.generate_batch(["a", "b"], **options)
+    assert actual == expected
+    assert len(pointers) == 4
+    assert all(value == pointers[0] for value in pointers)
+    assert decoded_lengths == [5, 5]
+
+
+def test_batch_static_cache_compacts_finished_rows_and_preserves_stop_text(monkeypatch):
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16)
+    generator = Generator(model, tokenizer, device="cpu")
+    # First request reaches its stop string immediately; second continues.
+    a = tokenizer.encode("a")[0]
+    b = tokenizer.encode("b")[0]
+    c = tokenizer.encode("c")[0]
+    samples = iter([a, b, c, c])
+    monkeypatch.setattr(generator, "sampler", lambda *args, **kwargs: torch.tensor([next(samples)]))
+    shapes = []
+    forward = model.forward
+
+    def recording_forward(ids, **kwargs):
+        shapes.append(ids.shape[0])
+        return forward(ids, **kwargs)
+
+    monkeypatch.setattr(model, "forward", recording_forward)
+    results = generator.generate_batch(["x", "y"], max_tokens=3, stop=["a"], temperature=0)
+    assert [result.text for result in results] == ["", "bcc"]
+    assert [result.finish_reason for result in results] == ["stop", "length"]
+    assert shapes == [2, 1, 1]
+
+
+@pytest.mark.parametrize("completion,expected,reason", [
+    ("bEND", "b", "stop"),
+    ("bENx", "bENx", "length"),
+])
+def test_batched_stream_holds_stop_prefix_and_flushes_at_limit(monkeypatch, completion, expected, reason):
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16)
+    generator = Generator(model, tokenizer, device="cpu")
+    tokens = iter(tokenizer.encode(completion))
+    monkeypatch.setattr(generator, "sampler", lambda *args, **kwargs: torch.tensor([next(tokens)]))
+    state = generator.start_batched_stream("a", max_tokens=4, stop=["END"])
+    events = []
+    for _ in range(4):
+        event, done = generator.decode_batched_stream([state])[0]
+        events.append(event)
+        if done:
+            break
+    assert "".join(event.token for event in events) == expected
+    assert events[-1].finish_reason == reason
+    generator.release_batched_stream(state)
+
+
+def test_min_p_filters_relative_to_best_probability(monkeypatch):
+    captured = []
+
+    def capture(probabilities, *args, **kwargs):
+        captured.append(probabilities)
+        return probabilities.argmax(-1, keepdim=True)
+
+    monkeypatch.setattr(torch, "multinomial", capture)
+    logits = torch.tensor([[0.6, 0.3, 0.1]]).log()
+    TopKSampler()(logits, min_p=0.4)
+    torch.testing.assert_close(captured[0], torch.tensor([[2 / 3, 1 / 3, 0.0]]))
+    TopKSampler()(logits, min_p=1.0, top_p=0.9, top_k=2)
+    torch.testing.assert_close(captured[1], torch.tensor([[1.0, 0.0, 0.0]]))
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.1, float("nan"), float("inf")])
+def test_min_p_rejects_invalid_cutoffs(value):
+    with pytest.raises(ValueError, match="min_p"):
+        TopKSampler()(torch.zeros(1, 3), min_p=value, temperature=0)
+
+
+def test_min_p_reaches_all_generation_modes(monkeypatch):
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16)
+    generator = Generator(model, tokenizer, device="cpu")
+    observed = []
+
+    def sample(logits, **kwargs):
+        observed.append(kwargs["min_p"])
+        return torch.tensor([tokenizer.encode("b")[0]])
+
+    monkeypatch.setattr(generator, "sampler", sample)
+    options = dict(max_tokens=1, min_p=0.15)
+    generator.generate("a", **options)
+    generator.generate_batch(["a"], **options)
+    list(generator.stream("a", **options))
+    state = generator.start_batched_stream("a", **options)
+    generator.decode_batched_stream([state])
+    generator.release_batched_stream(state)
+    assert observed == [0.15] * 4
+
+
+def test_min_p_api_validation_and_chat_conversion():
+    from serving.schemas import OpenAIChatCompletionRequest
+    from pydantic import ValidationError
+    request = OpenAIChatCompletionRequest(
+        model="gopi", messages=[{"role": "user", "content": "hello"}], min_p=0.2,
+    )
+    assert request.generation_request("gopi").min_p == 0.2
+    with pytest.raises(ValidationError):
+        GenerateRequest(prompt="hello", min_p=1.1)

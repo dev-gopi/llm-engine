@@ -16,7 +16,7 @@ def build_adamw(
     weight_decay: float = 0.01,
     betas: tuple[float, float] = (0.9, 0.95),
     eps: float = 1e-8,
-    fused: bool | None = None,
+    fused: bool | str | None = None,
 ) -> AdamW:
     """Exclude biases and normalization/vector parameters from weight decay."""
     decay, no_decay = [], []
@@ -24,6 +24,11 @@ def build_adamw(
         if not parameter.requires_grad:
             continue
         (no_decay if parameter.ndim < 2 or name.endswith("bias") else decay).append(parameter)
+    if fused == "auto":
+        parameters = decay + no_decay
+        fused = bool(parameters) and all(parameter.device.type == "cuda" for parameter in parameters)
+    elif fused is not None and not isinstance(fused, bool):
+        raise ValueError("fused_optimizer must be true, false, null, or auto")
     kwargs: dict[str, Any] = {"lr": learning_rate, "betas": betas, "eps": eps}
     if fused is not None:
         kwargs["fused"] = fused

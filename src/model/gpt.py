@@ -398,6 +398,9 @@ class MiniGPT(nn.Module):
         dtype: torch.dtype | None = None,
     ) -> "MiniGPT":
         """Build a complete model from model configuration values."""
+        if config.get("planning_only", False):
+            raise ValueError("planning-only model: use scripts/inspect_model.py or scripts/plan_training.py; "
+                             "the runtime is not validated for this profile")
         config = normalize_model_config(config)
         pos_type = str(config.get("position_type", "learned")).lower()
         valid_pos_types = {"learned", "rotary", "sinusoidal", "none"}

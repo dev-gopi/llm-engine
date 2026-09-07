@@ -99,10 +99,16 @@ def build_loader(
     if pad_id is None:
         raise ValueError("tokenizer must define <|pad|>")
     import torch
-    num_workers = int(config.get("num_workers", 0))
+    num_workers = int(config.get("num_workers", 0) if shuffle else
+                      config.get("validation_num_workers", config.get("num_workers", 0)))
+    if num_workers < 0:
+        raise ValueError("num_workers must be non-negative")
     loader_options: dict[str, Any] = {}
     if num_workers > 0:
-        loader_options["persistent_workers"] = bool(config.get("persistent_workers", True))
+        loader_options["persistent_workers"] = bool(
+            config.get("persistent_workers", True) if shuffle else
+            config.get("validation_persistent_workers", config.get("persistent_workers", True))
+        )
         loader_options["prefetch_factor"] = int(config.get("prefetch_factor", 2))
         if loader_options["prefetch_factor"] < 1:
             raise ValueError("prefetch_factor must be positive")

@@ -76,9 +76,9 @@ class Evaluator:
     def evaluate(self, dataloader: Iterable[Mapping[str, Tensor]], *, max_batches: int | None = None) -> dict[str, float | int]:
         was_training = self.model.training
         self.model.eval()
-        loss_sum = 0.0
-        cross_entropy_sum = 0.0
-        z_loss_sum = 0.0
+        # Keep scalar metrics on-device until evaluation (and reduction) ends.
+        metric_dtype = torch.float32 if self.device.type == "mps" else torch.float64
+        totals = torch.zeros(5, dtype=metric_dtype, device=self.device)
         token_count = 0
         batch_count = 0
         non_blocking = self.device.type == "cuda"
@@ -106,21 +106,17 @@ class Evaluator:
                 if not isinstance(details, LanguageModelLossOutput):
                     raise RuntimeError("loss function did not return detailed metrics")
                 weight = details.token_count if self.loss_fn.reduction == "mean" else 1
-                loss_sum += float(details.loss) * weight
-                cross_entropy_sum += float(details.cross_entropy) * weight
-                z_loss_sum += float(details.z_loss) * weight
+                totals[:3].add_(torch.stack((details.loss, details.cross_entropy,
+                                             details.z_loss)).to(metric_dtype), alpha=weight)
                 token_count += details.token_count
         finally:
             self.model.train(was_training)
+        totals[3] = token_count
+        totals[4] = batch_count
         if dist.is_available() and dist.is_initialized():
-            totals = torch.tensor(
-                [loss_sum, cross_entropy_sum, z_loss_sum, token_count, batch_count],
-                dtype=torch.float64,
-                device=self.device,
-            )
             dist.all_reduce(totals, op=dist.ReduceOp.SUM)
-            loss_sum, cross_entropy_sum, z_loss_sum = map(float, totals[:3])
-            token_count, batch_count = int(totals[3]), int(totals[4])
+        loss_sum, cross_entropy_sum, z_loss_sum, tokens, batches = totals.tolist()
+        token_count, batch_count = int(tokens), int(batches)
         if token_count == 0:
             raise ValueError("evaluation produced no valid target tokens")
         loss = loss_sum / token_count

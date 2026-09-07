@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
 import json
@@ -208,5 +209,11 @@ class SQLiteSessionStore:
         with self._database_lock, self._connect() as connection:
             connection.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
+    @contextmanager
     def _connect(self):
-        return sqlite3.connect(self.path, timeout=5)
+        connection = sqlite3.connect(self.path, timeout=5)
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()

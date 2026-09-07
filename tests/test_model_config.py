@@ -75,3 +75,16 @@ def test_rope_requires_even_head_dimension() -> None:
             "max_position": 16,
             "position_type": "rotary",
         })
+
+
+def test_trillion_profile_can_be_planned_without_allocating_weights():
+    from utils.config import load_yaml
+    from training.planner import plan_training
+    model = load_yaml("configs/scaling/model.1t.yaml")
+    training = load_yaml("configs/scaling/training.1t.yaml")
+    size = estimate_model_size(model)
+    assert size.parameters == 999_772_348_416
+    plan = plan_training(model, training, training_tokens=1_000_000, gpus=1024)
+    assert plan.parameters == size.parameters
+    with pytest.raises(ValueError, match="planning-only"):
+        MiniGPT.from_config(model)

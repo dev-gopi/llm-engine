@@ -22,6 +22,21 @@ from utils.config import load_yaml
 from vision.classifier import VisionClassifier
 
 
+def loader_options(config: dict, device: torch.device) -> dict:
+    """Bound worker prefetching and avoid invalid options for in-process loading."""
+    workers = int(config.get("num_workers", 4))
+    if workers < 0:
+        raise ValueError("num_workers must be non-negative")
+    options = {"num_workers": workers, "pin_memory": device.type == "cuda"}
+    if workers:
+        prefetch = int(config.get("prefetch_factor", 2))
+        if prefetch < 1:
+            raise ValueError("prefetch_factor must be positive")
+        options.update(prefetch_factor=prefetch,
+                       persistent_workers=bool(config.get("persistent_workers", False)))
+    return options
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/vision/training.production.yaml"))
@@ -47,7 +62,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(config.get("learning_rate", 3e-4)),
                                   weight_decay=float(config.get("weight_decay", 0.05)))
     loader = DataLoader(dataset, batch_size=int(config.get("batch_size", 32)), shuffle=True,
-                        num_workers=int(config.get("num_workers", 4)), pin_memory=device.type == "cuda")
+                        **loader_options(config, device))
     validation_path = args.validation_data or config.get("validation_data")
     validation_loader = None
     if validation_path:
@@ -59,7 +74,7 @@ def main() -> None:
             raise ValueError("validation and training class directories must match")
         validation_loader = DataLoader(
             validation_dataset, batch_size=int(config.get("batch_size", 32)), shuffle=False,
-            num_workers=int(config.get("num_workers", 4)), pin_memory=device.type == "cuda",
+            **loader_options(config, device),
         )
     total_steps = max(1, int(config.get("epochs", 50)) * len(loader))
     lr_scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
@@ -79,7 +94,8 @@ def main() -> None:
     best_validation_loss = float("inf")
     model.train()
     for epoch in range(int(config.get("epochs", 50))):
-        correct = total = 0
+        correct = torch.zeros((), device=device, dtype=torch.long)
+        total = 0
         for images, labels in loader:
             images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
@@ -96,25 +112,29 @@ def main() -> None:
             scaler.update()
             lr_scheduler.step()
             step += 1
-            correct += (logits.argmax(1) == labels).sum().item()
+            correct += (logits.argmax(1) == labels).sum()
             total += labels.numel()
-        print(f"epoch={epoch + 1} step={step} loss={loss.item():.6f} accuracy={correct / total:.4f}", flush=True)
+        print(f"epoch={epoch + 1} step={step} loss={loss.item():.6f} accuracy={correct.item() / total:.4f}", flush=True)
         save_checkpoint(output, model, optimizer=optimizer, scheduler=lr_scheduler,
                         scaler=scaler, step=step,
                         metadata={"task": "vision_classification", "config": config,
                                   "class_to_id": dataset.class_to_id})
         if validation_loader is not None:
             model.eval()
-            validation_loss = validation_correct = validation_total = 0.0
+            validation_loss = torch.zeros((), device=device, dtype=torch.float32)
+            validation_correct = torch.zeros((), device=device, dtype=torch.long)
+            validation_total = 0
             with torch.inference_mode():
                 for images, labels in validation_loader:
-                    images, labels = images.to(device), labels.to(device)
-                    logits = model(images)
-                    validation_loss += F.cross_entropy(logits.float(), labels, reduction="sum").item()
-                    validation_correct += (logits.argmax(1) == labels).sum().item()
+                    images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+                    with torch.autocast(device_type=device.type, dtype=amp_dtype,
+                                        enabled=mixed_precision != "none"):
+                        logits = model(images)
+                    validation_loss += F.cross_entropy(logits.float(), labels, reduction="sum")
+                    validation_correct += (logits.argmax(1) == labels).sum()
                     validation_total += labels.numel()
-            validation_loss /= validation_total
-            print(f"validation_loss={validation_loss:.6f} validation_accuracy={validation_correct / validation_total:.4f}")
+            validation_loss = validation_loss.item() / validation_total
+            print(f"validation_loss={validation_loss:.6f} validation_accuracy={validation_correct.item() / validation_total:.4f}")
             if validation_loss < best_validation_loss:
                 best_validation_loss = validation_loss
                 save_checkpoint(best_output, model, step=step,

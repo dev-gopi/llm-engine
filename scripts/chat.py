@@ -36,6 +36,11 @@ def main() -> None:
     parser.add_argument("--device", default=None)
     parser.add_argument("--max-tokens", type=int)
     parser.add_argument("--temperature", type=float)
+    parser.add_argument("--top-k", type=int)
+    parser.add_argument("--top-p", type=float)
+    parser.add_argument("--min-p", type=float, help="relative probability cutoff; 0 disables")
+    parser.add_argument("--min-tokens", type=int)
+    parser.add_argument("--stop", action="append", help="stop string; may be repeated")
     parser.add_argument("--repetition-penalty", type=float)
     parser.add_argument("--no-repeat-ngram-size", type=int)
     parser.add_argument("--response-format", choices=("plain", "markdown"))
@@ -195,8 +200,12 @@ def main() -> None:
                 else float(search_config.get("temperature", 0.2)) if search_results
                 else float(inference_config.get("temperature", 0.7))
             ),
-            top_k=int(search_config.get("top_k", 20)) if search_results else int(inference_config.get("top_k", 40)),
-            top_p=float(inference_config.get("top_p", 0.9)),
+            top_k=(args.top_k if args.top_k is not None else
+                   int(search_config.get("top_k", 20)) if search_results else int(inference_config.get("top_k", 40))),
+            top_p=args.top_p if args.top_p is not None else float(inference_config.get("top_p", 1.0)),
+            min_p=args.min_p if args.min_p is not None else float(inference_config.get("min_p", 0.0)),
+            min_tokens=args.min_tokens if args.min_tokens is not None else int(inference_config.get("min_tokens", 1)),
+            stop=args.stop if args.stop is not None else inference_config.get("stop", []),
             repetition_penalty=(
                 args.repetition_penalty if args.repetition_penalty is not None
                 else float(inference_config.get("repetition_penalty", 1.1))

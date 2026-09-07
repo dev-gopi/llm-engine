@@ -1,0 +1,10 @@
+# Planning assumptions only. Hyperparameters require distributed pilot runs.
+planning_only: true
+batch_size: 1
+max_sequence_length: 8192
+gradient_accumulation_steps: 1
+mixed_precision: bf16
+distributed_strategy: fsdp
+checkpoint_format: distributed
+ema_decay: null
+loss_chunk_size: 128

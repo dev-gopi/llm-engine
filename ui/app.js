@@ -15,6 +15,10 @@ const elements = {
   calculatorTool: $("calculatorTool"), datetimeTool: $("datetimeTool"),
   searchTool: $("searchTool"), ragTool: $("ragTool"), mcpTool: $("mcpTool"), mcpServer: $("mcpServer"), toolCount: $("toolCount")
 };
+Object.assign(elements, { minTokens: $("minTokens"), noRepeatNgram: $("noRepeatNgram"), minP: $("minP"), stopStrings: $("stopStrings"), useMemory: $("useMemory"),
+  reviewLast: $("reviewLast"), reviewPrompt: $("reviewPrompt"), reviewAnswer: $("reviewAnswer"),
+  approveExample: $("approveExample"), exportExample: $("exportExample"), reviewStatus: $("reviewStatus") });
+let lastCompletedExample = null;
 const settingsKey = "gopi-playground-settings";
 const transcriptKey = "gopi-playground-transcript";
 const defaultResponse = "Sorry, I couldn't generate a response. Please try rephrasing your prompt.";
@@ -34,10 +38,12 @@ function baseUrl() { return elements.baseUrl.value.trim().replace(/\/$/, "") || 
 function requestPayload() {
   const seed = elements.seed.value.trim();
   return {
+    min_tokens: Number(elements.minTokens.value), no_repeat_ngram_size: Number(elements.noRepeatNgram.value),
     prompt: elements.prompt.value.trim(), max_tokens: Number(elements.maxTokens.value),
     temperature: Number(elements.temperature.value), top_k: Number(elements.topK.value),
-    top_p: Number(elements.topP.value), repetition_penalty: Number(elements.repetitionPenalty.value),
-    seed: seed === "" ? null : Number(seed), stop: [], session_id: sessionId,
+    top_p: Number(elements.topP.value), min_p: Number(elements.minP.value), repetition_penalty: Number(elements.repetitionPenalty.value),
+    seed: seed === "" ? null : Number(seed), stop: elements.stopStrings.value.split("\n").filter((value) => value.length > 0),
+    session_id: elements.useMemory.checked ? sessionId : null,
     mode: elements.chatMode.value,
     tools: [elements.calculatorTool.checked && "calculator", elements.datetimeTool.checked && "datetime"].filter(Boolean),
     response_format: elements.responseFormat.value, web_search: elements.webSearch.checked || elements.searchTool.checked,
@@ -57,6 +63,7 @@ async function readAttachments() {
 function showError(message = "") { elements.error.textContent = message; elements.error.hidden = !message; }
 function setBusy(busy) {
   elements.send.disabled = busy; elements.stop.hidden = !busy; elements.prompt.disabled = busy;
+  elements.reviewLast.disabled = busy || !lastCompletedExample;
   elements.clear.disabled = busy; elements.send.textContent = busy ? "Generating…" : "Generate";
 }
 function appendInline(parent, text) {
@@ -158,16 +165,17 @@ function websocketUrl() {
 function generateStream(payload, target) {
   return new Promise((resolve, reject) => {
     if (elements.apiKey.value) return reject(new Error("Browser WebSockets cannot send the API-key header. Disable streaming for authenticated testing."));
+    let completed = false;
     const socket = new WebSocket(websocketUrl()); activeSocket = socket;
     socket.addEventListener("open", () => socket.send(JSON.stringify(payload)));
     socket.addEventListener("message", ({ data }) => {
       let event; try { event = JSON.parse(data); } catch { reject(new Error("Server returned invalid stream data.")); socket.close(); return; }
       if (event.type === "token") { setMessage(target, (target.dataset.rawText || "") + event.token); elements.messages.scrollTop = elements.messages.scrollHeight; }
-      if (event.type === "done") { setMessage(target, target.dataset.rawText?.trim() || defaultResponse, payload.response_format); updateUsage(event.usage, event.finish_reason); socket.close(1000); resolve(); }
+      if (event.type === "done") { completed = true; setMessage(target, target.dataset.rawText?.trim() || defaultResponse, payload.response_format); updateUsage(event.usage, event.finish_reason); socket.close(1000); resolve(); }
       if (event.type === "error") { reject(new Error(event.error?.message || "Streaming failed.")); socket.close(); }
     });
     socket.addEventListener("error", () => reject(new Error("WebSocket connection failed.")));
-    socket.addEventListener("close", (event) => { activeSocket = null; if (event.code !== 1000) reject(new Error("Streaming connection closed.")); });
+    socket.addEventListener("close", (event) => { activeSocket = null; if (!completed) reject(new DOMException("Streaming ended before completion.", "AbortError")); });
   });
 }
 async function checkHealth() {
@@ -181,6 +189,8 @@ function saveSettings() {
   localStorage.setItem(settingsKey, JSON.stringify({
     baseUrl: elements.baseUrl.value, stream: elements.stream.checked, maxTokens: elements.maxTokens.value,
     temperature: elements.temperature.value, topK: elements.topK.value, topP: elements.topP.value,
+    minTokens: elements.minTokens.value, noRepeatNgram: elements.noRepeatNgram.value,
+    minP: elements.minP.value, stopStrings: elements.stopStrings.value, useMemory: elements.useMemory.checked,
     repetitionPenalty: elements.repetitionPenalty.value, seed: elements.seed.value,
     responseFormat: elements.responseFormat.value, webSearch: elements.webSearch.checked,
     chatMode: elements.chatMode.value, calculatorTool: elements.calculatorTool.checked,
@@ -190,9 +200,10 @@ function saveSettings() {
 }
 function loadSettings() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(settingsKey) || "{}"); } catch { saved = {}; }
-  for (const key of ["baseUrl", "maxTokens", "temperature", "topK", "topP", "repetitionPenalty", "seed", "responseFormat", "chatMode", "mcpServer"]) {
+  for (const key of ["baseUrl", "maxTokens", "temperature", "topK", "topP", "minP", "minTokens", "noRepeatNgram", "stopStrings", "repetitionPenalty", "seed", "responseFormat", "chatMode", "mcpServer"]) {
     if (saved[key] !== undefined) elements[key].value = saved[key];
   }
+  if (saved.useMemory !== undefined) elements.useMemory.checked = saved.useMemory;
   if (saved.stream !== undefined) elements.stream.checked = saved.stream;
   if (saved.webSearch !== undefined) elements.webSearch.checked = saved.webSearch;
   for (const key of ["calculatorTool", "datetimeTool", "searchTool", "ragTool", "mcpTool"]) {
@@ -211,12 +222,19 @@ elements.form.addEventListener("submit", async (event) => {
   if (generationInProgress) return;
   const prompt = elements.prompt.value.trim(); if (!prompt) return;
   generationInProgress = true;
+  lastCompletedExample = null;
+  elements.reviewLast.disabled = true;
   const payload = requestPayload(); payload.prompt = prompt;
   try { payload.attachments = await readAttachments(); }
   catch (error) { generationInProgress = false; showError(error.message); return; }
   showError(); addMessage("user", prompt);
   const target = addMessage("assistant", ""); elements.prompt.value = ""; elements.attachments.value = ""; elements.prompt.style.height = ""; setBusy(true);
-  try { elements.stream.checked ? await generateStream(payload, target) : await generateRest(payload, target); }
+  try {
+    elements.stream.checked ? await generateStream(payload, target) : await generateRest(payload, target);
+    if (target.dataset.rawText && target.dataset.rawText !== defaultResponse && !elements.error.textContent) {
+      lastCompletedExample = {prompt, answer: target.dataset.rawText};
+    }
+  }
   catch (error) { if (error.name !== "AbortError") showError(error.message); if (!target.dataset.rawText) setMessage(target, "Generation stopped."); }
   finally { generationInProgress = false; activeController = null; activeSocket = null; setBusy(false); saveTranscript(); elements.prompt.focus(); }
 });
@@ -255,12 +273,44 @@ elements.temperature.addEventListener("input", () => { elements.temperatureValue
 document.querySelector(".controls").addEventListener("change", saveSettings);
 elements.reset.addEventListener("click", () => {
   elements.maxTokens.value = "128"; elements.temperature.value = "0.7"; elements.topK.value = "40";
+  elements.minTokens.value = "1"; elements.noRepeatNgram.value = "3";
+  elements.minP.value = "0"; elements.stopStrings.value = "";
   elements.topP.value = "0.9"; elements.repetitionPenalty.value = "1.2"; elements.seed.value = "";
   elements.responseFormat.value = "plain"; elements.webSearch.checked = false;
   elements.chatMode.value = "balanced"; elements.modeDescription.textContent = modeDescriptions.balanced;
   elements.calculatorTool.checked = false; elements.datetimeTool.checked = false; elements.searchTool.checked = false; elements.ragTool.checked = false;
   elements.mcpTool.checked = false; elements.mcpServer.value = "filesystem"; updateToolCount();
   elements.maxTokensValue.value = "128"; elements.temperatureValue.value = "0.7"; saveSettings();
+});
+function clearReview() {
+  lastCompletedExample = null; elements.reviewLast.disabled = true;
+  elements.reviewPrompt.value = ""; elements.reviewAnswer.value = "";
+  elements.approveExample.checked = false; elements.reviewStatus.textContent = "";
+}
+elements.clear.addEventListener("click", clearReview);
+elements.chatMode.addEventListener("change", clearReview);
+elements.reviewLast.addEventListener("click", () => {
+  if (!lastCompletedExample || generationInProgress) return;
+  elements.reviewPrompt.value = lastCompletedExample.prompt;
+  elements.reviewAnswer.value = lastCompletedExample.answer;
+  elements.approveExample.checked = false;
+  elements.reviewStatus.textContent = "Review the prompt and answer before approving.";
+});
+[elements.reviewPrompt, elements.reviewAnswer].forEach((input) => input.addEventListener("input", () => {
+  elements.approveExample.checked = false;
+}));
+elements.exportExample.addEventListener("click", () => {
+  const prompt = elements.reviewPrompt.value.trim(), answer = elements.reviewAnswer.value.trim();
+  if (!prompt || !answer || !elements.approveExample.checked) {
+    elements.reviewStatus.textContent = "Enter a prompt and answer, then approve the example."; return;
+  }
+  const row = {messages: [{role: "user", content: prompt}, {role: "assistant", content: answer}]};
+  const url = URL.createObjectURL(new Blob([JSON.stringify(row) + "\n"], {type: "application/x-ndjson"}));
+  const link = document.createElement("a"); link.href = url;
+  link.download = `reviewed-chat-${Date.now()}.jsonl`; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  elements.approveExample.checked = false;
+  elements.reviewStatus.textContent = "Example downloaded. Model weights have not changed.";
 });
 loadSettings();
 if (!restoreTranscript()) addMessage("assistant", "Hello! I’m your local AI assistant. What can I help you with?");

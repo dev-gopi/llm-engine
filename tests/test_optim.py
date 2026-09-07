@@ -31,3 +31,18 @@ def test_ema_average_context_restores_parameters() -> None:
     with ema.average_parameters(model):
         torch.testing.assert_close(model.weight, original)
     torch.testing.assert_close(model.weight, changed)
+
+
+def test_auto_fused_optimizer_uses_cpu_fallback():
+    from optim.adamw import adamw_from_config
+    model = nn.Linear(2, 2)
+    optimizer = adamw_from_config(model, {"fused_optimizer": "auto"})
+    assert optimizer.defaults["fused"] is False
+    model(torch.ones(1, 2)).sum().backward()
+    optimizer.step()
+
+
+def test_invalid_fused_optimizer_is_rejected():
+    import pytest
+    with pytest.raises(ValueError, match="fused_optimizer"):
+        build_adamw(nn.Linear(2, 2), fused="yes")

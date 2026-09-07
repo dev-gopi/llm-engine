@@ -80,6 +80,19 @@ class DiffusionPipeline:
         if sum(value is not None for value in (text_condition, class_labels, text_context)) > 1:
             raise ValueError("provide only one conditioning input")
         self._validate_class_labels(class_labels, batch_size)
+        step_count = self.scheduler.timesteps if inference_steps is None else inference_steps
+        if not 1 <= step_count <= self.scheduler.timesteps:
+            raise ValueError("inference_steps must be between one and scheduler timesteps")
+        if not math.isfinite(eta) or eta < 0:
+            raise ValueError("eta must be finite and non-negative")
+        guided = guidance_scale != 1.0
+        null_condition = torch.zeros_like(text_condition) if guided and text_condition is not None else None
+        null_context = torch.zeros_like(text_context) if guided and text_context is not None else None
+        null_labels = None
+        if guided and class_labels is not None:
+            if self.model.null_class_id is None:
+                raise ValueError("class conditioning requires a class-conditional model")
+            null_labels = torch.full_like(class_labels, self.model.null_class_id)
         sample = torch.randn(
             batch_size,
             self.model.image_channels,
@@ -93,9 +106,6 @@ class DiffusionPipeline:
         self.model.eval()
         try:
             use_ddim = inference_steps is not None
-            step_count = inference_steps or self.scheduler.timesteps
-            if not 1 <= step_count <= self.scheduler.timesteps:
-                raise ValueError("inference_steps must be between one and scheduler timesteps")
             schedule = torch.linspace(
                 self.scheduler.timesteps - 1, 0, step_count, dtype=torch.long
             ).unique_consecutive().tolist()
@@ -106,17 +116,14 @@ class DiffusionPipeline:
                     text_context=text_context, text_context_mask=text_context_mask,
                 )
                 if text_condition is not None and guidance_scale != 1.0:
-                    unconditional = self.model(sample, steps, torch.zeros_like(text_condition))
+                    unconditional = self.model(sample, steps, null_condition)
                     predicted_noise = unconditional + guidance_scale * (predicted_noise - unconditional)
                 if class_labels is not None and guidance_scale != 1.0:
-                    if self.model.null_class_id is None:
-                        raise ValueError("class conditioning requires a class-conditional model")
-                    null_labels = torch.full_like(class_labels, self.model.null_class_id)
                     unconditional = self.model(sample, steps, class_labels=null_labels)
                     predicted_noise = unconditional + guidance_scale * (predicted_noise - unconditional)
                 if text_context is not None and guidance_scale != 1.0:
                     unconditional = self.model(
-                        sample, steps, text_context=torch.zeros_like(text_context),
+                        sample, steps, text_context=null_context,
                         text_context_mask=text_context_mask,
                     )
                     predicted_noise = unconditional + guidance_scale * (predicted_noise - unconditional)
