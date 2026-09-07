@@ -1,6 +1,6 @@
 # Use data/tokenizer, preserving the pretraining vocabulary.
 # Prepare with prepare_recovery_sft.py --output data/cleaned/instruction-pilot.
-batch_size: 1
+batch_size: 2
 validation_batch_size: 2
 epochs: 1
 seed: 42
@@ -10,7 +10,7 @@ dataset_governance:
   commercial_use: false
 max_sequence_length: 512
 pad_to_multiple_of: 8
-num_workers: 1
+num_workers: 4
 pin_memory: true
 persistent_workers: true
 prefetch_factor: 2
@@ -68,7 +68,7 @@ beta2: 0.95
 adam_epsilon: 1.0e-08
 fused_optimizer: false
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 32
+gradient_accumulation_steps: 16
 mixed_precision: fp16
 lr_schedule: cosine
 warmup_ratio: 0.05

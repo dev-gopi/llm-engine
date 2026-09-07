@@ -2,7 +2,8 @@
 # to 5M sampled examples; use held-out validation and early stopping to choose
 # the actual stopping point. Sequence length matches model.gpu.yaml (512).
 batch_size: 2
-epochs: 5
+validation_batch_size: 2
+epochs: 4
 seed: 42
 dataset_governance:
   policy: warn
