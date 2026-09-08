@@ -23,6 +23,7 @@
     .chart-axis { position:sticky; left:0; z-index:3; float:left; width:58px!important; min-width:58px; margin-right:-58px; border-radius:8px 0 0 8px }
     table { border-collapse:collapse; width:100% } th,td { padding:9px; border-bottom:1px solid var(--line); text-align:right }
     th:first-child,td:first-child { text-align:left } th { color:var(--muted) }
+    .pagination { display:flex; justify-content:flex-end; gap:8px; align-items:center; margin-top:12px }.pagination button { padding:6px 10px }.pagination button:disabled { cursor:not-allowed; opacity:.45 }.pagination-status { min-width:130px; color:var(--muted); text-align:center; font-size:12px }
     pre { white-space:pre-wrap; max-height:430px; overflow:auto; background:#06101c; padding:14px; border-radius:8px; color:#cbd5e1 }
     button,.file { border:1px solid var(--line); background:#162942; color:var(--text); padding:9px 12px; border-radius:8px; cursor:pointer }
     input[type=file] { max-width:230px } .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
@@ -90,7 +91,7 @@
       :root { color-scheme:light; --bg:#fff; --card:#fff; --text:#111; --muted:#444; --line:#bbb }
       * { animation:none!important; transition:none!important; print-color-adjust:exact; -webkit-print-color-adjust:exact }
       body { background:white; color:#111; font-size:10px; overflow:visible }
-      header { padding:0 0 10px } header .controls,.report-explorer,.panel-toggle { display:none!important }
+      header { padding:0 0 10px } header .controls,.report-explorer,.panel-toggle,.pagination { display:none!important }
       main,body.compact main { padding:10px 0; max-width:none; width:100% }
       body.compact main > section:not(.meter-panel):not(.operations) { display:block }
       .report-hidden,.search-hidden { display:block!important }.panel.collapsed > :not(h2) { display:revert!important }
@@ -397,6 +398,22 @@
     }
 
     function table(headers, rows) { return `<table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table>`; }
+    const paginatedTables=new Map();
+    function drawPaginatedTable(id) {
+      const state=paginatedTables.get(id),container=document.getElementById(id);
+      if(!state||!container)return;
+      if(!state.rows.length){container.innerHTML=state.emptyMessage;return}
+      const pageSize=printing?state.rows.length:state.pageSize,pages=Math.max(1,Math.ceil(state.rows.length/pageSize)),displayPage=printing?0:Math.min(state.page,pages-1);
+      if(!printing)state.page=displayPage;
+      const start=displayPage*pageSize,visible=state.rows.slice(start,start+pageSize);
+      container.innerHTML=table(state.headers,visible)+(printing?'':`<div class="pagination"><button data-page-table="${esc(id)}" data-page="first" ${displayPage===0?'disabled':''}>First</button><button data-page-table="${esc(id)}" data-page="previous" ${displayPage===0?'disabled':''}>Previous</button><span class="pagination-status">Page ${displayPage+1} of ${pages} · ${state.rows.length} rows</span><button data-page-table="${esc(id)}" data-page="next" ${displayPage>=pages-1?'disabled':''}>Next</button><button data-page-table="${esc(id)}" data-page="last" ${displayPage>=pages-1?'disabled':''}>Last</button></div>`);
+    }
+    function setPaginatedTable(id,headers,rows,pageSize,emptyMessage) {
+      const previous=paginatedTables.get(id),oldPages=previous?Math.max(1,Math.ceil(previous.rows.length/previous.pageSize)):1,followLatest=!previous||previous.page>=oldPages-1,newPages=Math.max(1,Math.ceil(rows.length/pageSize));
+      paginatedTables.set(id,{headers,rows,pageSize,emptyMessage,page:followLatest?newPages-1:Math.min(previous.page,newPages-1)});
+      drawPaginatedTable(id);
+    }
+    function redrawPaginatedTables(){paginatedTables.forEach((_,id)=>drawPaginatedTable(id))}
 
     function meter(label,value,detail,color,unit='%',detailHtml=false) {
       const numeric=Number(value),available=Number.isFinite(numeric),bounded=available?Math.max(0,Math.min(100,numeric)):0;
@@ -505,10 +522,10 @@
         eventRow('Checkpoint',cadence.checkpoint_every,latest.next_checkpoint_eta_seconds,durationFmt(checkpointTiming.duration_seconds)),
         eventRow('Validation',cadence.evaluate_every,latest.next_validation_eta_seconds,durationFmt(validationTiming.duration_seconds))
       ]);
-      const recentTiming=train.filter(v=>v.log_interval_seconds!=null||v.seconds_per_step!=null).slice(-10);
-      document.getElementById('recent-log-timing').innerHTML=recentTiming.length?table(['Time','Step','Log interval','Seconds / step','Next log','Next checkpoint','Next validation'],recentTiming.map(v=>[dateFmt(v.timestamp),fmt(v.step,0),durationFmt(v.log_interval_seconds),fmt(v.seconds_per_step,3),eventEta(v.next_log_eta_seconds),eventEta(v.next_checkpoint_eta_seconds),eventEta(v.next_validation_eta_seconds)])):'Timing data appears after the next training log.';
-      const completedEvents=[...(data.checkpoint_timings||[]).map(v=>({...v,event:`Checkpoint (${v.kind||'latest'})`})),...(data.validation_timings||[]).map(v=>({...v,event:'Validation'}))].sort((a,b)=>logTime(b)-logTime(a));
-      document.getElementById('event-duration-history').innerHTML=completedEvents.length?table(['Time','Event','Step','Duration'],completedEvents.slice(0,12).map(v=>[dateFmt(v.timestamp),esc(v.event),fmt(v.step,0),durationFmt(v.duration_seconds)])):'Completed checkpoint and validation timings will appear here.';
+      const recentTiming=train.filter(v=>v.log_interval_seconds!=null||v.seconds_per_step!=null);
+      setPaginatedTable('recent-log-timing',['Time','Step','Log interval','Seconds / step','Next log','Next checkpoint','Next validation'],recentTiming.map(v=>[dateFmt(v.timestamp),fmt(v.step,0),durationFmt(v.log_interval_seconds),fmt(v.seconds_per_step,3),eventEta(v.next_log_eta_seconds),eventEta(v.next_checkpoint_eta_seconds),eventEta(v.next_validation_eta_seconds)]),8,'Timing data appears after the next training log.');
+      const completedEvents=[...(data.checkpoint_timings||[]).map(v=>({...v,event:`Checkpoint (${v.kind||'latest'})`})),...(data.validation_timings||[]).map(v=>({...v,event:'Validation'}))].sort((a,b)=>logTime(a)-logTime(b));
+      setPaginatedTable('event-duration-history',['Time','Event','Step','Duration'],completedEvents.map(v=>[dateFmt(v.timestamp),esc(v.event),fmt(v.step,0),durationFmt(v.duration_seconds)]),6,'Completed checkpoint and validation timings will appear here.');
       updateCountdowns();
       const indexed=telemetry.map((value,index)=>({value,index}));
       lineChart(document.getElementById('system-chart'),[
@@ -563,7 +580,7 @@
       ]);
       document.getElementById('checkpoints').innerHTML=table(['Checkpoint','Status','Size','Modified','Validation'],Object.entries(data.checkpoints||{}).map(([name,c])=>[esc(name),`<span class="${c.exists?'ok':'bad'}">${c.exists?'available':'missing'}</span>`,c.size_mb!=null?fmt(c.size_mb,2)+' MB':'—',esc(dateFmt(c.modified_at)),fmt(c.validation?.loss)]));
       document.getElementById('domains').innerHTML=table(['Domain','Loss','Cross entropy','Perplexity','Tokens'],Object.entries(validation.domains||{}).map(([name,v])=>{const level=trendLevel(analysis.domains?.[name]?.loss?.absolute_improvement);return [`<span class="${level}">${esc(name)}</span>`,`<span class="${level}">${fmt(v.loss)}</span>`,fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]}));
-      document.getElementById('validation-table').innerHTML=table(['Time','Step','Epoch','Loss','Cross entropy','Perplexity','Tokens'],vals.map(v=>[esc(dateFmt(v.timestamp)),fmt(v.step,0),fmt(v.epoch,0),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]));
+      setPaginatedTable('validation-table',['Time','Step','Epoch','Loss','Cross entropy','Perplexity','Tokens'],vals.map(v=>[esc(dateFmt(v.timestamp)),fmt(v.step,0),fmt(v.epoch,0),fmt(v.loss),fmt(v.cross_entropy),fmt(v.perplexity),fmt(v.tokens,0)]),10,'Validation records will appear after the first validation run.');
       document.getElementById('domain-improvement').innerHTML=table(['Domain','First loss','Latest loss','Loss improvement','Improvement %','Perplexity improvement %'],Object.entries(analysis.domains||{}).map(([name,v])=>[esc(name),fmt(v.loss?.first),fmt(v.loss?.latest),delta(v.loss?.absolute_improvement),percent(v.loss?.percent_improvement),percent(v.perplexity?.percent_improvement)]));
       const over=analysis.overfitting||{};
       document.getElementById('overfitting').innerHTML=`<div class="value ${over.status==='risk_detected'?'bad':'ok'}">${esc((over.status||'unknown').replaceAll('_',' '))}</div><p class="muted">${esc(over.reason||'No analysis available.')}</p>`;
@@ -652,6 +669,7 @@
     window.addEventListener('beforeprint',()=>{
       if(printing)return;
       printing=true;
+      redrawPaginatedTables();
       document.querySelectorAll('.chart-scroll').forEach(scroller=>{
         printScrollPositions.set(scroller,scroller.scrollLeft);
         scroller.scrollLeft=0;
@@ -660,6 +678,7 @@
     });
     window.addEventListener('afterprint',()=>{
       printing=false;
+      redrawPaginatedTables();
       chartSeries.forEach((series,svg)=>lineChart(svg,series));
       requestAnimationFrame(()=>{
         printScrollPositions.forEach((position,scroller)=>{scroller.scrollLeft=position});
@@ -672,6 +691,7 @@
     document.getElementById('file').onchange=async event=>{const file=event.target.files[0];if(file){manual=true;++loadVersion;reportSource=file.name;render(JSON.parse(await file.text()))}};
     document.querySelectorAll('[data-report-view]').forEach(button=>button.onclick=()=>setReportView(button.dataset.reportView));
     document.getElementById('report-search').oninput=applyReportSearch;
+    document.querySelector('main').addEventListener('click',event=>{const button=event.target.closest('[data-page-table]');if(!button)return;const state=paginatedTables.get(button.dataset.pageTable);if(!state)return;const pages=Math.max(1,Math.ceil(state.rows.length/state.pageSize));if(button.dataset.page==='first')state.page=0;else if(button.dataset.page==='previous')state.page=Math.max(0,state.page-1);else if(button.dataset.page==='next')state.page=Math.min(pages-1,state.page+1);else state.page=pages-1;drawPaginatedTable(button.dataset.pageTable);applyReportSearch()});
     const compactButton=document.getElementById('compact'),notificationButton=document.getElementById('notifications');
     function setCompact(enabled){document.body.classList.toggle('compact',enabled);compactButton.setAttribute('aria-pressed',String(enabled));compactButton.textContent=enabled?'Detailed view':'Compact';localStorage.setItem('gopi-report-compact',String(enabled))}
     function updateNotificationButton(){notificationButton.setAttribute('aria-pressed',String(notificationsEnabled));notificationButton.textContent=notificationsEnabled?'Notifications on':'Notifications off'}
