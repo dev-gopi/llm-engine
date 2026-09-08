@@ -101,9 +101,11 @@
       tr { break-inside:avoid } thead { display:table-header-group }
       main section,main section div,pre { max-height:none!important; overflow:visible!important }
       pre { background:#f4f4f4; color:#111; white-space:pre-wrap; overflow-wrap:anywhere }
-      .chart-scroll { position:relative }
+      .panel:has(.chart-scroll) { break-inside:avoid; page-break-inside:avoid }
+      .chart-legend { break-after:avoid; font-size:10px }
+      .chart-scroll { position:relative; scroll-behavior:auto }
       .chart-scroll svg:not(.chart-axis) { width:100%!important; height:auto!important; min-height:0 }
-      .chart-axis { position:absolute; width:7.632%!important; min-width:0; height:auto!important; margin:0 }
+      .chart-axis { display:none!important }
       .meter,.signal,.alert,.epoch-block { background:#f4f4f4; color:#111 }
       .meter-reading { color:#fff }.meter-reading small { color:#ccc }
       .epoch-block strong,.epoch-block small { text-shadow:none }
@@ -210,6 +212,7 @@
     const trendColor = (improvement,deadband=.001) => improvement==null?'#91a4ba':improvement>deadband?'#34d399':improvement<-deadband?'#fb7185':'#fbbf24';
     let printing = false;
     const chartSeries = new Map();
+    const printScrollPositions = new Map();
     let manual = false;
     let loadVersion = 0;
     let reportSource = '';
@@ -274,7 +277,7 @@
       if(!axis){axis=document.createElementNS('http://www.w3.org/2000/svg','svg');axis.classList.add('chart-axis');scroller.insertBefore(axis,svg)}
       axis.setAttribute('viewBox',`0 0 ${left} ${height}`);
       const points=series.flatMap(s=>s.points).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
-      if (!points.length) { axis.innerHTML='';svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No data yet</text>'; return; }
+      if (!points.length) { svg.setAttribute('viewBox',`0 0 ${width} ${height}`);axis.innerHTML='';svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No data yet</text>'; return; }
       let minX=Math.min(...points.map(p=>p[0])),maxX=Math.max(...points.map(p=>p[0]));
       let minY=Math.min(...points.map(p=>p[1])),maxY=Math.max(...points.map(p=>p[1]));
       if(minX===maxX)maxX++; if(minY===maxY){minY=Math.max(0,minY-.05);maxY+=.05} const pad=Math.max((maxY-minY)*.12,.000001); minY=Math.max(0,minY-pad);maxY+=pad;
@@ -284,6 +287,10 @@
       for(let i=0;i<6;i++){const yy=top+i*(height-top-bottom)/5,val=maxY-i*(maxY-minY)/5;out+=`<line x1="${left}" y1="${yy}" x2="${width-right}" y2="${yy}" stroke="#263950"/>`;axisOut+=`<text x="${left-8}" y="${yy+4}" text-anchor="end" fill="#91a4ba" font-size="11">${axisFmt(val)}</text>`}
       out+=`<line x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}" stroke="#60758d"/><text x="${left}" y="${height-13}" fill="#91a4ba">${fmt(minX,0)}</text><text x="${width-right}" y="${height-13}" text-anchor="end" fill="#91a4ba">${fmt(maxX,0)}</text>`;
       series.forEach((s,i)=>{const path=s.points.map((p,j)=>`${j?'L':'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');out+=`<path d="${path}" fill="none" stroke="${s.color||colors[i%colors.length]}" stroke-width="${s.width||2.5}"/>${fixedLegend?'':`<text x="${left+i*110}" y="16" fill="${s.color||colors[i%colors.length]}" font-size="11">${esc(s.name)}</text>`}`});
+      if(printing) {
+        out+=axisOut;
+        out=out.replaceAll('#0a1728','#ffffff').replaceAll('#91a4ba','#374151').replaceAll('#263950','#d1d5db');
+      }
       axis.innerHTML=axisOut;svg.setAttribute('viewBox',`0 0 ${width} ${height}`); svg.innerHTML=out;
       scroller.dataset.rendered='true';
       if(followLatest&&!printing)requestAnimationFrame(()=>{scroller.scrollLeft=scroller.scrollWidth-scroller.clientWidth});
@@ -556,12 +563,21 @@
       catch(error) { document.getElementById('status').textContent=`Cannot render ${DATA_URL || 'latest report'}: ${error}`; }
     }
     window.addEventListener('beforeprint',()=>{
+      if(printing)return;
       printing=true;
+      document.querySelectorAll('.chart-scroll').forEach(scroller=>{
+        printScrollPositions.set(scroller,scroller.scrollLeft);
+        scroller.scrollLeft=0;
+      });
       chartSeries.forEach((series,svg)=>lineChart(svg,series));
     });
     window.addEventListener('afterprint',()=>{
       printing=false;
       chartSeries.forEach((series,svg)=>lineChart(svg,series));
+      requestAnimationFrame(()=>{
+        printScrollPositions.forEach((position,scroller)=>{scroller.scrollLeft=position});
+        printScrollPositions.clear();
+      });
     });
     document.getElementById('export-pdf').onclick=()=>window.print();
     document.getElementById('refresh').onclick=()=>{manual=false;load()};
