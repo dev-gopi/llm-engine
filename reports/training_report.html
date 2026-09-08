@@ -82,8 +82,8 @@
 </head>
 <body>
   <header>
-    <div><h1>Gopi training report</h1><div id="status" class="muted">Loading training_report.json…</div></div>
-    <div class="controls"><button id="compact" aria-pressed="false">Compact</button><button id="fullscreen">Full screen</button><button id="notifications" aria-pressed="false">Notifications off</button><button id="refresh">Refresh</button><button id="sample">Load sample</button><label class="file">Load JSON <input id="file" type="file" accept="application/json"></label></div>
+    <div><h1>Gopi training report</h1><div id="status" class="muted">Loading latest training report…</div></div>
+    <div class="controls"><button id="compact" aria-pressed="false">Compact</button><button id="fullscreen">Full screen</button><button id="notifications" aria-pressed="false">Notifications off</button><button id="refresh">Show latest</button><button id="sample">Load sample</button><label class="file">Load JSON <input id="file" type="file" accept="application/json"></label></div>
   </header>
   <main>
     <section class="panel meter-panel" aria-labelledby="meter-title">
@@ -134,7 +134,8 @@
   </main>
   <script>
     const query = new URLSearchParams(location.search);
-    const DATA_URL = query.get('data') || 'training_report.json';
+    const DATA_URL = query.get('data');
+    const REPORT_URLS = DATA_URL ? [DATA_URL] : ['training_report.json', 'finetuning.json'];
     const SAMPLE_URL = query.get('sample') || 'training_report.sample.json';
     const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 2000));
     const STALL_MS = Math.max(60000, Number(query.get('stall') || 180000));
@@ -168,6 +169,8 @@
     const trendLevel = (improvement,deadband=.001) => improvement==null?'':improvement>deadband?'usage-low':improvement<-deadband?'usage-high':'usage-medium';
     const trendColor = (improvement,deadband=.001) => improvement==null?'#91a4ba':improvement>deadband?'#34d399':improvement<-deadband?'#fb7185':'#fbbf24';
     let manual = false;
+    let loadVersion = 0;
+    let reportSource = '';
     let notificationsEnabled = localStorage.getItem('gopi-report-notifications') === 'true';
     let lastNotifiedBest = localStorage.getItem('gopi-report-best') || '';
     let completionNotified = false;
@@ -249,7 +252,7 @@
     }
 
     function pieChart(svg, entries) {
-      const values=entries.filter(([,value])=>Number.isFinite(Number(value))&&Number(value)>0);
+      const values=entries.filter(([,value])=>Number.isFinite(Number(value))&&Number(value)>=0);
       if(!values.length){svg.style.width='100%';svg.setAttribute('viewBox','0 0 760 360');svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No weight data yet</text>';return}
       const total=values.reduce((sum,[,value])=>sum+Number(value),0),cx=175,cy=180,r=125;
       // Dataset mixtures can contain 30+ sources.  Keep the pie and every
@@ -260,9 +263,9 @@
       const width=Math.max(760,legendStart+columns*legendColumnWidth+18),height=360;
       let angle=-Math.PI/2,out=`<rect width="${width}" height="${height}" fill="#0a1728" rx="8"/>`;
       values.forEach(([name,value],index)=>{
-        const share=Number(value)/total,next=angle+share*Math.PI*2,color=categoryColor(index,values.length);
+        const share=total>0?Number(value)/total:0,next=angle+share*Math.PI*2,color=categoryColor(index,values.length);
         const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle),x2=cx+r*Math.cos(next),y2=cy+r*Math.sin(next),large=share>.5?1:0;
-        out+=`<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z" fill="${color}" stroke="#07111f" stroke-width="2"><title>${esc(name)}: ${(share*100).toFixed(2)}%</title></path>`;
+        if(share>0)out+=`<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z" fill="${color}" stroke="#07111f" stroke-width="2"><title>${esc(name)}: ${(share*100).toFixed(2)}%</title></path>`;
         const column=Math.floor(index/rowsPerColumn),row=index%rowsPerColumn,lx=legendStart+column*legendColumnWidth,ly=28+row*27;
         out+=`<rect x="${lx}" y="${ly-10}" width="13" height="13" rx="2" fill="${color}"/><text x="${lx+20}" y="${ly}" fill="#e7eef8" font-size="11">${esc(name)} ${(share*100).toFixed(1)}%</text>`;
         angle=next;
@@ -315,7 +318,7 @@
       const sessionTrain=currentSessionHistory(train,data.raw_log_tail);
       const telemetry=data.telemetry||[], system=telemetry.at(-1)||{}, gpus=system.gpus||[],gpu=gpus[0]||{};
       const staleTraining=train.length!==rawTrain.length,derived=deriveAnalysis(train,vals),analysis=staleTraining?{...(data.analysis||{}),...derived}:(data.analysis||derived), best=vals.length?Math.min(...vals.map(v=>v.loss)):null;
-      document.getElementById('status').textContent=`Updated ${dateFmt(data.generated_at)} · ${data.line_count||0} log lines`;
+      document.getElementById('status').textContent=`${manual?'Snapshot · Click Show latest to resume updates':`Auto-refresh every ${REFRESH_MS/1000}s`} · ${reportSource} · Updated ${dateFmt(data.generated_at)} · ${data.line_count||0} log lines`;
       const vramPercent=gpu.memory_total_mb?gpu.memory_used_mb/gpu.memory_total_mb*100:null;
       const totalPowerDraw=gpus.some(value=>value.power_draw_w!=null)?gpus.reduce((sum,value)=>sum+(Number(value.power_draw_w)||0),0):null;
       const totalPowerLimit=gpus.length&&gpus.every(value=>value.power_limit_w!=null)?gpus.reduce((sum,value)=>sum+Number(value.power_limit_w),0):null;
@@ -452,21 +455,31 @@
 
     async function load() {
       if(manual)return;
+      const version=++loadVersion;
       let data;
       try {
-        const response=await fetch(`${DATA_URL}?t=${Date.now()}`,{cache:'no-store'});
-        if(!response.ok)throw new Error(response.statusText);
-        data=await response.json();
+        const results=await Promise.allSettled(REPORT_URLS.map(async url=>{
+          const response=await fetch(`${url}${url.includes('?')?'&':'?'}t=${Date.now()}`,{cache:'no-store'});
+          if(!response.ok)throw new Error(`${url}: ${response.statusText}`);
+          return {url,data:await response.json()};
+        }));
+        const available=results.filter(result=>result.status==='fulfilled').map(result=>result.value);
+        if(!available.length)throw new Error(results.map(result=>result.reason).join('; '));
+        available.sort((a,b)=>(Date.parse(b.data.generated_at)||0)-(Date.parse(a.data.generated_at)||0));
+        if(manual||version!==loadVersion)return;
+        reportSource=available[0].url;
+        data=available[0].data;
       } catch(error) {
-        document.getElementById('status').textContent=`Cannot fetch ${DATA_URL}. Serve this folder over HTTP or choose a JSON file. ${error}`;
+        if(manual||version!==loadVersion)return;
+        document.getElementById('status').textContent=`Cannot fetch ${REPORT_URLS.join(' or ')}. Serve this folder over HTTP or choose a JSON file. ${error}`;
         return;
       }
       try { render(data); }
-      catch(error) { document.getElementById('status').textContent=`Cannot render ${DATA_URL}: ${error}`; }
+      catch(error) { document.getElementById('status').textContent=`Cannot render ${DATA_URL || 'latest report'}: ${error}`; }
     }
     document.getElementById('refresh').onclick=()=>{manual=false;load()};
-    document.getElementById('sample').onclick=async()=>{manual=true;try{const response=await fetch(`${SAMPLE_URL}?t=${Date.now()}`,{cache:'no-store'});if(!response.ok)throw new Error(response.statusText);render(await response.json())}catch(error){document.getElementById('status').textContent=`Cannot fetch ${SAMPLE_URL}: ${error}`}};
-    document.getElementById('file').onchange=async event=>{const file=event.target.files[0];if(file){manual=true;render(JSON.parse(await file.text()))}};
+    document.getElementById('sample').onclick=async()=>{manual=true;++loadVersion;reportSource=SAMPLE_URL;try{const response=await fetch(`${SAMPLE_URL}?t=${Date.now()}`,{cache:'no-store'});if(!response.ok)throw new Error(response.statusText);render(await response.json())}catch(error){document.getElementById('status').textContent=`Cannot fetch ${SAMPLE_URL}: ${error}`}};
+    document.getElementById('file').onchange=async event=>{const file=event.target.files[0];if(file){manual=true;++loadVersion;reportSource=file.name;render(JSON.parse(await file.text()))}};
     const compactButton=document.getElementById('compact'),notificationButton=document.getElementById('notifications');
     function setCompact(enabled){document.body.classList.toggle('compact',enabled);compactButton.setAttribute('aria-pressed',String(enabled));compactButton.textContent=enabled?'Detailed view':'Compact';localStorage.setItem('gopi-report-compact',String(enabled))}
     function updateNotificationButton(){notificationButton.setAttribute('aria-pressed',String(notificationsEnabled));notificationButton.textContent=notificationsEnabled?'Notifications on':'Notifications off'}

@@ -80,6 +80,6 @@ report; a resumed stage appends to its report history.
 .venv/bin/python -m http.server 8000 --directory reports
 ```
 
-Open `http://localhost:8000/training_report.html`. Choose the final checkpoint
+Open `http://localhost:8000/training_report.html`. The dashboard automatically selects the newest training or fine-tuning report. To follow fine-tuning explicitly, use `http://localhost:8000/training_report.html?data=finetuning.json`. Dataset weights take effect when training starts or resumes; editing the YAML does not change a running trainer. Choose the final checkpoint
 using held-out validation and fixed behavioral evaluation, not training loss
 alone.
