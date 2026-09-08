@@ -210,6 +210,16 @@
       const minutes=Math.floor(remaining/60),secs=remaining%60;
       return [[days,'d'],[hours,'h'],[minutes,'m'],[secs,'s']].filter(([value],index)=>value>0||(index===3&&!days&&!hours&&!minutes)).slice(0,2).map(([value,label])=>`${value}${label}`).join(' ');
     };
+    let countdownAnchorMs=Date.now();
+    const countdownMarkup = value => Number.isFinite(Number(value))
+      ? `<span class="event-countdown" data-seconds="${Math.max(0,Number(value))}">${durationFmt(value)}</span>`
+      : value==='after_epoch'?'After epoch':value==='disabled'?'Disabled':'—';
+    function updateCountdowns() {
+      const elapsed=Math.max(0,(Date.now()-countdownAnchorMs)/1000);
+      document.querySelectorAll('.event-countdown').forEach(element=>{
+        element.textContent=durationFmt(Math.max(0,Number(element.dataset.seconds)-elapsed));
+      });
+    }
     const axisFmt = value => {
       if (!Number.isFinite(value)) return '—';
       const magnitude=Math.abs(value);
@@ -422,6 +432,7 @@
         meter('Total power',powerPercent,totalPowerDraw!=null?`${fmt(totalPowerDraw,1)} / ${fmt(totalPowerLimit,1)} W · ${gpus.length} GPU${gpus.length===1?'':'s'}`:'No power data',usageColor(powerPercent,80,95))
       ].join('');
       const latestTime=logTime(latest),stalled=!manual&&latestTime>0&&Date.now()-latestTime>STALL_MS&&Number(latest.progress)<100;
+      countdownAnchorMs=manual||latestTime<=0?Date.now():Math.min(Date.now(),latestTime);
       const alerts=[];
       if(stalled)alerts.push(['critical',`No training update for ${durationFmt((Date.now()-latestTime)/1000)}`]);
       if(Number(system.ram_percent)>=90)alerts.push(['critical','System RAM is above 90%']);else if(Number(system.ram_percent)>=75)alerts.push(['warning','System RAM is elevated']);
@@ -445,10 +456,10 @@
       if((data.warnings||[]).some(line=>line.includes('ERROR')))notifyOnce(`error-${data.line_count}`,'Training error detected','Open the report for the latest error details.');
       const checkpointTiming=(data.checkpoint_timings||[]).at(-1)||{},validationTiming=(data.validation_timings||[]).at(-1)||{};
       const eventEta=value=>Number.isFinite(Number(value))?durationFmt(Number(value)):value==='after_epoch'?'After epoch':value==='disabled'?'Disabled':'—';
-      const cards=[['Step',latest.step],['Overall progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Epoch progress',epochProgress!=null?fmt(epochProgress,2)+'%':'—'],['Resume count',resumes,resumes>0?'usage-medium':'usage-low'],['Window loss (last log interval)',latest.loss,trendLevel(trainTrend)],['Average loss (epoch/session)',latest.avg,trendLevel(trainTrend)],['Best validation',best,trendLevel(recentValidation)],['Gradient norm',latest.grad_norm,gradientLevel],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second,throughputLevel],['Time for last log interval',durationFmt(latest.log_interval_seconds)],['Average time per step',durationFmt(latest.seconds_per_step)],['Next log in',eventEta(latest.next_log_eta_seconds)],['Next checkpoint in',eventEta(latest.next_checkpoint_eta_seconds)],['Next validation in',eventEta(latest.next_validation_eta_seconds)],['Last checkpoint took',durationFmt(checkpointTiming.duration_seconds)],['Last validation took',durationFmt(validationTiming.duration_seconds)],['CPU',unit(system.cpu_percent,'%'),usageLevel(system.cpu_percent)],['CPU temp',unit(system.cpu_temperature_c,' °C'),usageLevel(system.cpu_temperature_c,75,90)],['RAM',unit(system.ram_percent,'%'),usageLevel(system.ram_percent,75,90)],['GPU',unit(gpu.utilization_percent,'%'),activityLevel(gpu.utilization_percent)],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—',usageLevel(vramPercent,75,90)],['GPU temp',unit(gpu.temperature_c,' °C'),usageLevel(gpu.temperature_c,75,85)],['Total GPU power',totalPowerDraw!=null?`${fmt(totalPowerDraw,1)} / ${fmt(totalPowerLimit,1)} W`:'—',usageLevel(powerPercent,80,95)],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds),trendLevel(etaImprovement,1)],['Non-finite updates',latest.nonfinite_updates,latest.nonfinite_updates>0?'usage-high':'usage-low']];
+      const cards=[['Step',latest.step],['Overall progress',latest.progress!=null?fmt(latest.progress,2)+'%':'—'],['Epoch progress',epochProgress!=null?fmt(epochProgress,2)+'%':'—'],['Resume count',resumes,resumes>0?'usage-medium':'usage-low'],['Window loss (last log interval)',latest.loss,trendLevel(trainTrend)],['Average loss (epoch/session)',latest.avg,trendLevel(trainTrend)],['Best validation',best,trendLevel(recentValidation)],['Gradient norm',latest.grad_norm,gradientLevel],['Tokens',latest.tokens],['Tokens/sec',latest.tokens_per_second,throughputLevel],['Time for last log interval',durationFmt(latest.log_interval_seconds)],['Average time per step',durationFmt(latest.seconds_per_step)],['Next log in',countdownMarkup(latest.next_log_eta_seconds)],['Next checkpoint in',countdownMarkup(latest.next_checkpoint_eta_seconds)],['Next validation in',countdownMarkup(latest.next_validation_eta_seconds)],['Last checkpoint took',durationFmt(checkpointTiming.duration_seconds)],['Last validation took',durationFmt(validationTiming.duration_seconds)],['CPU',unit(system.cpu_percent,'%'),usageLevel(system.cpu_percent)],['CPU temp',unit(system.cpu_temperature_c,' °C'),usageLevel(system.cpu_temperature_c,75,90)],['RAM',unit(system.ram_percent,'%'),usageLevel(system.ram_percent,75,90)],['GPU',unit(gpu.utilization_percent,'%'),activityLevel(gpu.utilization_percent)],['VRAM',gpu.memory_used_mb!=null?`${fmt(gpu.memory_used_mb,0)} / ${fmt(gpu.memory_total_mb,0)} MB`:'—',usageLevel(vramPercent,75,90)],['GPU temp',unit(gpu.temperature_c,' °C'),usageLevel(gpu.temperature_c,75,85)],['Total GPU power',totalPowerDraw!=null?`${fmt(totalPowerDraw,1)} / ${fmt(totalPowerLimit,1)} W`:'—',usageLevel(powerPercent,80,95)],['Elapsed',durationFmt(latest.elapsed_seconds)],['ETA',durationFmt(latest.eta_seconds),trendLevel(etaImprovement,1)],['Non-finite updates',latest.nonfinite_updates,latest.nonfinite_updates>0?'usage-high':'usage-low']];
       document.getElementById('cards').innerHTML=cards.map(([k,v,level=''])=>`<div class="card ${level}"><div class="muted">${k}</div><div class="value ${level}">${fmt(v)}</div></div>`).join('');
       const cadence=data.training_config||{},currentStep=Number(latest.step)||0;
-      const eventRow=(name,interval,eta,detail)=>{const cadenceSteps=Number(interval),etaSeconds=Number(eta),secondsPerStep=Number(latest.seconds_per_step),estimatedSteps=Number.isFinite(etaSeconds)&&secondsPerStep>0?Math.round(etaSeconds/secondsPerStep):null,baseRemaining=cadenceSteps>0?(cadenceSteps-currentStep%cadenceSteps)%cadenceSteps:null,remaining=estimatedSteps??(baseRemaining===0&&etaSeconds>0?cadenceSteps:baseRemaining),due=remaining==null?null:currentStep+remaining;return [name,cadenceSteps>0?`Every ${fmt(cadenceSteps,0)} steps`:'At epoch end',remaining==null?'—':fmt(remaining,0),due==null?'—':fmt(due,0),eventEta(eta),detail]};
+      const eventRow=(name,interval,eta,detail)=>{const cadenceSteps=Number(interval),etaSeconds=Number(eta),secondsPerStep=Number(latest.seconds_per_step),estimatedSteps=Number.isFinite(etaSeconds)&&secondsPerStep>0?Math.round(etaSeconds/secondsPerStep):null,baseRemaining=cadenceSteps>0?(cadenceSteps-currentStep%cadenceSteps)%cadenceSteps:null,remaining=estimatedSteps??(baseRemaining===0&&etaSeconds>0?cadenceSteps:baseRemaining),due=remaining==null?null:currentStep+remaining;return [name,cadenceSteps>0?`Every ${fmt(cadenceSteps,0)} steps`:'At epoch end',remaining==null?'—':fmt(remaining,0),due==null?'—':fmt(due,0),countdownMarkup(eta),detail]};
       document.getElementById('event-schedule').innerHTML=table(['Event','Cadence','Steps remaining','Due step','Estimated wait','Last measured duration'],[
         eventRow('Training log',cadence.log_every,latest.next_log_eta_seconds,durationFmt(latest.log_interval_seconds)),
         eventRow('Checkpoint',cadence.checkpoint_every,latest.next_checkpoint_eta_seconds,durationFmt(checkpointTiming.duration_seconds)),
@@ -458,6 +469,7 @@
       document.getElementById('recent-log-timing').innerHTML=recentTiming.length?table(['Time','Step','Log interval','Seconds / step','Next log','Next checkpoint','Next validation'],recentTiming.map(v=>[dateFmt(v.timestamp),fmt(v.step,0),durationFmt(v.log_interval_seconds),fmt(v.seconds_per_step,3),eventEta(v.next_log_eta_seconds),eventEta(v.next_checkpoint_eta_seconds),eventEta(v.next_validation_eta_seconds)])):'Timing data appears after the next training log.';
       const completedEvents=[...(data.checkpoint_timings||[]).map(v=>({...v,event:`Checkpoint (${v.kind||'latest'})`})),...(data.validation_timings||[]).map(v=>({...v,event:'Validation'}))].sort((a,b)=>logTime(b)-logTime(a));
       document.getElementById('event-duration-history').innerHTML=completedEvents.length?table(['Time','Event','Step','Duration'],completedEvents.slice(0,12).map(v=>[dateFmt(v.timestamp),esc(v.event),fmt(v.step,0),durationFmt(v.duration_seconds)])):'Completed checkpoint and validation timings will appear here.';
+      updateCountdowns();
       const indexed=telemetry.map((value,index)=>({value,index}));
       lineChart(document.getElementById('system-chart'),[
         {name:'CPU %',points:indexed.filter(x=>x.value.cpu_percent!=null).map(x=>[x.index,x.value.cpu_percent]),color:'#4f9cf9'},
@@ -628,7 +640,7 @@
     updateFullscreenButton();
     notificationButton.onclick=async()=>{if(typeof Notification==='undefined'){notificationButton.textContent='Notifications unavailable';return}const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();notificationsEnabled=permission==='granted'?!notificationsEnabled:false;if(notificationsEnabled)await getNotificationWorker();localStorage.setItem('gopi-report-notifications',String(notificationsEnabled));updateNotificationButton()};
     setCompact(localStorage.getItem('gopi-report-compact')==='true');updateNotificationButton();
-    load(); setInterval(load,REFRESH_MS);
+    load(); setInterval(load,REFRESH_MS); setInterval(updateCountdowns,1000);
   </script>
 </body>
 </html>
