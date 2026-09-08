@@ -7,7 +7,7 @@
 # epochs). Select the best held-out checkpoint and let early stopping end the
 # run sooner when the second pass is no longer improving quality. The effective
 # batch of 64 keeps updates stable and preserves the conservative 1e-5 SFT LR.
-batch_size: 2
+batch_size: 4
 validation_batch_size: 4
 epochs: 2
 seed: 42
@@ -16,7 +16,7 @@ dataset_governance:
   stage: sft
   commercial_use: false
 # This must not exceed model.gpu.yaml:max_position (1024).
-max_sequence_length: 512
+max_sequence_length: 1024
 pad_to_multiple_of: 8
 num_workers: 4
 pin_memory: true
@@ -179,7 +179,7 @@ beta2: 0.95
 adam_epsilon: 0.00000001
 fused_optimizer: auto
 gradient_clip_norm: 1.0
-gradient_accumulation_steps: 32
+gradient_accumulation_steps: 16
 mixed_precision: bf16
 lr_schedule: cosine
 warmup_ratio: 0.05
@@ -187,9 +187,9 @@ min_lr_ratio: 0.1
 # EMA smooths short-term update noise; broad validation still determines the
 # deployable checkpoint. It requires a second full parameter copy on the GPU.
 ema_decay: 0.999
-log_every: 25
+log_every: 5
 checkpoint_every: 1000
-evaluate_every: 2000
+evaluate_every: 4000
 early_stopping_patience: 2
 early_stopping_min_delta: 0.001
 ignore_index: -100
