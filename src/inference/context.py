@@ -34,7 +34,13 @@ SAFETY_INSTRUCTION = (
 )
 
 
-def format_system_prompt(system_prompt: str, response_format: str | None, mode: str = "balanced") -> str:
+def format_system_prompt(
+    system_prompt: str,
+    response_format: str | None,
+    mode: str = "balanced",
+    *,
+    include_safety_instruction: bool = True,
+) -> str:
     """Add behavior-mode and output-format contracts to a system prompt."""
     normalized_format = response_format.strip().lower() if response_format else None
     if normalized_format == "markdown":
@@ -49,9 +55,10 @@ def format_system_prompt(system_prompt: str, response_format: str | None, mode: 
         mode_instruction = MODE_INSTRUCTIONS[mode.strip().lower()]
     except KeyError as error:
         raise ValueError("unsupported assistant mode") from error
-    return "\n".join(
-        part for part in (clean(system_prompt), SAFETY_INSTRUCTION, mode_instruction, instruction) if part
-    )
+    safety_instruction = SAFETY_INSTRUCTION if include_safety_instruction else ""
+    return "\n".join(part for part in (
+        clean(system_prompt), safety_instruction, mode_instruction, instruction
+    ) if part)
 
 
 class ConversationMemory:

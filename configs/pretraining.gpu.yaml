@@ -1,6 +1,7 @@
-# Continued pretraining for the active grown GPU model. Five epochs request up
-# to 5M sampled examples; use held-out validation and early stopping to choose
-# the actual stopping point. Sequence length matches model.gpu.yaml (512).
+# Continued pretraining for the active grown GPU model. Four epochs request up
+# to 4M sampled examples; use held-out validation and early stopping to choose
+# the actual stopping point. The 512-token sequence length is within the
+# 1024-token limit in model.gpu.yaml.
 batch_size: 2
 validation_batch_size: 2
 epochs: 4
@@ -64,3 +65,11 @@ label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
+
+extends: defaults/training-runtime.yaml
+runtime:
+  tokenizer: data/tokenizer
+  output: checkpoints/pretraining/latest.pt
+  best_output: checkpoints/pretraining/best.pt
+  log_file: logs/pretraining.log
+  report_json: reports/pretraining.json

@@ -61,3 +61,11 @@ label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
+
+extends: defaults/training-runtime.yaml
+runtime:
+  tokenizer: data/tokenizer
+  output: checkpoints/pretraining-cpu/latest.pt
+  best_output: checkpoints/pretraining-cpu/best.pt
+  log_file: logs/pretraining-cpu.log
+  report_json: reports/pretraining-cpu.json

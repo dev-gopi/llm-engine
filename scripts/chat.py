@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from inference.context import ConversationMemory, format_system_prompt
 from inference.generator import Generator
+from inference.prompt_safety import blocked_prompt_message
 from inference.web_search import SearchResult, build_search_prompt, search_brave, search_searxng
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
@@ -63,6 +64,7 @@ def main() -> None:
         parser.error(f"checkpoint not found: {args.checkpoint}; finish v2 fine-tuning first")
 
     model_config = load_yaml(args.model_config)
+    bot_name = str(inference_config.get("bot_name", "Gopi"))
     tokenizer = Tokenizer.load(args.tokenizer)
     try:
         model_config = adapt_config_to_tokenizer(model_config, tokenizer)
@@ -79,13 +81,17 @@ def main() -> None:
     max_tokens = args.max_tokens if args.max_tokens is not None else int(inference_config.get("max_tokens", 128))
     configured_context = int(inference_config.get("context_memory", {}).get("max_tokens", 1536))
     active_system_prompt = str(inference_config.get("system_prompt", "You are Gopi, a helpful AI assistant."))
+    include_safety_instruction = bool(inference_config.get("embed_safety_instruction", True))
     response_format = (
         args.response_format
         or os.getenv("GOPI_RESPONSE_FORMAT")
         or str(inference_config.get("response_format", "plain"))
     ).lower()
     try:
-        formatted_system_prompt = format_system_prompt(active_system_prompt, response_format)
+        formatted_system_prompt = format_system_prompt(
+            active_system_prompt, response_format,
+            include_safety_instruction=include_safety_instruction,
+        )
     except ValueError as error:
         parser.error(str(error))
     memory = ConversationMemory(
@@ -125,6 +131,10 @@ def main() -> None:
                 "  /quit             Exit"
             )
             continue
+        refusal = blocked_prompt_message(message)
+        if refusal is not None:
+            print(f"{bot_name}: {refusal}")
+            continue
         if message.lower() == "/user" or message.lower().startswith("/user "):
             message = message[5:].strip()
             if not message:
@@ -137,7 +147,10 @@ def main() -> None:
                 continue
             try:
                 active_system_prompt = prompt
-                memory.set_system_prompt(format_system_prompt(active_system_prompt, response_format))
+                memory.set_system_prompt(format_system_prompt(
+                    active_system_prompt, response_format,
+                    include_safety_instruction=include_safety_instruction,
+                ))
             except ValueError as error:
                 print(f"Could not set system prompt: {error}")
             else:
@@ -149,7 +162,10 @@ def main() -> None:
                 print("Usage: /format <plain|markdown>")
                 continue
             response_format = requested_format
-            memory.set_system_prompt(format_system_prompt(active_system_prompt, response_format))
+            memory.set_system_prompt(format_system_prompt(
+                active_system_prompt, response_format,
+                include_safety_instruction=include_safety_instruction,
+            ))
             print(f"Response format set to {response_format}.")
             continue
         elif message.lower() == "/search" or message.lower().startswith("/search "):
@@ -215,7 +231,7 @@ def main() -> None:
                 else int(inference_config.get("no_repeat_ngram_size", 3))
             ),
         )
-        print(f"Gopi: {result.text.strip()}")
+        print(f"{bot_name}: {result.text.strip()}")
         if search_results:
             print("Sources:")
             for index, item in enumerate(search_results, start=1):

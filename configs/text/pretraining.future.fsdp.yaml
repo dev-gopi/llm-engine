@@ -1,5 +1,6 @@
 # Multi-GPU example for configs/text/model.future.1b.yaml. Requires torchrun, CUDA,
 # BF16-capable GPUs, data/tokenizer-future-50k, and matching binary shards.
+planning_only: true
 batch_size: 1
 epochs: 1
 seed: 42

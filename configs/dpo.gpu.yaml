@@ -26,3 +26,7 @@ beta: 0.1
 label_smoothing: 0.0
 log_every: 10
 early_stopping_patience: 2
+runtime:
+  tokenizer: data/tokenizer-finetuning
+  output: checkpoints/dpo/latest.pt
+  best_output: checkpoints/dpo/best.pt

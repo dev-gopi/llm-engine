@@ -1,4 +1,5 @@
 # Deployment-oriented classifier baseline; change num_classes to match class folders.
+planning_only: true
 image_size: 224
 patch_size: 16
 channels: 3

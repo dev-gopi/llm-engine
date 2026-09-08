@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import itertools
+import re
 
 import torch
 from torch import nn
@@ -180,6 +181,10 @@ class Generator:
             cache.update(raw_cache)
 
         text = self.tokenizer.decode(generated, skip_special_tokens=True)
+        trimmed = self._trim_repeated_text(text)
+        if trimmed != text:
+            text = trimmed
+            finish_reason = "stop"
         logger.debug("Generated %d tokens from a %d-token prompt", len(generated), len(prompt_ids))
         return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
 
@@ -197,6 +202,22 @@ class Generator:
         if result.text:
             memory.add("assistant", result.text)
         return result
+
+    @staticmethod
+    def _trim_repeated_text(text: str, *, phrase_words: int = 4) -> str:
+        """Cut obvious word-level loops that token n-gram blocking can miss."""
+        matches = list(re.finditer(r"\b[\w']+\b", text.casefold()))
+        if len(matches) < phrase_words * 2:
+            return text
+        seen: dict[tuple[str, ...], int] = {}
+        words = [match.group(0) for match in matches]
+        for index in range(len(words) - phrase_words + 1):
+            phrase = tuple(words[index:index + phrase_words])
+            first = seen.get(phrase)
+            if first is not None and index - first <= phrase_words * 2:
+                return text[:matches[index].start()].rstrip(" ,;:-\n")
+            seen[phrase] = index
+        return text
 
     @torch.inference_mode()
     def start_batched_stream(self, prompt: str, **options) -> BatchedGenerationState:

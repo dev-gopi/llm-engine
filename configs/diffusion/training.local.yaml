@@ -1,3 +1,4 @@
+planning_only: true
 image_size: 64
 image_channels: 3
 base_channels: 32

@@ -1,3 +1,4 @@
+planning_only: true
 image_size: 128
 patch_size: 16
 channels: 3

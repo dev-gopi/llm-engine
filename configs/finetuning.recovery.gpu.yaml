@@ -1,6 +1,7 @@
 # Clean response-quality recovery for the active 80.29M, 16-layer model.
-# Initialize from checkpoints/finetuning/best.pt with the same tokenizer used
-# for that SFT checkpoint (the standard pipeline uses data/tokenizer).
+# Initialize from checkpoints/finetuning/best.pt with the same
+# data/tokenizer-finetuning tokenizer used for that SFT checkpoint.
+planning_only: true
 batch_size: 1
 validation_batch_size: 2
 epochs: 2
@@ -79,3 +80,11 @@ label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
+
+extends: defaults/training-runtime.yaml
+runtime:
+  tokenizer: data/tokenizer-finetuning
+  output: checkpoints/recovery/latest.pt
+  best_output: checkpoints/recovery/best.pt
+  log_file: logs/recovery.log
+  report_json: reports/recovery.json

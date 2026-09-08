@@ -115,6 +115,55 @@ def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
     assert config["tokenizer_path"] == "data/tokenizer-finetuning"
 
 
+def test_finetuning_profiles_have_complete_isolated_runtime_paths() -> None:
+    profiles = sorted(CONFIGS.glob("finetuning*.yaml"))
+    outputs = []
+    logs = []
+    reports = []
+    for path in profiles:
+        config = load_yaml(path)
+        runtime = config["runtime"]
+        assert runtime["tokenizer"] in {"data/tokenizer", "data/tokenizer-finetuning"}
+        assert runtime["output"] != runtime["best_output"]
+        assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
+        assert sum(config["validation_weights"].values()) == pytest.approx(1.0)
+        outputs.append(runtime["output"])
+        logs.append(runtime["log_file"])
+        reports.append(runtime["report_json"])
+    assert len(outputs) == len(set(outputs))
+    assert len(logs) == len(set(logs))
+    assert len(reports) == len(set(reports))
+
+
+def test_pretraining_profiles_have_complete_isolated_runtime_paths() -> None:
+    profiles = sorted(CONFIGS.glob("pretraining*.yaml"))
+    outputs = []
+    logs = []
+    reports = []
+    for path in profiles:
+        config = load_yaml(path)
+        runtime = config["runtime"]
+        assert runtime["tokenizer"] == "data/tokenizer"
+        assert runtime["output"] != runtime["best_output"]
+        assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
+        assert sum(config["validation_weights"].values()) == pytest.approx(1.0)
+        outputs.append(runtime["output"])
+        logs.append(runtime["log_file"])
+        reports.append(runtime["report_json"])
+    assert len(outputs) == len(set(outputs))
+    assert len(logs) == len(set(logs))
+    assert len(reports) == len(set(reports))
+
+
+def test_dpo_and_multimodal_use_finetuned_tokenizer() -> None:
+    for name in ("dpo.cpu.yaml", "dpo.gpu.yaml"):
+        config = load_yaml(CONFIGS / name)
+        assert config["runtime"]["tokenizer"] == "data/tokenizer-finetuning"
+        assert config["runtime"]["output"] != config["runtime"]["best_output"]
+    multimodal = load_yaml(CONFIGS / "vision/multimodal.yaml")
+    assert multimodal["tokenizer"] == "data/tokenizer-finetuning"
+
+
 def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
     config = load_yaml(CONFIGS / "finetuning.gpu.yaml")
 

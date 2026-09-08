@@ -8,23 +8,25 @@ the final JSONL format portable, so the result can be passed directly to
 
 from __future__ import annotations
 
-import argparse
-import hashlib
-import html
-import importlib.metadata
-import importlib.util
-import json
-import re
 import sys
-from collections import Counter
-from dataclasses import asdict
-from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Iterable, Iterator
 
 script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
+
+import argparse
+import hashlib
+import html
+import json
+import re
+from collections import Counter
+from dataclasses import asdict
+from html.parser import HTMLParser
+from typing import Any, Iterable, Iterator
+
+import importlib.metadata
+import importlib.util
 
 from datasets.filters import CorpusFilter
 from utils.config import load_yaml
@@ -261,7 +263,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="YAML corpus pipeline configuration")
     args = parser.parse_args()
-    print(json.dumps(run_pipeline(load_yaml(args.config)), indent=2, ensure_ascii=False))
+    config = load_yaml(args.config)
+    if config.get("planning_only", False):
+        parser.error("planning-only corpus profile; provide its source data and remove planning_only first")
+    print(json.dumps(run_pipeline(config), indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

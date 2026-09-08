@@ -1,5 +1,6 @@
 # Generated packed JSONL files are intentionally absent from version control.
 # Run the documented cleaner and packer before starting this as a new stage.
+planning_only: true
 batch_size: 1
 epochs: 5
 seed: 42
@@ -60,3 +61,11 @@ label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
+
+extends: defaults/training-runtime.yaml
+runtime:
+  tokenizer: data/tokenizer
+  output: checkpoints/pretraining-cleaned/latest.pt
+  best_output: checkpoints/pretraining-cleaned/best.pt
+  log_file: logs/pretraining-cleaned.log
+  report_json: reports/pretraining-cleaned.json

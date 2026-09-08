@@ -23,14 +23,14 @@ samples_per_epoch: 50000
 dataset_weights:
   # Example-level weights total exactly 1.0. Audit sampled token shares before
   # training because source records have different average lengths.
-  ultrachat_200k: 0.14
+  ultrachat_200k: 0.16
   helpsteer: 0.06
-  openorca: 0.10
+  openorca: 0.04
   gsm8k: 0.14
   core_chat: 0.03
   code_instructions: 0.07
-  general_qa: 0.10
-  safety_alignment: 0.02
+  general_qa: 0.16
+  safety_alignment: 0.00
   writing_editing: 0.01
   multilingual_bn_hi: 0.06
   multilingual_hi: 0.055
@@ -138,3 +138,11 @@ label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
+
+extends: defaults/training-runtime.yaml
+runtime:
+  tokenizer: data/tokenizer
+  output: checkpoints/finetuning-cpu/latest.pt
+  best_output: checkpoints/finetuning-cpu/best.pt
+  log_file: logs/finetuning-cpu.log
+  report_json: reports/finetuning-cpu.json

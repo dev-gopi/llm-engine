@@ -23,7 +23,7 @@ from post_training.dpo import DPOTrainer
 from post_training.preference_data import build_preference_loader
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
-from utils.config import load_yaml
+from utils.config import apply_cli_defaults, load_yaml
 from utils.device import resolve_device
 from utils.logger import configure_logging, get_logger
 from utils.seed import set_seed
@@ -35,15 +35,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--training-config", type=Path, default=Path("configs/dpo.gpu.yaml"))
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
+    parser.add_argument("--tokenizer", type=Path, default=None)
     parser.add_argument("--reference-checkpoint", type=Path, required=True)
     parser.add_argument("--init-from", type=Path)
     parser.add_argument("--resume", type=Path)
-    parser.add_argument("--output", type=Path, default=Path("checkpoints/dpo/latest.pt"))
-    parser.add_argument("--best-output", type=Path, default=Path("checkpoints/dpo/best.pt"))
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--best-output", type=Path, default=None)
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
+    config = load_yaml(args.training_config)
+    apply_cli_defaults(args, config.get("runtime", {}), {
+        "tokenizer": Path("data/tokenizer-finetuning"),
+        "output": Path("checkpoints/dpo/latest.pt"),
+        "best_output": Path("checkpoints/dpo/best.pt"),
+    })
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
     if int(os.getenv("WORLD_SIZE", "1")) != 1:
@@ -51,7 +57,6 @@ def main() -> None:
 
     configure_logging()
     model_config = load_yaml(args.model_config)
-    config = load_yaml(args.training_config)
     set_seed(int(config.get("seed", 42)))
     paths = [*config.get("train_files", []), *config.get("validation_files", [])]
     for finding in enforce_dataset_governance(paths, config.get("dataset_governance")):

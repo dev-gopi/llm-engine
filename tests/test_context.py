@@ -55,6 +55,11 @@ def test_response_format_system_prompt() -> None:
         format_system_prompt("Gopi", "html")
     with pytest.raises(ValueError, match="unsupported assistant mode"):
         format_system_prompt("Gopi", "plain", "unknown")
+    compact = format_system_prompt(
+        "You are Gopi.", "plain", include_safety_instruction=False,
+    )
+    assert "serious harm" not in compact
+    assert compact == "You are Gopi.\nUse plain text."
 
 
 def test_sqlite_session_store_persists_messages(tmp_path) -> None:

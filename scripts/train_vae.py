@@ -30,6 +30,8 @@ def main() -> None:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     config = load_yaml(args.config)
+    if config.get("planning_only", False):
+        parser.error("planning-only VAE profile; provide its datasets and remove planning_only first")
     torch.manual_seed(int(config.get("seed", 42)))
     device = torch.device(args.device)
     model = AutoencoderKL.from_config(config).to(device)

@@ -3,6 +3,7 @@
 # cleaned recovery corpus to retain broad instruction-following ability.
 # Initialize from the current best SFT or recovery checkpoint; never use this
 # profile with --resume when the data mixture has changed.
+planning_only: true
 batch_size: 1
 validation_batch_size: 2
 epochs: 2
@@ -87,3 +88,11 @@ label_smoothing: 0.0
 z_loss_coefficient: 0.0001
 shift_labels: true
 loss_reduction: mean
+
+extends: defaults/training-runtime.yaml
+runtime:
+  tokenizer: data/tokenizer-finetuning
+  output: checkpoints/refinement/latest.pt
+  best_output: checkpoints/refinement/best.pt
+  log_file: logs/refinement.log
+  report_json: reports/refinement.json

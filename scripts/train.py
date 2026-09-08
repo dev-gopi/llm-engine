@@ -113,6 +113,9 @@ def main() -> None:
     config = load_yaml(args.training_config)
     if config.get("planning_only", False):
         parser.error("planning-only training profile; use scripts/plan_training.py")
+    model_config = load_yaml(args.model_config)
+    if model_config.get("planning_only", False):
+        parser.error("planning-only model profile; use a validated model configuration")
     apply_cli_defaults(args, config.get("runtime", {}), {
         "tokenizer": Path("data/tokenizer"),
         "output": Path("checkpoints/training/latest.pt"),
@@ -143,7 +146,6 @@ def main() -> None:
     if args.report_telemetry_points < 1:
         parser.error("--report-telemetry-points must be positive")
     _start_reporter(args)
-    model_config = load_yaml(args.model_config)
     precision = str(config.get("mixed_precision", "none"))
     if precision == "fp16" and not torch.cuda.is_available():
         parser.error(

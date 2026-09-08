@@ -1,4 +1,5 @@
 # Deployment-oriented baseline. Quality still depends on licensed training data and validation.
+planning_only: true
 image_size: 256
 image_channels: 3
 base_channels: 128

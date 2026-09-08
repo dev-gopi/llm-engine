@@ -170,6 +170,16 @@ def test_no_repeat_ngram_bans_only_tokens_that_complete_a_duplicate() -> None:
     assert torch.isfinite(logits[0, 2])
 
 
+def test_visible_repetition_loop_is_trimmed() -> None:
+    text = "A useful opening. a person who is a person who is a person who is"
+    assert Generator._trim_repeated_text(text) == "A useful opening. a person who is"
+
+
+def test_nonrepetitive_text_is_not_trimmed() -> None:
+    text = "This is a concise answer with no repeated phrase in it."
+    assert Generator._trim_repeated_text(text) == text
+
+
 def test_generator_reuses_prefix_cache_without_repeating_prefill() -> None:
     tokenizer = make_tokenizer()
     model = PredictBThenEos(
