@@ -228,7 +228,8 @@ def _fields(message: str) -> dict[str, Any]:
 
 def _empty_parsed() -> dict[str, Any]:
     return {
-        "training": [], "validation": [], "best_updates": [], "warnings": [],
+        "training": [], "validation": [], "best_updates": [],
+        "validation_timings": [], "checkpoint_timings": [], "warnings": [],
         "raw_log_tail": [], "line_count": 0, "session_count": 0,
     }
 
@@ -260,6 +261,16 @@ def _append_lines(
             values["session"] = parsed["session_count"]
             values["domains"] = pending_domains.pop(key, {})
             parsed["validation"].append(values)
+        elif message.startswith("validation_timing "):
+            values = _fields(message)
+            values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
+            parsed["validation_timings"].append(values)
+        elif message.startswith("checkpoint ") and "duration_seconds=" in message:
+            values = _fields(message)
+            values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
+            parsed["checkpoint_timings"].append(values)
         elif "new_best_validation" in message:
             values = _fields(message)
             values["timestamp"] = timestamp
@@ -324,6 +335,14 @@ def normalize_history(parsed: dict[str, Any]) -> dict[str, Any]:
             continue
         best_updates[step] = item
     normalized["best_updates"] = [best_updates[key] for key in sorted(best_updates)]
+    for timing_name in ("checkpoint_timings", "validation_timings"):
+        normalized[timing_name] = [
+            item for item in parsed.get(timing_name, [])
+            if not any(
+                start[1] < int(item.get("step", 0)) <= abandoned_end[1]
+                for start, abandoned_end in rollback_ranges
+            )
+        ]
     normalized["resume_rollbacks"] = [
         {"epoch": start[0], "step": start[1]} for start, _ in rollback_ranges
     ]
@@ -514,6 +533,19 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "tokens_processed": training[-1].get("tokens") if training else None,
             "elapsed_seconds": training[-1].get("elapsed_seconds") if training else None,
             "eta_seconds": training[-1].get("eta_seconds") if training else None,
+            "latest_log_interval_seconds": training[-1].get("log_interval_seconds") if training else None,
+            "latest_seconds_per_step": training[-1].get("seconds_per_step") if training else None,
+            "next_log_eta_seconds": training[-1].get("next_log_eta_seconds") if training else None,
+            "next_checkpoint_eta_seconds": training[-1].get("next_checkpoint_eta_seconds") if training else None,
+            "next_validation_eta_seconds": training[-1].get("next_validation_eta_seconds") if training else None,
+            "latest_checkpoint_duration_seconds": (
+                parsed.get("checkpoint_timings", [{}])[-1].get("duration_seconds")
+                if parsed.get("checkpoint_timings") else None
+            ),
+            "latest_validation_duration_seconds": (
+                parsed.get("validation_timings", [{}])[-1].get("duration_seconds")
+                if parsed.get("validation_timings") else None
+            ),
         },
     }
 

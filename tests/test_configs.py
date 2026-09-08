@@ -84,7 +84,7 @@ def test_gpu_finetuning_profile_targets_balanced_quality() -> None:
     assert config["mixed_precision"] == "bf16"
     assert "grad_scaler_initial_scale" not in config
     assert "grad_scaler_growth_interval" not in config
-    assert config["max_sequence_length"] == 512
+    assert config["max_sequence_length"] == 1024
     assert config["ema_decay"] == pytest.approx(0.999)
     assert config["label_smoothing"] == 0.0
     assert weights["gsm8k"] >= 0.12
@@ -211,7 +211,7 @@ def test_expanded_sft_is_the_active_gpu_stage() -> None:
     assert config["epochs"] == 2
     assert config["learning_rate"] == pytest.approx(1e-5)
     assert config["samples_per_epoch"] == 1_000_000
-    assert config["validation_batch_size"] > config["batch_size"]
+    assert config["validation_batch_size"] == config["batch_size"]
     assert config["pad_to_multiple_of"] == 8
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
     assert config["validation_metric_name"] == "dataset_weighted_v3_broad_sft_domains"
@@ -235,8 +235,8 @@ def test_active_sft_fits_the_laptop_growth_route() -> None:
     config = load_yaml(CONFIGS / "finetuning.gpu.yaml")
     model = load_yaml(CONFIGS / "model.gpu.yaml")
 
-    assert config["batch_size"] == 2
-    assert config["gradient_accumulation_steps"] == 32
+    assert config["batch_size"] == 4
+    assert config["gradient_accumulation_steps"] == 16
     assert config["batch_size"] * config["gradient_accumulation_steps"] == 64
     assert config["samples_per_epoch"] == 1_000_000
     assert config["learning_rate"] == pytest.approx(1e-5)

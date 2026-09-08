@@ -460,3 +460,31 @@ def test_evaluator_reduces_metrics_before_host_conversion(monkeypatch):
     assert actual["loss"] == pytest.approx(expected["loss"])
     assert actual["tokens"] == 2 * expected["tokens"]
     assert actual["batches"] == 2 * expected["batches"]
+
+
+def test_log_timing_estimates_use_current_window_with_accumulation() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3),
+                      gradient_accumulation_steps=2)
+    clock = [0.0]
+
+    def train_step(_batch):
+        clock[0] += 2.0
+        trainer.micro_step += 1
+        if trainer.micro_step % 2 == 0:
+            trainer.global_step += 1
+        return 1.0
+
+    trainer.train_step = train_step
+    with patch("training.trainer.time.perf_counter", side_effect=lambda: clock[0]), \
+            patch("training.trainer.logger.info") as log_info:
+        trainer.fit([{}] * 8, epochs=1, log_every=1, checkpoint_every=2,
+                    checkpoint_callback=lambda *_: None)
+    messages = [call.args[0] % call.args[1:] for call in log_info.call_args_list]
+    assert "log_interval_seconds=4.00" in messages[0]
+    assert "seconds_per_step=4.000" in messages[0]
+    assert "next_log_eta_seconds=4.0" in messages[0]
+    assert "next_checkpoint_eta_seconds=4.0" in messages[0]
+    assert "next_validation_eta_seconds=disabled" in messages[0]
+    assert "next_checkpoint_eta_seconds=0.0" in messages[1]
+    assert any("checkpoint kind=latest step=2 duration_seconds=0.00" in m for m in messages)

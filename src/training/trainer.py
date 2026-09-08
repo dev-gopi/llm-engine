@@ -271,8 +271,22 @@ class Trainer:
             getattr(batch_sampler, "total_batches", len(dataloader))
         )
         total_batches = max(1, batches_per_epoch * epochs)
+        last_log_time = time.perf_counter()
+
+        def save_timed(callback, epoch: int, kind: str) -> None:
+            started = time.perf_counter()
+            callback(self, epoch)
+            logger.info("checkpoint kind=%s step=%d duration_seconds=%.2f",
+                        kind, self.global_step, time.perf_counter() - started)
 
         def evaluate_validation() -> tuple[dict[str, float | int], dict[str, dict[str, float | int]]]:
+            started = time.perf_counter()
+            metrics, domains = evaluate_validation_metrics()
+            logger.info("validation_timing step=%d duration_seconds=%.2f",
+                        self.global_step, time.perf_counter() - started)
+            return metrics, domains
+
+        def evaluate_validation_metrics() -> tuple[dict[str, float | int], dict[str, dict[str, float | int]]]:
             if isinstance(validation_dataloader, Mapping):
                 if validation_weights is None:
                     raise ValueError("validation_weights are required for domain validation loaders")
@@ -311,11 +325,14 @@ class Trainer:
             running_batches = 0
             window_loss = 0.0
             window_batches = 0
+            window_training_seconds = 0.0
             resume_offset = self.batch_in_epoch if epoch == self.current_epoch else 0
             batch_index = resume_offset
             for batch_index, batch in enumerate(dataloader, resume_offset + 1):
                 previous_step = self.global_step
+                step_started = time.perf_counter()
                 loss = self.train_step(batch)
+                window_training_seconds += time.perf_counter() - step_started
                 self.batch_in_epoch = batch_index
                 running_loss += loss
                 running_batches += 1
@@ -335,19 +352,49 @@ class Trainer:
                         elapsed_seconds * (1.0 - progress) / progress
                         if progress > 0 else float("inf")
                     )
+                    now = time.perf_counter()
+                    seconds_per_batch = window_training_seconds / max(window_batches, 1)
+                    epoch_batches_left = max(0, batches_per_epoch - batch_index)
+
+                    def event_eta(interval, enabled=True, *, epoch_end=False, next_log=False):
+                        if not enabled:
+                            return "disabled"
+                        remaining = None
+                        if interval:
+                            steps = (-self.global_step) % interval
+                            if next_log and steps == 0:
+                                steps = interval
+                            remaining = steps * self.gradient_accumulation_steps
+                        if epoch_end:
+                            remaining = min(remaining, epoch_batches_left) if remaining is not None else epoch_batches_left
+                        # Epoch-end gradient flushing can change the step schedule.
+                        if remaining is None or remaining > epoch_batches_left:
+                            return "after_epoch"
+                        return f"{remaining * seconds_per_batch:.1f}"
+
+                    next_log_eta = event_eta(log_every, next_log=True)
+                    next_checkpoint_eta = event_eta(checkpoint_every, bool(checkpoint_every and checkpoint_callback))
+                    next_validation_eta = event_eta(evaluate_every, bool(evaluator and validation_dataloader), epoch_end=True)
                     allocated_mb, reserved_mb, total_mb = self.gpu_memory_mb
                     logger.info(
                         "epoch=%d step=%d loss=%.6f lr=%.8g grad_norm=%.4f tokens=%d "
                         "tokens_per_second=%.1f progress=%.2f%% epoch_progress=%.2f%% elapsed_seconds=%.0f "
                         "eta_seconds=%.0f best_validation_loss=%.6f peak_memory_mb=%.1f "
-                        "gpu_memory_mb=%.1f/%.1f/%.1f nonfinite_updates=%d (avg=%.6f)",
+                        "gpu_memory_mb=%.1f/%.1f/%.1f nonfinite_updates=%d "
+                        "log_interval_seconds=%.2f seconds_per_step=%.3f "
+                        "next_log_eta_seconds=%s next_checkpoint_eta_seconds=%s "
+                        "next_validation_eta_seconds=%s (avg=%.6f)",
                         epoch + 1, self.global_step, current_loss, self.learning_rate,
                         self.last_gradient_norm, self.tokens_processed, self.tokens_per_second,
                         progress * 100.0, epoch_progress * 100.0, elapsed_seconds, eta_seconds,
                         self.best_validation_loss, self.peak_memory_mb,
                         allocated_mb, reserved_mb, total_mb,
-                        self.nonfinite_updates, avg_loss,
+                        self.nonfinite_updates, now - last_log_time,
+                        seconds_per_batch * self.gradient_accumulation_steps,
+                        next_log_eta, next_checkpoint_eta, next_validation_eta, avg_loss,
                     )
+                    last_log_time = now
+                    window_training_seconds = 0.0
                     window_loss = 0.0
                     window_batches = 0
                 if optimizer_stepped and evaluate_every and evaluator and validation_dataloader and self.global_step % evaluate_every == 0:
@@ -371,16 +418,16 @@ class Trainer:
                             self.validation_metric_name or "validation_loss",
                         )
                         if best_checkpoint_callback:
-                            best_checkpoint_callback(self, epoch)
+                            save_timed(best_checkpoint_callback, epoch, "best")
                 # When validation and checkpoint intervals coincide, persist
                 # the newly updated best/early-stopping state in latest.pt.
                 # Saving first would resume with the stale pre-validation
                 # baseline (often infinity for a new training stage).
                 if optimizer_stepped and checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
-                    checkpoint_callback(self, epoch)
+                    save_timed(checkpoint_callback, epoch, "latest")
                 if optimizer_stepped and stop_requested and stop_requested():
                     if checkpoint_callback:
-                        checkpoint_callback(self, epoch)
+                        save_timed(checkpoint_callback, epoch, "latest")
                     self.stopped_early = True
                     logger.warning("coordinated preemption requested at step=%d", self.global_step)
                     break
@@ -420,7 +467,7 @@ class Trainer:
                         self.validation_metric_name or "validation_loss",
                     )
                     if best_checkpoint_callback:
-                        best_checkpoint_callback(self, epoch)
+                        save_timed(best_checkpoint_callback, epoch, "best")
                 if not improved_during_epoch:
                     self.epochs_without_improvement += 1
             history.append(epoch_record)
