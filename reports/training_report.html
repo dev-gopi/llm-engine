@@ -78,12 +78,44 @@
     @media (max-width:380px) { .meter-dial { width:84px; height:84px }.meter-reading { font-size:17px }.alert { width:100%; border-radius:9px }.controls { grid-template-columns:repeat(2,minmax(0,1fr)) }.controls .file { grid-column:1/-1 } }
     @media (prefers-reduced-motion:no-preference) { .meter-dial { transition:background .45s ease } }
     @media (prefers-reduced-motion:reduce) { .epoch-fill { transition:none }.epoch-fill::before,.epoch-fill::after,.epoch-wave-shape,.epoch-bubble { animation:none }.epoch-bubble { display:none } }
+    .report-details { overflow-x:auto; margin-bottom:16px }
+    .report-details td { text-align:left; white-space:pre-wrap; overflow-wrap:anywhere }
+    @page { size:A4 landscape; margin:12mm }
+    @media print {
+      :root { color-scheme:light; --bg:#fff; --card:#fff; --text:#111; --muted:#444; --line:#bbb }
+      * { animation:none!important; transition:none!important; print-color-adjust:exact; -webkit-print-color-adjust:exact }
+      body { background:white; color:#111; font-size:10px; overflow:visible }
+      header { padding:0 0 10px } header .controls { display:none!important }
+      main,body.compact main { padding:10px 0; max-width:none; width:100% }
+      body.compact main > section:not(.meter-panel):not(.operations) { display:block }
+      .grid,.operations-grid { display:block!important }
+      .panel { margin-bottom:12px; background:white; border-color:#bbb }
+      .cards { grid-template-columns:repeat(4,1fr) }
+      .meter-grid,body.compact .meter-grid { grid-template-columns:repeat(6,minmax(0,1fr)) }
+      .meter-heading { flex-direction:row }
+      .meter-detail { white-space:normal; overflow-wrap:anywhere }
+      .card,.meter,.chart-scroll { break-inside:avoid }
+      h2 { break-after:avoid }
+      table { min-width:0!important; table-layout:fixed; font-size:9px }
+      th,td { white-space:pre-wrap!important; overflow-wrap:anywhere; padding:5px }
+      tr { break-inside:avoid } thead { display:table-header-group }
+      main section,main section div,pre { max-height:none!important; overflow:visible!important }
+      pre { background:#f4f4f4; color:#111; white-space:pre-wrap; overflow-wrap:anywhere }
+      .chart-scroll { position:relative }
+      .chart-scroll svg:not(.chart-axis) { width:100%!important; height:auto!important; min-height:0 }
+      .chart-axis { position:absolute; width:7.632%!important; min-width:0; height:auto!important; margin:0 }
+      .meter,.signal,.alert,.epoch-block { background:#f4f4f4; color:#111 }
+      .meter-reading { color:#fff }.meter-reading small { color:#ccc }
+      .epoch-block strong,.epoch-block small { text-shadow:none }
+      .ok,.positive,.usage-low { color:#087443 }.bad,.negative,.usage-high,.severity-error { color:#b21c35 }
+      .usage-medium,.severity-warning,.alert.warning { color:#805900 }
+    }
   </style>
 </head>
 <body>
   <header>
     <div><h1>Gopi training report</h1><div id="status" class="muted">Loading latest training report…</div></div>
-    <div class="controls"><button id="compact" aria-pressed="false">Compact</button><button id="fullscreen">Full screen</button><button id="notifications" aria-pressed="false">Notifications off</button><button id="refresh">Show latest</button><button id="sample">Load sample</button><label class="file">Load JSON <input id="file" type="file" accept="application/json"></label></div>
+    <div class="controls"><button id="compact" aria-pressed="false">Compact</button><button id="fullscreen">Full screen</button><button id="notifications" aria-pressed="false">Notifications off</button><button id="export-pdf" disabled title="Open print dialog and choose Save as PDF">Export PDF</button><button id="refresh">Show latest</button><button id="sample">Load sample</button><label class="file">Load JSON <input id="file" type="file" accept="application/json"></label></div>
   </header>
   <main>
     <section class="panel meter-panel" aria-labelledby="meter-title">
@@ -129,6 +161,14 @@
       <div class="panel"><h2>Run summary</h2><div id="run-summary"></div></div>
     </section>
     <section class="panel" style="margin-bottom:16px"><h2>Report coverage and recommended additional evaluations</h2><div id="report-coverage"></div></section>
+    <section class="panel" style="margin-bottom:16px"><h2>Generation quality</h2><div id="generation-quality" style="overflow-x:auto"></div></section>
+    <section class="panel report-details"><h2>Dataset quality audit</h2><div id="data-quality"></div></section>
+    <section class="panel report-details"><h2>Runtime statistics</h2><div id="runtime-details"></div></section>
+    <section class="panel report-details"><h2>Report metadata</h2><div id="report-metadata"></div></section>
+    <section class="panel report-details"><h2>Model configuration</h2><div id="model-configuration"></div></section>
+    <section class="panel report-details"><h2>Training configuration</h2><div id="training-configuration"></div></section>
+    <section class="panel report-details"><h2>Checkpoint and resume events</h2><div id="checkpoint-events"></div></section>
+    <section class="panel report-details"><h2>Generation evaluation settings</h2><div id="generation-metadata"></div></section>
     <section class="panel" style="margin-bottom:16px"><h2>Warnings and errors</h2><pre id="warnings"></pre></section>
     <section class="panel"><h2>Training log tail</h2><pre id="logs"></pre></section>
   </main>
@@ -168,6 +208,8 @@
     const activityLevel = value => value==null?'':value>=75?'usage-low':value>=40?'usage-medium':'usage-high';
     const trendLevel = (improvement,deadband=.001) => improvement==null?'':improvement>deadband?'usage-low':improvement<-deadband?'usage-high':'usage-medium';
     const trendColor = (improvement,deadband=.001) => improvement==null?'#91a4ba':improvement>deadband?'#34d399':improvement<-deadband?'#fb7185':'#fbbf24';
+    let printing = false;
+    const chartSeries = new Map();
     let manual = false;
     let loadVersion = 0;
     let reportSource = '';
@@ -216,6 +258,7 @@
     }
 
     function lineChart(svg, series) {
+      chartSeries.set(svg,series);
       const scroller=svg.parentElement;
       const fixedLegend=scroller.dataset.fixedLegend==='true';
       if(fixedLegend){
@@ -225,7 +268,7 @@
       }
       const followLatest=!scroller.dataset.rendered || scroller.scrollWidth-scroller.clientWidth-scroller.scrollLeft<48;
       const pointCount=Math.max(0,...series.map(value=>value.points.length));
-      const width=Math.max(760,Math.min(30000,pointCount*10+76)),height=330,left=58,right=18,top=24,bottom=42;
+      const width=printing?760:Math.max(760,Math.min(30000,pointCount*10+76)),height=330,left=58,right=18,top=24,bottom=42;
       svg.style.width=`${width}px`;
       let axis=scroller.querySelector('.chart-axis');
       if(!axis){axis=document.createElementNS('http://www.w3.org/2000/svg','svg');axis.classList.add('chart-axis');scroller.insertBefore(axis,svg)}
@@ -243,7 +286,7 @@
       series.forEach((s,i)=>{const path=s.points.map((p,j)=>`${j?'L':'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');out+=`<path d="${path}" fill="none" stroke="${s.color||colors[i%colors.length]}" stroke-width="${s.width||2.5}"/>${fixedLegend?'':`<text x="${left+i*110}" y="16" fill="${s.color||colors[i%colors.length]}" font-size="11">${esc(s.name)}</text>`}`});
       axis.innerHTML=axisOut;svg.setAttribute('viewBox',`0 0 ${width} ${height}`); svg.innerHTML=out;
       scroller.dataset.rendered='true';
-      if(followLatest)requestAnimationFrame(()=>{scroller.scrollLeft=scroller.scrollWidth-scroller.clientWidth});
+      if(followLatest&&!printing)requestAnimationFrame(()=>{scroller.scrollLeft=scroller.scrollWidth-scroller.clientWidth});
     }
 
     function categoryColor(index,total) {
@@ -295,6 +338,18 @@
       const points=values.filter(Number.isFinite).slice(-18);if(points.length<2)return '';
       const min=Math.min(...points),max=Math.max(...points),span=max-min||1;
       return `<svg viewBox="0 0 100 24" style="height:24px;margin-top:5px;background:transparent" aria-hidden="true"><polyline points="${points.map((value,index)=>`${index/(points.length-1)*100},${21-(value-min)/span*18}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+    }
+
+    function detailTable(value) {
+      const rows=[];
+      function visit(item,path) {
+        if(item!==null&&typeof item==='object'&&Object.keys(item).length) {
+          Object.entries(item).forEach(([key,child])=>visit(child,path?`${path} / ${key}`:key));
+        } else rows.push([esc(path.replaceAll('_',' ')),esc(item==null?'Not available':typeof item==='object'?JSON.stringify(item):String(item))]);
+      }
+      if(value==null||typeof value==='object'&&!Object.keys(value).length)return '<p class="muted">Not collected.</p>';
+      visit(value,'');
+      return table(['Field','Value'],rows);
     }
 
     async function notifyOnce(key,title,body) {
@@ -424,7 +479,19 @@
       const comparison=analysis.checkpoint_comparison||{};
       const sameCheckpoint=comparison.status==='same_checkpoint'||(comparison.best_step!=null&&comparison.best_step===comparison.latest_step);
       const comparisonStatus=comparison.status||(sameCheckpoint?'same_checkpoint':'different_checkpoints');
-      const comparisonNote=sameCheckpoint&&comparison.generation_accuracy==null
+      const generation=data.evaluations?.generation_quality||{};
+      const rawAccuracy=generation.summary?.accuracy??comparison.generation_accuracy;
+      const accuracy=typeof rawAccuracy==='number'&&Number.isFinite(rawAccuracy)&&rawAccuracy>=0&&rawAccuracy<=1&&generation.summary?.cases!==0?rawAccuracy:null;
+      const probes=Array.isArray(generation.responses)?generation.responses.filter(row=>row&&typeof row==='object'):[];
+      const results=Array.isArray(generation.results)?generation.results.filter(row=>row&&typeof row==='object'):[];
+      document.getElementById('generation-quality').innerHTML=`<p>${accuracy==null?(probes.length?'Qualitative probes available; accuracy not measured.':'Generation accuracy pending; no valid benchmark result available.'):'Benchmark accuracy: '+fmt(accuracy*100,2)+'%'}</p>`
+        +(generation.checkpoint?`<p>Checkpoint: ${esc(generation.checkpoint)}</p>`:'')
+        +(generation.note?`<p class="muted">${esc(generation.note)}</p>`:'')
+        +(results.length?table(['Category','Prompt','Response','Score'],results.map(row=>[esc(row.category),esc(row.prompt),esc(row.answer),typeof row.score==='number'&&Number.isFinite(row.score)&&row.score>=0&&row.score<=1?fmt(row.score*100,2)+'%':'—'])):'')
+        +(probes.length?table(['Probe','Prompt','Response','Review criterion'],probes.map(row=>[esc(row.name||row.mode),esc(row.prompt),esc(row.response),esc(row.criterion||'Coherence and relevance.')])):'');
+      const comparisonNote=probes.length&&accuracy==null
+        ?'Qualitative responses are available; generation accuracy has not been measured.'
+        :sameCheckpoint&&accuracy==null
         ?'Best and latest are the same checkpoint; there is no loss delta. Response-quality evaluation is pending.'
         :(comparison.note||'');
       document.getElementById('checkpoint-comparison').innerHTML=table(['Metric','Value'],[
@@ -432,13 +499,24 @@
         ['Latest validation step',fmt(comparison.latest_step,0)],['Latest validation loss',fmt(comparison.latest_validation_loss)],
         ['Comparison',esc(comparisonStatus.replaceAll('_',' '))],
         ...(comparison.latest_minus_best==null||sameCheckpoint?[]:[['Latest minus best',fmt(comparison.latest_minus_best,6)]]),
-        ['Generation accuracy',comparison.generation_accuracy==null?'pending':percent(Number(comparison.generation_accuracy)*100)]
+        ['Generation accuracy',accuracy==null?'not measured':fmt(accuracy*100,2)+'%']
       ])+`<p class="muted">${esc(comparisonNote)}</p>`;
       const summary=analysis.run_summary||{};
       document.getElementById('run-summary').innerHTML=table(['Metric','Value'],Object.entries(summary).map(([key,value])=>[esc(key.replaceAll('_',' ')),fmt(value)]));
       const coverage=analysis.report_coverage||{};
       document.getElementById('report-coverage').innerHTML=table(['Area','Coverage'],Object.entries(coverage).map(([key,value])=>[esc(key.replaceAll('_',' ')),esc(value)]));
       document.getElementById('warnings').innerHTML=(data.warnings||[]).map(line=>`<span class="${line.includes('ERROR')?'severity-error':'severity-warning'}">${esc(line)}</span>`).join('\n')||'No warnings or errors captured.';
+      const details={
+        'data-quality':data.evaluations?.data_quality,
+        'runtime-details':analysis.runtime,
+        'report-metadata':{generated_at:data.generated_at,source:reportSource,source_log:data.source_log,schema_version:data.schema_version,model_config_path:data.model_config_path,training_config_path:data.training_config_path,monitoring:data.monitoring,line_count:data.line_count,session_count:data.session_count},
+        'model-configuration':data.model_config,
+        'training-configuration':data.training_config,
+        'checkpoint-events':{best_updates:data.best_updates,resume_rollbacks:data.resume_rollbacks},
+        'generation-metadata':Object.fromEntries(Object.entries(generation).filter(([key])=>!['responses','results'].includes(key)))
+      };
+      Object.entries(details).forEach(([id,value])=>document.getElementById(id).innerHTML=detailTable(value));
+      document.getElementById('export-pdf').disabled=false;
       document.getElementById('logs').textContent=(data.raw_log_tail||[]).join('\n');
     }
 
@@ -454,7 +532,7 @@
     }
 
     async function load() {
-      if(manual)return;
+      if(manual||printing)return;
       const version=++loadVersion;
       let data;
       try {
@@ -466,17 +544,26 @@
         const available=results.filter(result=>result.status==='fulfilled').map(result=>result.value);
         if(!available.length)throw new Error(results.map(result=>result.reason).join('; '));
         available.sort((a,b)=>(Date.parse(b.data.generated_at)||0)-(Date.parse(a.data.generated_at)||0));
-        if(manual||version!==loadVersion)return;
+        if(manual||printing||version!==loadVersion)return;
         reportSource=available[0].url;
         data=available[0].data;
       } catch(error) {
-        if(manual||version!==loadVersion)return;
+        if(manual||printing||version!==loadVersion)return;
         document.getElementById('status').textContent=`Cannot fetch ${REPORT_URLS.join(' or ')}. Serve this folder over HTTP or choose a JSON file. ${error}`;
         return;
       }
       try { render(data); }
       catch(error) { document.getElementById('status').textContent=`Cannot render ${DATA_URL || 'latest report'}: ${error}`; }
     }
+    window.addEventListener('beforeprint',()=>{
+      printing=true;
+      chartSeries.forEach((series,svg)=>lineChart(svg,series));
+    });
+    window.addEventListener('afterprint',()=>{
+      printing=false;
+      chartSeries.forEach((series,svg)=>lineChart(svg,series));
+    });
+    document.getElementById('export-pdf').onclick=()=>window.print();
     document.getElementById('refresh').onclick=()=>{manual=false;load()};
     document.getElementById('sample').onclick=async()=>{manual=true;++loadVersion;reportSource=SAMPLE_URL;try{const response=await fetch(`${SAMPLE_URL}?t=${Date.now()}`,{cache:'no-store'});if(!response.ok)throw new Error(response.statusText);render(await response.json())}catch(error){document.getElementById('status').textContent=`Cannot fetch ${SAMPLE_URL}: ${error}`}};
     document.getElementById('file').onchange=async event=>{const file=event.target.files[0];if(file){manual=true;++loadVersion;reportSource=file.name;render(JSON.parse(await file.text()))}};

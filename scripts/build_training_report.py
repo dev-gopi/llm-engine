@@ -44,6 +44,17 @@ def load_evaluation_artifact(path: Path | None) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def generation_accuracy(evaluation: dict[str, Any] | None) -> float | None:
+    """Validate a benchmark proportion before presenting it as accuracy."""
+    summary = (evaluation or {}).get("summary")
+    if not isinstance(summary, dict) or summary.get("cases") == 0:
+        return None
+    accuracy = summary.get("accuracy")
+    if isinstance(accuracy, bool) or not isinstance(accuracy, (int, float)):
+        return None
+    return float(accuracy) if math.isfinite(accuracy) and 0 <= accuracy <= 1 else None
+
+
 def evaluation_coverage(
     data_audit: dict[str, Any] | None,
     generation_evaluation: dict[str, Any] | None,
@@ -54,11 +65,13 @@ def evaluation_coverage(
         data_status = f"available ({status})"
     generation_status = "pending; no fixed-prompt or benchmark result is available"
     if generation_evaluation:
-        summary = generation_evaluation.get("summary")
-        accuracy = summary.get("accuracy") if isinstance(summary, dict) else None
-        generation_status = "available" + (
-            f" (accuracy: {float(accuracy):.1%})" if isinstance(accuracy, (int, float)) else ""
-        )
+        accuracy = generation_accuracy(generation_evaluation)
+        if accuracy is not None:
+            generation_status = f"available (accuracy: {accuracy:.1%})"
+        elif isinstance(generation_evaluation.get("responses"), list) and generation_evaluation["responses"]:
+            generation_status = "available (qualitative probes; accuracy not measured)"
+        else:
+            generation_status = "pending; no valid generation accuracy or qualitative responses are available"
     return {"data_quality": data_status, "generation_quality": generation_status}
 
 
@@ -543,12 +556,13 @@ def build_report(
         **parsed,
     }
     report["analysis"]["report_coverage"].update(coverage)
-    generation_summary = (generation_evaluation or {}).get("summary")
-    if isinstance(generation_summary, dict):
-        accuracy = generation_summary.get("accuracy")
-        comparison = report["analysis"]["checkpoint_comparison"]
-        comparison["generation_accuracy"] = accuracy
+    accuracy = generation_accuracy(generation_evaluation)
+    comparison = report["analysis"]["checkpoint_comparison"]
+    comparison["generation_accuracy"] = accuracy
+    if accuracy is not None:
         comparison["note"] = "Fixed-prompt benchmark results are included. Compare multiple checkpoint artifacts before deployment."
+    elif coverage["generation_quality"].startswith("available"):
+        comparison["note"] = "Qualitative fixed-prompt responses are included; generation accuracy has not been measured."
     latest_telemetry = report["telemetry"][-1] if report["telemetry"] else {}
     if latest_telemetry.get("gpus"):
         report["analysis"]["report_coverage"]["gpu_telemetry"] = "available"

@@ -240,3 +240,21 @@ def test_gpu_monitor_parses_nvidia_smi_and_handles_na(monkeypatch) -> None:
     assert gpu["power_default_limit_w"] == 60
     assert gpu["power_max_limit_w"] == 75
     assert gpu["fan_percent"] is None
+
+
+@pytest.mark.parametrize('accuracy', [True, False, '0.75', -0.1, 1.1, float('nan'), float('inf'), None])
+def test_generation_accuracy_rejects_invalid_scores(accuracy) -> None:
+    artifact = {'summary': {'accuracy': accuracy}}
+    assert MODULE.generation_accuracy(artifact) is None
+    assert MODULE.evaluation_coverage(None, artifact)['generation_quality'].startswith('pending')
+
+
+@pytest.mark.parametrize('accuracy', [0.0, 0.75, 1.0])
+def test_generation_accuracy_accepts_proportions(accuracy) -> None:
+    assert MODULE.generation_accuracy({'summary': {'accuracy': accuracy}}) == accuracy
+
+
+def test_generation_quality_distinguishes_probes_and_empty_benchmarks() -> None:
+    assert MODULE.generation_accuracy({'summary': {'cases': 0, 'accuracy': 0}}) is None
+    coverage = MODULE.evaluation_coverage(None, {'responses': [{'prompt': 'Hello', 'response': 'Hi'}]})
+    assert coverage['generation_quality'] == 'available (qualitative probes; accuracy not measured)'
