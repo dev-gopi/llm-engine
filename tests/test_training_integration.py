@@ -124,3 +124,28 @@ def test_nonfinite_loss_resets_discarded_accumulation_window():
     assert trainer.global_step == 0
     trainer.train_step(batch)
     assert trainer.global_step == 1
+
+
+def test_checkpoint_resume_matches_uninterrupted_updates(tmp_path):
+    from training.checkpoint import save_checkpoint, load_checkpoint
+    torch.manual_seed(123)
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=6)
+    trainer = Trainer(model, optimizer, scheduler=scheduler)
+    batch = Collator(0)([torch.tensor([1, 2, 3, 4])])
+    for _ in range(3):
+        trainer.train_step(batch)
+    path = save_checkpoint(tmp_path / 'resume.pt', model, optimizer=optimizer,
+                           scheduler=scheduler, trainer=trainer.state_dict(), step=trainer.global_step)
+    expected_losses = [trainer.train_step(batch) for _ in range(3)]
+    restored = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    restored_optimizer = build_adamw(restored, learning_rate=1e-3)
+    restored_scheduler = Scheduler(restored_optimizer, warmup_steps=0, total_steps=6)
+    resumed = Trainer(restored, restored_optimizer, scheduler=restored_scheduler)
+    state = load_checkpoint(path, restored, optimizer=restored_optimizer, scheduler=restored_scheduler)
+    resumed.load_state_dict(state['trainer'])
+    assert [resumed.train_step(batch) for _ in range(3)] == pytest.approx(expected_losses)
+    assert resumed.global_step == trainer.global_step == 6
+    for name, value in model.state_dict().items():
+        torch.testing.assert_close(restored.state_dict()[name], value, rtol=0, atol=0)
