@@ -97,8 +97,19 @@ class Sampler(TorchSampler[list[int]]):
         return batches
 
     def state_dict(self) -> dict[str, int]:
-        return {"epoch": self.epoch, "start_batch": self.start_batch}
+        return {
+            "epoch": self.epoch,
+            "start_batch": self.start_batch,
+            "batch_size": self.batch_size,
+        }
 
     def load_state_dict(self, state: dict[str, int]) -> None:
         self.epoch = int(state.get("epoch", 0))
-        self.set_start_batch(int(state.get("start_batch", 0)))
+        start_batch = int(state.get("start_batch", 0))
+        saved_batch_size = int(state.get("batch_size", self.batch_size))
+        if saved_batch_size < 1:
+            raise ValueError("saved sampler batch_size must be positive")
+        # Resume by examples consumed rather than by the old batch number. A
+        # batch-size change otherwise skips data or jumps beyond the epoch.
+        completed_examples = start_batch * saved_batch_size
+        self.set_start_batch(completed_examples // self.batch_size)

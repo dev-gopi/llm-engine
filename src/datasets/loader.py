@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from tokenizer.encoder import Tokenizer
 
 from .preprocessor import clean, record_to_text
 
+logger = logging.getLogger(__name__)
 
 def iter_records(path: str | Path) -> Iterator[dict[str, Any]]:
     source = Path(path)
@@ -223,10 +225,12 @@ def build_text_dataset(paths: Iterable[str | Path], tokenizer: Tokenizer, *, max
     datasets = []
     for raw_path in paths:
         path = Path(raw_path)
+        logger.info("Preparing dataset %s (lazy=%s)", path, lazy)
         if lazy and path.suffix.lower() == ".jsonl":
             datasets.append(LazyJSONLDataset(path, tokenizer, max_length=max_length))
         else:
             datasets.append(TextDataset(iter_records(path), tokenizer, max_length=max_length))
+        logger.info("Dataset ready: %s (%d examples)", path, len(datasets[-1]))
     if not datasets:
         raise ValueError("no dataset paths configured")
     dataset = datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)

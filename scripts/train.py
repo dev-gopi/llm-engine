@@ -193,8 +193,11 @@ def main() -> None:
             f"training max_sequence_length ({max_seq_len}) exceeds model max_position ({max_pos}). "
             f"Use a matching training config (e.g. max_sequence_length <= {max_pos}) or a model config with max_position >= {max_seq_len}."
         )
+    logger.info("Building model on %s", distributed.device)
     model = MiniGPT.from_config(model_config, device=distributed.device)
+    logger.info("Model initialized")
     if args.init_from:
+        logger.info("Loading initial model weights from %s", args.init_from)
         # A new training stage should start from the learned model itself. EMA
         # can lag badly during short stages and is recreated for this run below.
         load_checkpoint(
@@ -222,7 +225,9 @@ def main() -> None:
     # streams on every worker.
     if distributed.world_size > 1 and not args.resume:
         set_seed(base_seed + distributed.rank)
+    logger.info("Preparing training datasets")
     train_loader = build_loader(config["train_files"], tokenizer, config, shuffle=True, rank=distributed.rank, world_size=distributed.world_size)
+    logger.info("Training loader ready: %d batches per epoch", len(train_loader))
     epochs = args.epochs or int(config.get("epochs", 1))
     accumulation = int(config.get("gradient_accumulation_steps", 1))
     total_steps = optimizer_steps_for_epochs(len(train_loader), epochs, accumulation)
@@ -248,6 +253,7 @@ def main() -> None:
     atexit.register(preemption.restore)
     if args.resume:
         if args.resume.is_dir():
+            logger.info("Restoring distributed checkpoint from %s", args.resume)
             state = load_distributed_checkpoint(
                 args.resume, training_model, optimizer,
                 scheduler=scheduler, scaler=trainer.scaler,
@@ -258,6 +264,7 @@ def main() -> None:
                     "checkpoint tokenizer fingerprint does not match the selected tokenizer"
                 )
         else:
+            logger.info("Restoring checkpoint from %s", args.resume)
             state = load_checkpoint(
                 args.resume, model, optimizer=optimizer, scheduler=scheduler,
                 ema=ema, scaler=trainer.scaler, map_location=distributed.device,
@@ -277,12 +284,37 @@ def main() -> None:
             )
         sampler_state = state.get("sampler")
         if sampler_state and hasattr(train_loader.batch_sampler, "load_state_dict"):
+            # The trainer tracks consumed batches; older sampler snapshots only
+            # retained the offset from the start of the resumed run.
+            sampler_state = dict(sampler_state)
+            if "batch_in_epoch" in state.get("trainer", {}):
+                sampler_state["start_batch"] = trainer.batch_in_epoch
+                sampler_state["epoch"] = trainer.current_epoch
+            if (
+                "batch_size" not in sampler_state
+                and trainer.batch_in_epoch > train_loader.batch_sampler.total_batches
+            ):
+                parser.error(
+                    "this legacy checkpoint does not record its training batch size, and its "
+                    f"saved position ({trainer.batch_in_epoch} batches) exceeds the current "
+                    f"epoch ({train_loader.batch_sampler.total_batches} batches). Resume once "
+                    "with the checkpoint's original batch_size to create a compatible checkpoint."
+                )
             train_loader.batch_sampler.load_state_dict(sampler_state)
+            restored_batch = train_loader.batch_sampler.start_batch
+            if restored_batch != trainer.batch_in_epoch:
+                logger.info(
+                    "Converted resume position from batch %d to %d for batch_size=%d",
+                    trainer.batch_in_epoch, restored_batch,
+                    train_loader.batch_sampler.batch_size,
+                )
+                trainer.batch_in_epoch = restored_batch
 
     validation_loader = None
     validation_weights = None
     evaluator = None
     if config.get("validation_files"):
+        logger.info("Preparing validation datasets")
         validation_config = dict(config)
         validation_batch_size = int(config.get("validation_batch_size", config.get("batch_size", 32)))
         if validation_batch_size < 1:
@@ -315,6 +347,8 @@ def main() -> None:
         )
 
     def checkpoint_callback(current: Trainer, epoch: int) -> None:
+        sampler_state = train_loader.batch_sampler.state_dict()
+        sampler_state["start_batch"] = current.batch_in_epoch
         if distributed_checkpoints:
             save_distributed_checkpoint(
                 args.output,
@@ -328,7 +362,7 @@ def main() -> None:
                     "model_config": model_config,
                     "tokenizer_fingerprint": tokenizer.fingerprint,
                     "trainer": current.state_dict(),
-                    "sampler": train_loader.batch_sampler.state_dict(),
+                    "sampler": sampler_state,
                 },
             )
             return
@@ -336,9 +370,11 @@ def main() -> None:
             return
         save_checkpoint(args.output, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=current.scaler,
                         step=current.global_step, metadata={"epoch": epoch + 1, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint},
-                        trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict())
+                        trainer=current.state_dict(), sampler=sampler_state)
 
     def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
+        sampler_state = train_loader.batch_sampler.state_dict()
+        sampler_state["start_batch"] = current.batch_in_epoch
         if distributed_checkpoints:
             save_distributed_checkpoint(
                 args.best_output,
@@ -354,7 +390,7 @@ def main() -> None:
                     "model_config": model_config,
                     "tokenizer_fingerprint": tokenizer.fingerprint,
                     "trainer": current.state_dict(),
-                    "sampler": train_loader.batch_sampler.state_dict(),
+                    "sampler": sampler_state,
                 },
             )
             return
@@ -364,9 +400,11 @@ def main() -> None:
             args.best_output, model, optimizer=optimizer, scheduler=scheduler, ema=ema,
             scaler=current.scaler, step=current.global_step,
             metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint},
-            trainer=current.state_dict(), sampler=train_loader.batch_sampler.state_dict(),
+            trainer=current.state_dict(), sampler=sampler_state,
         )
 
+    logger.info("Starting training at optimizer step %d; batch_size=%s accumulation=%d log_every=%s",
+                trainer.global_step, config.get("batch_size"), accumulation, config.get("log_every", 10))
     history = trainer.fit(
         train_loader, epochs=epochs, evaluator=evaluator,
         validation_dataloader=validation_loader,

@@ -60,6 +60,27 @@ def test_sampler_resume_skips_completed_batches() -> None:
     assert sampler.total_batches == 4
 
 
+def test_sampler_resume_converts_position_when_batch_size_changes() -> None:
+    old_sampler = Sampler(list(range(16)), 2, shuffle=False)
+    old_sampler.set_start_batch(4)
+
+    resumed = Sampler(list(range(16)), 4, shuffle=False)
+    resumed.load_state_dict(old_sampler.state_dict())
+
+    assert resumed.start_batch == 2
+    assert list(resumed) == [[8, 9, 10, 11], [12, 13, 14, 15]]
+
+
+def test_sampler_resume_accepts_legacy_state_without_batch_size() -> None:
+    sampler = Sampler(list(range(8)), 2, shuffle=False)
+    sampler.load_state_dict({"epoch": 3, "start_batch": 2})
+
+    assert sampler.start_batch == 2
+    assert list(sampler) == [[4, 5], [6, 7]]
+    assert len(sampler) == 2
+    assert sampler.total_batches == 4
+
+
 def test_weighted_sampler_uses_bounded_deterministic_epoch() -> None:
     sampler = Sampler(
         [1, 1, 1, 1], 2, seed=7,
