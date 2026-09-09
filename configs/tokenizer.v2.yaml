@@ -1,0 +1,21 @@
+# Append-only tokenizer extension for the v2 fine-tuning stage. Keeping the
+# existing 42K IDs unchanged allows checkpoints/finetuning/best.pt to initialize
+# the model while new Bengali, Hindi, and mathematics terms receive compact IDs.
+type: byte_level_bpe
+vocab_size: 40000
+output_dir: data/tokenizer
+extensions:
+  - name: finetuning-v2
+    base_tokenizer: data/tokenizer-finetuning
+    output_dir: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/tokenizer-finetuning-v2
+    sources:
+      - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_bengali/train.jsonl
+      - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_hindi/train.jsonl
+      - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/orca_math/train.jsonl
+      - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/smoltalk/train.jsonl
+      - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/fineweb_edu_large/train.jsonl
+    source_sampling: balanced_bytes
+    max_new_tokens: 2000
+    min_frequency: 8
+    min_existing_tokens: 3
+    max_scan_bytes: 268435456

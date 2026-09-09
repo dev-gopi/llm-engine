@@ -119,14 +119,25 @@ def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
 
 
 def test_finetuning_profiles_have_complete_isolated_runtime_paths() -> None:
-    profiles = sorted(CONFIGS.glob("finetuning*.yaml"))
+    # Versioned snapshots document previous runs and intentionally retain their
+    # original output paths; only active profiles require mutually unique paths.
+    profiles = sorted(
+        path for path in CONFIGS.glob("finetuning*.yaml")
+        if "v1" not in path.stem.split(".")
+    )
+    tokenizer_v2 = load_yaml(CONFIGS / "tokenizer.v2.yaml")
+    supported_tokenizers = {
+        "data/tokenizer",
+        "data/tokenizer-finetuning",
+        tokenizer_v2["extensions"][0]["output_dir"],
+    }
     outputs = []
     logs = []
     reports = []
     for path in profiles:
         config = load_yaml(path)
         runtime = config["runtime"]
-        assert runtime["tokenizer"] in {"data/tokenizer", "data/tokenizer-finetuning"}
+        assert runtime["tokenizer"] in supported_tokenizers
         assert runtime["output"] != runtime["best_output"]
         assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
         assert sum(config["validation_weights"].values()) == pytest.approx(1.0)

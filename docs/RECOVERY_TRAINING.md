@@ -25,7 +25,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --init-from checkpoints/finetuning/best.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt
@@ -39,7 +39,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.recovery.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --resume checkpoints/recovery/latest.pt \
   --output checkpoints/recovery/latest.pt \
   --best-output checkpoints/recovery/best.pt
@@ -52,7 +52,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   --cases configs/evaluation.core.jsonl \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --checkpoint checkpoints/recovery/best.pt \
   --device cuda
 ```

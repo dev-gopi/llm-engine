@@ -36,6 +36,17 @@ def test_bounded_mode_requires_all_split_sizes(tmp_path) -> None:
         )
 
 
+def test_max_shards_must_be_positive(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        prepare_hf_dataset, "fetch_hf_parquet_urls",
+        lambda *_args, **_kwargs: ["unused.parquet"],
+    )
+    with pytest.raises(ValueError, match="max_shards must be positive"):
+        prepare_hf_dataset.download_and_convert_dataset(
+            "test/shards", tmp_path, max_shards=0,
+        )
+
+
 def test_preference_scores_are_preserved(tmp_path, monkeypatch) -> None:
     source = tmp_path / "helpsteer.parquet"
     pq.write_table(pa.Table.from_pylist([{
@@ -77,6 +88,40 @@ def test_query_answer_schema_is_normalized() -> None:
     assert messages is not None
     assert messages[1] == {"role": "user", "content": "Write Python code."}
     assert messages[2] == {"role": "assistant", "content": "print('ok')"}
+
+
+def test_aya_schema_is_normalized() -> None:
+    messages = prepare_hf_dataset.extract_messages(
+        {"inputs": "দুই যোগ দুই কত?", "targets": "চার।", "language_code": "ben"},
+        "CohereLabs/aya_dataset",
+    )
+
+    assert messages is not None
+    assert messages[1] == {"role": "user", "content": "দুই যোগ দুই কত?"}
+    assert messages[2] == {"role": "assistant", "content": "চার।"}
+
+
+def test_language_filter_keeps_requested_code(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "aya.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        {"inputs": "Bengali prompt", "targets": "Bengali answer", "language_code": "ben"},
+        {"inputs": "Hindi prompt", "targets": "Hindi answer", "language_code": "hin"},
+    ]), source)
+    monkeypatch.setattr(
+        prepare_hf_dataset, "fetch_hf_parquet_urls",
+        lambda *_args, **_kwargs: [source.as_uri()],
+    )
+    output = tmp_path / "processed"
+
+    counts = prepare_hf_dataset.download_and_convert_dataset(
+        "CohereLabs/aya_dataset", output,
+        train_size=1, validation_size=0, test_size=0,
+        include_language_codes=("ben",),
+    )
+
+    assert counts == {"train": 1, "validation": 0, "test": 0}
+    record = json.loads((output / "train.jsonl").read_text())
+    assert record["messages"][1]["content"] == "Bengali prompt"
 
 
 def test_source_filter_excludes_mixed_license_subset(tmp_path, monkeypatch) -> None:

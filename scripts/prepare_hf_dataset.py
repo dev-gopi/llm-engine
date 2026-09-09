@@ -73,8 +73,16 @@ def extract_messages(row: dict, dataset_name: str, bot_name: str = DEFAULT_BOT_N
         or row.get("input_text")
         or row.get("question")
         or row.get("query")
+        or row.get("inputs")
     )
-    output = row.get("response") or row.get("output") or row.get("completion") or row.get("answer")
+    output = (
+        row.get("response")
+        or row.get("output")
+        or row.get("completion")
+        or row.get("answer")
+        or row.get("targets")
+        or row.get("code")
+    )
     context = row.get("context") or row.get("input", "")
 
     if instruction and output and str(instruction).strip() and str(output).strip():
@@ -126,6 +134,8 @@ def download_and_convert_dataset(
     bot_name: str = DEFAULT_BOT_NAME,
     timeout: float = 60.0,
     exclude_source_patterns: Sequence[str] = (),
+    include_language_codes: Sequence[str] = (),
+    max_shards: int | None = None,
 ) -> dict[str, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if raw_dir is not None:
@@ -143,6 +153,10 @@ def download_and_convert_dataset(
     urls = fetch_hf_parquet_urls(
         dataset_name, config=config, split=split, timeout=timeout
     )
+    if max_shards is not None:
+        if max_shards < 1:
+            raise ValueError("max_shards must be positive")
+        urls = urls[:max_shards]
     print(f"Fetching {dataset_name} ({len(urls)} parquet files)...")
     records: list[dict] = []
     counts = {"train": 0, "validation": 0, "test": 0}
@@ -185,6 +199,9 @@ def download_and_convert_dataset(
                 parquet_file = pq.ParquetFile(parquet_path)
                 for batch in parquet_file.iter_batches():
                     for row in batch.to_pylist():
+                        language_code = str(row.get("language_code") or "").lower()
+                        if include_language_codes and language_code not in include_language_codes:
+                            continue
                         upstream_source = str(row.get("source") or row.get("resource") or "")
                         if any(pattern.lower() in upstream_source.lower() for pattern in exclude_source_patterns):
                             continue
@@ -293,6 +310,14 @@ def parse_args() -> argparse.Namespace:
         "--exclude-source-pattern", action="append", default=[],
         help="Skip rows whose source/resource field contains this text (repeatable)",
     )
+    parser.add_argument(
+        "--include-language-code", action="append", default=[],
+        help="Keep only rows with this language_code value (repeatable)",
+    )
+    parser.add_argument(
+        "--max-shards", type=int, default=None,
+        help="Process only the first N source parquet shards",
+    )
     return parser.parse_args()
 
 
@@ -314,6 +339,8 @@ def main() -> None:
         bot_name=args.bot_name,
         timeout=args.timeout,
         exclude_source_patterns=args.exclude_source_pattern,
+        include_language_codes=tuple(code.lower() for code in args.include_language_code),
+        max_shards=args.max_shards,
     )
     result = {
         "dataset": args.dataset,
