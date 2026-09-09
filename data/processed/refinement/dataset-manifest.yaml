@@ -1,0 +1,14 @@
+schema_version: 1
+name: Gopi correctness refinement corrections
+source: Deterministic reviewed templates in scripts/prepare_refinement_data.py
+version: '1'
+license:
+  identifier: LicenseRef-Project-Generated
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+- sft
+privacy_review: reviewed
+splits:
+  train: 477
+  validation: 53

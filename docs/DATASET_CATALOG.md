@@ -40,6 +40,7 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 | `code_alpaca` | V2/v2 coding SFT | [flwrlabs/code-alpaca-20k](https://huggingface.co/datasets/flwrlabs/code-alpaca-20k) |
 | `preferences` | DPO and tokenizer discovery | Derived locally from [nvidia/HelpSteer](https://huggingface.co/datasets/nvidia/HelpSteer) |
 | `recovery_sft` | Focused v2 response-quality recovery | Deterministically filtered from the governed chat, English, Bengali, Hindi, mathematics, and coding sources listed in `scripts/prepare_recovery_sft.py` |
+| `refinement` | Post-SFT correctness repair | Project-generated, deterministic reviewed templates from `scripts/prepare_refinement_data.py` |
 | `dailydialog` | Optional retained conversation experiment; excluded from active profiles | [ConvLab/dailydialog](https://huggingface.co/datasets/ConvLab/dailydialog) |
 | `wikipedia_en` | Tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [English Wikipedia dumps](https://dumps.wikimedia.org/enwiki/) |
 | `wikipedia_simple` | Tokenizer discovery, low-weight causal-LM fine-tuning, and local RAG | [Simple English Wikipedia dumps](https://dumps.wikimedia.org/simplewiki/) |

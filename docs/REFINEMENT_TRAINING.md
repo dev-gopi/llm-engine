@@ -4,10 +4,16 @@ Use this stage after SFT or recovery SFT to repair observed failures and make
 responses more consistent. It intentionally mixes 60% reviewed corrections
 with 40% broad, cleaned recovery data, which helps prevent forgetting.
 
-## 1. Add reviewed examples
+## 1. Build and review correction examples
 
-Create these files. They must be disjoint: never place the same prompt or a
-near-duplicate conversation in both splits.
+Generate the deterministic starter corpus:
+
+```bash
+.venv/bin/python scripts/prepare_refinement_data.py
+```
+
+Review the generated files before training. They are disjoint: never place the
+same prompt or a near-duplicate conversation in both splits.
 
 ```text
 data/processed/refinement/train.jsonl
@@ -43,7 +49,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.refinement.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --init-from checkpoints/recovery/best.pt \
   --output checkpoints/refinement/latest.pt \
   --best-output checkpoints/refinement/best.pt \
