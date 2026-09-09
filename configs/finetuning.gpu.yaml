@@ -188,9 +188,18 @@ min_lr_ratio: 0.1
 # deployable checkpoint. It requires a second full parameter copy on the GPU.
 ema_decay: 0.999
 log_every: 25
-log_interval_seconds: 2
+# Use the default step-based cadence controlled by log_every.
+log_interval_seconds: null
 checkpoint_every: 500
 evaluate_every: 4000
+generation_evaluation:
+  enabled: true
+  cases: configs/evaluation.domains.jsonl
+  inference_config: configs/inference.yaml
+  output: reports/generation_quality.json
+  max_tokens: 64
+  repetition_penalty: 1.05
+  no_repeat_ngram_size: 0
 early_stopping_patience: 2
 early_stopping_min_delta: 0.001
 ignore_index: -100

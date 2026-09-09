@@ -31,9 +31,17 @@ class EMA:
         self.num_updates += 1
 
     @contextmanager
-    def average_parameters(self, model: nn.Module):
+    def average_parameters(
+        self, model: nn.Module, *, backup_device: str | torch.device | None = None
+    ):
         parameters = dict(model.named_parameters())
-        backup = {name: parameters[name].detach().clone() for name in self.shadow}
+        backup = {
+            name: (
+                parameters[name].detach().to(device=backup_device, copy=True)
+                if backup_device is not None else parameters[name].detach().clone()
+            )
+            for name in self.shadow
+        }
         try:
             with torch.no_grad():
                 for name, average in self.shadow.items():

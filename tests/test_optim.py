@@ -33,6 +33,18 @@ def test_ema_average_context_restores_parameters() -> None:
     torch.testing.assert_close(model.weight, changed)
 
 
+def test_ema_average_context_supports_cpu_backup() -> None:
+    model = nn.Linear(2, 2)
+    ema = EMA(model, decay=0.9)
+    original = model.weight.detach().clone()
+    with torch.no_grad():
+        model.weight.add_(1)
+    changed = model.weight.detach().clone()
+    with ema.average_parameters(model, backup_device="cpu"):
+        torch.testing.assert_close(model.weight, original)
+    torch.testing.assert_close(model.weight, changed)
+
+
 def test_auto_fused_optimizer_uses_cpu_fallback():
     from optim.adamw import adamw_from_config
     model = nn.Linear(2, 2)

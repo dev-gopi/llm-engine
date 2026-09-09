@@ -13,6 +13,11 @@ class BenchmarkCase:
     prompt: str
     expected: tuple[str, ...]
     forbidden: tuple[str, ...] = ()
+    match: str = "contains"
+
+    def __post_init__(self) -> None:
+        if self.match not in {"contains", "exact"}:
+            raise ValueError("benchmark match must be 'contains' or 'exact'")
 
 
 def normalize_answer(text: str) -> str:
@@ -25,6 +30,8 @@ def score_answer(answer: str, case: BenchmarkCase) -> float:
     forbidden = [normalize_answer(value).split() for value in case.forbidden]
     if any(_contains_tokens(answer_tokens, value) for value in forbidden if value):
         return 0.0
+    if case.match == "exact":
+        return float(any(answer_tokens == value for value in expected if value))
     return float(any(_contains_tokens(answer_tokens, value) for value in expected if value))
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Iterable
 
 
 def archive_previous_report_files(
@@ -12,6 +13,7 @@ def archive_previous_report_files(
     report_json: Path,
     *,
     resume: bool,
+    extra_paths: Iterable[Path] = (),
 ) -> list[tuple[Path, Path]]:
     """Archive report inputs for a new stage; resumed runs keep their history."""
 
@@ -19,7 +21,7 @@ def archive_previous_report_files(
         return []
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     archived: list[tuple[Path, Path]] = []
-    for path in (log_file, report_json):
+    for path in (log_file, report_json, *extra_paths):
         if not path.is_file():
             continue
         destination = path.with_name(

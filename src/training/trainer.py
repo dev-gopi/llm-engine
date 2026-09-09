@@ -247,6 +247,7 @@ class Trainer:
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
         validation_metric_name: str | None = None,
+        validation_callback=None,
         stop_requested=None,
     ) -> list[dict[str, object]]:
         if epochs < 1:
@@ -413,6 +414,10 @@ class Trainer:
                         "epoch": epoch + 1, "step": self.global_step, **metrics,
                         **({"domains": domains} if domains else {}),
                     })
+                    if validation_callback:
+                        callback_metrics = validation_callback(self, epoch, metrics, domains)
+                        if callback_metrics:
+                            history[-1]["generation_evaluation"] = callback_metrics
                     validation_loss = float(metrics["loss"])
                     if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
                         self.early_stopping_best_loss = validation_loss
@@ -462,6 +467,10 @@ class Trainer:
                 if domains:
                     epoch_record["domains"] = domains
                 log_validation(epoch, metrics, domains)
+                if validation_callback:
+                    callback_metrics = validation_callback(self, epoch, metrics, domains)
+                    if callback_metrics:
+                        epoch_record["generation_evaluation"] = callback_metrics
                 validation_loss = float(epoch_record["loss"])
                 if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
                     self.early_stopping_best_loss = validation_loss

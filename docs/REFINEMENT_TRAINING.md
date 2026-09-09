@@ -62,3 +62,18 @@ If recovery was skipped, replace the `--init-from` path with
 
 Select `checkpoints/refinement/best.pt` only after it improves both the held-out
 refinement examples and fixed behavioral evaluation prompts.
+
+## Automatic generation checks
+
+The refinement profile runs `configs/evaluation.domains.jsonl` automatically
+after every scheduled validation and writes the latest scored answers to
+`reports/refinement-generation-quality.json`. The ordinary fine-tuning profile
+does the same at its configured 4,000-step validation interval and writes
+`reports/generation_quality.json`.
+
+Generation checks use deterministic greedy decoding against the EMA weights
+used by inference (when EMA is enabled) and report overall plus per-domain
+accuracy in the training log. Exact-response cases require an exact normalized
+answer rather than merely containing the expected word. A benchmark error is
+logged but does not terminate a long training run. These checks are disabled
+for FSDP because rank-zero generation cannot directly use a sharded model.

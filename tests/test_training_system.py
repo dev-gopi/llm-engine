@@ -177,6 +177,28 @@ def test_periodic_validation_saves_best_checkpoint_immediately() -> None:
     assert trainer.best_validation_loss == 2.0
 
 
+def test_validation_callback_runs_after_periodic_validation() -> None:
+    class FixedEvaluator:
+        def evaluate(self, _loader):
+            return {"loss": 2.0, "cross_entropy": 2.0, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    observed = []
+
+    history = trainer.fit(
+        make_loader(), epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), log_every=0, evaluate_every=1,
+        validation_callback=lambda current, epoch, metrics, domains: observed.append(
+            (current.global_step, epoch, metrics["loss"], domains)
+        ) or {"accuracy": 0.5},
+    )
+
+    assert observed[0] == (1, 0, 2.0, {})
+    assert history[0]["generation_evaluation"] == {"accuracy": 0.5}
+
+
 def test_periodic_latest_checkpoint_contains_same_step_validation_state() -> None:
     class FixedEvaluator:
         def __init__(self):

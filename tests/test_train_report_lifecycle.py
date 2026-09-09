@@ -21,6 +21,21 @@ def test_new_stage_archives_old_log_and_report(tmp_path, monkeypatch) -> None:
     }
 
 
+def test_new_stage_archives_generation_evaluation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("RANK", "0")
+    log_file, report_json, resume = _args(tmp_path)
+    generation = tmp_path / "generation.json"
+    generation.write_text('{"summary":{"accuracy":0.5}}', encoding="utf-8")
+
+    archived = archive_previous_report_files(
+        log_file, report_json, resume=bool(resume), extra_paths=[generation]
+    )
+
+    assert len(archived) == 1
+    assert not generation.exists()
+    assert archived[0][1].read_text(encoding="utf-8") == '{"summary":{"accuracy":0.5}}'
+
+
 def test_resume_keeps_existing_report_history(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("RANK", "0")
     log_file, report_json, resume = _args(tmp_path, resume=tmp_path / "latest.pt")

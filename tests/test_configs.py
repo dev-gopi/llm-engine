@@ -88,6 +88,9 @@ def test_gpu_finetuning_profile_targets_balanced_quality() -> None:
     assert config["ema_decay"] == pytest.approx(0.999)
     assert config["label_smoothing"] == 0.0
     assert weights["gsm8k"] >= 0.12
+    assert config["generation_evaluation"]["enabled"] is True
+    assert config["generation_evaluation"]["cases"] == "configs/evaluation.domains.jsonl"
+    assert config["log_interval_seconds"] is None
     assert sum(weights[name] for name in (
         "multilingual_bn_hi", "bangla_qa", "bangla_reading_qa", "v2_bengali_news",
     )) >= 0.14

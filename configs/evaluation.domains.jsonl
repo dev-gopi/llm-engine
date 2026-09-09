@@ -1,6 +1,6 @@
 {"category":"english","prompt":"What is the capital city of France?","expected":["Paris"]}
 {"category":"english","prompt":"What planet is called the Red Planet?","expected":["Mars"]}
-{"category":"english","prompt":"Reply with exactly the word blue.","expected":["blue"]}
+{"category":"english","prompt":"Reply with exactly the word blue.","expected":["blue"],"match":"exact"}
 {"category":"bengali","prompt":"বাংলাদেশের রাজধানী কী?","expected":["ঢাকা"]}
 {"category":"bengali","prompt":"দুই যোগ তিন কত?","expected":["পাঁচ","৫","5"]}
 {"category":"bengali","prompt":"সূর্য কোন দিকে উদয় হয়?","expected":["পূর্ব"]}

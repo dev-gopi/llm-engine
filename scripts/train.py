@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import argparse
 import atexit
+from collections.abc import Mapping
+from contextlib import nullcontext
 import json
 import os
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
@@ -32,6 +36,9 @@ from training.trainer import Trainer
 from training.planner import optimizer_steps_for_epochs
 from training.elastic import PreemptionCoordinator
 from training.reporting import archive_previous_report_files
+from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores
+from inference.context import format_system_prompt
+from inference.generator import Generator
 from dotenv import load_dotenv
 
 from utils.config import apply_cli_defaults, load_yaml
@@ -52,7 +59,7 @@ def _stop_reporter(process: subprocess.Popen) -> None:
         process.kill()
 
 
-def _start_reporter(args: argparse.Namespace) -> subprocess.Popen | None:
+def _start_reporter(args: argparse.Namespace, config: dict) -> subprocess.Popen | None:
     if args.no_live_report or int(os.getenv("RANK", "0")) != 0:
         return None
     command = [
@@ -69,6 +76,9 @@ def _start_reporter(args: argparse.Namespace) -> subprocess.Popen | None:
         "--telemetry-points", str(args.report_telemetry_points),
         "--parent-pid", str(os.getpid()),
     ]
+    generation_config = config.get("generation_evaluation") or {}
+    if generation_config.get("enabled", False) and generation_config.get("output"):
+        command.extend(["--generation-evaluation", str(generation_config["output"])])
     try:
         process = subprocess.Popen(
             command,
@@ -111,6 +121,9 @@ def main() -> None:
     )
     args = parser.parse_args()
     config = load_yaml(args.training_config)
+    generation_config = config.get("generation_evaluation") or {}
+    if not isinstance(generation_config, Mapping):
+        parser.error("generation_evaluation must be a mapping")
     if config.get("planning_only", False):
         parser.error("planning-only training profile; use scripts/plan_training.py")
     model_config = load_yaml(args.model_config)
@@ -129,8 +142,14 @@ def main() -> None:
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
 
+    generation_output_path = (
+        Path(generation_config["output"])
+        if generation_config.get("enabled", False) and generation_config.get("output")
+        else None
+    )
     archived_reports = archive_previous_report_files(
-        args.log_file, args.report_json, resume=bool(args.resume)
+        args.log_file, args.report_json, resume=bool(args.resume),
+        extra_paths=([generation_output_path] if generation_output_path else []),
     )
     configure_logging(log_file=args.log_file)
     for source, destination in archived_reports:
@@ -145,7 +164,7 @@ def main() -> None:
         parser.error("--report-telemetry-seconds must be positive")
     if args.report_telemetry_points < 1:
         parser.error("--report-telemetry-points must be positive")
-    _start_reporter(args)
+    _start_reporter(args, config)
     precision = str(config.get("mixed_precision", "none"))
     if precision == "fp16" and not torch.cuda.is_available():
         parser.error(
@@ -346,6 +365,116 @@ def main() -> None:
             mixed_precision=precision,
         )
 
+    generation_cases: list[BenchmarkCase] = []
+    generation_output: Path | None = None
+    if generation_config.get("enabled", False):
+        if strategy.startswith("fsdp"):
+            parser.error("generation_evaluation is not supported with FSDP training")
+        cases_path = Path(generation_config.get("cases", "configs/evaluation.domains.jsonl"))
+        if not cases_path.is_file():
+            parser.error(f"generation evaluation cases not found: {cases_path}")
+        with cases_path.open(encoding="utf-8") as stream:
+            for line in stream:
+                item = json.loads(line)
+                generation_cases.append(BenchmarkCase(
+                    item["category"], item["prompt"], tuple(item["expected"]),
+                    tuple(item.get("forbidden", ())), item.get("match", "contains"),
+                ))
+        if not generation_cases:
+            parser.error("generation evaluation cases file is empty")
+        generation_output = Path(generation_config.get("output", "reports/generation_quality.json"))
+        if int(generation_config.get("max_tokens", 64)) < 1:
+            parser.error("generation_evaluation.max_tokens must be positive")
+        if float(generation_config.get("repetition_penalty", 1.05)) <= 0:
+            parser.error("generation_evaluation.repetition_penalty must be positive")
+        if int(generation_config.get("no_repeat_ngram_size", 0)) < 0:
+            parser.error("generation_evaluation.no_repeat_ngram_size must be non-negative")
+
+    last_generation_step: int | None = None
+
+    def validation_generation_callback(current: Trainer, epoch: int, _metrics, _domains):
+        nonlocal last_generation_step
+        if not generation_cases:
+            return None
+        if current.global_step == last_generation_step:
+            return None
+        last_generation_step = current.global_step
+        DistributedTrainer.barrier(distributed)
+        summary = None
+        if distributed.is_main_process:
+            was_training = model.training
+            started = time.perf_counter()
+            try:
+                from datasets.preprocessor import format_messages
+
+                inference_config = load_yaml(generation_config.get("inference_config", "configs/inference.yaml"))
+                system_prompt = format_system_prompt(
+                    str(inference_config.get("system_prompt", "You are Gopi, a helpful assistant.")),
+                    str(inference_config.get("response_format", "plain")),
+                )
+                parameter_context = (
+                    ema.average_parameters(training_model, backup_device="cpu")
+                    if ema is not None else nullcontext()
+                )
+                with parameter_context:
+                    generator = Generator(model, tokenizer, device=distributed.device)
+                    scored = []
+                    results = []
+                    for case in generation_cases:
+                        prompt = format_messages([
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": case.prompt},
+                        ], add_generation_prompt=True)
+                        generated = generator.generate(
+                            prompt,
+                            max_tokens=int(generation_config.get("max_tokens", 64)),
+                            temperature=0.0,
+                            top_k=0,
+                            repetition_penalty=float(generation_config.get("repetition_penalty", 1.05)),
+                            no_repeat_ngram_size=int(generation_config.get("no_repeat_ngram_size", 0)),
+                            allow_special_tokens=True,
+                        )
+                        score = score_answer(generated.text, case)
+                        scored.append((case, score))
+                        results.append({
+                            "category": case.category, "prompt": case.prompt,
+                            "answer": generated.text, "score": score,
+                        })
+                summary = summarize_scores(scored)
+                report = {
+                    "checkpoint": str(args.output), "step": current.global_step,
+                    "epoch": epoch + 1, "ema_used": ema is not None,
+                    "summary": summary, "results": results,
+                }
+                generation_output.parent.mkdir(parents=True, exist_ok=True)
+                descriptor, temporary = tempfile.mkstemp(
+                    prefix=f".{generation_output.name}.", dir=generation_output.parent
+                )
+                try:
+                    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                        json.dump(report, stream, indent=2, ensure_ascii=False)
+                        stream.write("\n")
+                    os.replace(temporary, generation_output)
+                except BaseException:
+                    Path(temporary).unlink(missing_ok=True)
+                    raise
+                category_metrics = " ".join(
+                    f"{key.removeprefix('accuracy_')}={value:.4f}"
+                    for key, value in summary.items() if key.startswith("accuracy_")
+                )
+                logger.info(
+                    "generation_evaluation epoch=%d step=%d accuracy=%.4f cases=%d %s duration_seconds=%.2f",
+                    epoch + 1, current.global_step, float(summary["accuracy"]),
+                    int(summary["cases"]), category_metrics,
+                    time.perf_counter() - started,
+                )
+            except Exception:
+                logger.exception("generation evaluation failed at step=%d; training will continue", current.global_step)
+            finally:
+                model.train(was_training)
+        DistributedTrainer.barrier(distributed)
+        return summary
+
     def checkpoint_callback(current: Trainer, epoch: int) -> None:
         sampler_state = train_loader.batch_sampler.state_dict()
         sampler_state["start_batch"] = current.batch_in_epoch
@@ -421,6 +550,7 @@ def main() -> None:
         early_stopping_patience=config.get("early_stopping_patience"),
         early_stopping_min_delta=float(config.get("early_stopping_min_delta", 0.0)),
         validation_metric_name=config.get("validation_metric_name"),
+        validation_callback=validation_generation_callback if generation_cases else None,
         stop_requested=lambda: preemption.should_stop(distributed.device),
     )
     final_epoch = int(history[-1]["epoch"]) - 1 if history else trainer.current_epoch - 1

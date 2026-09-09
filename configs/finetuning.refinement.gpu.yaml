@@ -80,6 +80,14 @@ ema_decay: 0.999
 log_every: 25
 checkpoint_every: 250
 evaluate_every: 250
+generation_evaluation:
+  enabled: true
+  cases: configs/evaluation.domains.jsonl
+  inference_config: configs/inference.yaml
+  output: reports/refinement-generation-quality.json
+  max_tokens: 64
+  repetition_penalty: 1.05
+  no_repeat_ngram_size: 0
 early_stopping_patience: 3
 early_stopping_min_delta: 0.001
 ignore_index: -100

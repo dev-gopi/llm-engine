@@ -64,7 +64,8 @@ def main() -> None:
         for line in stream:
             item = json.loads(line)
             cases.append(BenchmarkCase(
-                item["category"], item["prompt"], tuple(item["expected"]), tuple(item.get("forbidden", ()))
+                item["category"], item["prompt"], tuple(item["expected"]),
+                tuple(item.get("forbidden", ())), item.get("match", "contains"),
             ))
     device = resolve_device(args.device)
     tokenizer = Tokenizer.load(args.tokenizer)
