@@ -239,6 +239,7 @@ class Trainer:
         validation_dataloader=None,
         validation_weights: Mapping[str, float] | None = None,
         log_every: int = 10,
+        log_interval_seconds: float | None = None,
         evaluate_every: int | None = None,
         checkpoint_every: int | None = None,
         checkpoint_callback=None,
@@ -339,7 +340,16 @@ class Trainer:
                 window_loss += loss
                 window_batches += 1
                 optimizer_stepped = self.global_step != previous_step
-                if optimizer_stepped and log_every and self.global_step % log_every == 0:
+                now = time.perf_counter()
+                log_due = (
+                    log_interval_seconds is not None
+                    and now - last_log_time >= log_interval_seconds
+                ) or (
+                    log_interval_seconds is None
+                    and log_every
+                    and self.global_step % log_every == 0
+                )
+                if optimizer_stepped and log_due:
                     current_loss = window_loss / max(window_batches, 1)
                     avg_loss = running_loss / max(running_batches, 1)
                     completed_batches = min(
@@ -352,7 +362,6 @@ class Trainer:
                         elapsed_seconds * (1.0 - progress) / progress
                         if progress > 0 else float("inf")
                     )
-                    now = time.perf_counter()
                     seconds_per_batch = window_training_seconds / max(window_batches, 1)
                     epoch_batches_left = max(0, batches_per_epoch - batch_index)
 

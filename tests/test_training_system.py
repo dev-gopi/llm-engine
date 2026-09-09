@@ -488,3 +488,26 @@ def test_log_timing_estimates_use_current_window_with_accumulation() -> None:
     assert "next_validation_eta_seconds=disabled" in messages[0]
     assert "next_checkpoint_eta_seconds=0.0" in messages[1]
     assert any("checkpoint kind=latest step=2 duration_seconds=0.00" in m for m in messages)
+
+
+def test_log_interval_seconds_uses_wall_clock_cadence() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    clock = [0.0]
+
+    def train_step(_batch):
+        clock[0] += 60.0
+        trainer.micro_step += 1
+        trainer.global_step += 1
+        return 1.0
+
+    trainer.train_step = train_step
+    with patch("training.trainer.time.perf_counter", side_effect=lambda: clock[0]), \
+            patch("training.trainer.logger.info") as log_info:
+        trainer.fit([{}] * 6, epochs=1, log_every=1, log_interval_seconds=300)
+
+    messages = [call.args[0] % call.args[1:] for call in log_info.call_args_list]
+    training_messages = [message for message in messages if message.startswith("epoch=")]
+    assert len(training_messages) == 1
+    assert "step=5" in training_messages[0]
+    assert "log_interval_seconds=300.00" in training_messages[0]

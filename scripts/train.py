@@ -410,6 +410,10 @@ def main() -> None:
         validation_dataloader=validation_loader,
         validation_weights=validation_weights,
         log_every=int(config.get("log_every", 10)),
+        log_interval_seconds=(
+            float(config["log_interval_seconds"])
+            if config.get("log_interval_seconds") is not None else None
+        ),
         evaluate_every=config.get("evaluate_every"),
         checkpoint_every=config.get("checkpoint_every"),
         checkpoint_callback=checkpoint_callback,
