@@ -6,19 +6,20 @@ response_format: plain
 # safety enforcement in the request filter rather than injecting an unseen,
 # refusal-heavy paragraph into every model prompt.
 embed_safety_instruction: false
-temperature: 0.2
+temperature: 0.15
 top_k: 20
-max_tokens: 64
+max_tokens: 128
 top_p: 0.9
 # Optional relative probability cutoff; disabled for compatibility.
 min_p: 0.0
 min_tokens: 1
 stop: []
-repetition_penalty: 1.15
-no_repeat_ngram_size: 3
+repetition_penalty: 1.05
+no_repeat_ngram_size: 0
 context_memory:
   enabled: true
-  max_tokens: 1536
+  # Match the model's 1,024-token context; generation reserves max_tokens from it.
+  max_tokens: 1024
 web_search:
   provider: searxng
   searxng_endpoint: http://localhost:8080/search

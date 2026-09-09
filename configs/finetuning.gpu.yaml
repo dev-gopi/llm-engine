@@ -33,40 +33,40 @@ samples_per_epoch: 1000000
 dataset_weights:
   # Preference data contributes chosen responses only. Wikipedia, FineWeb-Edu,
   # and CodeParrot contribute causal-LM examples at deliberately small shares.
-  ultrachat_200k: 0.12
+  ultrachat_200k: 0.11
   v2_openassistant_en: 0.05
   helpsteer: 0.06
   # Keep a small OpenOrca share: many local examples contain verbose synthetic
   # task instructions that the compact model otherwise imitates at inference.
   openorca: 0.02
-  gsm8k: 0.13
-  v2_math_instruct: 0.06
+  gsm8k: 0.12
+  v2_math_instruct: 0.02
   core_chat: 0.03
   code_instructions: 0.04
-  v2_code_feedback: 0.04
-  general_qa: 0.07
+  v2_code_feedback: 0.03
+  general_qa: 0.10
   # High-confidence unsafe requests are rejected by the runtime prompt filter.
   # Sampling this refusal-only corpus caused refusals to leak into benign turns.
   safety_alignment: 0.00
-  writing_editing: 0.01
-  multilingual_bn_hi: 0.05
-  multilingual_hi: 0.035
+  writing_editing: 0.04
+  multilingual_bn_hi: 0.06
+  multilingual_hi: 0.04
   tool_calling: 0.02
-  emoji_chat: 0.01
+  emoji_chat: 0.005
   bangla_qa: 0.025
-  v2_bengali_news: 0.03
+  v2_bengali_news: 0.02
   bangla_reading_qa: 0.035
-  hindi_history_qa: 0.02
+  hindi_history_qa: 0.03
   hinglish_chat: 0.01
   hindi_hinglish: 0.02
-  v2_hindi_news: 0.025
-  code_alpaca: 0.03
+  v2_hindi_news: 0.015
+  code_alpaca: 0.02
   preferences: 0.02
   wikipedia_en: 0.005
   wikipedia_simple: 0.005
   wikipedia_bn: 0.005
   wikipedia_hi: 0.005
-  fineweb_edu: 0.01
+  fineweb_edu: 0.03
   code_pretraining: 0.01
 train_files:
   - data/processed/ultrachat_200k/train.jsonl
@@ -163,14 +163,14 @@ validation_domains:
       - data/processed/core_chat/validation.jsonl
       - data/processed/emoji_chat/validation.jsonl
 validation_weights:
-  # A broad final-stage gate: do not select a checkpoint that improves one
-  # capability by noticeably regressing chat, knowledge, languages, or tools.
-  chat: 0.22
-  gsm8k: 0.18
-  coding: 0.17
-  bengali: 0.15
+  # General-purpose checkpoint gate: prioritize conversation and English while
+  # requiring useful math, coding, Bengali, and Hindi capability.
+  chat: 0.24
+  gsm8k: 0.15
+  coding: 0.15
+  bengali: 0.13
   hindi: 0.15
-  english: 0.13
+  english: 0.18
 validation_metric_name: dataset_weighted_v3_broad_sft_domains
 learning_rate: 0.00001
 weight_decay: 0.01
