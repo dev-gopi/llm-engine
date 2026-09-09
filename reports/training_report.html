@@ -204,7 +204,7 @@
     const REPORT_URLS = DATA_URL ? [DATA_URL] : ['training_report.json', 'finetuning.json'];
     const SAMPLE_URL = query.get('sample') || 'training_report.sample.json';
     const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 2000));
-    const STALL_MS = Math.max(60000, Number(query.get('stall') || 180000));
+    const STALL_MS = Math.max(60000, Number(query.get('stall') || 300000));
     const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
     const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
     const dateFmt = value => {
