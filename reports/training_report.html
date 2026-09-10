@@ -10,6 +10,7 @@
     header { padding:24px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:20px; align-items:center }
     h1,h2 { margin:0 } h1 { font-size:24px } h2 { font-size:16px; margin-bottom:14px }
     .muted { color:var(--muted) } main { padding:22px; max-width:1500px; margin:auto }
+    main > section { content-visibility:auto; contain-intrinsic-size:auto 420px }
     .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:11px; margin-bottom:18px }
     .card,.panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px }
     .card { --card-accent:#4f9cf9; --card-glow:rgba(79,156,249,.13); position:relative; display:flex; min-width:0; min-height:94px; flex-direction:column; justify-content:space-between; overflow:hidden; padding:16px 16px 15px; border-color:rgba(96,117,141,.32); background:linear-gradient(145deg,rgba(20,39,63,.96),rgba(12,27,46,.98)); box-shadow:0 8px 24px rgba(0,0,0,.13),inset 0 1px rgba(255,255,255,.035); transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease }
@@ -118,6 +119,7 @@
       body { background:white; color:#111; font-size:10px; overflow:visible }
       header { padding:0 0 10px } header .controls,.report-explorer,.panel-toggle,.pagination { display:none!important }
       main,body.compact main { padding:10px 0; max-width:none; width:100% }
+      main > section { content-visibility:visible; contain-intrinsic-size:none }
       body.compact main > section:not(.meter-panel):not(.operations) { display:block }
       .report-hidden,.search-hidden { display:block!important }.panel.collapsed > :not(h2) { display:revert!important }
       .grid,.operations-grid { display:block!important }
@@ -272,6 +274,10 @@
     const trendColor = (improvement,deadband=.001) => improvement==null?'#91a4ba':improvement>deadband?'#34d399':improvement<-deadband?'#fb7185':'#fbbf24';
     let printing = false;
     const chartSeries = new Map();
+    const lazyChartObserver='IntersectionObserver' in window?new IntersectionObserver(entries=>entries.forEach(entry=>{
+      if(!entry.isIntersecting)return;
+      const series=chartSeries.get(entry.target);if(series)lineChart(entry.target,series);
+    }),{rootMargin:'500px 0px'}):null;
     let sparklineSequence = 0;
     const printScrollPositions = new Map();
     let manual = false;
@@ -353,6 +359,16 @@
 
     function lineChart(svg, series) {
       chartSeries.set(svg,series);
+      if(!printing&&lazyChartObserver){
+        lazyChartObserver.observe(svg);
+        const bounds=svg.getBoundingClientRect(),nearViewport=bounds.bottom>=-500&&bounds.top<=innerHeight+500;
+        if(!nearViewport){
+          svg.dataset.lazyPending='true';
+          if(!svg.dataset.rendered){svg.style.width='100%';svg.setAttribute('viewBox','0 0 760 330');svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#66809e" font-size="12">Chart loads when visible</text>'}
+          return;
+        }
+        delete svg.dataset.lazyPending;
+      }
       const scroller=svg.parentElement;
       const fixedLegend=scroller.dataset.fixedLegend==='true';
       if(fixedLegend){
@@ -723,7 +739,7 @@
     }
 
     async function load() {
-      if(manual||printing)return;
+      if(manual||printing||document.hidden)return;
       const version=++loadVersion;
       let data;
       try {
@@ -803,6 +819,7 @@
     notificationButton.onclick=async()=>{if(typeof Notification==='undefined'){notificationButton.textContent='Notifications unavailable';return}const permission=Notification.permission==='granted'?'granted':await Notification.requestPermission();notificationsEnabled=permission==='granted'?!notificationsEnabled:false;if(notificationsEnabled)await getNotificationWorker();localStorage.setItem('gopi-report-notifications',String(notificationsEnabled));updateNotificationButton()};
     makePanelsCollapsible();setReportView(localStorage.getItem('gopi-report-view')||'all');
     setCompact(localStorage.getItem('gopi-report-compact')==='true');updateNotificationButton();
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!manual)load()});
     load(); setInterval(load,REFRESH_MS); setInterval(updateCountdowns,1000);
   </script>
 </body>
