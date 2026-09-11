@@ -7,6 +7,7 @@ import atexit
 from collections.abc import Mapping
 from contextlib import nullcontext
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from optim.adamw import adamw_from_config
 from optim.ema import EMA
 from optim.scheduler import Scheduler
 from tokenizer.encoder import Tokenizer
+from training.generation_checkpoint import save_best_generation
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
 from training.data import build_loader
@@ -383,6 +385,10 @@ def main() -> None:
         if not generation_cases:
             parser.error("generation evaluation cases file is empty")
         generation_output = Path(generation_config.get("output", "reports/generation_quality.json"))
+        if generation_config.get("best_output"):
+            generation_best = Path(generation_config["best_output"]).resolve()
+            if generation_best in {Path(args.output).resolve(), Path(args.best_output).resolve()}:
+                parser.error("generation_evaluation.best_output must differ from training checkpoint paths")
         if int(generation_config.get("max_tokens", 64)) < 1:
             parser.error("generation_evaluation.max_tokens must be positive")
         if float(generation_config.get("repetition_penalty", 1.05)) <= 0:
@@ -440,7 +446,29 @@ def main() -> None:
                             "category": case.category, "prompt": case.prompt,
                             "answer": generated.text, "score": score,
                         })
-                summary = summarize_scores(scored)
+                    summary = summarize_scores(scored)
+                    if generation_config.get("best_output"):
+                        signature = hashlib.sha256(json.dumps({
+                            "cases": cases_path.read_text(encoding="utf-8"),
+                            "system_prompt": system_prompt,
+                            "max_tokens": int(generation_config.get("max_tokens", 64)),
+                            "repetition_penalty": float(generation_config.get("repetition_penalty", 1.05)),
+                            "no_repeat_ngram_size": int(generation_config.get("no_repeat_ngram_size", 0)),
+                            "tokenizer": tokenizer.fingerprint,
+                            "ema_used": ema is not None,
+                        }, sort_keys=True).encode()).hexdigest()
+                        if save_best_generation(
+                            generation_config["best_output"], model,
+                            accuracy=summary["accuracy"], evaluation_signature=signature,
+                            step=current.global_step,
+                            metadata={"model_config": model_config,
+                                      "tokenizer_fingerprint": tokenizer.fingerprint,
+                                      "ema_used": ema is not None},
+                        ):
+                            logger.info("new_best_generation step=%d accuracy=%.4f checkpoint=%s",
+                                        current.global_step, summary["accuracy"],
+                                        generation_config["best_output"])
+
                 report = {
                     "checkpoint": str(args.output), "step": current.global_step,
                     "epoch": epoch + 1, "ema_used": ema is not None,
@@ -458,6 +486,15 @@ def main() -> None:
                 except BaseException:
                     Path(temporary).unlink(missing_ok=True)
                     raise
+                # Retain answers from every check instead of losing the evidence
+                # when the next validation replaces the live report.
+                history_dir = generation_output.parent / (generation_output.stem + "_history")
+                history_dir.mkdir(parents=True, exist_ok=True)
+                with (history_dir / f"step-{current.global_step}-{time.time_ns()}.json").open(
+                    "w", encoding="utf-8"
+                ) as stream:
+                    json.dump(report, stream, indent=2, ensure_ascii=False)
+                    stream.write("\n")
                 category_metrics = " ".join(
                     f"{key.removeprefix('accuracy_')}={value:.4f}"
                     for key, value in summary.items() if key.startswith("accuracy_")

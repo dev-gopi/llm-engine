@@ -110,6 +110,19 @@ Use `--resume checkpoints/finetuning/latest.pt` only to continue that same
 stage. `--init-from` loads weights into a new stage with fresh optimizer,
 scheduler, sampler, and report history.
 
+The fine-tuning profile also writes `checkpoints/finetuning/best-generation.pt`
+when fixed-prompt answer accuracy improves. Ties retain the earlier checkpoint;
+`best.pt` still tracks validation loss. The generation checkpoint contains the
+exact evaluated weights (EMA when enabled) and is for inference only. Continue
+training from `latest.pt`. After the generation checkpoint has been created,
+pass it as `--checkpoint` to chat/evaluation, or set
+`serving.checkpoint_path` in `configs/inference.yaml` to use it for serving.
+Per-check answers are retained in `reports/generation_quality_history/`.
+Changing the evaluation prompts, decoding settings, or tokenizer requires a new
+`generation_evaluation.best_output` path so unlike scores are not compared.
+The 18-prompt suite is a small diagnostic; its best score does not establish
+broad model quality or guarantee that every individual answer is retained.
+
 ## Training reports
 
 Rank zero launches an isolated live-report process. It reads

@@ -318,7 +318,7 @@ class Trainer:
             )
 
         for epoch in range(self.current_epoch, epochs):
-            improved_during_epoch = False
+            last_validation_step = None
             if hasattr(batch_sampler, "set_epoch"):
                 batch_sampler.set_epoch(epoch)
             if hasattr(batch_sampler, "set_start_batch"):
@@ -418,11 +418,13 @@ class Trainer:
                         callback_metrics = validation_callback(self, epoch, metrics, domains)
                         if callback_metrics:
                             history[-1]["generation_evaluation"] = callback_metrics
+                    last_validation_step = self.global_step
                     validation_loss = float(metrics["loss"])
                     if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
                         self.early_stopping_best_loss = validation_loss
                         self.epochs_without_improvement = 0
-                        improved_during_epoch = True
+                    else:
+                        self.epochs_without_improvement += 1
                     if validation_loss < self.best_validation_loss:
                         previous_best = self.best_validation_loss
                         self.best_validation_loss = validation_loss
@@ -433,6 +435,17 @@ class Trainer:
                         )
                         if best_checkpoint_callback:
                             save_timed(best_checkpoint_callback, epoch, "best")
+                    if early_stopping_patience is not None and self.epochs_without_improvement >= early_stopping_patience:
+                        self.stopped_early = True
+                        logger.info(
+                            "early stopping at step=%d after %d validation checks without improvement",
+                            self.global_step, self.epochs_without_improvement,
+                        )
+                        if checkpoint_callback:
+                            save_timed(checkpoint_callback, epoch, "latest")
+                        # Keep the batch offset for resume and avoid evaluating
+                        # these same weights again at epoch end.
+                        return history
                 # When validation and checkpoint intervals coincide, persist
                 # the newly updated best/early-stopping state in latest.pt.
                 # Saving first would resume with the stale pre-validation
@@ -472,10 +485,12 @@ class Trainer:
                     if callback_metrics:
                         epoch_record["generation_evaluation"] = callback_metrics
                 validation_loss = float(epoch_record["loss"])
-                if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
-                    self.early_stopping_best_loss = validation_loss
-                    self.epochs_without_improvement = 0
-                    improved_during_epoch = True
+                if last_validation_step != self.global_step:
+                    if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
+                        self.early_stopping_best_loss = validation_loss
+                        self.epochs_without_improvement = 0
+                    else:
+                        self.epochs_without_improvement += 1
                 if validation_loss < self.best_validation_loss:
                     previous_best = self.best_validation_loss
                     self.best_validation_loss = validation_loss
@@ -486,15 +501,13 @@ class Trainer:
                     )
                     if best_checkpoint_callback:
                         save_timed(best_checkpoint_callback, epoch, "best")
-                if not improved_during_epoch:
-                    self.epochs_without_improvement += 1
             history.append(epoch_record)
             if self.stopped_early:
                 break
             if early_stopping_patience is not None and self.epochs_without_improvement >= early_stopping_patience:
                 self.stopped_early = True
                 logger.info(
-                    "early stopping at epoch=%d after %d epochs without validation improvement",
+                    "early stopping at epoch=%d after %d validation checks without improvement",
                     epoch + 1, self.epochs_without_improvement,
                 )
                 break

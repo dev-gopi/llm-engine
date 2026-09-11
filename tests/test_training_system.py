@@ -533,3 +533,35 @@ def test_log_interval_seconds_uses_wall_clock_cadence() -> None:
     assert len(training_messages) == 1
     assert "step=5" in training_messages[0]
     assert "log_interval_seconds=300.00" in training_messages[0]
+
+
+@pytest.mark.parametrize('patience,losses,stop_step', [
+    (1, [2.0, 2.1], 2),
+    (2, [2.0, 2.1, 1.8, 1.9, 2.0], 5),
+])
+def test_periodic_early_stopping_preserves_resume_position(patience, losses, stop_step):
+    class FixedEvaluator:
+        def __init__(self):
+            self.losses = iter(losses)
+
+        def evaluate(self, _loader):
+            return {"loss": next(self.losses)}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    saved, best = [], []
+    history = trainer.fit(
+        list(make_loader()) * 8, epochs=3, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        early_stopping_patience=patience,
+        checkpoint_callback=lambda current, _epoch: saved.append(current.state_dict()),
+        best_checkpoint_callback=lambda current, _epoch: best.append(current.best_validation_loss),
+    )
+    assert trainer.stopped_early
+    assert trainer.global_step == stop_step
+    assert trainer.current_epoch == 0
+    assert trainer.batch_in_epoch == stop_step
+    assert len(history) == stop_step
+    assert saved[-1]['batch_in_epoch'] == stop_step
+    assert saved[-1]['epochs_without_improvement'] == patience
+    assert best[-1] == min(losses)
