@@ -4,6 +4,7 @@
 extends: finetuning.gpu.v2.yaml
 require_cuda: true
 require_init_from: true
+require_prepared_data: true
 batch_size: 1
 validation_batch_size: 1
 gradient_accumulation_steps: 64

@@ -21,8 +21,12 @@ class PreferenceDataset(Dataset[dict[str, torch.Tensor]]):
         *,
         max_length: int,
     ) -> None:
+        if max_length < 2:
+            raise ValueError("max_length must be at least 2")
         self.examples: list[dict[str, torch.Tensor]] = []
         for record in records:
+            if any(not isinstance(record.get(key), str) for key in ("prompt", "chosen", "rejected")):
+                continue
             prompt = str(record.get("prompt", "")).strip()
             chosen = str(record.get("chosen", "")).strip()
             rejected = str(record.get("rejected", "")).strip()
@@ -32,8 +36,11 @@ class PreferenceDataset(Dataset[dict[str, torch.Tensor]]):
             prefix_ids = tokenizer.encode(prefix, add_bos=True, allowed_special="all")
             chosen_ids = prefix_ids + tokenizer.encode(chosen, add_eos=True, allowed_special="all")
             rejected_ids = prefix_ids + tokenizer.encode(rejected, add_eos=True, allowed_special="all")
-            chosen_ids = chosen_ids[:max_length]
-            rejected_ids = rejected_ids[:max_length]
+            # Preferences apply to complete answers, not arbitrary truncated prefixes.
+            if max(len(chosen_ids), len(rejected_ids)) > max_length:
+                continue
+            if chosen_ids == rejected_ids:
+                continue
             if len(chosen_ids) < 2 or len(rejected_ids) < 2:
                 continue
             prompt_tokens = min(len(prefix_ids), max_length)

@@ -145,6 +145,8 @@ def main() -> None:
         parser.error("--resume and --init-from cannot be used together")
     if config.get("require_init_from", False) and not (args.init_from or args.resume):
         parser.error("this post-training profile requires --init-from a completed checkpoint (or --resume its own interrupted run)")
+    if config.get("require_prepared_data", False) and not config.get("prepared_data"):
+        parser.error("prepare complete, decontaminated SFT records with scripts/prepare_sft_stage.py, then use its generated training.yaml")
     if args.init_from and args.init_from.resolve() in {args.output.resolve(), args.best_output.resolve()}:
         parser.error("new-stage output paths must differ from --init-from; preserve the completed checkpoint")
     # Fail before archiving logs or starting the report watcher.
@@ -201,6 +203,8 @@ def main() -> None:
     distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
     atexit.register(DistributedTrainer.shutdown)
     tokenizer = Tokenizer.load(args.tokenizer)
+    if config.get("prepared_data") and config["prepared_data"].get("tokenizer_fingerprint") != tokenizer.fingerprint:
+        parser.error("prepared dataset tokenizer changed; prepare the data again with the selected tokenizer")
     configured_vocab_size = int(model_config["vocab_size"])
     if tokenizer.vocab_size != configured_vocab_size:
         if (

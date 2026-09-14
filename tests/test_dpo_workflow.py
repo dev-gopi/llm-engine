@@ -85,3 +85,56 @@ def test_dpo_cli_and_profiles_are_available() -> None:
     assert "--reference-checkpoint" in completed.stdout
     assert (root / "configs/dpo.cpu.yaml").is_file()
     assert (root / "configs/dpo.gpu.yaml").is_file()
+
+
+def test_preferences_reject_missing_fields_and_truncated_answers() -> None:
+    from post_training.preference_data import PreferenceDataset
+
+    records = [
+        {"prompt": "Q", "chosen": "Yes", "rejected": "No"},
+        {"prompt": None, "chosen": "Yes", "rejected": "No"},
+        {"prompt": "Q", "chosen": None, "rejected": "No"},
+        {"prompt": "Q" * 100, "chosen": "Yes", "rejected": "No"},
+        {"prompt": "Q", "chosen": "A" * 100, "rejected": "No"},
+    ]
+    dataset = PreferenceDataset(records, tokenizer(), max_length=32)
+    assert len(dataset) == 1
+    assert dataset[0]["chosen_mask"].any()
+    assert dataset[0]["rejected_mask"].any()
+
+
+def test_dpo_evaluation_weights_pairs_not_batches(tmp_path) -> None:
+    tok = tokenizer()
+    source = preference_file(tmp_path / "preferences.jsonl")
+    with source.open("a") as stream:
+        stream.write(json.dumps({"prompt": "Hi", "chosen": "Hello", "rejected": "Bye"}) + "\n")
+    policy = MiniGPT(vocab_size=tok.vocab_size, dim=8, layers=1, heads=2, max_pos=64)
+    trainer = DPOTrainer(policy, copy.deepcopy(policy), build_adamw(policy, learning_rate=1e-4))
+
+    def batch_loss(values):
+        score = values["chosen_attention_mask"].sum(dim=1).float().mean()
+        return score, {"reward_accuracy": score / 100, "reward_margin": score}
+
+    trainer._batch_loss = batch_loss
+    results = [trainer.evaluate(build_preference_loader(
+        [str(source)], tok, max_length=64, batch_size=size, shuffle=False,
+    )) for size in (1, 2, 3)]
+    import pytest
+    for result in results[1:]:
+        assert result == pytest.approx(results[0])
+
+
+def test_dpo_nonfinite_gradients_without_clipping_do_not_update() -> None:
+    import pytest
+
+    policy = torch.nn.Linear(1, 1)
+    optimizer = torch.optim.AdamW(policy.parameters(), lr=0.1)
+    trainer = DPOTrainer(policy, copy.deepcopy(policy), optimizer, gradient_clip_norm=None)
+    before = {key: value.clone() for key, value in policy.state_dict().items()}
+    policy.weight.register_hook(lambda grad: torch.full_like(grad, float("inf")))
+    trainer._batch_loss = lambda values: (policy.weight.sum(), {})
+    with pytest.raises(FloatingPointError, match="gradients"):
+        trainer.train_step({})
+    assert trainer.global_step == 0
+    for key, value in policy.state_dict().items():
+        assert torch.equal(value, before[key])

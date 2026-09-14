@@ -96,12 +96,14 @@ class DPOTrainer:
             raise FloatingPointError(f"non-finite DPO loss at step {self.global_step}")
         self.scaler.scale(loss).backward()
         self.scaler.unscale_(self.optimizer)
-        if self.gradient_clip_norm is not None:
-            gradient_norm = nn.utils.clip_grad_norm_(self.policy.parameters(), self.gradient_clip_norm)
-            if not bool(torch.isfinite(gradient_norm)):
-                self.optimizer.zero_grad(set_to_none=True)
-                self.scaler.update()
-                raise FloatingPointError(f"non-finite DPO gradients at step {self.global_step}")
+        gradient_norm = nn.utils.clip_grad_norm_(
+            self.policy.parameters(),
+            self.gradient_clip_norm if self.gradient_clip_norm is not None else float("inf"),
+        )
+        if not bool(torch.isfinite(gradient_norm)):
+            self.optimizer.zero_grad(set_to_none=True)
+            self.scaler.update()
+            raise FloatingPointError(f"non-finite DPO gradients at step {self.global_step}")
         self.scaler.step(self.optimizer)
         self.scaler.update()
         if self.scheduler is not None:
@@ -113,17 +115,18 @@ class DPOTrainer:
     def evaluate(self, loader) -> dict[str, float]:
         self.policy.eval()
         totals = {"loss": 0.0, "reward_accuracy": 0.0, "reward_margin": 0.0}
-        batches = 0
+        pairs = 0
         for batch in loader:
             values = {key: value.to(self.device) for key, value in batch.items()}
             loss, metrics = self._batch_loss(values)
-            totals["loss"] += float(loss)
-            totals["reward_accuracy"] += float(metrics["reward_accuracy"])
-            totals["reward_margin"] += float(metrics["reward_margin"])
-            batches += 1
-        if not batches:
+            count = values["chosen_ids"].shape[0]
+            totals["loss"] += float(loss) * count
+            totals["reward_accuracy"] += float(metrics["reward_accuracy"]) * count
+            totals["reward_margin"] += float(metrics["reward_margin"]) * count
+            pairs += count
+        if not pairs:
             raise ValueError("DPO validation loader is empty")
-        return {key: value / batches for key, value in totals.items()}
+        return {key: value / pairs for key, value in totals.items()}
 
     def fit(
         self, train_loader, *, epochs: int, validation_loader=None,
@@ -136,12 +139,13 @@ class DPOTrainer:
             if generator is not None:
                 generator.manual_seed(int(getattr(train_loader, "gopi_shuffle_seed", 42)) + epoch)
             totals = {"loss": 0.0, "reward_accuracy": 0.0, "reward_margin": 0.0}
-            batches = 0
+            pairs = 0
             for batch in train_loader:
                 metrics = self.train_step(batch)
-                batches += 1
+                count = batch["chosen_ids"].shape[0]
+                pairs += count
                 for key in totals:
-                    totals[key] += metrics[key]
+                    totals[key] += metrics[key] * count
                 if log_every and self.global_step % log_every == 0:
                     logger.info(
                         "dpo epoch=%d step=%d loss=%.6f reward_accuracy=%.4f reward_margin=%.4f",
@@ -150,7 +154,7 @@ class DPOTrainer:
                     )
             self.current_epoch = epoch + 1
             record = {"epoch": epoch + 1, "step": self.global_step, **{
-                f"train_{key}": value / max(batches, 1) for key, value in totals.items()
+                f"train_{key}": value / max(pairs, 1) for key, value in totals.items()
             }}
             if validation_loader is not None:
                 validation = self.evaluate(validation_loader)
