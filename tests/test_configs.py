@@ -6,6 +6,7 @@ from model.config import estimate_model_size
 from model.vocabulary import adapt_config_to_tokenizer
 from tokenizer.encoder import Tokenizer
 from utils.config import load_yaml
+from training.data import _mixture_groups
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,10 @@ def test_all_model_and_training_profiles_are_complete() -> None:
                     assert sum(float(value) for value in config[key].values()) == pytest.approx(1.0), (
                         path, key
                     )
+            if config.get("dataset_weights"):
+                paths = config["train_files"]
+                groups = _mixture_groups(paths, [1] * len(paths), config)
+                assert sum(group[2] for group in groups) == pytest.approx(1.0), path
 
 
 def test_future_models_match_the_from_scratch_tokenizer() -> None:

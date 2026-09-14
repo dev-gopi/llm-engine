@@ -35,6 +35,7 @@ def main() -> None:
     parser.add_argument("--tokenizer", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--weights", choices=("ema", "model"), default="ema")
     parser.add_argument("--max-tokens", type=int)
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--top-k", type=int)
@@ -61,7 +62,7 @@ def main() -> None:
     })
 
     if not args.checkpoint.is_file():
-        parser.error(f"checkpoint not found: {args.checkpoint}; finish v2 fine-tuning first")
+        parser.error(f"checkpoint not found: {args.checkpoint}; check the path and mount the drive containing the completed run")
 
     model_config = load_yaml(args.model_config)
     bot_name = str(inference_config.get("bot_name", "Gopi"))
@@ -71,10 +72,11 @@ def main() -> None:
     except ValueError as error:
         parser.error(str(error))
     device = resolve_device(args.device)
-    model = MiniGPT.from_config(model_config, device=device)
-    load_checkpoint(
-        args.checkpoint, model, map_location=device, use_ema=True,
-        **checkpoint_tokenizer_options(tokenizer),
+    # Deserialize optimizer/EMA tensors on CPU; only inference weights go to GPU.
+    model = MiniGPT.from_config(model_config, device="cpu")
+    checkpoint_info = load_checkpoint(
+        args.checkpoint, model, use_ema=args.weights == "ema", restore_rng=False,
+        **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
     generator = Generator(model, tokenizer, device=device)
 
@@ -104,6 +106,9 @@ def main() -> None:
     search_provider = os.getenv("GOPI_SEARCH_PROVIDER", str(search_config.get("provider", "searxng"))).lower()
     search_api_key = os.getenv("GOPI_SEARCH_API_KEY", "")
 
+    active_weights = "ema" if checkpoint_info["ema_applied"] else "model"
+    print(f"Loaded {args.checkpoint} (step {checkpoint_info['step']}, {active_weights} weights).")
+    print(f"Tokenizer: {args.tokenizer} ({tokenizer.vocab_size} tokens, {tokenizer.fingerprint[:12]}).")
     print("Gopi chat ready. Use /help to list commands.")
     while True:
         try:

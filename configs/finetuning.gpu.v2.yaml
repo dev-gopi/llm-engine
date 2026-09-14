@@ -28,10 +28,11 @@ dataset_weights:
   aya_hindi: 0.14
   orca_math: 0.15
   smoltalk: 0.09
-  recovery_chat: 0.14
-  recovery_english: 0.095
-  recovery_math: 0.07
-  recovery_coding: 0.065
+  # Names must match recovery_sft/<name>/train.jsonl directories.
+  chat: 0.14
+  english: 0.095
+  math: 0.07
+  coding: 0.065
   safety_alignment: 0.035
   tool_calling: 0.025
   writing_editing: 0.025

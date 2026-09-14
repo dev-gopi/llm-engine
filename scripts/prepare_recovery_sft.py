@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import sys
+import unicodedata
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -120,7 +121,10 @@ def _repetition_ratio(text: str) -> float:
 
 
 def prompt_key(prompt: str) -> str:
-    normalized = re.sub(r"\W+", " ", prompt.casefold()).strip()
+    # Match the loader's Unicode normalization, retaining combining marks and
+    # code operators. Stripping \W collapses distinct Indic words/expressions
+    # and misses canonically equivalent Unicode prompts across splits.
+    normalized = " ".join(unicodedata.normalize("NFKC", prompt).casefold().split())
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 

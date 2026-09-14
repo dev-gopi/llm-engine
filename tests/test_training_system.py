@@ -565,3 +565,15 @@ def test_periodic_early_stopping_preserves_resume_position(patience, losses, sto
     assert saved[-1]['batch_in_epoch'] == stop_step
     assert saved[-1]['epochs_without_improvement'] == patience
     assert best[-1] == min(losses)
+
+
+def test_evaluator_selects_ema_and_restores_training_weights():
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    ema = EMA(model, decay=0.9)
+    expected = Evaluator(model).evaluate(make_loader())["cross_entropy"]
+    with torch.no_grad():
+        model.tok.weight.mul_(3)
+    trained = model.tok.weight.detach().clone()
+    actual = Evaluator(model, ema=ema).evaluate(make_loader())["cross_entropy"]
+    assert actual == pytest.approx(expected)
+    torch.testing.assert_close(model.tok.weight, trained, rtol=0, atol=0)

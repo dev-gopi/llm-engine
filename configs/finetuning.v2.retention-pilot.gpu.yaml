@@ -1,0 +1,32 @@
+# OPTIONAL pilot for AFTER the completed v2 checkpoint has been evaluated.
+# Start with --init-from <completed-v2-best.pt>, never --resume a previous stage.
+# Existing v2 datasets already supply correction SFT plus replay; no new corpus.
+extends: finetuning.gpu.v2.yaml
+require_cuda: true
+require_init_from: true
+batch_size: 1
+validation_batch_size: 1
+gradient_accumulation_steps: 64
+epochs: 1
+samples_per_epoch: 25000
+# A short pilot need not retain a 999-update EMA lag or its parameter copy.
+ema_decay: null
+evaluate_every: 100
+checkpoint_every: 100
+validation_metric_name: v2_retention_pilot_token_mean_v1
+generation_evaluation:
+  cases: configs/evaluation.retention.jsonl
+  inference_config: configs/inference.v2.yaml
+  output: reports/v2-retention-pilot/generation.json
+  best_output: checkpoints/v2-retention-pilot/best-generation.pt
+  weights: model
+  evaluate_at_start: true
+  preserve_passed: true
+  max_tokens: 48
+  repetition_penalty: 1.05
+  no_repeat_ngram_size: 0
+runtime:
+  output: checkpoints/v2-retention-pilot/latest.pt
+  best_output: checkpoints/v2-retention-pilot/best-loss.pt
+  log_file: logs/v2-retention-pilot.log
+  report_json: reports/v2-retention-pilot/training.json

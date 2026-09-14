@@ -77,6 +77,7 @@ class ConfiguredModelBackend:
         tensor_parallel_size: int = 1,
         mcp: dict | None = None,
         allow_checkpoint_fallback: bool = False,
+        embed_safety_instruction: bool = True,
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
@@ -85,6 +86,7 @@ class ConfiguredModelBackend:
         self.generator: Generator | None = None
         self.session_store_path = Path(session_store_path) if session_store_path else None
         self.system_prompt = system_prompt
+        self.embed_safety_instruction = embed_safety_instruction
         self.response_format = response_format
         self.context_tokens = context_tokens
         self.web_search = web_search or {}
@@ -196,10 +198,10 @@ class ConfiguredModelBackend:
         config = adapt_config_to_tokenizer(config, tokenizer)
 
         try:
-            model = MiniGPT.from_config(config, device=device)
+            model = MiniGPT.from_config(config, device="cpu")
             load_checkpoint(
-                self.checkpoint_path, model, map_location=device, use_ema=True,
-                **checkpoint_tokenizer_options(tokenizer),
+                self.checkpoint_path, model, use_ema=True, restore_rng=False,
+                **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
             )
         except RuntimeError as error:
             # Retry with the other v2 hardware profile if architecture selection was wrong.
@@ -208,16 +210,17 @@ class ConfiguredModelBackend:
                 logger.info("Retrying checkpoint load with alternate config: %s", alt_config_path)
                 alt_config = load_yaml(alt_config_path)
                 alt_config = adapt_config_to_tokenizer(alt_config, tokenizer)
-                model = MiniGPT.from_config(alt_config, device=device)
+                model = MiniGPT.from_config(alt_config, device="cpu")
                 load_checkpoint(
-                    self.checkpoint_path, model, map_location=device, use_ema=True,
-                    **checkpoint_tokenizer_options(tokenizer),
+                    self.checkpoint_path, model, use_ema=True, restore_rng=False,
+                    **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
                 )
                 self.model_config = alt_config_path
                 config = alt_config
             else:
                 raise error
 
+        model.to(device)
         if self.tensor_parallel_size > 1:
             parallelize_minigpt(model)
 
@@ -293,7 +296,8 @@ class ConfiguredModelBackend:
             allow_special_tokens=True,
         )
         response_format = request.response_format or getattr(self, "response_format", None)
-        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
+        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
+                                             include_safety_instruction=getattr(self, "embed_safety_instruction", True))
         prompt = ConfiguredModelBackend._format_request_conversation(
             self, request, system_prompt, user_prompt
         )
@@ -389,7 +393,8 @@ class ConfiguredModelBackend:
                 return state
             user_prompt = await self._augment_with_mcp(request, user_prompt)
             response_format = request.response_format or self.response_format
-            system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
+            system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
+                                                 include_safety_instruction=getattr(self, "embed_safety_instruction", True))
             prompt = self._format_request_conversation(
                 request, system_prompt, user_prompt
             )
@@ -548,7 +553,8 @@ class ConfiguredModelBackend:
             return
         user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
         response_format = request.response_format or getattr(self, "response_format", None)
-        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode)
+        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
+                                             include_safety_instruction=getattr(self, "embed_safety_instruction", True))
         prompt = ConfiguredModelBackend._format_request_conversation(
             self, request, system_prompt, user_prompt
         )
@@ -893,6 +899,7 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         device=device or os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
         session_store_path=os.getenv("GOPI_SESSION_STORE", str(serving.get("session_store_path", "data/cache/sessions.sqlite"))),
         system_prompt=str(inference.get("system_prompt", "You are Gopi, a helpful assistant.")),
+        embed_safety_instruction=bool(inference.get("embed_safety_instruction", True)),
         response_format=os.getenv("GOPI_RESPONSE_FORMAT", str(inference.get("response_format", "plain"))),
         context_tokens=int((inference.get("context_memory") or {}).get("max_tokens", 1536)),
         web_search=inference.get("web_search") if isinstance(inference.get("web_search"), dict) else {},

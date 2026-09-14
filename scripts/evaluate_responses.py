@@ -56,8 +56,8 @@ def main():
     # Load the full checkpoint on CPU, then transfer only model weights to GPU.
     model = MiniGPT.from_config(model_config, device='cpu')
     payload = load_checkpoint(args.checkpoint, model, use_ema=args.weights == 'ema',
-                              restore_rng=False, **checkpoint_tokenizer_options(tokenizer))
-    ema_used = args.weights == 'ema' and bool((payload.get('ema') or {}).get('shadow'))
+                              restore_rng=False, **checkpoint_tokenizer_options(tokenizer, allow_extension=False))
+    ema_used = payload['ema_applied']
     report = {'checkpoint': str(args.checkpoint), 'step': payload.get('step'),
               'created_at': datetime.now(timezone.utc).isoformat(),
               'weights_requested': args.weights, 'ema_used': ema_used,
@@ -77,6 +77,7 @@ def main():
     system_prompt = format_system_prompt(
         str(inference_config.get('system_prompt', 'You are Gopi, a helpful assistant. Answer clearly and briefly.')),
         str(inference_config.get('response_format', 'plain')),
+        include_safety_instruction=bool(inference_config.get('embed_safety_instruction', True)),
     )
     report['system_prompt'] = system_prompt
     args.output.parent.mkdir(parents=True, exist_ok=True)

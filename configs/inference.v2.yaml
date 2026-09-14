@@ -1,0 +1,6 @@
+# Use the completed v2 checkpoint with the exact tokenizer that trained it.
+# Mount this drive first; CLI --checkpoint/--tokenizer override these paths.
+extends: inference.yaml
+serving:
+  tokenizer_path: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/tokenizer-finetuning-v2
+  checkpoint_path: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2/best.pt

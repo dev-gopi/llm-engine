@@ -24,6 +24,13 @@ def test_extract_pair_uses_last_completed_user_assistant_turn() -> None:
     assert pair == ("second", "two")
 
 
+def test_prompt_identity_normalizes_unicode_without_dropping_code_operators():
+    from scripts.prepare_recovery_sft import prompt_key
+    assert prompt_key("ＡＢＣ") == prompt_key("abc")
+    assert prompt_key("a % b") != prompt_key("a + b")
+    assert prompt_key("café") == prompt_key("cafe\u0301")
+
+
 def test_quality_filter_rejects_placeholders_and_heavy_repetition() -> None:
     assert quality_pair(("Who are you?", "I am {name}.")) is None
     repeated = "word one two " * 20

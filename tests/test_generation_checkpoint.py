@@ -43,6 +43,19 @@ def test_saves_exact_evaluated_ema_weights(tmp_path):
     torch.testing.assert_close(loaded.weight, expected)
 
 
+def test_retention_rejects_higher_average_that_loses_a_preserved_case(tmp_path):
+    model = torch.nn.Linear(2, 2)
+    path = tmp_path / "retained.pt"
+    def save(accuracy, scores):
+        return save_best_generation(path, model, accuracy=accuracy,
+                                    evaluation_signature="fixed", step=1, metadata={},
+                                    case_scores=scores, preserve_passed=True)
+    assert save(1 / 3, {"en": 1, "bn": 0, "hi": 0})
+    assert not save(2 / 3, {"en": 0, "bn": 1, "hi": 1})
+    assert save(2 / 3, {"en": 1, "bn": 1, "hi": 0})
+    assert not save(2 / 3, {"en": 1, "bn": 0, "hi": 1})
+
+
 @pytest.mark.parametrize('score', [float('nan'), float('inf'), -1, 2])
 def test_rejects_invalid_score(tmp_path, score):
     with pytest.raises(ValueError, match='accuracy'):

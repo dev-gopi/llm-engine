@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from collections.abc import Iterable
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 from torch import Tensor
 
@@ -43,6 +44,8 @@ class Trainer:
         self.device = torch.device(device)
         self.global_step = 0
         self.micro_step = 0
+        self._accumulation_tokens = 0
+        self._token_normalized_window = False
         self.current_epoch = 0
         self.batch_in_epoch = 0
         self.best_validation_loss = float("inf")
@@ -90,6 +93,8 @@ class Trainer:
         self.model.train()
         if self.micro_step % self.gradient_accumulation_steps == 0:
             self.opt.zero_grad(set_to_none=True)
+            self._accumulation_tokens = 0
+            self._token_normalized_window = False
         attention_mask = None
         loss_mask = None
         is_batch = isinstance(inputs, Mapping)
@@ -124,10 +129,22 @@ class Trainer:
             self.nonfinite_updates += 1
             self.opt.zero_grad(set_to_none=True)
             self.micro_step = 0
+            self._accumulation_tokens = 0
             raise FloatingPointError(
                 f"non-finite training loss at optimizer step {self.global_step}"
             )
-        self.scaler.scale(loss / self.gradient_accumulation_steps).backward()
+        # Mean-of-means overweights short answers. Accumulate token sums and
+        # normalize once over the complete window, including a partial epoch.
+        # The fixed scale keeps backward magnitudes near ordinary mean loss;
+        # it cancels exactly in _optimizer_step and is identical on all ranks.
+        self._token_normalized_window = (
+            isinstance(details, LanguageModelLossOutput) and loss_function.reduction == "mean"
+        )
+        backward_loss = loss
+        if self._token_normalized_window:
+            self._accumulation_tokens += details.token_count
+            backward_loss = loss * (details.token_count / 1024.0)
+        self.scaler.scale(backward_loss / self.gradient_accumulation_steps).backward()
         self.tokens_processed += (details.token_count if isinstance(details, LanguageModelLossOutput)
                                   else self._count_target_tokens(
                                       targets, loss_mask, getattr(loss_function, "shift_labels", is_batch),
@@ -140,6 +157,25 @@ class Trainer:
         return float(loss.detach().item())
 
     def _optimizer_step(self) -> bool:
+        if self._token_normalized_window:
+            count = torch.tensor(float(self._accumulation_tokens), device=self.device,
+                                 dtype=torch.float32 if self.device.type == "mps" else torch.float64)
+            world_size = 1
+            if dist.is_available() and dist.is_initialized():
+                dist.all_reduce(count, op=dist.ReduceOp.SUM)
+                world_size = dist.get_world_size()
+            total_tokens = float(count.item())
+            if not total_tokens:
+                # Do not apply AdamW decay, advance LR, or update EMA when a
+                # truncation/mask leaves the entire window without targets.
+                self.opt.zero_grad(set_to_none=True)
+                return False
+            # DDP/FSDP average gradients across ranks, so undo that average
+            # before dividing by the global number of supervised tokens.
+            correction = 1024.0 * self.gradient_accumulation_steps * world_size / total_tokens
+            for parameter in self.model.parameters():
+                if parameter.grad is not None:
+                    parameter.grad.mul_(correction)
         self.scaler.unscale_(self.opt)
         if self.gradient_clip_norm is not None:
             # FSDP must aggregate sharded gradient norms collectively.
@@ -222,7 +258,7 @@ class Trainer:
     def flush_gradients(self) -> None:
         remainder = self.micro_step % self.gradient_accumulation_steps
         if remainder:
-            correction = self.gradient_accumulation_steps / remainder
+            correction = 1.0 if self._token_normalized_window else self.gradient_accumulation_steps / remainder
             for parameter in self.model.parameters():
                 if parameter.grad is not None:
                     parameter.grad.mul_(correction)

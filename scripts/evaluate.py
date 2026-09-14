@@ -52,11 +52,12 @@ def main() -> None:
             f"Use a matching config (e.g. max_sequence_length <= {max_pos}) or a model config with max_position >= {max_seq_len}."
         )
     device = resolve_device(args.device)
-    model = MiniGPT.from_config(model_config, device=device)
+    model = MiniGPT.from_config(model_config, device="cpu")
     load_checkpoint(
-        args.checkpoint, model, map_location=device, use_ema=True,
-        **checkpoint_tokenizer_options(tokenizer),
+        args.checkpoint, model, use_ema=True, restore_rng=False,
+        **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
+    model.to(device)
     paths = args.dataset or config.get("validation_files") or config["train_files"]
     loader = build_loader(paths, tokenizer, config, shuffle=False)
     metrics = Evaluator(

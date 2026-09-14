@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from contextlib import nullcontext
 from collections.abc import Iterable, Mapping
 
 import torch
@@ -49,10 +50,12 @@ class Evaluator:
         loss_fn: CausalLanguageModelLoss | None = None,
         device: str | torch.device = "cpu",
         mixed_precision: str = "none",
+        ema=None,
     ) -> None:
         self.model = model
         self.device = torch.device(device)
         self.loss_fn = loss_fn or CausalLanguageModelLoss(shift_labels=True, reduction="mean")
+        self.ema = ema
         if mixed_precision not in {"none", "fp16", "bf16"}:
             raise ValueError("mixed_precision must be none, fp16, or bf16")
         if mixed_precision == "fp16" and self.device.type != "cuda":
@@ -74,6 +77,13 @@ class Evaluator:
 
     @torch.inference_mode()
     def evaluate(self, dataloader: Iterable[Mapping[str, Tensor]], *, max_batches: int | None = None) -> dict[str, float | int]:
+        if max_batches is not None and max_batches < 1:
+            raise ValueError("max_batches must be positive")
+        context = self.ema.average_parameters(self.model, backup_device="cpu") if self.ema else nullcontext()
+        with context:
+            return self._evaluate(dataloader, max_batches=max_batches)
+
+    def _evaluate(self, dataloader, *, max_batches=None):
         was_training = self.model.training
         self.model.eval()
         # Keep scalar metrics on-device until evaluation (and reduction) ends.

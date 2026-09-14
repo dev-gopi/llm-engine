@@ -91,16 +91,17 @@ def main() -> None:
     checkpoint_path = args.checkpoint
     print(f"Loading checkpoint: {checkpoint_path}")
     device = resolve_device(args.device)
-    model = MiniGPT.from_config(model_config, device=device)
+    model = MiniGPT.from_config(model_config, device="cpu")
     load_checkpoint(
-        checkpoint_path, model, map_location=device, use_ema=True,
-        **checkpoint_tokenizer_options(tokenizer),
+        checkpoint_path, model, use_ema=True, restore_rng=False,
+        **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
 
     response_format = args.response_format or str(inference_config.get("response_format", "plain"))
     system_prompt = format_system_prompt(
         str(inference_config.get("system_prompt", "You are Gopi, a helpful, honest, and friendly AI assistant.")),
         response_format,
+        include_safety_instruction=bool(inference_config.get("embed_safety_instruction", True)),
     )
     prompt = args.prompt
     search_results = []

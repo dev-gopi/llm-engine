@@ -17,6 +17,23 @@ def test_dataset_mixture_weights_are_dataset_level_probabilities() -> None:
     assert groups == [(0, 2, 0.25), (2, 10, 0.75)]
 
 
+@pytest.mark.parametrize("weights", [
+    {"recovery_chat": 0.5, "aya_hindi": 0.5},
+    {"chat": 0.5},
+    {"chat": 0.5, "aya_hindi": 0.5, "typo": 0.1},
+])
+def test_mixture_rejects_silent_fallback_weights(weights):
+    with pytest.raises(ValueError, match="dataset_weights must match"):
+        _mixture_groups(["recovery_sft/chat/train.jsonl", "aya_hindi/train.jsonl"],
+                        [10, 20], {"dataset_weights": weights})
+
+
+@pytest.mark.parametrize("weight", [float("nan"), float("inf"), -1])
+def test_mixture_rejects_nonfinite_or_negative_weights(weight):
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        _mixture_groups(["chat/train.jsonl"], [10], {"dataset_weights": {"chat": weight}})
+
+
 def test_mixture_name_distinguishes_files_in_shared_directory() -> None:
     configured = {"wikipedia_en": 0.01, "wikipedia_bn": 0.02}
 

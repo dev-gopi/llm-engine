@@ -1,5 +1,6 @@
 import torch
 import pytest
+import copy
 
 from datasets.collator import Collator
 from model.gpt import MiniGPT
@@ -7,6 +8,43 @@ from optim.adamw import build_adamw
 from optim.ema import EMA
 from optim.scheduler import Scheduler
 from training.trainer import Trainer
+
+
+@pytest.mark.parametrize("accumulation", [2, 4])
+def test_unequal_masked_microbatches_match_full_batch_update(accumulation):
+    torch.manual_seed(17)
+    full = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    split = copy.deepcopy(full)
+    items = [
+        {"input_ids": torch.tensor([1, 2, 3]), "loss_mask": torch.tensor([0, 0, 1])},
+        {"input_ids": torch.tensor([4, 5, 6, 7, 8, 9]),
+         "loss_mask": torch.tensor([0, 1, 1, 1, 1, 1])},
+    ]
+    full_trainer = Trainer(full, torch.optim.SGD(full.parameters(), lr=0.05), gradient_clip_norm=None)
+    split_trainer = Trainer(split, torch.optim.SGD(split.parameters(), lr=0.05),
+                            gradient_clip_norm=None, gradient_accumulation_steps=accumulation)
+    full_trainer.train_step(Collator(0)(items))
+    for item in items:
+        split_trainer.train_step(Collator(0)([item]))
+    split_trainer.flush_gradients()
+    assert split_trainer.global_step == full_trainer.global_step == 1
+    for actual, expected in zip(split.parameters(), full.parameters()):
+        torch.testing.assert_close(actual, expected, rtol=2e-5, atol=2e-7)
+
+
+def test_empty_supervision_window_does_not_decay_weights_or_advance_schedule():
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=0.01, weight_decay=0.1)
+    scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=3)
+    trainer = Trainer(model, optimizer, scheduler=scheduler)
+    before = copy.deepcopy(model.state_dict())
+    trainer.train_step(Collator(0)([{
+        "input_ids": torch.tensor([1, 2, 3]), "loss_mask": torch.tensor([0, 0, 0]),
+    }]))
+    assert trainer.global_step == 0
+    assert scheduler.last_epoch == 0
+    for name, value in model.state_dict().items():
+        torch.testing.assert_close(value, before[name], rtol=0, atol=0)
 
 
 def test_dataset_batch_trains_model_optimizer_scheduler_and_ema() -> None:

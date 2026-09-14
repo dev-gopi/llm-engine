@@ -66,6 +66,16 @@ class Tokenizer:
         self.bpe = BPE(merges)
         self.metadata = dict(metadata or {})
         self.tokenizer_type = tokenizer_type
+        # Artifacts are immutable during encoding. Build the 2K/4K-token
+        # extension matcher once instead of rebuilding it for every message.
+        self._added_token_ids = {
+            text: self.vocab[self._text_to_piece(text)] for text in self.added_tokens
+        }
+        self._added_pattern = (
+            re.compile("(" + "|".join(
+                re.escape(token) for token in sorted(self._added_token_ids, key=len, reverse=True)
+            ) + ")") if self._added_token_ids else None
+        )
 
     @property
     def vocab_size(self) -> int:
@@ -201,19 +211,13 @@ class Tokenizer:
     def _encode_ordinary(self, text: str) -> list[int]:
         identifiers: list[int] = []
         chunks = [text]
-        if self.added_tokens:
-            added_pattern = re.compile(
-                "(" + "|".join(
-                    re.escape(token) for token in sorted(self.added_tokens, key=len, reverse=True)
-                ) + ")"
-            )
-            chunks = added_pattern.split(text)
+        if self._added_pattern is not None:
+            chunks = self._added_pattern.split(text)
         for chunk in chunks:
             if not chunk:
                 continue
-            if chunk in self.added_tokens:
-                piece = self._text_to_piece(chunk)
-                identifiers.append(self.vocab[piece])
+            if chunk in self._added_token_ids:
+                identifiers.append(self._added_token_ids[chunk])
                 continue
             identifiers.extend(self._encode_bpe_chunk(chunk))
         return identifiers

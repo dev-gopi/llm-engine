@@ -37,3 +37,18 @@ def test_unrelated_vocabulary_size_is_rejected():
     tokenizer = make_tokenizer()
     with pytest.raises(ValueError, match="not a verified append-only extension"):
         adapt_config_to_tokenizer({"vocab_size": tokenizer.vocab_size - 1}, tokenizer)
+
+
+def test_inference_rejects_untrained_tokenizer_extension(tmp_path):
+    from model.gpt import MiniGPT
+    from training.checkpoint import load_checkpoint, save_checkpoint
+    base = make_tokenizer()
+    extended = base.extend(["নতুন", "नया"])
+    model = MiniGPT(vocab_size=base.vocab_size, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(tmp_path / "base.pt", model,
+                           metadata={"tokenizer_fingerprint": base.fingerprint})
+    target = MiniGPT(vocab_size=extended.vocab_size, dim=8, layers=1, heads=2, max_pos=8)
+    with pytest.raises(ValueError, match="fingerprint"):
+        load_checkpoint(path, target, restore_rng=False,
+                        **checkpoint_tokenizer_options(extended, allow_extension=False))
+    load_checkpoint(path, target, restore_rng=False, **checkpoint_tokenizer_options(extended))

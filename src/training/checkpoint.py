@@ -169,7 +169,7 @@ def load_checkpoint(
         "metadata": payload.get("metadata", {}),
         "trainer": payload.get("trainer", {}),
         "sampler": payload.get("sampler", {}),
-        "ema_applied": bool(use_ema and payload.get("ema")),
+        "ema_applied": bool(use_ema and (payload.get("ema") or {}).get("shadow")),
     }
 
 

@@ -47,11 +47,12 @@ def main() -> None:
     except ValueError as error:
         parser.error(str(error))
     device = resolve_device(args.device)
-    model = MiniGPT.from_config(model_config, device=device)
+    model = MiniGPT.from_config(model_config, device="cpu")
     load_checkpoint(
-        args.checkpoint, model, map_location=device, use_ema=True,
-        **checkpoint_tokenizer_options(tokenizer),
+        args.checkpoint, model, use_ema=True, restore_rng=False,
+        **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
+    model.to(device)
     evaluator = Evaluator(
         model,
         loss_fn=CausalLanguageModelLoss.from_config(training_config),

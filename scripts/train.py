@@ -31,7 +31,7 @@ from tokenizer.encoder import Tokenizer
 from training.generation_checkpoint import save_best_generation
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
-from training.data import build_loader
+from training.data import build_loader, _mixture_groups
 from training.distributed import DistributedTrainer
 from training.evaluator import Evaluator
 from training.trainer import Trainer
@@ -143,6 +143,17 @@ def main() -> None:
     })
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
+    if config.get("require_init_from", False) and not (args.init_from or args.resume):
+        parser.error("this post-training profile requires --init-from a completed checkpoint (or --resume its own interrupted run)")
+    if args.init_from and args.init_from.resolve() in {args.output.resolve(), args.best_output.resolve()}:
+        parser.error("new-stage output paths must differ from --init-from; preserve the completed checkpoint")
+    # Fail before archiving logs or starting the report watcher.
+    if config.get("require_cuda", False) and not torch.cuda.is_available():
+        parser.error("this training profile requires CUDA; the completed checkpoint can still be evaluated on CPU")
+    try:
+        _mixture_groups(config.get("train_files", []), [1] * len(config.get("train_files", [])), config)
+    except ValueError as error:
+        parser.error(str(error))
 
     generation_output_path = (
         Path(generation_config["output"])
@@ -224,7 +235,7 @@ def main() -> None:
         load_checkpoint(
             args.init_from,
             model,
-            map_location=distributed.device,
+            map_location="cpu",
             use_ema=False,
             restore_rng=False,
             expected_tokenizer_fingerprint=tokenizer.fingerprint,
@@ -365,6 +376,7 @@ def main() -> None:
             loss_fn=loss_fn,
             device=distributed.device,
             mixed_precision=precision,
+            ema=ema if config.get("validation_use_ema", False) else None,
         )
 
     generation_cases: list[BenchmarkCase] = []
@@ -384,10 +396,14 @@ def main() -> None:
                 ))
         if not generation_cases:
             parser.error("generation evaluation cases file is empty")
+        if len({(case.category, case.prompt) for case in generation_cases}) != len(generation_cases):
+            parser.error("generation evaluation cases must be unique")
         generation_output = Path(generation_config.get("output", "reports/generation_quality.json"))
         if generation_config.get("best_output"):
             generation_best = Path(generation_config["best_output"]).resolve()
-            if generation_best in {Path(args.output).resolve(), Path(args.best_output).resolve()}:
+            protected_paths = {Path(args.output).resolve(), Path(args.best_output).resolve()}
+            protected_paths.update(path.resolve() for path in (args.init_from, args.resume) if path)
+            if generation_best in protected_paths:
                 parser.error("generation_evaluation.best_output must differ from training checkpoint paths")
         if int(generation_config.get("max_tokens", 64)) < 1:
             parser.error("generation_evaluation.max_tokens must be positive")
@@ -395,6 +411,10 @@ def main() -> None:
             parser.error("generation_evaluation.repetition_penalty must be positive")
         if int(generation_config.get("no_repeat_ngram_size", 0)) < 0:
             parser.error("generation_evaluation.no_repeat_ngram_size must be non-negative")
+        if generation_config.get("weights", "ema") not in {"ema", "model"}:
+            parser.error("generation_evaluation.weights must be ema or model")
+        if generation_config.get("preserve_passed", False) and not generation_config.get("best_output"):
+            parser.error("generation_evaluation.preserve_passed requires best_output")
 
     last_generation_step: int | None = None
 
@@ -417,10 +437,12 @@ def main() -> None:
                 system_prompt = format_system_prompt(
                     str(inference_config.get("system_prompt", "You are Gopi, a helpful assistant.")),
                     str(inference_config.get("response_format", "plain")),
+                    include_safety_instruction=bool(inference_config.get("embed_safety_instruction", True)),
                 )
+                use_generation_ema = ema is not None and generation_config.get("weights", "ema") == "ema"
                 parameter_context = (
                     ema.average_parameters(training_model, backup_device="cpu")
-                    if ema is not None else nullcontext()
+                    if use_generation_ema else nullcontext()
                 )
                 with parameter_context:
                     generator = Generator(model, tokenizer, device=distributed.device)
@@ -455,15 +477,20 @@ def main() -> None:
                             "repetition_penalty": float(generation_config.get("repetition_penalty", 1.05)),
                             "no_repeat_ngram_size": int(generation_config.get("no_repeat_ngram_size", 0)),
                             "tokenizer": tokenizer.fingerprint,
-                            "ema_used": ema is not None,
+                            "ema_used": use_generation_ema,
+                            "scorer_version": 2,
+                            "preserve_passed": bool(generation_config.get("preserve_passed", False)),
                         }, sort_keys=True).encode()).hexdigest()
                         if save_best_generation(
                             generation_config["best_output"], model,
                             accuracy=summary["accuracy"], evaluation_signature=signature,
                             step=current.global_step,
+                            case_scores={json.dumps([case.category, case.prompt], ensure_ascii=False): score
+                                         for case, score in scored},
+                            preserve_passed=bool(generation_config.get("preserve_passed", False)),
                             metadata={"model_config": model_config,
                                       "tokenizer_fingerprint": tokenizer.fingerprint,
-                                      "ema_used": ema is not None},
+                                      "ema_used": use_generation_ema},
                         ):
                             logger.info("new_best_generation step=%d accuracy=%.4f checkpoint=%s",
                                         current.global_step, summary["accuracy"],
@@ -471,7 +498,7 @@ def main() -> None:
 
                 report = {
                     "checkpoint": str(args.output), "step": current.global_step,
-                    "epoch": epoch + 1, "ema_used": ema is not None,
+                    "epoch": epoch + 1, "ema_used": use_generation_ema,
                     "summary": summary, "results": results,
                 }
                 generation_output.parent.mkdir(parents=True, exist_ok=True)
@@ -506,10 +533,22 @@ def main() -> None:
                     time.perf_counter() - started,
                 )
             except Exception:
-                logger.exception("generation evaluation failed at step=%d; training will continue", current.global_step)
+                if generation_config.get("preserve_passed", False):
+                    # A required retention check must not silently fail open.
+                    # All ranks receive this failure after the barrier below.
+                    summary = {"retention_evaluation_failed": True}
+                logger.exception("generation evaluation failed at step=%d; required=%s", current.global_step,
+                                 bool(generation_config.get("preserve_passed", False)))
             finally:
                 model.train(was_training)
         DistributedTrainer.barrier(distributed)
+        if generation_config.get("preserve_passed", False):
+            failed = torch.tensor(int(bool(summary and summary.get("retention_evaluation_failed"))),
+                                  device=distributed.device)
+            if distributed.world_size > 1:
+                torch.distributed.all_reduce(failed, op=torch.distributed.ReduceOp.MAX)
+            if failed.item():
+                raise RuntimeError("required retention evaluation failed; training stopped")
         return summary
 
     def checkpoint_callback(current: Trainer, epoch: int) -> None:
@@ -568,6 +607,9 @@ def main() -> None:
             metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint},
             trainer=current.state_dict(), sampler=sampler_state,
         )
+
+    if generation_config.get("evaluate_at_start", False) and generation_cases:
+        validation_generation_callback(trainer, trainer.current_epoch - 1, {}, {})
 
     logger.info("Starting training at optimizer step %d; batch_size=%s accumulation=%d log_every=%s",
                 trainer.global_step, config.get("batch_size"), accumulation, config.get("log_every", 10))

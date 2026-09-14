@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+import math
 from pathlib import Path
 from typing import Any
 
@@ -30,13 +31,22 @@ def _mixture_groups(paths: list[str | Path], dataset_sizes: list[int], config: M
         return None
     if not isinstance(configured, Mapping):
         raise ValueError("dataset_weights must be a mapping")
+    names = [_mixture_name(path, configured) for path in paths]
+    missing = set(names) - set(configured)
+    unused = set(configured) - set(names)
+    if missing or unused:
+        raise ValueError(
+            "dataset_weights must match every training source; "
+            f"missing={sorted(missing)}, unused={sorted(unused)}. "
+            "Use the dataset directory name or a distinct filename stem."
+        )
     result: list[tuple[int, int, float]] = []
     start = 0
     for path, size in zip(paths, dataset_sizes, strict=True):
         name = _mixture_name(path, configured)
-        weight = float(configured.get(name, 1.0))
-        if weight < 0:
-            raise ValueError(f"dataset weight must be non-negative: {name}")
+        weight = float(configured[name])
+        if not math.isfinite(weight) or weight < 0:
+            raise ValueError(f"dataset weight must be finite and non-negative: {name}")
         if size:
             result.append((start, start + size, weight))
         start += size
@@ -55,6 +65,9 @@ def build_loader(
     world_size: int = 1,
 ) -> DataLoader:
     paths = list(paths)
+    # Check names before indexing potentially multi-gigabyte corpora.
+    if shuffle and config.get("dataset_weights"):
+        _mixture_groups(paths, [1] * len(paths), config)
     if paths and all(Path(path).name == "manifest.json" for path in paths):
         shard_datasets = [TokenShardDataset(path) for path in paths]
         expected = int(config.get("max_sequence_length", shard_datasets[0].sequence_length))
