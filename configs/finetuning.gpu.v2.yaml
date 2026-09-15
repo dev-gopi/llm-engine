@@ -100,17 +100,19 @@ validation_domains:
     - data/processed/tool_calling/validation.jsonl
     - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/code_pretraining/validation.jsonl
 validation_weights:
-  bengali: 0.17
-  hindi: 0.17
-  math: 0.17
-  chat: 0.19
-  english: 0.15
+  chat: 0.27
+  english: 0.23
+  math: 0.15
   coding: 0.15
+  bengali: 0.10
+  hindi: 0.10
 validation_metric_name: dataset_weighted_v5_balanced_sources_ema
 # Bound each capability domain so validation provides timely feedback instead
 # of scanning all ~143k records. Log progress throughout the sampled pass.
-validation_max_batches: 250
-validation_progress_every: 25
+validation_max_batches: 750
+validation_progress_every: 50
+validation_seed: 2026
+validation_fixed_subset: true
 validation_balance_sources: true
 validation_use_ema: true
 learning_rate: 0.000005
