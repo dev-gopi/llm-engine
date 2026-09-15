@@ -5,6 +5,7 @@ batch_size: 4
 validation_batch_size: 4
 epochs: 2
 seed: 84
+require_cuda: true
 dataset_governance:
   policy: warn
   stage: sft
@@ -100,6 +101,10 @@ validation_weights:
   english: 0.15
   coding: 0.15
 validation_metric_name: dataset_weighted_v4_finetuning_v2
+# Bound each capability domain so validation provides timely feedback instead
+# of scanning all ~143k records. Log progress throughout the sampled pass.
+validation_max_batches: 250
+validation_progress_every: 25
 learning_rate: 0.000005
 weight_decay: 0.01
 beta1: 0.9
@@ -116,7 +121,8 @@ ema_decay: 0.999
 log_every: 25
 log_interval_seconds: null
 checkpoint_every: 500
-evaluate_every: 1000
+# Validate soon enough for plateau-driven LR changes to affect more of the run.
+evaluate_every: 500
 generation_evaluation:
   enabled: true
   cases: configs/evaluation.domains.jsonl

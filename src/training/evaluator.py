@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from contextlib import nullcontext
 from collections.abc import Iterable, Mapping
 
@@ -76,7 +77,14 @@ class Evaluator:
         self.autocast_dtype = torch.float16 if mixed_precision == "fp16" else torch.bfloat16
 
     @torch.inference_mode()
-    def evaluate(self, dataloader: Iterable[Mapping[str, Tensor]], *, max_batches: int | None = None) -> dict[str, float | int]:
+    def evaluate(
+        self,
+        dataloader: Iterable[Mapping[str, Tensor]],
+        *,
+        max_batches: int | None = None,
+        progress_every: int = 0,
+        label: str = "validation",
+    ) -> dict[str, float | int]:
         """Measure validation loss without updating model or optimizer state.
 
         ``inference_mode`` disables autograd for the entire validation pass.
@@ -85,13 +93,25 @@ class Evaluator:
         """
         if max_batches is not None and max_batches < 1:
             raise ValueError("max_batches must be positive")
+        if progress_every < 0:
+            raise ValueError("progress_every must be non-negative")
         context = self.ema.average_parameters(self.model, backup_device="cpu") if self.ema else nullcontext()
         with context:
-            return self._evaluate(dataloader, max_batches=max_batches)
+            return self._evaluate(
+                dataloader, max_batches=max_batches,
+                progress_every=progress_every, label=label,
+            )
 
-    def _evaluate(self, dataloader, *, max_batches=None):
+    def _evaluate(self, dataloader, *, max_batches=None, progress_every=0, label="validation"):
         was_training = self.model.training
         self.model.eval()
+        started = time.perf_counter()
+        available_batches = len(dataloader) if hasattr(dataloader, "__len__") else None
+        target_batches = (
+            min(available_batches, max_batches)
+            if available_batches is not None and max_batches is not None
+            else max_batches or available_batches
+        )
         # Keep scalar metrics on-device until evaluation (and reduction) ends.
         metric_dtype = torch.float32 if self.device.type == "mps" else torch.float64
         totals = torch.zeros(5, dtype=metric_dtype, device=self.device)
@@ -125,6 +145,23 @@ class Evaluator:
                 totals[:3].add_(torch.stack((details.loss, details.cross_entropy,
                                              details.z_loss)).to(metric_dtype), alpha=weight)
                 token_count += details.token_count
+                if (
+                    progress_every
+                    and batch_count % progress_every == 0
+                    and (not dist.is_initialized() or dist.get_rank() == 0)
+                ):
+                    elapsed = time.perf_counter() - started
+                    eta = (
+                        elapsed * (target_batches - batch_count) / batch_count
+                        if target_batches is not None else float("nan")
+                    )
+                    logger.info(
+                        "validation_progress name=%s batches=%d/%s elapsed_seconds=%.1f "
+                        "eta_seconds=%.1f",
+                        label, batch_count,
+                        target_batches if target_batches is not None else "?",
+                        elapsed, max(0.0, eta),
+                    )
         finally:
             self.model.train(was_training)
         totals[3] = token_count

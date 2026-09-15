@@ -1,12 +1,13 @@
 import logging
 import random
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import torch
 
 from utils.config import load_yaml
-from utils.device import resolve_device
+from utils.device import resolve_device, verify_cuda_health
 from utils.logger import configure_logging, get_logger
 from utils.seed import set_seed
 
@@ -37,6 +38,22 @@ def test_device_and_logger_helpers() -> None:
     logger = get_logger("tests")
     assert isinstance(logger, logging.Logger)
     assert logger.name == "llm_engine.tests"
+
+
+def test_cuda_health_check_executes_and_synchronizes() -> None:
+    with patch("utils.device.torch.zeros") as zeros, patch(
+        "utils.device.torch.cuda.synchronize"
+    ) as synchronize:
+        verify_cuda_health()
+
+    zeros.assert_called_once_with(1, device="cuda")
+    synchronize.assert_called_once_with()
+
+
+def test_cuda_health_check_has_actionable_driver_error() -> None:
+    with patch("utils.device.torch.zeros", side_effect=RuntimeError("driver lost")):
+        with pytest.raises(RuntimeError, match="nvidia-smi"):
+            verify_cuda_health()
 
 
 def test_invalid_seed_and_log_level() -> None:

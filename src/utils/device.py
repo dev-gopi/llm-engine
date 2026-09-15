@@ -3,6 +3,20 @@
 import torch
 
 
+def verify_cuda_health() -> None:
+    """Fail when CUDA is advertised but the driver cannot execute work."""
+    try:
+        probe = torch.zeros(1, device="cuda")
+        probe.add_(1)
+        torch.cuda.synchronize()
+        del probe
+    except Exception as error:
+        raise RuntimeError(
+            "CUDA health check failed. Restart the NVIDIA driver or reboot, then "
+            "verify `nvidia-smi` before starting training."
+        ) from error
+
+
 def resolve_device(requested: str | torch.device = "auto") -> torch.device:
     if isinstance(requested, torch.device):
         device = requested

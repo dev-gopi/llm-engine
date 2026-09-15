@@ -274,6 +274,8 @@ class Trainer:
         evaluator=None,
         validation_dataloader=None,
         validation_weights: Mapping[str, float] | None = None,
+        validation_max_batches: int | Mapping[str, int] | None = None,
+        validation_progress_every: int = 0,
         log_every: int = 10,
         log_interval_seconds: float | None = None,
         evaluate_every: int | None = None,
@@ -301,6 +303,13 @@ class Trainer:
             getattr(self.scheduler, "reduce_after_validation", None)
         ):
             raise ValueError("validation-driven LR decay requires a compatible scheduler")
+        if isinstance(validation_max_batches, Mapping):
+            if any(int(value) < 1 for value in validation_max_batches.values()):
+                raise ValueError("validation_max_batches values must be positive")
+        elif validation_max_batches is not None and int(validation_max_batches) < 1:
+            raise ValueError("validation_max_batches must be positive")
+        if validation_progress_every < 0:
+            raise ValueError("validation_progress_every must be non-negative")
         if (
             validation_metric_name is not None
             and validation_metric_name != self.validation_metric_name
@@ -338,15 +347,33 @@ class Trainer:
             return metrics, domains
 
         def evaluate_validation_metrics() -> tuple[dict[str, float | int], dict[str, dict[str, float | int]]]:
+            def batch_limit(name: str | None = None) -> int | None:
+                if isinstance(validation_max_batches, Mapping):
+                    return (
+                        int(validation_max_batches[name])
+                        if name in validation_max_batches else None
+                    )
+                return int(validation_max_batches) if validation_max_batches is not None else None
+
+            def evaluate_loader(loader, name: str | None = None):
+                limit = batch_limit(name)
+                if limit is None and not validation_progress_every:
+                    return evaluator.evaluate(loader)
+                return evaluator.evaluate(
+                    loader, max_batches=limit,
+                    progress_every=validation_progress_every,
+                    label=name or "validation",
+                )
+
             if isinstance(validation_dataloader, Mapping):
                 if validation_weights is None:
                     raise ValueError("validation_weights are required for domain validation loaders")
                 domains = {
-                    str(name): evaluator.evaluate(loader)
+                    str(name): evaluate_loader(loader, str(name))
                     for name, loader in validation_dataloader.items()
                 }
                 return aggregate_domain_metrics(domains, validation_weights), domains
-            return evaluator.evaluate(validation_dataloader), {}
+            return evaluate_loader(validation_dataloader), {}
 
         def log_validation(epoch: int, metrics: Mapping[str, float | int], domains) -> None:
             for domain, domain_metrics in domains.items():
@@ -478,6 +505,11 @@ class Trainer:
                     window_loss = 0.0
                     window_batches = 0
                 if optimizer_stepped and evaluate_every and evaluator and validation_dataloader and self.global_step % evaluate_every == 0:
+                    # Persist the exact training position before a potentially
+                    # long validation pass. A second save below records the
+                    # resulting best-loss, early-stop, and adaptive-LR state.
+                    if checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
+                        save_timed(checkpoint_callback, epoch, "latest_pre_validation")
                     metrics, domains = evaluate_validation()
                     log_validation(epoch, metrics, domains)
                     history.append({

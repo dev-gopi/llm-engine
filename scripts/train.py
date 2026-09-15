@@ -44,6 +44,7 @@ from inference.generator import Generator
 from dotenv import load_dotenv
 
 from utils.config import apply_cli_defaults, load_yaml
+from utils.device import verify_cuda_health
 from utils.logger import configure_logging, get_logger
 from utils.seed import set_seed
 
@@ -152,6 +153,11 @@ def main() -> None:
     # Fail before archiving logs or starting the report watcher.
     if config.get("require_cuda", False) and not torch.cuda.is_available():
         parser.error("this training profile requires CUDA; the completed checkpoint can still be evaluated on CPU")
+    if config.get("require_cuda", False):
+        try:
+            verify_cuda_health()
+        except RuntimeError as error:
+            parser.error(str(error))
     try:
         _mixture_groups(config.get("train_files", []), [1] * len(config.get("train_files", [])), config)
     except ValueError as error:
@@ -621,6 +627,8 @@ def main() -> None:
         train_loader, epochs=epochs, evaluator=evaluator,
         validation_dataloader=validation_loader,
         validation_weights=validation_weights,
+        validation_max_batches=config.get("validation_max_batches"),
+        validation_progress_every=int(config.get("validation_progress_every", 0)),
         log_every=int(config.get("log_every", 10)),
         log_interval_seconds=(
             float(config["log_interval_seconds"])

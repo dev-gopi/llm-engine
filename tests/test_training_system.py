@@ -137,6 +137,47 @@ def test_evaluator_validates_and_falls_back_from_cpu_fp16() -> None:
         Evaluator(model, mixed_precision="fp8")
 
 
+def test_evaluator_caps_batches_and_logs_progress() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    batches = list(make_loader()) * 3
+
+    with patch("training.evaluator.logger.info") as log_info:
+        metrics = Evaluator(model).evaluate(
+            batches, max_batches=2, progress_every=1, label="chat"
+        )
+
+    assert metrics["batches"] == 2
+    messages = [call.args[0] % call.args[1:] for call in log_info.call_args_list]
+    assert any("validation_progress name=chat batches=1/2" in message for message in messages)
+    assert any("validation_progress name=chat batches=2/2" in message for message in messages)
+
+
+def test_trainer_applies_validation_limit_to_each_domain() -> None:
+    class RecordingEvaluator:
+        def __init__(self):
+            self.calls = []
+
+        def evaluate(self, _loader, **kwargs):
+            self.calls.append(kwargs)
+            return {"loss": 2.0, "cross_entropy": 2.0, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    evaluator = RecordingEvaluator()
+    Trainer(model, build_adamw(model)).fit(
+        make_loader(), epochs=1, evaluator=evaluator,
+        validation_dataloader={"chat": make_loader(), "math": make_loader()},
+        validation_weights={"chat": 0.5, "math": 0.5},
+        validation_max_batches=250, validation_progress_every=25,
+        log_every=0,
+    )
+
+    assert evaluator.calls == [
+        {"max_batches": 250, "progress_every": 25, "label": "chat"},
+        {"max_batches": 250, "progress_every": 25, "label": "math"},
+    ]
+
+
 def test_domain_validation_uses_explicit_capability_weights() -> None:
     metrics = aggregate_domain_metrics({
         "tinystories": {
@@ -304,9 +345,11 @@ def test_periodic_latest_checkpoint_contains_same_step_validation_state() -> Non
         validation_metric_name="dataset_weighted_v1",
     )
 
-    assert latest_states[0]["best_validation_loss"] == 2.0
-    assert latest_states[0]["early_stopping_best_loss"] == 2.0
-    assert latest_states[0]["validation_metric_name"] == "dataset_weighted_v1"
+    assert latest_states[0]["global_step"] == 1
+    assert math.isinf(latest_states[0]["best_validation_loss"])
+    assert latest_states[1]["best_validation_loss"] == 2.0
+    assert latest_states[1]["early_stopping_best_loss"] == 2.0
+    assert latest_states[1]["validation_metric_name"] == "dataset_weighted_v1"
 
 
 def test_best_checkpoint_keeps_small_improvement_below_early_stopping_delta() -> None:
