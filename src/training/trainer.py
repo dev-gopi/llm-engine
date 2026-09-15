@@ -282,12 +282,25 @@ class Trainer:
         best_checkpoint_callback=None,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
+        validation_lr_decay_factor: float | None = None,
+        validation_lr_patience: int = 1,
+        validation_lr_min_scale: float = 0.1,
         validation_metric_name: str | None = None,
         validation_callback=None,
         stop_requested=None,
     ) -> list[dict[str, object]]:
         if epochs < 1:
             raise ValueError("epochs must be positive")
+        if validation_lr_decay_factor is not None and not 0 < validation_lr_decay_factor < 1:
+            raise ValueError("validation_lr_decay_factor must be between zero and one")
+        if validation_lr_patience < 1:
+            raise ValueError("validation_lr_patience must be positive")
+        if not 0 < validation_lr_min_scale <= 1:
+            raise ValueError("validation_lr_min_scale must be in (0, 1]")
+        if validation_lr_decay_factor is not None and not callable(
+            getattr(self.scheduler, "reduce_after_validation", None)
+        ):
+            raise ValueError("validation-driven LR decay requires a compatible scheduler")
         if (
             validation_metric_name is not None
             and validation_metric_name != self.validation_metric_name
@@ -352,6 +365,27 @@ class Trainer:
                 float(metrics.get("perplexity", float("nan"))),
                 int(metrics.get("tokens", 0)), int(metrics.get("batches", 0)),
             )
+
+        def update_from_validation(validation_loss: float) -> None:
+            if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
+                self.early_stopping_best_loss = validation_loss
+                self.epochs_without_improvement = 0
+                return
+            self.epochs_without_improvement += 1
+            if (
+                validation_lr_decay_factor is not None
+                and self.epochs_without_improvement % validation_lr_patience == 0
+            ):
+                previous, current = self.scheduler.reduce_after_validation(
+                    validation_lr_decay_factor, min_scale=validation_lr_min_scale
+                )
+                if current < previous:
+                    logger.info(
+                        "validation_lr_decay step=%d loss=%.6f bad_checks=%d "
+                        "scale=%.6f->%.6f lr=%.8g",
+                        self.global_step, validation_loss, self.epochs_without_improvement,
+                        previous, current, self.learning_rate,
+                    )
 
         for epoch in range(self.current_epoch, epochs):
             last_validation_step = None
@@ -456,11 +490,7 @@ class Trainer:
                             history[-1]["generation_evaluation"] = callback_metrics
                     last_validation_step = self.global_step
                     validation_loss = float(metrics["loss"])
-                    if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
-                        self.early_stopping_best_loss = validation_loss
-                        self.epochs_without_improvement = 0
-                    else:
-                        self.epochs_without_improvement += 1
+                    update_from_validation(validation_loss)
                     if validation_loss < self.best_validation_loss:
                         previous_best = self.best_validation_loss
                         self.best_validation_loss = validation_loss
@@ -522,11 +552,7 @@ class Trainer:
                         epoch_record["generation_evaluation"] = callback_metrics
                 validation_loss = float(epoch_record["loss"])
                 if last_validation_step != self.global_step:
-                    if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
-                        self.early_stopping_best_loss = validation_loss
-                        self.epochs_without_improvement = 0
-                    else:
-                        self.epochs_without_improvement += 1
+                    update_from_validation(validation_loss)
                 if validation_loss < self.best_validation_loss:
                     previous_best = self.best_validation_loss
                     self.best_validation_loss = validation_loss

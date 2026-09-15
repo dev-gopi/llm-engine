@@ -99,6 +99,36 @@ def test_evaluator_uses_bf16_autocast_and_restores_training_mode() -> None:
     assert model.training
 
 
+def test_evaluator_does_not_update_training_state() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    model.train()
+    for parameter in model.parameters():
+        parameter.grad = torch.ones_like(parameter)
+
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
+    gradients_before = [parameter.grad.detach().clone() for parameter in model.parameters()]
+    optimizer_before = optimizer.state_dict()
+    grad_modes = []
+    original_forward = model.forward
+
+    def recording_forward(*args, **kwargs):
+        grad_modes.append(torch.is_grad_enabled())
+        return original_forward(*args, **kwargs)
+
+    model.forward = recording_forward
+    Evaluator(model).evaluate(make_loader())
+
+    assert grad_modes and not any(grad_modes)
+    assert model.training
+    for parameter, expected_parameter, expected_gradient in zip(
+        model.parameters(), parameters_before, gradients_before, strict=True
+    ):
+        torch.testing.assert_close(parameter, expected_parameter)
+        torch.testing.assert_close(parameter.grad, expected_gradient)
+    assert optimizer.state_dict() == optimizer_before
+
+
 def test_evaluator_validates_and_falls_back_from_cpu_fp16() -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     assert Evaluator(model, device="cpu", mixed_precision="fp16").mixed_precision == "none"
@@ -148,6 +178,56 @@ def test_early_stopping_tracks_best_validation_epoch() -> None:
     assert len(history) == 3
     assert best_epochs == [0]
     assert trainer.best_validation_loss == 2.0
+
+
+def test_validation_plateau_reduces_remaining_learning_rate_curve() -> None:
+    class FixedEvaluator:
+        def __init__(self):
+            self.losses = iter([2.0, 2.1, 2.1])
+
+        def evaluate(self, _loader):
+            loss = next(self.losses)
+            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    scheduler = Scheduler(
+        optimizer, warmup_steps=0, total_steps=2, schedule="constant"
+    )
+    trainer = Trainer(model, optimizer, scheduler=scheduler)
+
+    trainer.fit(
+        list(make_loader()) * 2, epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        validation_lr_decay_factor=0.5, validation_lr_patience=1,
+        validation_lr_min_scale=0.25,
+    )
+
+    assert trainer.epochs_without_improvement == 1
+    assert scheduler.validation_scale == pytest.approx(0.5)
+    assert trainer.learning_rate == pytest.approx(5e-4)
+
+
+def test_validation_lr_scale_round_trips_in_scheduler_checkpoint() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    scheduler = Scheduler(
+        optimizer, warmup_steps=0, total_steps=4, schedule="constant"
+    )
+    scheduler.reduce_after_validation(0.5, min_scale=0.25)
+
+    restored_optimizer = build_adamw(model, learning_rate=1e-3)
+    restored = Scheduler(
+        restored_optimizer, warmup_steps=0, total_steps=4, schedule="constant"
+    )
+    restored_optimizer.load_state_dict(optimizer.state_dict())
+    restored.load_state_dict(scheduler.state_dict())
+    restored_optimizer.step()
+    restored.step()
+
+    assert restored.validation_scale == pytest.approx(0.5)
+    assert restored_optimizer.param_groups[0]["lr"] == pytest.approx(5e-4)
 
 
 def test_periodic_validation_saves_best_checkpoint_immediately() -> None:

@@ -77,6 +77,12 @@ class Evaluator:
 
     @torch.inference_mode()
     def evaluate(self, dataloader: Iterable[Mapping[str, Tensor]], *, max_batches: int | None = None) -> dict[str, float | int]:
+        """Measure validation loss without updating model or optimizer state.
+
+        ``inference_mode`` disables autograd for the entire validation pass.
+        The evaluator temporarily selects evaluation behavior in ``_evaluate``
+        and restores the model's previous train/eval mode when it finishes.
+        """
         if max_batches is not None and max_batches < 1:
             raise ValueError("max_batches must be positive")
         context = self.ema.average_parameters(self.model, backup_device="cpu") if self.ema else nullcontext()
