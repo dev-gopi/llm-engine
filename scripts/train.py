@@ -366,6 +366,7 @@ def main() -> None:
     if config.get("validation_files"):
         logger.info("Preparing validation datasets")
         validation_config = dict(config)
+        validation_config["seed"] = int(config.get("validation_seed", config.get("seed", 42)))
         validation_batch_size = int(config.get("validation_batch_size", config.get("batch_size", 32)))
         if validation_batch_size < 1:
             parser.error("validation_batch_size must be positive")
@@ -375,13 +376,17 @@ def main() -> None:
             if not isinstance(validation_domains, dict):
                 parser.error("validation_domains must be a mapping")
             balance_sources = bool(config.get("validation_balance_sources", False))
+            fixed_subset = bool(config.get("validation_fixed_subset", False))
             validation_loader = {}
             for domain, paths in validation_domains.items():
                 source_groups = [[path] for path in paths] if balance_sources else [paths]
                 validation_loader[str(domain)] = interleave_loaders(
                     build_loader(
                         group, tokenizer, validation_config, shuffle=False,
-                        sampler_shuffle=balance_sources,
+                        # A deterministic shuffle makes max_batches a stable,
+                        # representative subset instead of always taking the
+                        # first records in each source.
+                        sampler_shuffle=balance_sources or fixed_subset,
                         rank=distributed.rank, world_size=distributed.world_size,
                     )
                     for group in source_groups
@@ -392,7 +397,9 @@ def main() -> None:
         else:
             validation_loader = build_loader(
                 config["validation_files"], tokenizer, validation_config,
-                shuffle=False, rank=distributed.rank, world_size=distributed.world_size,
+                shuffle=False,
+                sampler_shuffle=bool(config.get("validation_fixed_subset", False)),
+                rank=distributed.rank, world_size=distributed.world_size,
             )
         evaluator = Evaluator(
             training_model,
@@ -441,13 +448,14 @@ def main() -> None:
             parser.error("generation_evaluation.preserve_passed requires best_output")
 
     last_generation_step: int | None = None
+    last_generation_summary: dict[str, float | int] | None = None
 
     def validation_generation_callback(current: Trainer, epoch: int, _metrics, _domains):
-        nonlocal last_generation_step
+        nonlocal last_generation_step, last_generation_summary
         if not generation_cases:
             return None
         if current.global_step == last_generation_step:
-            return None
+            return last_generation_summary
         last_generation_step = current.global_step
         DistributedTrainer.barrier(distributed)
         summary = None
@@ -556,6 +564,7 @@ def main() -> None:
                     int(summary["cases"]), category_metrics,
                     time.perf_counter() - started,
                 )
+                last_generation_summary = summary
             except Exception:
                 if generation_config.get("preserve_passed", False):
                     # A required retention check must not silently fail open.
@@ -647,6 +656,8 @@ def main() -> None:
         "domains": config.get("validation_domains"),
         "weights": config.get("validation_weights"),
         "max_batches": config.get("validation_max_batches"),
+        "seed": config.get("validation_seed", config.get("seed", 42)),
+        "fixed_subset": config.get("validation_fixed_subset", False),
         "balance_sources": config.get("validation_balance_sources", False),
         "use_ema": config.get("validation_use_ema", False),
         "batch_size": config.get("validation_batch_size", config.get("batch_size")),
@@ -688,9 +699,16 @@ def main() -> None:
         ),
         validation_lr_patience=int(config.get("validation_lr_patience", 1)),
         validation_lr_min_scale=float(config.get("validation_lr_min_scale", 0.1)),
+        validation_lr_min_steps_between_decays=int(
+            config.get("validation_lr_min_steps_between_decays", 0)
+        ),
         validation_control_domain=config.get("validation_control_domain"),
         best_checkpoint_domain_max_regression=config.get(
             "best_checkpoint_domain_max_regression"
+        ),
+        best_checkpoint_min_generation_accuracy=(
+            float(config["best_checkpoint_min_generation_accuracy"])
+            if config.get("best_checkpoint_min_generation_accuracy") is not None else None
         ),
         validation_metric_name=resolved_validation_metric_name,
         validation_callback=validation_generation_callback if generation_cases else None,

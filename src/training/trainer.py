@@ -288,8 +288,10 @@ class Trainer:
         validation_lr_decay_factor: float | None = None,
         validation_lr_patience: int = 1,
         validation_lr_min_scale: float = 0.1,
+        validation_lr_min_steps_between_decays: int = 0,
         validation_control_domain: str | None = None,
         best_checkpoint_domain_max_regression: Mapping[str, float] | None = None,
+        best_checkpoint_min_generation_accuracy: float | None = None,
         validation_metric_name: str | None = None,
         validation_callback=None,
         stop_requested=None,
@@ -302,6 +304,13 @@ class Trainer:
             raise ValueError("validation_lr_patience must be positive")
         if not 0 < validation_lr_min_scale <= 1:
             raise ValueError("validation_lr_min_scale must be in (0, 1]")
+        if validation_lr_min_steps_between_decays < 0:
+            raise ValueError("validation_lr_min_steps_between_decays must be non-negative")
+        if (
+            best_checkpoint_min_generation_accuracy is not None
+            and not 0 <= best_checkpoint_min_generation_accuracy <= 1
+        ):
+            raise ValueError("best checkpoint generation accuracy must be in [0, 1]")
         if validation_lr_decay_factor is not None and not callable(
             getattr(self.scheduler, "reduce_after_validation", None)
         ):
@@ -333,6 +342,7 @@ class Trainer:
             self.early_stopping_best_loss = float("inf")
             self.epochs_without_improvement = 0
         history: list[dict[str, object]] = []
+        last_validation_lr_decay_step: int | None = None
         batch_sampler = getattr(dataloader, "batch_sampler", None)
         # A resumable sampler reports only its remaining batches from __len__.
         # Progress and ETA need the full epoch length, independent of that
@@ -404,6 +414,7 @@ class Trainer:
             )
 
         def update_from_validation(validation_loss: float) -> None:
+            nonlocal last_validation_lr_decay_step
             if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
                 self.early_stopping_best_loss = validation_loss
                 self.epochs_without_improvement = 0
@@ -412,11 +423,17 @@ class Trainer:
             if (
                 validation_lr_decay_factor is not None
                 and self.epochs_without_improvement % validation_lr_patience == 0
+                and (
+                    last_validation_lr_decay_step is None
+                    or self.global_step - last_validation_lr_decay_step
+                    >= validation_lr_min_steps_between_decays
+                )
             ):
                 previous, current = self.scheduler.reduce_after_validation(
                     validation_lr_decay_factor, min_scale=validation_lr_min_scale
                 )
                 if current < previous:
+                    last_validation_lr_decay_step = self.global_step
                     logger.info(
                         "validation_lr_decay step=%d loss=%.6f bad_checks=%d "
                         "scale=%.6f->%.6f lr=%.8g",
@@ -445,6 +462,20 @@ class Trainer:
                         baseline * (1.0 + tolerance),
                     )
                     return False
+            return True
+
+        def checkpoint_passes_generation_gate(generation_metrics) -> bool:
+            threshold = best_checkpoint_min_generation_accuracy
+            if threshold is None:
+                return True
+            accuracy = generation_metrics.get("accuracy") if generation_metrics else None
+            if accuracy is None or float(accuracy) < threshold:
+                logger.info(
+                    "best_checkpoint_rejected step=%d generation_accuracy=%s minimum=%.4f",
+                    self.global_step, "missing" if accuracy is None else f"{float(accuracy):.4f}",
+                    threshold,
+                )
+                return False
             return True
 
         def record_best_domains(domains) -> None:
@@ -554,6 +585,7 @@ class Trainer:
                         "epoch": epoch + 1, "step": self.global_step, **metrics,
                         **({"domains": domains} if domains else {}),
                     })
+                    callback_metrics = None
                     if validation_callback:
                         callback_metrics = validation_callback(self, epoch, metrics, domains)
                         if callback_metrics:
@@ -561,7 +593,9 @@ class Trainer:
                     last_validation_step = self.global_step
                     validation_loss = float(metrics["loss"])
                     update_from_validation(validation_control_loss(metrics, domains))
-                    if validation_loss < self.best_validation_loss and checkpoint_passes_domain_gates(domains):
+                    if (validation_loss < self.best_validation_loss
+                            and checkpoint_passes_domain_gates(domains)
+                            and checkpoint_passes_generation_gate(callback_metrics)):
                         previous_best = self.best_validation_loss
                         self.best_validation_loss = validation_loss
                         record_best_domains(domains)
@@ -617,6 +651,7 @@ class Trainer:
                 if domains:
                     epoch_record["domains"] = domains
                 log_validation(epoch, metrics, domains)
+                callback_metrics = None
                 if validation_callback:
                     callback_metrics = validation_callback(self, epoch, metrics, domains)
                     if callback_metrics:
@@ -624,7 +659,9 @@ class Trainer:
                 validation_loss = float(epoch_record["loss"])
                 if last_validation_step != self.global_step:
                     update_from_validation(validation_control_loss(metrics, domains))
-                if validation_loss < self.best_validation_loss and checkpoint_passes_domain_gates(domains):
+                if (validation_loss < self.best_validation_loss
+                        and checkpoint_passes_domain_gates(domains)
+                        and checkpoint_passes_generation_gate(callback_metrics)):
                     previous_best = self.best_validation_loss
                     self.best_validation_loss = validation_loss
                     record_best_domains(domains)

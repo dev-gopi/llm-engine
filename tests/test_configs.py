@@ -101,6 +101,19 @@ def test_gpu_finetuning_profile_targets_balanced_quality() -> None:
     )) >= 0.14
 
 
+def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
+    config = load_yaml(CONFIGS / "finetuning.gpu.v2.yaml")
+
+    assert config["require_init_from"] is True
+    assert config["validation_max_batches"] <= 250
+    assert config["validation_lr_patience"] >= 2
+    assert config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]
+    assert config["ema_decay"] <= 0.995
+    assert config["best_checkpoint_min_generation_accuracy"] >= 0.20
+    assert config["generation_evaluation"]["best_output"] != config["runtime"]["best_output"]
+    assert "clean-chat-v2" in config["runtime"]["output"]
+
+
 def test_cpu_finetuning_and_pretraining_profiles_use_direct_validation() -> None:
     cpu_sft = load_yaml(CONFIGS / "finetuning.cpu.yaml")
     gpu_pretraining = load_yaml(CONFIGS / "pretraining.gpu.yaml")

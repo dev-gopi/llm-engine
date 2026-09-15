@@ -6,7 +6,8 @@ validation_batch_size: 4
 epochs: 2
 seed: 84
 require_cuda: true
-training_stage_id: finetuning-v2-clean-chat-v1
+training_stage_id: finetuning-v2-clean-chat-v2
+require_init_from: true
 dataset_governance:
   policy: warn
   stage: sft
@@ -26,19 +27,19 @@ checkpoint_format: single_file
 # A shorter, cleaner stage limits catastrophic forgetting and overfitting.
 samples_per_epoch: 250000
 dataset_weights:
-  aya_bengali: 0.14
-  aya_hindi: 0.14
-  orca_math: 0.15
+  aya_bengali: 0.05
+  aya_hindi: 0.05
+  orca_math: 0.05
   # Human-rated and curated chat replace the noisy OpenAssistant mixture and
   # the mostly non-conversational SmolTalk aggregate.
-  helpsteer: 0.17
-  core_chat: 0.03
-  smoltalk_chat: 0.03
-  english: 0.095
-  math: 0.07
-  coding: 0.065
-  safety_alignment: 0.035
-  tool_calling: 0.025
+  helpsteer: 0.35
+  core_chat: 0.10
+  smoltalk_chat: 0.10
+  english: 0.12
+  math: 0.04
+  coding: 0.04
+  safety_alignment: 0.03
+  tool_calling: 0.02
   writing_editing: 0.025
   fineweb_edu: 0.005
   # Large storage does not imply a large SFT share: keep causal knowledge text
@@ -109,8 +110,8 @@ validation_weights:
 validation_metric_name: dataset_weighted_v5_balanced_sources_ema
 # Bound each capability domain so validation provides timely feedback instead
 # of scanning all ~143k records. Log progress throughout the sampled pass.
-validation_max_batches: 750
-validation_progress_every: 50
+validation_max_batches: 200
+validation_progress_every: 25
 validation_seed: 2026
 validation_fixed_subset: true
 validation_balance_sources: true
@@ -127,7 +128,7 @@ mixed_precision: bf16
 lr_schedule: cosine
 warmup_ratio: 0.03
 min_lr_ratio: 0.1
-ema_decay: 0.999
+ema_decay: 0.995
 log_every: 25
 log_interval_seconds: null
 checkpoint_every: 500
@@ -141,13 +142,16 @@ generation_evaluation:
   max_tokens: 48
   repetition_penalty: 1.10
   no_repeat_ngram_size: 3
-early_stopping_patience: 2
-early_stopping_min_delta: 0.005
+  best_output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2-clean-chat-v2/generation-best.pt
+  preserve_passed: true
+early_stopping_patience: 4
+early_stopping_min_delta: 0.001
 # On a validation plateau, halve the remaining cosine LR curve before the
 # next early-stopping decision. Never go below 25% of the scheduled LR.
 validation_lr_decay_factor: 0.5
-validation_lr_patience: 1
+validation_lr_patience: 3
 validation_lr_min_scale: 0.25
+validation_lr_min_steps_between_decays: 500
 # Drive plateau handling from chat quality and refuse an aggregate-loss win if
 # core conversational or multilingual capability regresses materially.
 validation_control_domain: chat
@@ -155,6 +159,8 @@ best_checkpoint_domain_max_regression:
   chat: 0.02
   bengali: 0.05
   hindi: 0.05
+# Never promote a loss-only checkpoint that fails nearly every behavioral probe.
+best_checkpoint_min_generation_accuracy: 0.20
 ignore_index: -100
 label_smoothing: 0.0
 z_loss_coefficient: 0.0001
@@ -165,7 +171,7 @@ loss_chunk_size: 128
 extends: defaults/training-runtime.yaml
 runtime:
   tokenizer: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/tokenizer-finetuning-v2
-  output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2/latest.pt
-  best_output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2/best.pt
-  log_file: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/logs/finetuning-v2.log
-  report_json: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/reports/finetuning-v2.json
+  output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2-clean-chat-v2/latest.pt
+  best_output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2-clean-chat-v2/best.pt
+  log_file: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/logs/finetuning-v2-clean-chat-v2.log
+  report_json: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/reports/finetuning-v2-clean-chat-v2.json

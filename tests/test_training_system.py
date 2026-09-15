@@ -250,6 +250,54 @@ def test_validation_plateau_reduces_remaining_learning_rate_curve() -> None:
     assert trainer.learning_rate == pytest.approx(5e-4)
 
 
+def test_validation_lr_decay_respects_minimum_step_spacing() -> None:
+    class FixedEvaluator:
+        def evaluate(self, _loader):
+            return {"loss": 2.0, "cross_entropy": 2.0, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=4, schedule="constant")
+    trainer = Trainer(model, optimizer, scheduler=scheduler)
+
+    trainer.fit(
+        list(make_loader()) * 4, epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        validation_lr_decay_factor=0.5, validation_lr_patience=1,
+        validation_lr_min_scale=0.1, validation_lr_min_steps_between_decays=2,
+    )
+
+    assert scheduler.validation_scale == pytest.approx(0.25)
+
+
+def test_generation_gate_blocks_loss_only_best_checkpoint() -> None:
+    class FixedEvaluator:
+        def __init__(self):
+            self.losses = iter([2.0, 1.9, 1.9])
+
+        def evaluate(self, _loader):
+            loss = next(self.losses)
+            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    saved = []
+    accuracies = iter([0.05, 0.25, 0.25])
+
+    trainer.fit(
+        list(make_loader()) * 2, epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        validation_callback=lambda *_args: {"accuracy": next(accuracies)},
+        best_checkpoint_min_generation_accuracy=0.20,
+        best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
+    )
+
+    assert saved == [2]
+    assert trainer.best_validation_loss == pytest.approx(1.9)
+
+
 def test_chat_control_and_domain_gate_reject_hidden_regression() -> None:
     class DomainEvaluator:
         def __init__(self):
