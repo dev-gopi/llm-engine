@@ -78,6 +78,23 @@ def test_parser_marks_records_after_resume_as_a_new_session(tmp_path) -> None:
     assert parsed["session_count"] == 1
 
 
+def test_parser_preserves_exact_run_configuration_snapshot(tmp_path) -> None:
+    log = tmp_path / "train.log"
+    snapshot = {
+        "model_config": {"layers": 16},
+        "training_config": {"validation_metric_name": "fixed-v5"},
+    }
+    log.write_text(
+        "2026 | INFO | app | run_configuration="
+        + json.dumps(snapshot, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+    parsed = MODULE.parse_training_log(log)
+
+    assert parsed["run_configurations"] == [{**snapshot, "session": 0}]
+
+
 def test_normalize_history_sorts_and_replaces_restarted_steps() -> None:
     parsed = {
         "training": [

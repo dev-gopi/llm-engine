@@ -5,7 +5,13 @@ import pytest
 
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
-from training.data import _mixture_groups, _mixture_name, build_loader
+from training.data import _mixture_groups, _mixture_name, build_loader, interleave_loaders
+
+
+def test_validation_sources_are_interleaved_before_batch_cap() -> None:
+    loader = interleave_loaders([["a1", "a2", "a3"], ["b1", "b2"]])
+
+    assert list(loader) == ["a1", "b1", "a2", "b2", "a3"]
 
 
 def test_dataset_mixture_weights_are_dataset_level_probabilities() -> None:

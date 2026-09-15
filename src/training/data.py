@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 import math
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,35 @@ from datasets.loader import build_text_dataset
 from datasets.token_shards import TokenShardDataset
 from datasets.sampler import Sampler
 from tokenizer.encoder import Tokenizer
+
+
+class InterleavedLoader:
+    """Yield batches round-robin so a cap samples every source."""
+
+    def __init__(self, loaders: Iterable[DataLoader]) -> None:
+        self.loaders = list(loaders)
+        if not self.loaders:
+            raise ValueError("interleaved validation requires at least one loader")
+
+    def __len__(self) -> int:
+        return sum(len(loader) for loader in self.loaders)
+
+    def __iter__(self) -> Iterator[Mapping[str, Any]]:
+        active = [iter(loader) for loader in self.loaders]
+        while active:
+            remaining = []
+            for stream in active:
+                try:
+                    yield next(stream)
+                    remaining.append(stream)
+                except StopIteration:
+                    pass
+            active = remaining
+
+
+def interleave_loaders(loaders: Iterable[DataLoader]):
+    loaders = list(loaders)
+    return loaders[0] if len(loaders) == 1 else InterleavedLoader(loaders)
 
 
 def _mixture_name(path: str | Path, configured: Mapping[str, Any]) -> str:
@@ -61,6 +90,7 @@ def build_loader(
     config: Mapping[str, Any],
     *,
     shuffle: bool,
+    sampler_shuffle: bool | None = None,
     rank: int = 0,
     world_size: int = 1,
 ) -> DataLoader:
@@ -100,9 +130,10 @@ def build_loader(
     if not dataset:
         raise ValueError("configured dataset contains no usable examples")
     sampling_groups = _mixture_groups(paths, dataset.dataset_sizes, config) if shuffle and hasattr(dataset, "dataset_sizes") else None
+    resolved_sampler_shuffle = shuffle if sampler_shuffle is None else sampler_shuffle
     sampler = Sampler(
         dataset.lengths,
-        int(config.get("batch_size", 32)), shuffle=shuffle,
+        int(config.get("batch_size", 32)), shuffle=resolved_sampler_shuffle,
         seed=int(config.get("seed", 42)),
         rank=rank, world_size=world_size,
         sampling_groups=sampling_groups,

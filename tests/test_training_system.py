@@ -250,6 +250,37 @@ def test_validation_plateau_reduces_remaining_learning_rate_curve() -> None:
     assert trainer.learning_rate == pytest.approx(5e-4)
 
 
+def test_chat_control_and_domain_gate_reject_hidden_regression() -> None:
+    class DomainEvaluator:
+        def __init__(self):
+            self.losses = iter([2.0, 4.0, 2.2, 1.0, 2.2, 1.0])
+
+        def evaluate(self, _loader):
+            loss = next(self.losses)
+            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    saved = []
+    trainer.fit(
+        list(make_loader()) * 2, epochs=1, evaluator=DomainEvaluator(),
+        validation_dataloader={"chat": make_loader(), "math": make_loader()},
+        validation_weights={"chat": 0.5, "math": 0.5},
+        evaluate_every=1, log_every=0,
+        validation_control_domain="chat",
+        best_checkpoint_domain_max_regression={"chat": 0.02},
+        best_checkpoint_callback=lambda current, _epoch: saved.append(
+            current.best_validation_loss
+        ),
+    )
+
+    assert saved == [3.0]
+    assert trainer.best_validation_loss == 3.0
+    assert trainer.best_validation_domains["chat"] == 2.0
+    assert trainer.epochs_without_improvement == 1
+
+
 def test_validation_lr_scale_round_trips_in_scheduler_checkpoint() -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -269,6 +300,9 @@ def test_validation_lr_scale_round_trips_in_scheduler_checkpoint() -> None:
 
     assert restored.validation_scale == pytest.approx(0.5)
     assert restored_optimizer.param_groups[0]["lr"] == pytest.approx(5e-4)
+
+    previous, current = restored.reduce_after_validation(0.5, min_scale=0.75)
+    assert previous == current == pytest.approx(0.5)
 
 
 def test_periodic_validation_saves_best_checkpoint_immediately() -> None:

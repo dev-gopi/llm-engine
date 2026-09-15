@@ -15,12 +15,15 @@ class BenchmarkCase:
     expected: tuple[str, ...]
     forbidden: tuple[str, ...] = ()
     match: str = "contains"
+    max_answer_tokens: int | None = None
 
     def __post_init__(self) -> None:
         if self.match not in {"contains", "exact", "exact_code", "number", "final_number"}:
             raise ValueError("benchmark match must be contains, exact, exact_code, number, or final_number")
         if not self.expected or any(not value.strip() for value in self.expected):
             raise ValueError("benchmark expected answers must be nonempty")
+        if self.max_answer_tokens is not None and self.max_answer_tokens < 1:
+            raise ValueError("benchmark max_answer_tokens must be positive")
 
 
 def normalize_answer(text: str) -> str:
@@ -29,6 +32,8 @@ def normalize_answer(text: str) -> str:
 
 def score_answer(answer: str, case: BenchmarkCase) -> float:
     answer_tokens = normalize_answer(answer).split()
+    if case.max_answer_tokens is not None and len(answer_tokens) > case.max_answer_tokens:
+        return 0.0
     expected = [normalize_answer(value).split() for value in case.expected]
     forbidden = [normalize_answer(value).split() for value in case.forbidden]
     if any(_contains_tokens(answer_tokens, value) for value in forbidden if value):

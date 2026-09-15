@@ -49,6 +49,7 @@ class Trainer:
         self.current_epoch = 0
         self.batch_in_epoch = 0
         self.best_validation_loss = float("inf")
+        self.best_validation_domains: dict[str, float] = {}
         self.early_stopping_best_loss = float("inf")
         self.validation_metric_name: str | None = None
         self.epochs_without_improvement = 0
@@ -287,6 +288,8 @@ class Trainer:
         validation_lr_decay_factor: float | None = None,
         validation_lr_patience: int = 1,
         validation_lr_min_scale: float = 0.1,
+        validation_control_domain: str | None = None,
+        best_checkpoint_domain_max_regression: Mapping[str, float] | None = None,
         validation_metric_name: str | None = None,
         validation_callback=None,
         stop_requested=None,
@@ -310,6 +313,12 @@ class Trainer:
             raise ValueError("validation_max_batches must be positive")
         if validation_progress_every < 0:
             raise ValueError("validation_progress_every must be non-negative")
+        domain_regression_limits = {
+            str(name): float(value)
+            for name, value in (best_checkpoint_domain_max_regression or {}).items()
+        }
+        if any(value < 0 for value in domain_regression_limits.values()):
+            raise ValueError("best checkpoint domain regression limits must be non-negative")
         if (
             validation_metric_name is not None
             and validation_metric_name != self.validation_metric_name
@@ -320,6 +329,7 @@ class Trainer:
             )
             self.validation_metric_name = validation_metric_name
             self.best_validation_loss = float("inf")
+            self.best_validation_domains = {}
             self.early_stopping_best_loss = float("inf")
             self.epochs_without_improvement = 0
         history: list[dict[str, object]] = []
@@ -413,6 +423,34 @@ class Trainer:
                         self.global_step, validation_loss, self.epochs_without_improvement,
                         previous, current, self.learning_rate,
                     )
+
+        def validation_control_loss(metrics, domains) -> float:
+            if validation_control_domain is None:
+                return float(metrics["loss"])
+            if validation_control_domain not in domains:
+                raise ValueError(
+                    f"validation control domain {validation_control_domain!r} is unavailable"
+                )
+            return float(domains[validation_control_domain]["loss"])
+
+        def checkpoint_passes_domain_gates(domains) -> bool:
+            for name, tolerance in domain_regression_limits.items():
+                if name not in domains:
+                    raise ValueError(f"best checkpoint gate domain {name!r} is unavailable")
+                baseline = self.best_validation_domains.get(name)
+                if baseline is not None and float(domains[name]["loss"]) > baseline * (1.0 + tolerance):
+                    logger.info(
+                        "best_checkpoint_rejected step=%d domain=%s loss=%.6f limit=%.6f",
+                        self.global_step, name, float(domains[name]["loss"]),
+                        baseline * (1.0 + tolerance),
+                    )
+                    return False
+            return True
+
+        def record_best_domains(domains) -> None:
+            self.best_validation_domains = {
+                str(name): float(values["loss"]) for name, values in domains.items()
+            }
 
         for epoch in range(self.current_epoch, epochs):
             last_validation_step = None
@@ -522,10 +560,11 @@ class Trainer:
                             history[-1]["generation_evaluation"] = callback_metrics
                     last_validation_step = self.global_step
                     validation_loss = float(metrics["loss"])
-                    update_from_validation(validation_loss)
-                    if validation_loss < self.best_validation_loss:
+                    update_from_validation(validation_control_loss(metrics, domains))
+                    if validation_loss < self.best_validation_loss and checkpoint_passes_domain_gates(domains):
                         previous_best = self.best_validation_loss
                         self.best_validation_loss = validation_loss
+                        record_best_domains(domains)
                         logger.info(
                             "new_best_validation step=%d previous_loss=%.6f loss=%.6f metric=%s",
                             self.global_step, previous_best, validation_loss,
@@ -584,10 +623,11 @@ class Trainer:
                         epoch_record["generation_evaluation"] = callback_metrics
                 validation_loss = float(epoch_record["loss"])
                 if last_validation_step != self.global_step:
-                    update_from_validation(validation_loss)
-                if validation_loss < self.best_validation_loss:
+                    update_from_validation(validation_control_loss(metrics, domains))
+                if validation_loss < self.best_validation_loss and checkpoint_passes_domain_gates(domains):
                     previous_best = self.best_validation_loss
                     self.best_validation_loss = validation_loss
+                    record_best_domains(domains)
                     logger.info(
                         "new_best_validation step=%d previous_loss=%.6f loss=%.6f metric=%s",
                         self.global_step, previous_best, validation_loss,
@@ -614,6 +654,7 @@ class Trainer:
             "current_epoch": self.current_epoch,
             "batch_in_epoch": self.batch_in_epoch,
             "best_validation_loss": self.best_validation_loss,
+            "best_validation_domains": self.best_validation_domains,
             "early_stopping_best_loss": self.early_stopping_best_loss,
             "validation_metric_name": self.validation_metric_name,
             "epochs_without_improvement": self.epochs_without_improvement,
@@ -630,6 +671,10 @@ class Trainer:
         self.current_epoch = int(state.get("current_epoch", 0))
         self.batch_in_epoch = int(state.get("batch_in_epoch", 0))
         self.best_validation_loss = float(state.get("best_validation_loss", float("inf")))
+        saved_domains = state.get("best_validation_domains", {})
+        self.best_validation_domains = {
+            str(name): float(value) for name, value in saved_domains.items()
+        } if isinstance(saved_domains, Mapping) else {}
         self.early_stopping_best_loss = float(
             state.get("early_stopping_best_loss", self.best_validation_loss)
         )

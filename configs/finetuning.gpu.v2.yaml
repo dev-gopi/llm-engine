@@ -6,6 +6,7 @@ validation_batch_size: 4
 epochs: 2
 seed: 84
 require_cuda: true
+training_stage_id: finetuning-v2-clean-chat-v1
 dataset_governance:
   policy: warn
   stage: sft
@@ -16,7 +17,7 @@ num_workers: 4
 pin_memory: true
 persistent_workers: true
 prefetch_factor: 2
-validation_num_workers: 1
+validation_num_workers: 0
 validation_persistent_workers: false
 lazy_dataset: true
 distributed_strategy: ddp
@@ -28,9 +29,11 @@ dataset_weights:
   aya_bengali: 0.14
   aya_hindi: 0.14
   orca_math: 0.15
-  smoltalk: 0.09
-  # Names must match recovery_sft/<name>/train.jsonl directories.
-  chat: 0.14
+  # Human-rated and curated chat replace the noisy OpenAssistant mixture and
+  # the mostly non-conversational SmolTalk aggregate.
+  helpsteer: 0.17
+  core_chat: 0.03
+  smoltalk_chat: 0.03
   english: 0.095
   math: 0.07
   coding: 0.065
@@ -46,8 +49,9 @@ train_files:
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_bengali/train.jsonl
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_hindi/train.jsonl
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/orca_math/train.jsonl
-  - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/smoltalk/train.jsonl
-  - data/processed/recovery_sft/chat/train.jsonl
+  - data/processed/helpsteer/train.jsonl
+  - data/processed/core_chat/train.jsonl
+  - data/processed/smoltalk_chat/train.jsonl
   - data/processed/recovery_sft/english/train.jsonl
   - data/processed/recovery_sft/math/train.jsonl
   - data/processed/recovery_sft/coding/train.jsonl
@@ -61,8 +65,9 @@ validation_files:
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_bengali/validation.jsonl
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_hindi/validation.jsonl
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/orca_math/validation.jsonl
-  - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/smoltalk/validation.jsonl
-  - data/processed/recovery_sft/chat/validation.jsonl
+  - data/processed/helpsteer/validation.jsonl
+  - data/processed/core_chat/validation.jsonl
+  - data/processed/smoltalk_chat/validation.jsonl
   - data/processed/recovery_sft/english/validation.jsonl
   - data/processed/recovery_sft/math/validation.jsonl
   - data/processed/recovery_sft/coding/validation.jsonl
@@ -81,8 +86,9 @@ validation_domains:
     - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/orca_math/validation.jsonl
     - data/processed/recovery_sft/math/validation.jsonl
   chat:
-    - data/processed/recovery_sft/chat/validation.jsonl
-    - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/smoltalk/validation.jsonl
+    - data/processed/helpsteer/validation.jsonl
+    - data/processed/core_chat/validation.jsonl
+    - data/processed/smoltalk_chat/validation.jsonl
   english:
     - data/processed/recovery_sft/english/validation.jsonl
     - data/processed/writing_editing/validation.jsonl
@@ -100,11 +106,13 @@ validation_weights:
   chat: 0.19
   english: 0.15
   coding: 0.15
-validation_metric_name: dataset_weighted_v4_finetuning_v2
+validation_metric_name: dataset_weighted_v5_balanced_sources_ema
 # Bound each capability domain so validation provides timely feedback instead
 # of scanning all ~143k records. Log progress throughout the sampled pass.
 validation_max_batches: 250
 validation_progress_every: 25
+validation_balance_sources: true
+validation_use_ema: true
 learning_rate: 0.000005
 weight_decay: 0.01
 beta1: 0.9
@@ -126,7 +134,7 @@ evaluate_every: 500
 generation_evaluation:
   enabled: true
   cases: configs/evaluation.domains.jsonl
-  inference_config: configs/inference.yaml
+  inference_config: configs/inference.v2.yaml
   output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/reports/generation-quality.json
   max_tokens: 48
   repetition_penalty: 1.10
@@ -138,6 +146,13 @@ early_stopping_min_delta: 0.005
 validation_lr_decay_factor: 0.5
 validation_lr_patience: 1
 validation_lr_min_scale: 0.25
+# Drive plateau handling from chat quality and refuse an aggregate-loss win if
+# core conversational or multilingual capability regresses materially.
+validation_control_domain: chat
+best_checkpoint_domain_max_regression:
+  chat: 0.02
+  bengali: 0.05
+  hindi: 0.05
 ignore_index: -100
 label_smoothing: 0.0
 z_loss_coefficient: 0.0001

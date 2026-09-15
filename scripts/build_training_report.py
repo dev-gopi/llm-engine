@@ -230,7 +230,8 @@ def _empty_parsed() -> dict[str, Any]:
     return {
         "training": [], "validation": [], "best_updates": [],
         "validation_timings": [], "checkpoint_timings": [], "warnings": [],
-        "raw_log_tail": [], "line_count": 0, "session_count": 0,
+        "run_configurations": [], "raw_log_tail": [], "line_count": 0,
+        "session_count": 0,
     }
 
 
@@ -247,6 +248,17 @@ def _append_lines(
         timestamp = line.split(" | ", 1)[0] if " | " in line else None
         if "Appending resumed training report data" in message:
             parsed["session_count"] += 1
+        elif message.startswith("run_configuration="):
+            try:
+                snapshot = json.loads(message.removeprefix("run_configuration="))
+                if not isinstance(snapshot, dict):
+                    raise ValueError("run configuration must be an object")
+                snapshot["session"] = parsed["session_count"]
+                parsed["run_configurations"].append(snapshot)
+            except (json.JSONDecodeError, ValueError) as error:
+                parsed["warnings"].append(
+                    f"invalid run configuration snapshot: {error}"
+                )
         elif "validation_domain=" in message:
             values = _fields(message)
             key = (int(values.get("epoch", 0)), int(values.get("step", 0)))
@@ -563,6 +575,18 @@ def build_report(
         getattr(args, "generation_evaluation", None)
     )
     coverage = evaluation_coverage(data_audit, generation_evaluation)
+    snapshots = parsed.get("run_configurations", [])
+    active_snapshot = snapshots[-1] if snapshots else None
+    model_config = (
+        active_snapshot["model_config"]
+        if active_snapshot and isinstance(active_snapshot.get("model_config"), dict)
+        else load_yaml(args.model_config)
+    )
+    training_config = (
+        active_snapshot["training_config"]
+        if active_snapshot and isinstance(active_snapshot.get("training_config"), dict)
+        else load_yaml(args.training_config)
+    )
     report = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -573,8 +597,9 @@ def build_report(
             "telemetry_seconds": args.telemetry_seconds,
             "refresh_seconds": args.watch_seconds,
         },
-        "model_config": load_yaml(args.model_config),
-        "training_config": load_yaml(args.training_config),
+        "configuration_source": "run_log_snapshot" if active_snapshot else "current_files_fallback",
+        "model_config": model_config,
+        "training_config": training_config,
         "checkpoints": {
             "latest": checkpoint_details(args.latest_checkpoint, parsed["validation"], best=False),
             "best": checkpoint_details(args.best_checkpoint, parsed["validation"], best=True),

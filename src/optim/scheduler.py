@@ -45,7 +45,9 @@ class Scheduler(LambdaLR):
         if not 0 < min_scale <= 1:
             raise ValueError("validation LR minimum scale must be in (0, 1]")
         previous = self.validation_scale
-        self.validation_scale = max(min_scale, previous * factor)
+        # A changed resume-time floor must never turn a reduction into an LR
+        # increase. The floor only constrains future downward adjustments.
+        self.validation_scale = min(previous, max(min_scale, previous * factor))
         if self.validation_scale < previous:
             ratio = self.validation_scale / previous
             for group in self.optimizer.param_groups:

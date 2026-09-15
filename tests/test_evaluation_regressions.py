@@ -24,6 +24,16 @@ def test_final_number_requires_explicit_final_answer():
     assert score_answer("1234", case) == 0
 
 
+def test_contains_match_rejects_overlong_or_identity_leaking_answer():
+    case = BenchmarkCase(
+        "chat", "Greet me", ("hello",), ("open assistant",),
+        max_answer_tokens=4,
+    )
+    assert score_answer("Hello, nice to meet you", case) == 0
+    assert score_answer("Hello from Open Assistant", case) == 0
+    assert score_answer("Hello there", case) == 1
+
+
 def report(scores, protocol=None):
     return {"protocol": protocol or {"cases": "fixed"}, "results": [
         {"category": category, "prompt": str(i), "score": score}

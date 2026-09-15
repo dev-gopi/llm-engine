@@ -31,7 +31,7 @@ from tokenizer.encoder import Tokenizer
 from training.generation_checkpoint import save_best_generation
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
-from training.data import build_loader, _mixture_groups
+from training.data import build_loader, interleave_loaders, _mixture_groups
 from training.distributed import DistributedTrainer
 from training.evaluator import Evaluator
 from training.trainer import Trainer
@@ -312,6 +312,14 @@ def main() -> None:
                 ema=ema, scaler=trainer.scaler, map_location=distributed.device,
                 expected_tokenizer_fingerprint=tokenizer.fingerprint,
             )
+        expected_stage = config.get("training_stage_id")
+        saved_metadata = state.get("metadata", state)
+        saved_stage = saved_metadata.get("training_stage_id")
+        if expected_stage is not None and saved_stage != expected_stage:
+            parser.error(
+                "checkpoint belongs to a different training stage; start this changed "
+                "dataset/evaluation mixture with --init-from instead of --resume"
+            )
         trainer.global_step = state["step"]
         trainer.load_state_dict(state.get("trainer", {}))
         if distributed.world_size > 1 and not distributed_checkpoints:
@@ -366,13 +374,18 @@ def main() -> None:
         if validation_domains:
             if not isinstance(validation_domains, dict):
                 parser.error("validation_domains must be a mapping")
-            validation_loader = {
-                str(domain): build_loader(
-                    paths, tokenizer, validation_config, shuffle=False,
-                    rank=distributed.rank, world_size=distributed.world_size,
+            balance_sources = bool(config.get("validation_balance_sources", False))
+            validation_loader = {}
+            for domain, paths in validation_domains.items():
+                source_groups = [[path] for path in paths] if balance_sources else [paths]
+                validation_loader[str(domain)] = interleave_loaders(
+                    build_loader(
+                        group, tokenizer, validation_config, shuffle=False,
+                        sampler_shuffle=balance_sources,
+                        rank=distributed.rank, world_size=distributed.world_size,
+                    )
+                    for group in source_groups
                 )
-                for domain, paths in validation_domains.items()
-            }
             validation_weights = config.get("validation_weights")
             if not isinstance(validation_weights, dict):
                 parser.error("validation_weights must be provided with validation_domains")
@@ -403,6 +416,7 @@ def main() -> None:
                 generation_cases.append(BenchmarkCase(
                     item["category"], item["prompt"], tuple(item["expected"]),
                     tuple(item.get("forbidden", ())), item.get("match", "contains"),
+                    item.get("max_answer_tokens"),
                 ))
         if not generation_cases:
             parser.error("generation evaluation cases file is empty")
@@ -576,6 +590,7 @@ def main() -> None:
                     "epoch": epoch + 1,
                     "model_config": model_config,
                     "tokenizer_fingerprint": tokenizer.fingerprint,
+                    "training_stage_id": config.get("training_stage_id"),
                     "trainer": current.state_dict(),
                     "sampler": sampler_state,
                 },
@@ -584,7 +599,8 @@ def main() -> None:
         if not distributed.is_main_process:
             return
         save_checkpoint(args.output, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=current.scaler,
-                        step=current.global_step, metadata={"epoch": epoch + 1, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint},
+                        step=current.global_step, metadata={"epoch": epoch + 1, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint,
+                        "training_stage_id": config.get("training_stage_id")},
                         trainer=current.state_dict(), sampler=sampler_state)
 
     def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
@@ -604,6 +620,7 @@ def main() -> None:
                     "best": True,
                     "model_config": model_config,
                     "tokenizer_fingerprint": tokenizer.fingerprint,
+                    "training_stage_id": config.get("training_stage_id"),
                     "trainer": current.state_dict(),
                     "sampler": sampler_state,
                 },
@@ -614,7 +631,9 @@ def main() -> None:
         save_checkpoint(
             args.best_output, model, optimizer=optimizer, scheduler=scheduler, ema=ema,
             scaler=current.scaler, step=current.global_step,
-            metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint},
+            metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config,
+                      "tokenizer_fingerprint": tokenizer.fingerprint,
+                      "training_stage_id": config.get("training_stage_id")},
             trainer=current.state_dict(), sampler=sampler_state,
         )
 
@@ -623,6 +642,29 @@ def main() -> None:
 
     logger.info("Starting training at optimizer step %d; batch_size=%s accumulation=%d log_every=%s",
                 trainer.global_step, config.get("batch_size"), accumulation, config.get("log_every", 10))
+    validation_protocol = {
+        "name": config.get("validation_metric_name"),
+        "domains": config.get("validation_domains"),
+        "weights": config.get("validation_weights"),
+        "max_batches": config.get("validation_max_batches"),
+        "balance_sources": config.get("validation_balance_sources", False),
+        "use_ema": config.get("validation_use_ema", False),
+        "batch_size": config.get("validation_batch_size", config.get("batch_size")),
+        "max_sequence_length": config.get("max_sequence_length"),
+    }
+    validation_protocol_id = hashlib.sha256(
+        json.dumps(validation_protocol, sort_keys=True).encode()
+    ).hexdigest()[:12]
+    resolved_validation_metric_name = (
+        f"{config.get('validation_metric_name', 'validation_loss')}:{validation_protocol_id}"
+    )
+    logger.info(
+        "run_configuration=%s",
+        json.dumps(
+            {"model_config": model_config, "training_config": config},
+            sort_keys=True, separators=(",", ":"),
+        ),
+    )
     history = trainer.fit(
         train_loader, epochs=epochs, evaluator=evaluator,
         validation_dataloader=validation_loader,
@@ -646,7 +688,11 @@ def main() -> None:
         ),
         validation_lr_patience=int(config.get("validation_lr_patience", 1)),
         validation_lr_min_scale=float(config.get("validation_lr_min_scale", 0.1)),
-        validation_metric_name=config.get("validation_metric_name"),
+        validation_control_domain=config.get("validation_control_domain"),
+        best_checkpoint_domain_max_regression=config.get(
+            "best_checkpoint_domain_max_regression"
+        ),
+        validation_metric_name=resolved_validation_metric_name,
         validation_callback=validation_generation_callback if generation_cases else None,
         stop_requested=lambda: preemption.should_stop(distributed.device),
     )
