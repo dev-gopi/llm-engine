@@ -47,7 +47,7 @@ def test_training_saves_initial_retention_baseline_before_first_update(tmp_path)
         "--log-file", str(tmp_path / "train.log"), "--report-json", str(tmp_path / "report.json"),
     ], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=60)
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    selected = torch.load(generation_best, weights_only=True)
+    selected = torch.load(generation_best, map_location="cpu", weights_only=True)
     assert selected["step"] == 0
     assert selected["metadata"]["inference_only"]
     for name, value in model.state_dict().items():
