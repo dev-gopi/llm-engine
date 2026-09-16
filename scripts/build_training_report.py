@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+# When this file is executed directly, Python prepends ``scripts/`` to
+# ``sys.path``.  Remove it before importing modules such as ``asyncio`` that
+# may load the standard-library ``tokenize`` module; otherwise the sibling
+# ``scripts/tokenize.py`` can be cached under that name and later break torch.
+script_directory = os.path.dirname(os.path.realpath(__file__))
+sys.path[:] = [
+    entry for entry in sys.path
+    if os.path.realpath(entry or ".") != script_directory
+]
+
 import argparse
 import asyncio
 from datetime import datetime, timezone
 import json
 import math
-import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import tempfile
 import time
 from typing import Any
-
-script_directory = os.path.dirname(os.path.realpath(__file__))
-sys.path[:] = [entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory]
 
 from utils.config import load_yaml
 

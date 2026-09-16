@@ -2,6 +2,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -47,6 +49,35 @@ def test_atomic_json_output_is_valid(tmp_path) -> None:
     MODULE.write_atomic(destination, {"value": 1})
     assert json.loads(destination.read_text()) == {"value": 1}
     assert destination.read_text() == '{"value":1}\n'
+
+
+def test_direct_script_does_not_shadow_stdlib_tokenize(tmp_path) -> None:
+    import torch
+
+    log = tmp_path / "train.log"
+    checkpoint = tmp_path / "latest.pt"
+    output = tmp_path / "report.json"
+    log.write_text("2026 | INFO | trainer | epoch=1 step=1 loss=3.0\n")
+    torch.save({"step": 1}, checkpoint)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--log", str(log),
+            "--output", str(output),
+            "--latest-checkpoint", str(checkpoint),
+            "--best-checkpoint", str(tmp_path / "best.pt"),
+            "--watch-seconds", "0",
+        ],
+        cwd=SCRIPT.parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text())["checkpoints"]["latest"]["step"] == 1
 
 
 def test_incremental_reader_only_appends_new_complete_lines(tmp_path) -> None:
