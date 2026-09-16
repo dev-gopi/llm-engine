@@ -7,9 +7,27 @@ import torch
 import yaml
 
 from model.gpt import MiniGPT
+from scripts.train import _evaluate_at_stage_start
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 from training.checkpoint import save_checkpoint
+
+
+def test_step_zero_evaluation_only_runs_for_init_from(tmp_path):
+    checkpoint = tmp_path / "checkpoint.pt"
+
+    assert _evaluate_at_stage_start(
+        True, init_from=checkpoint, resume=None,
+    ) is True
+    assert _evaluate_at_stage_start(
+        True, init_from=None, resume=checkpoint,
+    ) is False
+    assert _evaluate_at_stage_start(
+        True, init_from=None, resume=None,
+    ) is False
+    assert _evaluate_at_stage_start(
+        False, init_from=checkpoint, resume=None,
+    ) is False
 
 
 def test_training_saves_initial_retention_baseline_before_first_update(tmp_path):

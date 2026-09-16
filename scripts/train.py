@@ -53,6 +53,13 @@ load_dotenv()
 logger = get_logger(__name__)
 
 
+def _evaluate_at_stage_start(
+    enabled: bool, *, init_from: Path | None, resume: Path | None
+) -> bool:
+    """Run step-zero gates only when initializing a new training stage."""
+    return bool(enabled and init_from is not None and resume is None)
+
+
 def _stop_reporter(process: subprocess.Popen) -> None:
     if process.poll() is not None:
         return
@@ -711,7 +718,12 @@ def main() -> None:
             trainer=current.state_dict(), sampler=sampler_state,
         )
 
-    if generation_config.get("evaluate_at_start", False) and generation_cases:
+    evaluate_generation_at_start = _evaluate_at_stage_start(
+        bool(generation_config.get("evaluate_at_start", False)),
+        init_from=args.init_from,
+        resume=args.resume,
+    )
+    if evaluate_generation_at_start and generation_cases:
         validation_generation_callback(trainer, trainer.current_epoch - 1, {}, {})
         # Generation allocates many differently sized KV-cache and logits
         # blocks. Release its unused CUDA reservations before the full-context
@@ -754,13 +766,18 @@ def main() -> None:
             sort_keys=True, separators=(",", ":"),
         ),
     )
+    evaluate_validation_at_start = _evaluate_at_stage_start(
+        bool(config.get("validation_evaluate_at_start", False)),
+        init_from=args.init_from,
+        resume=args.resume,
+    )
     history = trainer.fit(
         train_loader, epochs=epochs, evaluator=evaluator,
         validation_dataloader=validation_loader,
         validation_weights=validation_weights,
         validation_max_batches=config.get("validation_max_batches"),
         validation_progress_every=int(config.get("validation_progress_every", 0)),
-        validation_evaluate_at_start=bool(config.get("validation_evaluate_at_start", False)),
+        validation_evaluate_at_start=evaluate_validation_at_start,
         log_every=int(config.get("log_every", 10)),
         log_interval_seconds=(
             float(config["log_interval_seconds"])
