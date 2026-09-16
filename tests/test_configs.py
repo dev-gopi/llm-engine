@@ -110,7 +110,7 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["training_stage_id"] in config["forbidden_init_training_stage_ids"]
     assert config["require_prepared_data"] is False
     assert config["epochs"] == 1
-    assert config["samples_per_epoch"] <= 50_000
+    assert config["samples_per_epoch"] == 250_000
     assert config["batch_size"] == 4
     assert config["validation_batch_size"] == 4
     assert config["gradient_accumulation_steps"] == 16
@@ -123,8 +123,7 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["generation_evaluation"]["best_output"] != config["runtime"]["best_output"]
     assert config["generation_evaluation"]["output"] != config["runtime"]["report_json"]
     assert "finetuning-v2" in config["runtime"]["output"]
-    assert config["peft"]["method"] == "lora"
-    assert config["peft"]["rank"] > 0
+    assert "peft" not in config
     assert config["generation_evaluation"]["evaluate_at_start"] is True
     assert config["generation_evaluation"]["preserve_passed"] is True
     assert config["generation_evaluation"]["cases"] == "configs/evaluation.retention.jsonl"
