@@ -3,7 +3,7 @@
 # retention is imperfect, so replay and step-zero domain gates remain required.
 batch_size: 4
 validation_batch_size: 4
-epochs: 1
+epochs: 3
 seed: 84
 require_cuda: true
 training_stage_id: finetuning-v2
@@ -28,8 +28,8 @@ num_workers: 4
 pin_memory: true
 persistent_workers: true
 prefetch_factor: 2
-validation_num_workers: 0
-validation_persistent_workers: false
+validation_num_workers: 2
+validation_persistent_workers: true
 lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
@@ -121,7 +121,7 @@ validation_weights:
 validation_metric_name: dataset_weighted_v5_balanced_sources_ema
 # Bound each capability domain so validation provides timely feedback instead
 # of scanning all ~143k records. Log progress throughout the sampled pass.
-validation_max_batches: 200
+validation_max_batches: 1000
 validation_progress_every: 25
 validation_seed: 2026
 validation_fixed_subset: true
@@ -160,7 +160,7 @@ ema_decay: 0.995
 log_every: 25
 log_interval_seconds: null
 checkpoint_every: 500
-evaluate_every: 2000
+evaluate_every: 1000
 generation_evaluation:
   enabled: true
   cases: configs/evaluation.retention.jsonl
@@ -181,7 +181,7 @@ early_stopping_min_delta: 0.001
 validation_lr_decay_factor: 0.5
 validation_lr_patience: 3
 validation_lr_min_scale: 0.25
-validation_lr_min_steps_between_decays: 2000
+validation_lr_min_steps_between_decays: 1000
 # Drive plateau handling from chat quality and refuse an aggregate-loss win if
 # core conversational or multilingual capability regresses materially.
 validation_control_domain: chat

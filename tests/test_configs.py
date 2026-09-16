@@ -109,13 +109,13 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["init_from_weights"] == "ema"
     assert config["training_stage_id"] in config["forbidden_init_training_stage_ids"]
     assert config["require_prepared_data"] is False
-    assert config["epochs"] == 1
+    assert config["epochs"] == 3
     assert config["samples_per_epoch"] == 250_000
     assert config["batch_size"] == 4
     assert config["validation_batch_size"] == 4
     assert config["gradient_accumulation_steps"] == 16
     assert config["batch_size"] * config["gradient_accumulation_steps"] == 64
-    assert config["validation_max_batches"] <= 250
+    assert config["validation_max_batches"] <= 1500
     assert config["validation_lr_patience"] >= 2
     assert config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]
     assert config["ema_decay"] <= 0.995
