@@ -254,6 +254,13 @@ def test_invalid_evaluation_artifact_is_treated_as_missing(tmp_path) -> None:
     assert MODULE.load_evaluation_artifact(artifact) is None
 
 
+def test_report_output_cannot_be_loaded_as_its_own_evaluation(tmp_path) -> None:
+    report = tmp_path / "report.json"
+    report.write_text('{"evaluations":{"generation_quality":{"summary":{"accuracy":1}}}}')
+
+    assert MODULE.load_evaluation_artifact(report, forbidden_path=report) is None
+
+
 def test_pid_check_accepts_a_live_process_and_rejects_missing_process() -> None:
     assert MODULE._pid_is_running(os.getpid()) is True
     assert MODULE._pid_is_running(2**31 - 1) is False

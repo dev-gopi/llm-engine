@@ -165,7 +165,7 @@ generation_evaluation:
   enabled: true
   cases: configs/evaluation.retention.jsonl
   inference_config: configs/inference.v2.yaml
-  output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/reports/finetuning-v2.json
+  output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/reports/generation-quality-v2.json
   max_tokens: 48
   repetition_penalty: 1.10
   no_repeat_ngram_size: 3

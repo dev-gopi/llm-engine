@@ -50,7 +50,9 @@
     .report-explorer { position:sticky; z-index:10; top:0; display:flex; gap:8px; align-items:center; padding:10px 22px; overflow-x:auto; border-bottom:1px solid var(--line); background:rgba(7,17,31,.94); backdrop-filter:blur(12px) }
     .report-explorer button.active { border-color:var(--blue); background:#1d4f86 }.report-explorer input { min-width:210px; margin-left:auto; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:#0a1728; color:var(--text) }
     .report-hidden,.search-hidden { display:none!important }.panel-toggle { float:right; margin:-6px -6px 0 8px; padding:4px 8px; font-size:11px }.panel.collapsed > :not(h2) { display:none!important }.panel.collapsed { padding-bottom:10px }
-    .chart-line { filter:drop-shadow(0 5px 4px rgba(0,0,0,.34)) }
+    /* Filters on very wide SVG paths force Chromium to allocate large GPU
+       surfaces and can eventually crash the renderer on long-running reports. */
+    .chart-line { filter:none }
     .chart-area { pointer-events:none }
     .chart-point { cursor:crosshair; filter:drop-shadow(0 3px 3px rgba(0,0,0,.3)); transition:r .12s,opacity .12s }.chart-point:hover { r:6px; opacity:1 }
     .ok { color:var(--green) } .bad { color:var(--red) }
@@ -229,10 +231,13 @@
   <script>
     const query = new URLSearchParams(location.search);
     const DATA_URL = query.get('data');
-    const REPORT_URLS = DATA_URL ? [DATA_URL] : ['training_report.json', 'finetuning.json'];
+    const REPORT_URLS = DATA_URL ? [DATA_URL] : ['training_report.json', 'finetuning.json', 'finetuning-v2.json'];
     const SAMPLE_URL = query.get('sample') || 'training_report.sample.json';
     const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 2000));
     const STALL_MS = Math.max(60000, Number(query.get('stall') || 300000));
+    const MAX_CHART_POINTS = Math.max(250, Number(query.get('chartPoints') || 1500));
+    const MAX_TIMELINE_EPOCHS = 100;
+    const MAX_DETAIL_ROWS = 500;
     const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
     const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
     const dateFmt = value => {
@@ -287,6 +292,19 @@
     let lastNotifiedBest = localStorage.getItem('gopi-report-best') || '';
     let completionNotified = false;
     let notificationWorker;
+    let loadInProgress = false;
+    let activeReportUrl = DATA_URL || '';
+
+    function sampledPoints(points,maxPoints=MAX_CHART_POINTS) {
+      const finite=points.filter(point=>Number.isFinite(point?.[0])&&Number.isFinite(point?.[1]));
+      if(finite.length<=maxPoints)return finite;
+      // Keep the first and newest samples while selecting evenly across the
+      // history. This bounds SVG path size without changing the report data.
+      const sampled=[finite[0]],span=finite.length-1;
+      for(let index=1;index<maxPoints-1;index++)sampled.push(finite[Math.round(index*span/(maxPoints-1))]);
+      sampled.push(finite.at(-1));
+      return sampled;
+    }
 
     function getNotificationWorker() {
       if(!('serviceWorker' in navigator))return Promise.resolve(null);
@@ -358,6 +376,7 @@
     }
 
     function lineChart(svg, series) {
+      series=series.map(value=>({...value,points:sampledPoints(value.points||[])}));
       chartSeries.set(svg,series);
       if(!printing&&lazyChartObserver){
         lazyChartObserver.observe(svg);
@@ -378,15 +397,15 @@
       }
       const followLatest=!scroller.dataset.rendered || scroller.scrollWidth-scroller.clientWidth-scroller.scrollLeft<48;
       const pointCount=Math.max(0,...series.map(value=>value.points.length));
-      const width=printing?760:Math.max(760,Math.min(30000,pointCount*10+76)),height=330,left=58,right=18,top=24,bottom=42;
+      const width=printing?760:Math.max(760,Math.min(16000,pointCount*10+76)),height=330,left=58,right=18,top=24,bottom=42;
       svg.style.width=`${width}px`;
       let axis=scroller.querySelector('.chart-axis');
       if(!axis){axis=document.createElementNS('http://www.w3.org/2000/svg','svg');axis.classList.add('chart-axis');scroller.insertBefore(axis,svg)}
       axis.setAttribute('viewBox',`0 0 ${left} ${height}`);
       const points=series.flatMap(s=>s.points).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
       if (!points.length) { svg.setAttribute('viewBox',`0 0 ${width} ${height}`);axis.innerHTML='';svg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="#91a4ba">No data yet</text>'; return; }
-      let minX=Math.min(...points.map(p=>p[0])),maxX=Math.max(...points.map(p=>p[0]));
-      let minY=Math.min(...points.map(p=>p[1])),maxY=Math.max(...points.map(p=>p[1]));
+      let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+      for(const [pointX,pointY] of points){if(pointX<minX)minX=pointX;if(pointX>maxX)maxX=pointX;if(pointY<minY)minY=pointY;if(pointY>maxY)maxY=pointY}
       if(minX===maxX)maxX++; if(minY===maxY){minY=Math.max(0,minY-.05);maxY+=.05} const pad=Math.max((maxY-minY)*.12,.000001); minY=Math.max(0,minY-pad);maxY+=pad;
       const x=v=>left+(v-minX)/(maxX-minX)*(width-left-right), y=v=>height-bottom-(v-minY)/(maxY-minY)*(height-top-bottom);
       const chartBottom=height-bottom;
@@ -522,13 +541,18 @@
     function detailTable(value) {
       const rows=[];
       function visit(item,path) {
+        if(rows.length>=MAX_DETAIL_ROWS)return;
         if(item!==null&&typeof item==='object'&&Object.keys(item).length) {
-          Object.entries(item).forEach(([key,child])=>visit(child,path?`${path} / ${key}`:key));
+          for(const [key,child] of Object.entries(item)){
+            visit(child,path?`${path} / ${key}`:key);
+            if(rows.length>=MAX_DETAIL_ROWS)break;
+          }
         } else rows.push([esc(path.replaceAll('_',' ')),esc(item==null?'Not available':typeof item==='object'?JSON.stringify(item):String(item))]);
       }
       if(value==null||typeof value==='object'&&!Object.keys(value).length)return '<p class="muted">Not collected.</p>';
       visit(value,'');
-      return table(['Field','Value'],rows);
+      const truncated=rows.length>=MAX_DETAIL_ROWS?`<p class="muted">Showing the first ${MAX_DETAIL_ROWS} detail fields. Large collections were truncated to keep this page responsive.</p>`:'';
+      return table(['Field','Value'],rows)+truncated;
     }
 
     async function notifyOnce(key,title,body) {
@@ -566,7 +590,7 @@
       const etaPrevious=train.at(-2)?.eta_seconds,etaImprovement=etaPrevious!=null&&latest.eta_seconds!=null?etaPrevious-latest.eta_seconds:null;
       const clipNorm=Number(data.training_config?.gradient_clip_norm),gradientRatio=clipNorm>0&&latest.grad_norm!=null?latest.grad_norm/clipNorm:null;
       const gradientLevel=gradientRatio==null?'':gradientRatio>2?'usage-high':gradientRatio>1?'usage-medium':'usage-low';
-      const configuredEpochs=Number(data.training_config?.epochs),epochProgress=latest.epoch_progress??(latest.progress!=null&&configuredEpochs>0&&latest.epoch!=null?Math.max(0,Math.min(100,latest.progress*configuredEpochs-(latest.epoch-1)*100)):null);
+      const configuredEpochsValue=Number(data.training_config?.epochs),configuredEpochs=Number.isFinite(configuredEpochsValue)&&configuredEpochsValue>0?Math.floor(configuredEpochsValue):0,epochProgress=latest.epoch_progress??(latest.progress!=null&&configuredEpochs>0&&latest.epoch!=null?Math.max(0,Math.min(100,latest.progress*configuredEpochs-(latest.epoch-1)*100)):null);
       const resumes=resumeCount(data);
       const epochLabel=latest.epoch!=null?`Epoch ${fmt(latest.epoch,0)}${configuredEpochs>0?` of ${fmt(configuredEpochs,0)}`:''}`:'Epoch not started';
       document.getElementById('meter-step').textContent=latest.step!=null?`Step ${fmt(latest.step,0)} · ${epochLabel}`:'Waiting for training data';
@@ -597,8 +621,9 @@
       const recentEtas=train.slice(-6).map(value=>Number(value.eta_seconds)).filter(Number.isFinite),etaDrops=recentEtas.slice(1).map((value,index)=>recentEtas[index]-value),etaStable=etaDrops.length>1&&etaDrops.filter(value=>value>0).length/etaDrops.length>=.75;
       const lossWord=trainTrend==null?'Waiting':trainTrend>.001?'Improving':trainTrend<-.001?'Worsening':'Stable',lossColor=trendColor(trainTrend);
       document.getElementById('signals').innerHTML=`<div class="signal"><span class="muted">Loss trend</span><strong style="color:${lossColor}">${lossWord}</strong>${sparkline(train.map(value=>Number(value.avg??value.loss)),lossColor)}</div><div class="signal"><span class="muted">ETA confidence</span><strong class="${etaStable?'ok':'usage-medium'}">${recentEtas.length<3?'Learning':etaStable?'Stable':'Variable'}</strong><span>${countdownMarkup(latest.eta_seconds,' remaining')}</span></div><div class="signal"><span class="muted">Training state</span><strong class="${stalled?'bad':'ok'}">${stalled?'Stalled':'Active'}</strong><span>${latestTime>0?dateFmt(latest.timestamp):'No timestamp yet'}</span></div>`;
-      const epochCount=Math.max(1,configuredEpochs||Number(latest.epoch)||1),bestEpoch=vals.length?Number(vals.reduce((a,b)=>Number(a.loss)<Number(b.loss)?a:b).epoch):null;
+      const requestedEpochCount=Math.max(1,configuredEpochs||Number(latest.epoch)||1),epochCount=Math.min(MAX_TIMELINE_EPOCHS,requestedEpochCount),bestEpoch=vals.length?Number(vals.reduce((a,b)=>Number(a.loss)<Number(b.loss)?a:b).epoch):null;
       document.getElementById('epoch-timeline').innerHTML=Array.from({length:epochCount},(_,index)=>{const epoch=index+1,done=epoch<Number(latest.epoch)||Number(latest.progress)>=100,current=epoch===Number(latest.epoch),fill=done?100:current?(epochProgress||0):0,validationCount=vals.filter(value=>Number(value.epoch)===epoch).length,bubbles=fill>0?Array.from({length:6},(_,bubble)=>`<i class="epoch-bubble" aria-hidden="true" style="--x:${10+(bubble*17+epoch*7)%82}%;--size:${3+(bubble+epoch)%4}px;--duration:${2.4+(bubble%3)*.55}s;--delay:${-((bubble*0.63+epoch*.27)%3.2)}s;--drift:${bubble%2?6:-6}px"></i>`).join(''):'';return `<div class="epoch-block ${done?'done':''} ${current?'current':''}"><div class="epoch-fill" style="height:${fill}%"><svg class="epoch-wave-shape" aria-hidden="true" viewBox="0 0 144 12" preserveAspectRatio="none"><path fill="currentColor" d="M0 6 C12 3 24 3 36 6 S60 9 72 6 S96 3 108 6 S132 9 144 6 V12 H0 Z"/></svg><span class="epoch-water">${bubbles}</span></div><strong>Epoch ${epoch}</strong><small>${done?'Complete':current?`${fmt(fill,1)}%`:'Queued'}${validationCount?` · ${validationCount} val`:''}${bestEpoch===epoch?' · ★':''}</small></div>`}).join('');
+      if(requestedEpochCount>epochCount)document.getElementById('epoch-timeline').insertAdjacentHTML('beforeend',`<p class="muted">Timeline limited to ${epochCount} of ${fmt(requestedEpochCount,0)} configured epochs.</p>`);
       const comparisonNow=analysis.checkpoint_comparison||{},bestStep=comparisonNow.best_step??vals.find(value=>Number(value.loss)===best)?.step;
       document.getElementById('best-badge').innerHTML=best!=null?`<span class="best-badge">★ Best checkpoint · step ${fmt(bestStep,0)} · loss ${fmt(best)}</span>`:'<span class="muted">Best checkpoint appears after validation.</span>';
       if(stalled)notifyOnce(`stall-${latest.step}`,'Gopi training may be stalled',`No update since ${dateFmt(latest.timestamp)}`);
@@ -739,28 +764,43 @@
     }
 
     async function load() {
-      if(manual||printing||document.hidden)return;
+      if(manual||printing||document.hidden||loadInProgress)return;
+      loadInProgress=true;
       const version=++loadVersion;
       let data;
       try {
-        const results=await Promise.allSettled(REPORT_URLS.map(async url=>{
-          const response=await fetch(`${url}${url.includes('?')?'&':'?'}t=${Date.now()}`,{cache:'no-store'});
-          if(!response.ok)throw new Error(`${url}: ${response.statusText}`);
-          return {url,data:await response.json()};
-        }));
-        const available=results.filter(result=>result.status==='fulfilled').map(result=>result.value);
-        if(!available.length)throw new Error(results.map(result=>result.reason).join('; '));
-        available.sort((a,b)=>(Date.parse(b.data.generated_at)||0)-(Date.parse(a.data.generated_at)||0));
+        const candidates=activeReportUrl
+          ? [activeReportUrl,...REPORT_URLS.filter(url=>url!==activeReportUrl)]
+          : REPORT_URLS;
+        const errors=[];
+        let selected;
+        for(const url of candidates){
+          try {
+            const response=await fetch(`${url}${url.includes('?')?'&':'?'}t=${Date.now()}`,{cache:'no-store'});
+            if(!response.ok)throw new Error(`${url}: ${response.statusText}`);
+            selected={url,data:await response.json()};
+            break;
+          } catch(error) {
+            errors.push(error);
+          }
+        }
+        if(!selected)throw new Error(errors.map(error=>error.message||error).join('; '));
         if(manual||printing||version!==loadVersion)return;
-        reportSource=available[0].url;
-        data=available[0].data;
+        activeReportUrl=selected.url;
+        reportSource=selected.url;
+        data=selected.data;
       } catch(error) {
         if(manual||printing||version!==loadVersion)return;
         document.getElementById('status').textContent=`Cannot fetch ${REPORT_URLS.join(' or ')}. Serve this folder over HTTP or choose a JSON file. ${error}`;
         return;
+      } finally {
+        loadInProgress=false;
       }
       try { render(data); }
-      catch(error) { document.getElementById('status').textContent=`Cannot render ${DATA_URL || 'latest report'}: ${error}`; }
+      catch(error) {
+        console.error('Could not render training report:',error);
+        document.getElementById('status').textContent=`Cannot render ${DATA_URL || 'latest report'}: ${error}`;
+      }
     }
     window.addEventListener('beforeprint',()=>{
       if(printing)return;

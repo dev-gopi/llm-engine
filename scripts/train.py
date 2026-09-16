@@ -175,6 +175,14 @@ def main() -> None:
         if generation_config.get("enabled", False) and generation_config.get("output")
         else None
     )
+    if (
+        generation_output_path is not None
+        and generation_output_path.resolve() == args.report_json.resolve()
+    ):
+        parser.error(
+            "generation_evaluation.output must differ from runtime.report_json; "
+            "otherwise the live report recursively embeds itself"
+        )
     archived_reports = archive_previous_report_files(
         args.log_file, args.report_json, resume=bool(args.resume),
         extra_paths=([generation_output_path] if generation_output_path else []),

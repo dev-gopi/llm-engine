@@ -33,9 +33,15 @@ def _number(value: str) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
-def load_evaluation_artifact(path: Path | None) -> dict[str, Any] | None:
+def load_evaluation_artifact(
+    path: Path | None,
+    *,
+    forbidden_path: Path | None = None,
+) -> dict[str, Any] | None:
     """Load an optional evaluation result without breaking the live reporter."""
     if path is None or not path.is_file():
+        return None
+    if forbidden_path is not None and path.resolve() == forbidden_path.resolve():
         return None
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -598,7 +604,8 @@ def build_report(
     )
     data_audit = load_evaluation_artifact(getattr(args, "data_audit", None))
     generation_evaluation = load_evaluation_artifact(
-        getattr(args, "generation_evaluation", None)
+        getattr(args, "generation_evaluation", None),
+        forbidden_path=args.output,
     )
     coverage = evaluation_coverage(data_audit, generation_evaluation)
     snapshots = parsed.get("run_configurations", [])

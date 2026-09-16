@@ -121,6 +121,7 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["ema_decay"] <= 0.995
     assert config["best_checkpoint_min_generation_accuracy"] >= 0.20
     assert config["generation_evaluation"]["best_output"] != config["runtime"]["best_output"]
+    assert config["generation_evaluation"]["output"] != config["runtime"]["report_json"]
     assert "finetuning-v2" in config["runtime"]["output"]
     assert config["peft"]["method"] == "lora"
     assert config["peft"]["rank"] > 0
