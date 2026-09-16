@@ -159,7 +159,7 @@ min_lr_ratio: 0.1
 ema_decay: 0.995
 log_every: 25
 log_interval_seconds: null
-checkpoint_every: 1000
+checkpoint_every: 500
 evaluate_every: 2000
 generation_evaluation:
   enabled: true
@@ -181,7 +181,7 @@ early_stopping_min_delta: 0.001
 validation_lr_decay_factor: 0.5
 validation_lr_patience: 3
 validation_lr_min_scale: 0.25
-validation_lr_min_steps_between_decays: 1000
+validation_lr_min_steps_between_decays: 2000
 # Drive plateau handling from chat quality and refuse an aggregate-loss win if
 # core conversational or multilingual capability regresses materially.
 validation_control_domain: chat
