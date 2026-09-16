@@ -28,7 +28,7 @@ from optim.adamw import adamw_from_config
 from optim.ema import EMA
 from optim.scheduler import Scheduler
 from tokenizer.encoder import Tokenizer
-from training.generation_checkpoint import save_best_generation
+from training.generation_checkpoint import retention_passes, save_best_generation
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
 from training.data import build_loader, interleave_loaders, _mixture_groups
@@ -36,6 +36,7 @@ from training.distributed import DistributedTrainer
 from training.evaluator import Evaluator
 from training.trainer import Trainer
 from training.planner import optimizer_steps_for_epochs
+from training.peft import LoRALinear, apply_lora, has_lora
 from training.elastic import PreemptionCoordinator
 from training.reporting import archive_previous_report_files
 from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores
@@ -146,6 +147,12 @@ def main() -> None:
         parser.error("--resume and --init-from cannot be used together")
     if config.get("require_init_from", False) and not (args.init_from or args.resume):
         parser.error("this post-training profile requires --init-from a completed checkpoint (or --resume its own interrupted run)")
+    required_init_checkpoint = config.get("required_init_checkpoint")
+    if required_init_checkpoint and args.init_from:
+        if args.init_from.resolve() != Path(required_init_checkpoint).resolve():
+            parser.error(
+                f"this recovery profile requires --init-from {required_init_checkpoint}"
+            )
     if config.get("require_prepared_data", False) and not config.get("prepared_data"):
         parser.error("prepare complete, decontaminated SFT records with scripts/prepare_sft_stage.py, then use its generated training.yaml")
     if args.init_from and args.init_from.resolve() in {args.output.resolve(), args.best_output.resolve()}:
@@ -242,15 +249,50 @@ def main() -> None:
         logger.info("Loading initial model weights from %s", args.init_from)
         # A new training stage should start from the learned model itself. EMA
         # can lag badly during short stages and is recreated for this run below.
-        load_checkpoint(
+        init_from_weights = str(config.get("init_from_weights", "model")).lower()
+        if init_from_weights not in {"model", "ema"}:
+            parser.error("init_from_weights must be 'model' or 'ema'")
+        initial_state = load_checkpoint(
             args.init_from,
             model,
             map_location="cpu",
-            use_ema=False,
+            use_ema=init_from_weights == "ema",
             restore_rng=False,
             expected_tokenizer_fingerprint=tokenizer.fingerprint,
             compatible_tokenizer_fingerprints=tokenizer.compatible_base_fingerprints,
             allow_vocab_extension=bool(tokenizer.compatible_base_fingerprints),
+        )
+        if init_from_weights == "ema" and not initial_state.get("ema_applied"):
+            parser.error("init_from_weights='ema' requires an EMA payload in the initial checkpoint")
+        initial_stage = initial_state.get("metadata", {}).get("training_stage_id")
+        forbidden_initial_stages = {
+            str(value) for value in config.get("forbidden_init_training_stage_ids", [])
+        }
+        if initial_stage in forbidden_initial_stages:
+            parser.error(
+                f"initial checkpoint belongs to rejected stage {initial_stage!r}; "
+                "start this recovery run from the pre-SFT checkpoint"
+            )
+    peft_metadata = None
+    if config.get("peft"):
+        if has_lora(model):
+            peft_metadata = dict(config["peft"])
+            peft_metadata["matched_modules"] = [
+                name for name, module in model.named_modules() if isinstance(module, LoRALinear)
+            ]
+            peft_metadata["trainable_parameters"] = sum(
+                parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+            )
+            peft_metadata["total_parameters"] = sum(
+                parameter.numel() for parameter in model.parameters()
+            )
+        else:
+            peft_metadata = apply_lora(model, config["peft"])
+        logger.info(
+            "Enabled LoRA PEFT: rank=%d matched=%d trainable=%d/%d (%.3f%%)",
+            peft_metadata["rank"], len(peft_metadata["matched_modules"]),
+            peft_metadata["trainable_parameters"], peft_metadata["total_parameters"],
+            100.0 * peft_metadata["trainable_parameters"] / peft_metadata["total_parameters"],
         )
     strategy = str(config.get("distributed_strategy", "ddp"))
     distributed_checkpoints = strategy.startswith("fsdp") or str(
@@ -513,16 +555,29 @@ def main() -> None:
                             "scorer_version": 2,
                             "preserve_passed": bool(generation_config.get("preserve_passed", False)),
                         }, sort_keys=True).encode()).hexdigest()
+                        case_scores = {
+                            json.dumps([case.category, case.prompt], ensure_ascii=False): score
+                            for case, score in scored
+                        }
+                        retention_ok = (
+                            retention_passes(
+                                generation_config["best_output"],
+                                evaluation_signature=signature,
+                                case_scores=case_scores,
+                            )
+                            if generation_config.get("preserve_passed", False) else True
+                        )
+                        summary["retention_passed"] = retention_ok
                         if save_best_generation(
                             generation_config["best_output"], model,
                             accuracy=summary["accuracy"], evaluation_signature=signature,
                             step=current.global_step,
-                            case_scores={json.dumps([case.category, case.prompt], ensure_ascii=False): score
-                                         for case, score in scored},
+                            case_scores=case_scores,
                             preserve_passed=bool(generation_config.get("preserve_passed", False)),
                             metadata={"model_config": model_config,
                                       "tokenizer_fingerprint": tokenizer.fingerprint,
-                                      "ema_used": use_generation_ema},
+                                      "ema_used": use_generation_ema,
+                                      "peft": peft_metadata},
                         ):
                             logger.info("new_best_generation step=%d accuracy=%.4f checkpoint=%s",
                                         current.global_step, summary["accuracy"],
@@ -600,6 +655,7 @@ def main() -> None:
                     "model_config": model_config,
                     "tokenizer_fingerprint": tokenizer.fingerprint,
                     "training_stage_id": config.get("training_stage_id"),
+                    "peft": peft_metadata,
                     "trainer": current.state_dict(),
                     "sampler": sampler_state,
                 },
@@ -609,7 +665,7 @@ def main() -> None:
             return
         save_checkpoint(args.output, model, optimizer=optimizer, scheduler=scheduler, ema=ema, scaler=current.scaler,
                         step=current.global_step, metadata={"epoch": epoch + 1, "model_config": model_config, "tokenizer_fingerprint": tokenizer.fingerprint,
-                        "training_stage_id": config.get("training_stage_id")},
+                        "training_stage_id": config.get("training_stage_id"), "peft": peft_metadata},
                         trainer=current.state_dict(), sampler=sampler_state)
 
     def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
@@ -630,6 +686,7 @@ def main() -> None:
                     "model_config": model_config,
                     "tokenizer_fingerprint": tokenizer.fingerprint,
                     "training_stage_id": config.get("training_stage_id"),
+                    "peft": peft_metadata,
                     "trainer": current.state_dict(),
                     "sampler": sampler_state,
                 },
@@ -642,7 +699,7 @@ def main() -> None:
             scaler=current.scaler, step=current.global_step,
             metadata={"epoch": epoch + 1, "validation_loss": current.best_validation_loss, "best": True, "model_config": model_config,
                       "tokenizer_fingerprint": tokenizer.fingerprint,
-                      "training_stage_id": config.get("training_stage_id")},
+                      "training_stage_id": config.get("training_stage_id"), "peft": peft_metadata},
             trainer=current.state_dict(), sampler=sampler_state,
         )
 
@@ -682,6 +739,7 @@ def main() -> None:
         validation_weights=validation_weights,
         validation_max_batches=config.get("validation_max_batches"),
         validation_progress_every=int(config.get("validation_progress_every", 0)),
+        validation_evaluate_at_start=bool(config.get("validation_evaluate_at_start", False)),
         log_every=int(config.get("log_every", 10)),
         log_interval_seconds=(
             float(config["log_interval_seconds"])

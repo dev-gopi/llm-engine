@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from optim.ema import EMA
-from training.generation_checkpoint import save_best_generation
+from training.generation_checkpoint import retention_passes, save_best_generation
 from training.checkpoint import load_checkpoint
 
 
@@ -54,6 +54,23 @@ def test_retention_rejects_higher_average_that_loses_a_preserved_case(tmp_path):
     assert not save(2 / 3, {"en": 0, "bn": 1, "hi": 1})
     assert save(2 / 3, {"en": 1, "bn": 1, "hi": 0})
     assert not save(2 / 3, {"en": 1, "bn": 0, "hi": 1})
+
+
+def test_retention_gate_can_protect_the_separate_loss_best_checkpoint(tmp_path):
+    model = torch.nn.Linear(2, 2)
+    path = tmp_path / "retained.pt"
+    baseline = {"en": 1, "bn": 0}
+    assert save_best_generation(
+        path, model, accuracy=0.5, evaluation_signature="fixed", step=0,
+        metadata={}, case_scores=baseline, preserve_passed=True,
+    )
+
+    assert retention_passes(
+        path, evaluation_signature="fixed", case_scores={"en": 1, "bn": 1}
+    )
+    assert not retention_passes(
+        path, evaluation_signature="fixed", case_scores={"en": 0, "bn": 1}
+    )
 
 
 @pytest.mark.parametrize('score', [float('nan'), float('inf'), -1, 2])

@@ -7,6 +7,21 @@ import torch
 from training.checkpoint import save_checkpoint
 
 
+def retention_passes(path, *, evaluation_signature, case_scores):
+    """Return whether scores preserve every case passed by the saved baseline."""
+    path = Path(path)
+    if not path.exists():
+        return True
+    previous = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
+    saved = previous.get("metadata", {})
+    if saved.get("evaluation_signature") != evaluation_signature:
+        raise ValueError("generation evaluation changed; choose a new best_output path")
+    previous_scores = saved.get("case_scores", {})
+    if previous_scores.keys() != case_scores.keys():
+        raise ValueError("retention case coverage changed; choose a new best_output path")
+    return all(case_scores[key] >= value for key, value in previous_scores.items())
+
+
 def save_best_generation(path, model, *, accuracy, evaluation_signature, step, metadata,
                          case_scores=None, preserve_passed=False):
     """Save strict improvements; ties retain the earlier model, including on restart.
@@ -26,10 +41,9 @@ def save_best_generation(path, model, *, accuracy, evaluation_signature, step, m
         if saved.get('evaluation_signature') != evaluation_signature:
             raise ValueError('generation evaluation changed; choose a new best_output path')
         if preserve_passed:
-            previous_scores = saved.get('case_scores', {})
-            if previous_scores.keys() != case_scores.keys():
-                raise ValueError('retention case coverage changed; choose a new best_output path')
-            if any(case_scores[key] < value for key, value in previous_scores.items()):
+            if not retention_passes(
+                path, evaluation_signature=evaluation_signature, case_scores=case_scores
+            ):
                 return False
         if accuracy <= float(saved['generation_accuracy']):
             return False

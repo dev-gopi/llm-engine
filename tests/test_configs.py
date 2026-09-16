@@ -105,6 +105,12 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     config = load_yaml(CONFIGS / "finetuning.gpu.v2.yaml")
 
     assert config["require_init_from"] is True
+    assert config["required_init_checkpoint"] == "checkpoints/finetuning/best.pt"
+    assert config["init_from_weights"] == "ema"
+    assert "finetuning-v2-clean-chat-v1" in config["forbidden_init_training_stage_ids"]
+    assert config["require_prepared_data"] is True
+    assert config["epochs"] == 1
+    assert config["samples_per_epoch"] <= 50_000
     assert config["validation_max_batches"] <= 250
     assert config["validation_lr_patience"] >= 2
     assert config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]
@@ -112,6 +118,18 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["best_checkpoint_min_generation_accuracy"] >= 0.20
     assert config["generation_evaluation"]["best_output"] != config["runtime"]["best_output"]
     assert "clean-chat-v2" in config["runtime"]["output"]
+    assert config["peft"]["method"] == "lora"
+    assert config["peft"]["rank"] > 0
+    assert config["generation_evaluation"]["evaluate_at_start"] is True
+    assert config["generation_evaluation"]["preserve_passed"] is True
+    assert config["generation_evaluation"]["cases"] == "configs/evaluation.retention.jsonl"
+    assert config["validation_evaluate_at_start"] is True
+    assert sum(config["dataset_weights"][name] for name in (
+        "fineweb_edu", "fineweb_edu_large", "code_pretraining",
+    )) >= 0.10
+    assert set(config["best_checkpoint_domain_max_regression"]) == {
+        "chat", "english", "math", "coding", "bengali", "hindi",
+    }
 
 
 def test_cpu_finetuning_and_pretraining_profiles_use_direct_validation() -> None:

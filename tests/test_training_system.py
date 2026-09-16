@@ -298,6 +298,30 @@ def test_generation_gate_blocks_loss_only_best_checkpoint() -> None:
     assert trainer.best_validation_loss == pytest.approx(1.9)
 
 
+def test_retention_regression_blocks_loss_best_checkpoint() -> None:
+    class FixedEvaluator:
+        def evaluate(self, _loader):
+            return {"loss": 1.0, "cross_entropy": 1.0, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    saved = []
+
+    trainer.fit(
+        make_loader(), epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        validation_callback=lambda *_args: {
+            "accuracy": 0.9, "retention_passed": False,
+        },
+        best_checkpoint_min_generation_accuracy=0.20,
+        best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
+    )
+
+    assert saved == []
+    assert trainer.best_validation_loss == float("inf")
+
+
 def test_chat_control_and_domain_gate_reject_hidden_regression() -> None:
     class DomainEvaluator:
         def __init__(self):
@@ -327,6 +351,34 @@ def test_chat_control_and_domain_gate_reject_hidden_regression() -> None:
     assert trainer.best_validation_loss == 3.0
     assert trainer.best_validation_domains["chat"] == 2.0
     assert trainer.epochs_without_improvement == 1
+
+
+def test_step_zero_validation_is_the_domain_retention_baseline() -> None:
+    class DomainEvaluator:
+        def __init__(self):
+            self.losses = iter([2.0, 3.0, 2.2, 3.2, 2.2, 3.2])
+
+        def evaluate(self, _loader):
+            loss = next(self.losses)
+            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    saved = []
+    history = trainer.fit(
+        make_loader(), epochs=1, evaluator=DomainEvaluator(),
+        validation_dataloader={"chat": make_loader(), "knowledge": make_loader()},
+        validation_weights={"chat": 0.5, "knowledge": 0.5},
+        validation_evaluate_at_start=True, evaluate_every=1, log_every=0,
+        best_checkpoint_domain_max_regression={"knowledge": 0.01},
+        best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
+    )
+
+    assert history[0]["initial_validation"] is True
+    assert history[0]["step"] == 0
+    assert trainer.best_validation_domains == {"chat": 2.0, "knowledge": 3.0}
+    assert saved == []
 
 
 def test_validation_lr_scale_round_trips_in_scheduler_checkpoint() -> None:

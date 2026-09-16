@@ -78,7 +78,14 @@ def load_checkpoint(
     payload = torch.load(source, map_location=map_location, weights_only=True)
     if not isinstance(payload, dict):
         raise ValueError("checkpoint must contain a mapping")
-    saved_fingerprint = payload.get("metadata", {}).get("tokenizer_fingerprint")
+    metadata = payload.get("metadata", {})
+    peft_config = metadata.get("peft")
+    if peft_config:
+        from training.peft import apply_lora, has_lora
+
+        if not has_lora(model):
+            apply_lora(model, peft_config)
+    saved_fingerprint = metadata.get("tokenizer_fingerprint")
     if (
         expected_tokenizer_fingerprint is not None
         and saved_fingerprint is not None

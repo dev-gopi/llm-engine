@@ -396,6 +396,18 @@ class IncrementalLogReader:
         return self.parsed
 
 
+def _checkpoint_step(path: Path) -> int | None:
+    """Read checkpoint identity without materializing its tensor storage."""
+    try:
+        import torch
+
+        payload = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
+        step = payload.get("step") if isinstance(payload, dict) else None
+        return int(step) if step is not None else None
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+
+
 def checkpoint_details(path: str | Path, validation: list[dict[str, Any]], *, best: bool) -> dict[str, Any]:
     checkpoint = Path(path)
     details: dict[str, Any] = {"path": str(checkpoint), "exists": checkpoint.is_file()}
@@ -406,9 +418,14 @@ def checkpoint_details(path: str | Path, validation: list[dict[str, Any]], *, be
             "size_mb": round(stat.st_size / 1024**2, 2),
             "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         })
-    if validation:
-        selected = min(validation, key=lambda item: float(item["loss"])) if best else validation[-1]
-        details["validation"] = selected
+        details["step"] = _checkpoint_step(checkpoint)
+    checkpoint_step = details.get("step")
+    matching = [item for item in validation if item.get("step") == checkpoint_step]
+    if matching:
+        details["validation"] = matching[-1]
+    elif checkpoint_step is not None:
+        details["validation"] = None
+        details["validation_note"] = "no validation record matches the checkpoint step"
     return details
 
 
@@ -427,7 +444,14 @@ def _change(first: float | int | None, latest: float | int | None) -> dict[str, 
 
 def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
     """Calculate lower-is-better improvements and runtime health summaries."""
-    training, validation = parsed["training"], parsed["validation"]
+    training, all_validation = parsed["training"], parsed["validation"]
+    metrics = [item.get("metric") for item in all_validation if item.get("metric")]
+    active_metric = metrics[-1] if metrics else None
+    validation = (
+        [item for item in all_validation if item.get("metric") == active_metric]
+        if active_metric else all_validation
+    )
+    excluded_validation = len(all_validation) - len(validation)
     overall = _change(
         validation[0].get("loss") if validation else None,
         validation[-1].get("loss") if validation else None,
@@ -523,6 +547,8 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "best_validation_step": best_validation.get("step") if best_validation else None,
             "best_validation_loss": best_validation.get("loss") if best_validation else None,
             "best_checkpoint_updates": len(parsed.get("best_updates", [])),
+            "active_validation_metric": active_metric,
+            "excluded_incompatible_validations": excluded_validation,
         },
         "report_coverage": {
             "loss_and_runtime": "available",

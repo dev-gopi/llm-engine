@@ -198,6 +198,40 @@ def test_progress_analysis_detects_overfitting_signal() -> None:
     assert analysis["checkpoint_comparison"]["status"] == "different_checkpoints"
 
 
+def test_progress_analysis_excludes_incompatible_validation_protocols() -> None:
+    parsed = {
+        "training": [],
+        "validation": [
+            {"step": 10, "loss": 1.0, "metric": "old"},
+            {"step": 20, "loss": 3.0, "metric": "new"},
+            {"step": 30, "loss": 2.5, "metric": "new"},
+        ],
+        "best_updates": [],
+    }
+
+    analysis = MODULE.analyze_progress(parsed)
+
+    assert analysis["overall_validation_loss"]["first"] == 3.0
+    assert analysis["overall_validation_loss"]["latest"] == 2.5
+    assert analysis["run_summary"]["active_validation_metric"] == "new"
+    assert analysis["run_summary"]["excluded_incompatible_validations"] == 1
+
+
+def test_checkpoint_details_only_attaches_matching_validation(tmp_path, monkeypatch) -> None:
+    checkpoint = tmp_path / "best.pt"
+    checkpoint.write_bytes(b"placeholder")
+    monkeypatch.setattr(MODULE, "_checkpoint_step", lambda path: 20)
+
+    details = MODULE.checkpoint_details(
+        checkpoint,
+        [{"step": 10, "loss": 1.0}, {"step": 20, "loss": 2.0}],
+        best=True,
+    )
+
+    assert details["step"] == 20
+    assert details["validation"] == {"step": 20, "loss": 2.0}
+
+
 def test_evaluation_artifacts_update_report_coverage(tmp_path) -> None:
     audit = tmp_path / "audit.json"
     benchmark = tmp_path / "benchmark.json"

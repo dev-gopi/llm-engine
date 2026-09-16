@@ -277,6 +277,7 @@ class Trainer:
         validation_weights: Mapping[str, float] | None = None,
         validation_max_batches: int | Mapping[str, int] | None = None,
         validation_progress_every: int = 0,
+        validation_evaluate_at_start: bool = False,
         log_every: int = 10,
         log_interval_seconds: float | None = None,
         evaluate_every: int | None = None,
@@ -406,11 +407,13 @@ class Trainer:
                     int(domain_metrics["batches"]),
                 )
             logger.info(
-                "validation epoch=%d step=%d loss=%.6f cross_entropy=%.6f perplexity=%.4f tokens=%d batches=%d",
+                "validation epoch=%d step=%d loss=%.6f cross_entropy=%.6f perplexity=%.4f "
+                "tokens=%d batches=%d metric=%s",
                 epoch + 1, self.global_step, float(metrics["loss"]),
                 float(metrics.get("cross_entropy", float("nan"))),
                 float(metrics.get("perplexity", float("nan"))),
                 int(metrics.get("tokens", 0)), int(metrics.get("batches", 0)),
+                self.validation_metric_name or "validation_loss",
             )
 
         def update_from_validation(validation_loss: float) -> None:
@@ -466,6 +469,12 @@ class Trainer:
 
         def checkpoint_passes_generation_gate(generation_metrics) -> bool:
             threshold = best_checkpoint_min_generation_accuracy
+            if generation_metrics and generation_metrics.get("retention_passed") is False:
+                logger.info(
+                    "best_checkpoint_rejected step=%d reason=retention_regression",
+                    self.global_step,
+                )
+                return False
             if threshold is None:
                 return True
             accuracy = generation_metrics.get("accuracy") if generation_metrics else None
@@ -482,6 +491,29 @@ class Trainer:
             self.best_validation_domains = {
                 str(name): float(values["loss"]) for name, values in domains.items()
             }
+
+        if (
+            validation_evaluate_at_start
+            and evaluator is not None
+            and validation_dataloader is not None
+            and not self.best_validation_domains
+        ):
+            metrics, domains = evaluate_validation()
+            log_validation(self.current_epoch - 1, metrics, domains)
+            if not domains and domain_regression_limits:
+                raise ValueError(
+                    "step-zero domain retention gates require domain validation loaders"
+                )
+            record_best_domains(domains)
+            self.early_stopping_best_loss = validation_control_loss(metrics, domains)
+            self.epochs_without_improvement = 0
+            history.append({
+                "epoch": self.current_epoch,
+                "step": self.global_step,
+                "initial_validation": True,
+                **metrics,
+                **({"domains": domains} if domains else {}),
+            })
 
         for epoch in range(self.current_epoch, epochs):
             last_validation_step = None

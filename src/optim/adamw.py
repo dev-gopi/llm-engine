@@ -23,7 +23,9 @@ def build_adamw(
     for name, parameter in model.named_parameters():
         if not parameter.requires_grad:
             continue
-        (no_decay if parameter.ndim < 2 or name.endswith("bias") else decay).append(parameter)
+        # LoRA matrices are small adapters; regularizing them like pretrained
+        # base weights can erase useful updates during short PEFT stages.
+        (no_decay if parameter.ndim < 2 or name.endswith("bias") or "lora_" in name else decay).append(parameter)
     if fused == "auto":
         parameters = decay + no_decay
         fused = bool(parameters) and all(parameter.device.type == "cuda" for parameter in parameters)

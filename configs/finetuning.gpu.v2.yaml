@@ -1,13 +1,23 @@
-# Focused v2 SFT stage for the existing 16-layer model. Start this as a new
-# stage from checkpoints/finetuning/best.pt; never resume a v1 optimizer after
-# changing the tokenizer or dataset mixture.
+# Focused v2 recovery SFT stage for the existing 16-layer model. Start this as
+# a new stage from the local v1 checkpoint requested for recovery. Its broad
+# retention is imperfect, so replay and step-zero domain gates remain required.
 batch_size: 4
 validation_batch_size: 4
-epochs: 2
+epochs: 1
 seed: 84
 require_cuda: true
 training_stage_id: finetuning-v2-clean-chat-v2
 require_init_from: true
+required_init_checkpoint: checkpoints/finetuning/best.pt
+# The v1 checkpoint contains an EMA copy; initialize from those averaged
+# weights rather than the noisier final optimizer iterate.
+init_from_weights: ema
+forbidden_init_training_stage_ids:
+  - finetuning-v2-clean-chat-v1
+  - dataset_weighted_v4_finetuning_v2
+# Refuse direct use of the noisy source files. Run prepare_sft_stage.py first;
+# its generated training.yaml supplies the audit and cleaned paths.
+require_prepared_data: true
 dataset_governance:
   policy: warn
   stage: sft
@@ -25,27 +35,27 @@ distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
 # A shorter, cleaner stage limits catastrophic forgetting and overfitting.
-samples_per_epoch: 250000
+samples_per_epoch: 50000
 dataset_weights:
   aya_bengali: 0.05
   aya_hindi: 0.05
   orca_math: 0.05
   # Human-rated and curated chat replace the noisy OpenAssistant mixture and
   # the mostly non-conversational SmolTalk aggregate.
-  helpsteer: 0.35
+  helpsteer: 0.28
   core_chat: 0.10
-  smoltalk_chat: 0.10
+  smoltalk_chat: 0.075
   english: 0.12
   math: 0.04
   coding: 0.04
   safety_alignment: 0.03
   tool_calling: 0.02
   writing_editing: 0.025
-  fineweb_edu: 0.005
+  fineweb_edu: 0.04
   # Large storage does not imply a large SFT share: keep causal knowledge text
   # bounded so it cannot overwhelm assistant-response supervision.
-  fineweb_edu_large: 0.015
-  code_pretraining: 0.005
+  fineweb_edu_large: 0.05
+  code_pretraining: 0.03
 train_files:
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_bengali/train.jsonl
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_hindi/train.jsonl
@@ -116,7 +126,24 @@ validation_seed: 2026
 validation_fixed_subset: true
 validation_balance_sources: true
 validation_use_ema: true
-learning_rate: 0.000005
+# Measure the unmodified initialization on every validation domain. These
+# values become hard regression baselines before any LoRA update is accepted.
+validation_evaluate_at_start: true
+# Freeze pretrained weights and learn small residual adapters. This sharply
+# limits destructive parameter drift; replay and retention evaluation remain
+# necessary because PEFT reduces but cannot prove the absence of forgetting.
+peft:
+  method: lora
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - out_proj
+    - in_proj
+learning_rate: 0.0001
 weight_decay: 0.01
 beta1: 0.9
 beta2: 0.95
@@ -131,18 +158,21 @@ min_lr_ratio: 0.1
 ema_decay: 0.995
 log_every: 25
 log_interval_seconds: null
-checkpoint_every: 500
+checkpoint_every: 100
 # Validate soon enough for plateau-driven LR changes to affect more of the run.
-evaluate_every: 500
+evaluate_every: 100
 generation_evaluation:
   enabled: true
-  cases: configs/evaluation.domains.jsonl
+  cases: configs/evaluation.retention.jsonl
   inference_config: configs/inference.v2.yaml
-  output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/reports/generation-quality.json
+  output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/reports/finetuning-v2-clean-chat-v2-generation.json
   max_tokens: 48
   repetition_penalty: 1.10
   no_repeat_ngram_size: 3
   best_output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2-clean-chat-v2/generation-best.pt
+  # Capture the unmodified initialization as the retention baseline before the
+  # first adapter update; preserve_passed then rejects lost passing behaviors.
+  evaluate_at_start: true
   preserve_passed: true
 early_stopping_patience: 4
 early_stopping_min_delta: 0.001
@@ -151,12 +181,15 @@ early_stopping_min_delta: 0.001
 validation_lr_decay_factor: 0.5
 validation_lr_patience: 3
 validation_lr_min_scale: 0.25
-validation_lr_min_steps_between_decays: 500
+validation_lr_min_steps_between_decays: 100
 # Drive plateau handling from chat quality and refuse an aggregate-loss win if
 # core conversational or multilingual capability regresses materially.
 validation_control_domain: chat
 best_checkpoint_domain_max_regression:
   chat: 0.02
+  english: 0.03
+  math: 0.03
+  coding: 0.03
   bengali: 0.05
   hindi: 0.05
 # Never promote a loss-only checkpoint that fails nearly every behavioral probe.
