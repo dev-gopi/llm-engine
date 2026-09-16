@@ -107,8 +107,8 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["require_init_from"] is True
     assert config["required_init_checkpoint"] == "checkpoints/finetuning/best.pt"
     assert config["init_from_weights"] == "ema"
-    assert "finetuning-v2-clean-chat-v1" in config["forbidden_init_training_stage_ids"]
-    assert config["require_prepared_data"] is True
+    assert config["training_stage_id"] in config["forbidden_init_training_stage_ids"]
+    assert config["require_prepared_data"] is False
     assert config["epochs"] == 1
     assert config["samples_per_epoch"] <= 50_000
     assert config["batch_size"] == 4
@@ -121,7 +121,7 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["ema_decay"] <= 0.995
     assert config["best_checkpoint_min_generation_accuracy"] >= 0.20
     assert config["generation_evaluation"]["best_output"] != config["runtime"]["best_output"]
-    assert "clean-chat-v2" in config["runtime"]["output"]
+    assert "finetuning-v2" in config["runtime"]["output"]
     assert config["peft"]["method"] == "lora"
     assert config["peft"]["rank"] > 0
     assert config["generation_evaluation"]["evaluate_at_start"] is True

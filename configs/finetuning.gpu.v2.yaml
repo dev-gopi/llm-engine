@@ -169,7 +169,7 @@ generation_evaluation:
   max_tokens: 48
   repetition_penalty: 1.10
   no_repeat_ngram_size: 3
-  best_output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2/best.pt
+  best_output: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/checkpoints/finetuning-v2/best-generation.pt
   # Capture the unmodified initialization as the retention baseline before the
   # first adapter update; preserve_passed then rejects lost passing behaviors.
   evaluate_at_start: true
