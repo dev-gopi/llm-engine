@@ -157,10 +157,10 @@ lr_schedule: cosine
 warmup_ratio: 0.03
 min_lr_ratio: 0.1
 ema_decay: 0.995
-log_every: 100
+log_every: 25
 log_interval_seconds: null
 checkpoint_every: 1000
-evaluate_every: 1000
+evaluate_every: 2000
 generation_evaluation:
   enabled: true
   cases: configs/evaluation.retention.jsonl
