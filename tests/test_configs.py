@@ -111,6 +111,10 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["require_prepared_data"] is True
     assert config["epochs"] == 1
     assert config["samples_per_epoch"] <= 50_000
+    assert config["batch_size"] == 4
+    assert config["validation_batch_size"] == 4
+    assert config["gradient_accumulation_steps"] == 16
+    assert config["batch_size"] * config["gradient_accumulation_steps"] == 64
     assert config["validation_max_batches"] <= 250
     assert config["validation_lr_patience"] >= 2
     assert config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]

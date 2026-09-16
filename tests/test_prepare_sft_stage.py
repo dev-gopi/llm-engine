@@ -3,7 +3,7 @@ import json
 import pytest
 import yaml
 
-from scripts.prepare_sft_stage import prepare, record_key, rejection_reason
+from scripts.prepare_sft_stage import prepare, record_key, refresh_training_config, rejection_reason
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
@@ -59,3 +59,33 @@ def test_preparation_rejects_unsupported_tools_and_keeps_code_whitespace():
     assert rejection_reason(chat("question", "x" * 200), tok, 128) == "overlength_chat"
     assert rejection_reason(chat("code", "def f():\n    return 1"), tok, 128) is None
     assert record_key(chat("ＡＢＣ")) == record_key(chat("abc"))
+
+
+def test_refresh_training_config_reuses_audited_files(tmp_path):
+    tok = tokenizer()
+    tok.save(tmp_path / "tokenizer")
+    source = tmp_path / "source"
+    source.mkdir()
+    train = source / "train.jsonl"
+    validation = source / "validation.jsonl"
+    train.write_text(json.dumps(chat("train")) + "\n")
+    validation.write_text(json.dumps(chat("validation")) + "\n")
+    config = {
+        "train_files": [str(train)], "validation_files": [str(validation)],
+        "validation_domains": {"chat": [str(validation)]},
+        "dataset_weights": {"source": 1}, "max_sequence_length": 128,
+        "batch_size": 4, "runtime": {"tokenizer": str(tmp_path / "tokenizer")},
+    }
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    output = tmp_path / "cleaned"
+    prepare(config_path, output)
+    config["batch_size"] = 1
+    config_path.write_text(yaml.safe_dump(config))
+
+    destination = refresh_training_config(config_path, output)
+    refreshed = yaml.safe_load(destination.read_text())
+
+    assert refreshed["batch_size"] == 1
+    assert refreshed["train_files"] == [str((output / "source/train.jsonl").resolve())]
+    assert refreshed["prepared_data"]["tokenizer_fingerprint"] == tok.fingerprint

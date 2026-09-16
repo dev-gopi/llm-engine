@@ -167,13 +167,69 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
     return summary
 
 
+def refresh_training_config(config_path: Path, output: Path) -> Path:
+    """Refresh settings while reusing an already prepared, audited corpus."""
+    audit_path = output / "audit.json"
+    if not audit_path.is_file():
+        raise ValueError(f"prepared-data audit is missing: {audit_path}")
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    entries = audit.get("files")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("prepared-data audit contains no file mappings")
+    remapped = {
+        str(item["source"]): str(Path(item["output"]).resolve())
+        for item in entries
+        if isinstance(item, dict) and item.get("source") and item.get("output")
+    }
+    config = load_yaml(config_path)
+    configured_paths = [*config["train_files"], *config["validation_files"]]
+    missing = [path for path in configured_paths if path not in remapped]
+    if missing:
+        raise ValueError(
+            "prepared audit does not cover configured sources: " + ", ".join(missing)
+        )
+    missing_outputs = [remapped[path] for path in configured_paths if not Path(remapped[path]).is_file()]
+    if missing_outputs:
+        raise ValueError("prepared files are missing: " + ", ".join(missing_outputs))
+    for key in ("train_files", "validation_files"):
+        config[key] = [remapped[path] for path in config[key]]
+    if config.get("validation_domains"):
+        config["validation_domains"] = {
+            domain: [remapped[path] for path in paths]
+            for domain, paths in config["validation_domains"].items()
+        }
+    tokenizer_path = Path(config["runtime"]["tokenizer"]).resolve()
+    if not tokenizer_path.exists():
+        raise ValueError(f"configured tokenizer is missing: {tokenizer_path}")
+    config["runtime"]["tokenizer"] = str(tokenizer_path)
+    config["prepared_data"] = {
+        "audit": str(audit_path.resolve()),
+        "tokenizer_fingerprint": audit["tokenizer_fingerprint"],
+    }
+    config["require_init_from"] = True
+    config["require_prepared_data"] = True
+    destination = output / "training.yaml"
+    destination.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return destination
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--training-config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tokenizer", type=Path)
     parser.add_argument("--cases", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--refresh-config", action="store_true",
+        help="reuse audited prepared files and update only training.yaml from the source config",
+    )
     args = parser.parse_args()
+    if args.refresh_config:
+        if args.tokenizer or args.cases:
+            parser.error("--refresh-config cannot be combined with --tokenizer or --cases")
+        destination = refresh_training_config(args.training_config, args.output)
+        print(f"Refreshed training config: {destination}")
+        return
     prepare(args.training_config, args.output, tokenizer_path=args.tokenizer, cases=args.cases)
     print(f"Prepared training config: {args.output / 'training.yaml'}")
 

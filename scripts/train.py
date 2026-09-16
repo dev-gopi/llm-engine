@@ -705,6 +705,19 @@ def main() -> None:
 
     if generation_config.get("evaluate_at_start", False) and generation_cases:
         validation_generation_callback(trainer, trainer.current_epoch - 1, {}, {})
+        # Generation allocates many differently sized KV-cache and logits
+        # blocks. Release its unused CUDA reservations before the full-context
+        # step-zero validation pass, especially on 4 GiB devices.
+        if distributed.device.type == "cuda":
+            allocated = torch.cuda.memory_allocated(distributed.device) / 1024**2
+            reserved = torch.cuda.memory_reserved(distributed.device) / 1024**2
+            torch.cuda.empty_cache()
+            logger.info(
+                "Released generation CUDA cache before validation: "
+                "allocated_mb=%.1f reserved_mb=%.1f->%.1f",
+                allocated, reserved,
+                torch.cuda.memory_reserved(distributed.device) / 1024**2,
+            )
 
     logger.info("Starting training at optimizer step %d; batch_size=%s accumulation=%d log_every=%s",
                 trainer.global_step, config.get("batch_size"), accumulation, config.get("log_every", 10))
