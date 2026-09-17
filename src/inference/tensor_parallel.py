@@ -67,6 +67,11 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
         return model
     first = model.blocks[0].attn
     validate_tensor_parallel_size(size, attention_heads=first.heads, kv_heads=first.kv_heads)
+    if any(hasattr(block.ffn, "experts") for block in model.blocks):
+        raise NotImplementedError(
+            "MoE tensor parallelism requires expert-parallel checkpoint loading; "
+            "use one device for small MoE models for now"
+        )
     for block in model.blocks:
         attn = block.attn
         old_heads, old_kv, head_dim = attn.heads, attn.kv_heads, attn.head_dim

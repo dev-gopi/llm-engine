@@ -183,3 +183,85 @@ class FeedForward(nn.Module):
             raise ValueError("dropout must satisfy 0 <= dropout < 1")
         if not math.isfinite(initializer_range) or initializer_range <= 0:
             raise ValueError("initializer_range must be finite and positive")
+
+
+class SparseMoE(nn.Module):
+    """Top-k sparse mixture of feed-forward experts.
+
+    Every token is scored by a small router and evaluated by only
+    ``experts_per_token`` experts. All experts remain part of the checkpoint,
+    while the expensive FFN computation is sparse.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int | None = None,
+        *,
+        num_experts: int,
+        experts_per_token: int = 2,
+        expansion_factor: float = 4.0,
+        multiple_of: int = 1,
+        activation: str = "gelu",
+        dropout: float = 0.0,
+        bias: bool = True,
+        router_bias: bool = False,
+        router_jitter: float = 0.0,
+        initializer_range: float = 0.02,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> None:
+        super().__init__()
+        if not isinstance(num_experts, int) or isinstance(num_experts, bool) or num_experts < 1:
+            raise ValueError("num_experts must be a positive integer")
+        if (not isinstance(experts_per_token, int) or isinstance(experts_per_token, bool)
+                or not 1 <= experts_per_token <= num_experts):
+            raise ValueError("experts_per_token must be between 1 and num_experts")
+        if not math.isfinite(router_jitter) or router_jitter < 0:
+            raise ValueError("router_jitter must be finite and non-negative")
+        self.dim = dim
+        self.num_experts = num_experts
+        self.experts_per_token = experts_per_token
+        self.router_jitter = float(router_jitter)
+        self.router = nn.Linear(dim, num_experts, bias=router_bias, device=device, dtype=dtype)
+        nn.init.normal_(self.router.weight, mean=0.0, std=initializer_range)
+        if self.router.bias is not None:
+            nn.init.zeros_(self.router.bias)
+        self.experts = nn.ModuleList(FeedForward(
+            dim, hidden_dim=hidden_dim, expansion_factor=expansion_factor,
+            multiple_of=multiple_of, activation=activation, dropout=dropout,
+            bias=bias, initializer_range=initializer_range, device=device, dtype=dtype,
+        ) for _ in range(num_experts))
+        self.hidden_dim = self.experts[0].hidden_dim
+
+    def forward(self, hidden_states: Tensor) -> Tensor:
+        self.experts[0]._validate_hidden_states(hidden_states)
+        original_shape = hidden_states.shape
+        tokens = hidden_states.reshape(-1, self.dim)
+        router_inputs = tokens
+        if self.training and self.router_jitter:
+            noise = torch.empty_like(tokens).uniform_(
+                1.0 - self.router_jitter, 1.0 + self.router_jitter
+            )
+            router_inputs = tokens * noise
+        router_logits = self.router(router_inputs)
+        top_weights, top_experts = torch.topk(
+            router_logits, self.experts_per_token, dim=-1
+        )
+        top_weights = F.softmax(top_weights.float(), dim=-1).to(tokens.dtype)
+        output = torch.zeros_like(tokens)
+        # Dispatch only tokens selected for an expert; inactive experts are not run.
+        for expert_index, expert in enumerate(self.experts):
+            token_index, route_index = torch.where(top_experts == expert_index)
+            if token_index.numel() == 0:
+                continue
+            expert_output = expert(tokens.index_select(0, token_index))
+            weights = top_weights[token_index, route_index].unsqueeze(-1)
+            output.index_add_(0, token_index, expert_output * weights)
+        return output.reshape(original_shape)
+
+    def extra_repr(self) -> str:
+        return (
+            f"dim={self.dim}, hidden_dim={self.hidden_dim}, num_experts={self.num_experts}, "
+            f"experts_per_token={self.experts_per_token}"
+        )

@@ -11,7 +11,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from .attention import KeyValueCache, MultiHeadAttention
-from .feed_forward import FeedForward
+from .feed_forward import FeedForward, SparseMoE
 from .layer_norm import build_normalization
 
 
@@ -41,6 +41,11 @@ class TransformerBlock(nn.Module):
         ffn_activation: str = "gelu",
         ffn_dropout: float = 0.0,
         ffn_bias: bool = True,
+        ffn_type: str = "dense",
+        num_experts: int = 1,
+        experts_per_token: int = 1,
+        router_bias: bool = False,
+        router_jitter: float = 0.0,
         initializer_range: float = 0.02,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
@@ -66,7 +71,16 @@ class TransformerBlock(nn.Module):
             device=device,
             dtype=dtype,
         )
-        self.ffn = FeedForward(
+        if ffn_type not in {"dense", "moe"}:
+            raise ValueError("ffn_type must be 'dense' or 'moe'")
+        ffn_class = SparseMoE if ffn_type == "moe" else FeedForward
+        moe_options = ({
+            "num_experts": num_experts,
+            "experts_per_token": experts_per_token,
+            "router_bias": router_bias,
+            "router_jitter": router_jitter,
+        } if ffn_type == "moe" else {})
+        self.ffn = ffn_class(
             dim,
             hidden_dim=ffn_hidden_dim,
             expansion_factor=ffn_expansion_factor,
@@ -77,6 +91,7 @@ class TransformerBlock(nn.Module):
             initializer_range=initializer_range,
             device=device,
             dtype=dtype,
+            **moe_options,
         )
         self.attention_norm = build_normalization(
             norm_type, dim, eps=norm_eps, bias=norm_bias, device=device, dtype=dtype
@@ -182,6 +197,11 @@ class TransformerBlock(nn.Module):
             ffn_activation=str(config.get("ffn_activation", "gelu")),
             ffn_dropout=float(config.get("ffn_dropout", 0.0)),
             ffn_bias=bool(config.get("ffn_bias", True)),
+            ffn_type=str(config.get("ffn_type", "dense")).lower(),
+            num_experts=int(config.get("num_experts", 1)),
+            experts_per_token=int(config.get("experts_per_token", 1)),
+            router_bias=bool(config.get("router_bias", False)),
+            router_jitter=float(config.get("router_jitter", 0.0)),
             initializer_range=float(config.get("initializer_range", 0.02)),
             device=device,
             dtype=dtype,

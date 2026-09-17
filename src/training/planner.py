@@ -64,7 +64,8 @@ def plan_training(
         raise ValueError("batch, sequence length, and accumulation must be positive")
     tokens_per_step = batch * sequence * accumulation * gpus
     steps = math.ceil(training_tokens / tokens_per_step)
-    flops = float(6 * size.parameters * training_tokens)
+    # Sparse experts consume storage but only routed experts contribute FFN compute.
+    flops = float(6 * size.active_parameters_per_token * training_tokens)
 
     strategy = str(training_config.get("distributed_strategy", "ddp"))
     sharding = gpus if strategy.startswith("fsdp") else 1
@@ -100,7 +101,8 @@ def plan_training(
         estimated_cost=cost,
         fits_memory=fits,
         assumptions={
-            "dense_training_flops_per_token": "6 * parameters",
+            "training_flops_per_token": "6 * active_parameters_per_token",
+            "active_parameters_per_token": size.active_parameters_per_token,
             "optimizer": "AdamW with FP32 parameters, gradients, and moments",
             "activation_factor": activation_factor,
             "memory_safety_factor": 1.2,

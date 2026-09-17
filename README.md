@@ -55,6 +55,7 @@ Active profiles, including the tokenizer, use unversioned filenames.
 | `configs/*packed*` | Memory-mapped token-shard training |
 | `configs/vision/multimodal.yaml` | Small multimodal adapter profile |
 | `configs/text/` | Future 50K tokenizer and 1B/7B/30B targets |
+| `configs/scaling/model.moe-100b.yaml` | Sparse 97.28B planning profile with about 13.96B parameters active per token |
 
 ## Environment setup
 
@@ -350,6 +351,42 @@ not resume an older sampler with the changed mixture.
 These are architecture targets, not laptop training recommendations. Use
 `scripts/inspect_model.py` and `scripts/plan_training.py` before allocating
 hardware.
+
+### Configuration-driven sparse MoE
+
+Transformer FFNs can be changed from dense layers to sparse Mixture-of-Experts
+layers entirely through the model YAML:
+
+```yaml
+ffn_type: moe
+ffn_hidden_size: 11008
+ffn_activation: swiglu
+num_experts: 16
+experts_per_token: 2
+router_bias: false
+router_jitter: 0.01
+```
+
+`num_experts` controls stored expert capacity. `experts_per_token` controls how
+many experts execute for each token. `router_jitter` adds multiplicative router
+input noise during training only; it is disabled automatically during
+evaluation and generation. Use `ffn_type: dense` (the default) for existing
+models and checkpoints. Changing between dense and MoE changes checkpoint
+shapes and requires training a compatible model.
+
+Inspect the supplied 100B-class template without allocating its weights:
+
+```bash
+.venv/bin/python scripts/inspect_model.py configs/scaling/model.moe-100b.yaml
+```
+
+The template stores approximately 97.28B parameters and routes each token
+through approximately 13.96B active parameters. It deliberately keeps
+`planning_only: true`: all expert weights require about 181.2 GiB in BF16, and
+this engine does not yet implement expert-parallel sharded checkpoint loading.
+Small MoE profiles can use the normal training and generation commands.
+Tensor-parallel MoE serving is rejected explicitly until expert parallelism is
+available; changing only the YAML cannot overcome physical weight memory.
 
 ## Test suite
 

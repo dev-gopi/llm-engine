@@ -29,6 +29,8 @@ def main() -> None:
         "model_config": str(args.model_config),
         "parameters": size.parameters,
         "parameters_billions": round(size.parameters / 1e9, 3),
+        "active_parameters_per_token": size.active_parameters_per_token,
+        "active_parameters_billions_per_token": round(size.active_parameters_per_token / 1e9, 3),
         "weights_fp32_gib": round(_gib(size.parameter_bytes_fp32), 3),
         "weights_bf16_fp16_gib": round(_gib(size.parameter_bytes_bf16), 3),
         "kv_cache_bf16_gib_per_max_length_sequence": round(

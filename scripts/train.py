@@ -49,7 +49,6 @@ from utils.device import verify_cuda_health
 from utils.logger import configure_logging, get_logger
 from utils.seed import set_seed
 
-load_dotenv()
 logger = get_logger(__name__)
 
 
@@ -109,6 +108,7 @@ def _start_reporter(args: argparse.Namespace, config: dict) -> subprocess.Popen 
 
 
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--training-config", type=Path, default=Path("configs/pretraining.gpu.yaml"))

@@ -99,7 +99,12 @@ class DistributedTrainer:
                 limit_all_gathers=True,
             )
         device_ids = [context.local_rank] if context.device.type == "cuda" else None
-        return DistributedDataParallel(model, device_ids=device_ids)
+        has_sparse_experts = any(
+            hasattr(module, "experts") for module in model.modules()
+        )
+        return DistributedDataParallel(
+            model, device_ids=device_ids, find_unused_parameters=has_sparse_experts
+        )
 
     @staticmethod
     def mean(value: Tensor, context: DistributedContext) -> Tensor:

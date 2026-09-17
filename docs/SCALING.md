@@ -49,3 +49,22 @@ cannot directly initialize this profile with `--init-from`. A future training
 run needs a compatible checkpoint or a separately validated weight-growth
 procedure, a matching tokenizer, and sufficient training data. Increasing
 parameter count alone does not establish better output quality.
+
+## Sparse Mixture-of-Experts profiles
+
+Set `ffn_type: moe`, `num_experts`, and `experts_per_token` to replace every
+dense FFN with a top-k routed expert bank. The router is evaluated for every
+token, but only selected experts run their FFNs. Existing profiles remain dense.
+
+`configs/scaling/model.moe-100b.yaml` is a zero-allocation 100B-class planning
+example. Inspect both its stored and active parameter counts with:
+
+```bash
+.venv/bin/python scripts/inspect_model.py configs/scaling/model.moe-100b.yaml
+```
+
+Small MoE profiles can be instantiated, trained, checkpointed, and generated
+with the existing single-device paths. The 100B template remains
+`planning_only`: sparse computation does not make all expert weights fit on one
+device. Distributed expert placement and directly sharded checkpoint loading
+are still required before that template can run at full size.

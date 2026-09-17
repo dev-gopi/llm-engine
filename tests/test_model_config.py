@@ -1,4 +1,5 @@
 import pytest
+import torch
 
 from model.config import estimate_model_size, normalize_model_config
 from model.gpt import MiniGPT
@@ -88,3 +89,44 @@ def test_trillion_profile_can_be_planned_without_allocating_weights():
     assert plan.parameters == size.parameters
     with pytest.raises(ValueError, match="planning-only"):
         MiniGPT.from_config(model)
+
+
+def test_moe_profile_reports_total_and_active_parameters():
+    from utils.config import load_yaml
+    config = load_yaml("configs/scaling/model.moe-100b.yaml")
+    size = estimate_model_size(config)
+    assert 90_000_000_000 < size.parameters < 110_000_000_000
+    assert 10_000_000_000 < size.active_parameters_per_token < 20_000_000_000
+    with pytest.raises(ValueError, match="planning-only"):
+        MiniGPT.from_config(config)
+
+
+def test_small_moe_model_builds_from_config():
+    config = {
+        "vocab_size": 32, "hidden_size": 16, "layers": 2, "heads": 4,
+        "kv_heads": 2, "max_position": 16, "ffn_hidden_size": 32,
+        "ffn_type": "moe", "num_experts": 4, "experts_per_token": 2,
+        "router_bias": True, "router_jitter": 0.05,
+    }
+    model = MiniGPT.from_config(config)
+    assert len(model.blocks[0].ffn.experts) == 4
+    assert model.blocks[0].ffn.experts_per_token == 2
+    assert model.blocks[0].ffn.router.bias is not None
+    assert model.blocks[0].ffn.router_jitter == 0.05
+    assert model(torch.tensor([[1, 2, 3]])).shape == (1, 3, 32)
+    assert model.num_parameters() == estimate_model_size(config).parameters
+
+
+@pytest.mark.parametrize("override", [
+    {"ffn_type": "unknown"},
+    {"ffn_type": "moe", "num_experts": 0},
+    {"ffn_type": "moe", "num_experts": 2, "experts_per_token": 3},
+    {"ffn_type": "moe", "num_experts": 2, "router_jitter": -0.1},
+])
+def test_invalid_moe_config_fails_before_model_construction(override):
+    config = {
+        "vocab_size": 32, "hidden_size": 16, "layers": 1, "heads": 4,
+        "max_position": 16, **override,
+    }
+    with pytest.raises(ValueError):
+        MiniGPT.from_config(config)

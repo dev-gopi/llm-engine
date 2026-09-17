@@ -1,0 +1,22 @@
+# Configuration-driven sparse 100B-class architecture template.
+# Approximately 98B parameters are stored, while top-2 routing activates only
+# about 15B parameters per token. This is a planning profile until distributed
+# expert-parallel checkpoint loading is available.
+extends: ../model.gpu.yaml
+planning_only: true
+vocab_size: 50000
+hidden_size: 4096
+layers: 44
+heads: 32
+kv_heads: 8
+max_position: 8192
+position_type: rotary
+ffn_type: moe
+ffn_hidden_size: 11008
+ffn_activation: swiglu
+ffn_bias: false
+num_experts: 16
+experts_per_token: 2
+router_bias: false
+router_jitter: 0.01
+gradient_checkpointing: true

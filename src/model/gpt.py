@@ -15,7 +15,7 @@ from utils.logger import get_logger
 
 from .attention import KeyValueCache
 from .kv_cache import StaticLayerKVCache
-from .config import normalize_model_config
+from .config import normalize_model_config, validate_moe_config
 from .embedding import TokenEmbedding
 from .layer_norm import build_normalization
 from .positional import PositionalEmbedding, RotaryPositionalEmbedding, SinusoidalPositionalEmbedding
@@ -64,6 +64,11 @@ class MiniGPT(nn.Module):
         ffn_activation: str = "gelu",
         ffn_dropout: float = 0.0,
         ffn_bias: bool = True,
+        ffn_type: str = "dense",
+        num_experts: int = 1,
+        experts_per_token: int = 1,
+        router_bias: bool = False,
+        router_jitter: float = 0.0,
         gradient_checkpointing: bool = False,
         logit_softcap: float | None = None,
         device: torch.device | str | None = None,
@@ -147,6 +152,11 @@ class MiniGPT(nn.Module):
                 ffn_activation=ffn_activation,
                 ffn_dropout=ffn_dropout,
                 ffn_bias=ffn_bias,
+                ffn_type=ffn_type,
+                num_experts=num_experts,
+                experts_per_token=experts_per_token,
+                router_bias=router_bias,
+                router_jitter=router_jitter,
                 initializer_range=initializer_range,
                 device=device,
                 dtype=dtype,
@@ -402,6 +412,7 @@ class MiniGPT(nn.Module):
             raise ValueError("planning-only model: use scripts/inspect_model.py or scripts/plan_training.py; "
                              "the runtime is not validated for this profile")
         config = normalize_model_config(config)
+        validate_moe_config(config)
         pos_type = str(config.get("position_type", "learned")).lower()
         valid_pos_types = {"learned", "rotary", "sinusoidal", "none"}
         if pos_type not in valid_pos_types:
@@ -448,6 +459,11 @@ class MiniGPT(nn.Module):
             ffn_activation=str(config.get("ffn_activation", "gelu")),
             ffn_dropout=float(config.get("ffn_dropout", 0.0)),
             ffn_bias=bool(config.get("ffn_bias", True)),
+            ffn_type=str(config.get("ffn_type", "dense")).lower(),
+            num_experts=int(config.get("num_experts", 1)),
+            experts_per_token=int(config.get("experts_per_token", 1)),
+            router_bias=bool(config.get("router_bias", False)),
+            router_jitter=float(config.get("router_jitter", 0.0)),
             gradient_checkpointing=bool(config.get("gradient_checkpointing", False)),
             logit_softcap=(
                 float(config["logit_softcap"])

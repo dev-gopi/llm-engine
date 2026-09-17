@@ -2,7 +2,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from model.feed_forward import FeedForward
+from model.feed_forward import FeedForward, SparseMoE
 
 
 def test_default_shape_and_hidden_expansion():
@@ -158,3 +158,21 @@ def test_invalid_hidden_states():
         module(torch.randn(2, 4, 15))
     with pytest.raises(TypeError, match="floating-point"):
         module(torch.ones(2, 4, 16, dtype=torch.long))
+
+
+def test_sparse_moe_runs_only_routed_experts_and_backpropagates():
+    torch.manual_seed(7)
+    module = SparseMoE(dim=8, hidden_dim=16, num_experts=4, experts_per_token=2)
+    hidden = torch.randn(2, 3, 8, requires_grad=True)
+    output = module(hidden)
+    assert output.shape == hidden.shape
+    output.square().mean().backward()
+    assert hidden.grad is not None and module.router.weight.grad is not None
+    used = sum(expert.in_proj.weight.grad is not None for expert in module.experts)
+    assert 1 <= used <= 4
+
+
+@pytest.mark.parametrize("experts, top_k", [(0, 1), (2, 0), (2, 3)])
+def test_sparse_moe_rejects_invalid_routing(experts, top_k):
+    with pytest.raises(ValueError):
+        SparseMoE(dim=8, num_experts=experts, experts_per_token=top_k)

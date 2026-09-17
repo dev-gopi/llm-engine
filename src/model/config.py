@@ -42,6 +42,7 @@ def normalize_model_config(config: Mapping[str, Any]) -> dict[str, Any]:
 @dataclass(frozen=True)
 class ModelSize:
     parameters: int
+    active_parameters_per_token: int
     parameter_bytes_fp32: int
     parameter_bytes_bf16: int
     kv_cache_bytes_bf16_per_sequence: int
@@ -50,6 +51,7 @@ class ModelSize:
 def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
     """Calculate parameter and inference KV-cache sizes without building a model."""
     cfg = normalize_model_config(config)
+    validate_moe_config(cfg)
     required = ("vocab_size", "hidden_size", "layers", "heads", "max_position")
     missing = [key for key in required if key not in cfg]
     if missing:
@@ -94,7 +96,14 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
     if ffn_bias:
         feed_forward += ffn * (2 if gated else 1) + dim
     norm = 2 * dim * (2 if norm_bias else 1)
-    parameters += layers * (attention + feed_forward + norm)
+    ffn_type = str(cfg.get("ffn_type", "dense")).lower()
+    experts = _positive_int(cfg.get("num_experts", 1), "num_experts") if ffn_type == "moe" else 1
+    active_experts = (_positive_int(cfg.get("experts_per_token", 1), "experts_per_token")
+                      if ffn_type == "moe" else 1)
+    router = dim * experts + (experts if bool(cfg.get("router_bias", False)) else 0)
+    total_per_layer = attention + feed_forward * experts + norm + (router if ffn_type == "moe" else 0)
+    active_per_layer = attention + feed_forward * active_experts + norm + (router if ffn_type == "moe" else 0)
+    parameters += layers * total_per_layer
     parameters += dim * (2 if norm_bias else 1)
     if not bool(cfg.get("tie_word_embeddings", True)):
         parameters += vocab * dim
@@ -102,7 +111,26 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
         parameters += vocab
 
     kv_cache_elements = 2 * layers * kv_heads * context * head_dim
-    return ModelSize(parameters, parameters * 4, parameters * 2, kv_cache_elements * 2)
+    # Embeddings, final norm, and head are active for every token.
+    active_parameters = parameters - layers * (total_per_layer - active_per_layer)
+    return ModelSize(parameters, active_parameters, parameters * 4, parameters * 2,
+                     kv_cache_elements * 2)
+
+
+def validate_moe_config(config: Mapping[str, Any]) -> None:
+    """Validate sparse-FFN controls without allocating model weights."""
+    ffn_type = str(config.get("ffn_type", "dense")).lower()
+    if ffn_type not in {"dense", "moe"}:
+        raise ValueError("ffn_type must be 'dense' or 'moe'")
+    if ffn_type == "dense":
+        return
+    experts = _positive_int(config.get("num_experts", 1), "num_experts")
+    active = _positive_int(config.get("experts_per_token", 1), "experts_per_token")
+    if active > experts:
+        raise ValueError("experts_per_token cannot exceed num_experts")
+    jitter = float(config.get("router_jitter", 0.0))
+    if not math.isfinite(jitter) or jitter < 0:
+        raise ValueError("router_jitter must be finite and non-negative")
 
 
 def _positive_int(value: Any, name: str) -> int:

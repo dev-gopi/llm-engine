@@ -25,10 +25,8 @@ from training.checkpoint import load_checkpoint
 from utils.config import apply_cli_defaults, load_yaml
 from utils.device import resolve_device
 
-load_dotenv()
-
-
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=None)
     parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
