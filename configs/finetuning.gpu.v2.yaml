@@ -1,7 +1,9 @@
 # Focused v2 recovery SFT stage for the existing 16-layer model. Start this as
 # a new stage from the local v1 checkpoint requested for recovery. Its broad
 # retention is imperfect, so replay and step-zero domain gates remain required.
-batch_size: 4
+# Keep the training micro-batch below the 4 GiB CUDA limit. Validation can use
+# four examples because it does not retain activations for backward.
+batch_size: 2
 validation_batch_size: 4
 epochs: 3
 seed: 84
@@ -157,8 +159,8 @@ beta2: 0.95
 adam_epsilon: 0.00000001
 fused_optimizer: auto
 gradient_clip_norm: 1.0
-# Effective batch: 4 micro-batch × 16 accumulation = 64.
-gradient_accumulation_steps: 16
+# Effective batch: 2 micro-batch × 32 accumulation = 64.
+gradient_accumulation_steps: 32
 mixed_precision: bf16
 lr_schedule: cosine
 warmup_ratio: 0.05

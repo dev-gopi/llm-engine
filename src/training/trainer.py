@@ -528,6 +528,20 @@ class Trainer:
                     save_timed(
                         best_checkpoint_callback, self.current_epoch - 1, "initial_best"
                     )
+            if self.device.type == "cuda":
+                # Evaluation and checkpointing create allocation shapes that
+                # differ from backward. Return their unused cached blocks so
+                # the first training batch can reserve contiguous workspace
+                # on memory-constrained GPUs.
+                allocated = torch.cuda.memory_allocated(self.device) / 1024**2
+                reserved = torch.cuda.memory_reserved(self.device) / 1024**2
+                torch.cuda.empty_cache()
+                logger.info(
+                    "released_initial_validation_cuda_cache "
+                    "allocated_mb=%.1f reserved_mb=%.1f->%.1f",
+                    allocated, reserved,
+                    torch.cuda.memory_reserved(self.device) / 1024**2,
+                )
             history.append({
                 "epoch": self.current_epoch,
                 "step": self.global_step,
