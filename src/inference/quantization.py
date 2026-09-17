@@ -21,10 +21,12 @@ def prepare_model_for_inference(
         raise ValueError("quantization must be none or int8_dynamic")
     if device.type == "cpu" and name == "float16":
         raise ValueError("float16 CPU inference is unsupported; use bfloat16 or int8_dynamic")
+    if quantization == "int8_dynamic" and device.type != "cpu":
+        raise ValueError("int8_dynamic quantization requires device: cpu")
+    if quantization == "int8_dynamic" and name != "float32":
+        raise ValueError("int8_dynamic quantization requires weight_dtype: float32")
     model.to(device=device, dtype=dtypes[name]).eval()
     if quantization == "int8_dynamic":
-        if device.type != "cpu":
-            raise ValueError("int8_dynamic quantization requires device: cpu")
         model = quantize_dynamic_cpu(model)
     return model
 
