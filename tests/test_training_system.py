@@ -432,6 +432,61 @@ def test_periodic_validation_saves_best_checkpoint_immediately() -> None:
     assert trainer.best_validation_loss == 2.0
 
 
+def test_initial_validation_can_save_a_guaranteed_baseline_checkpoint() -> None:
+    class FixedEvaluator:
+        def evaluate(self, _loader):
+            return {"loss": 2.5, "cross_entropy": 2.5, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    saved = []
+
+    history = trainer.fit(
+        make_loader(), epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), validation_evaluate_at_start=True,
+        save_initial_best_checkpoint=True, log_every=0,
+        best_checkpoint_min_generation_accuracy=1.0,
+        best_checkpoint_callback=lambda current, epoch: saved.append(
+            (current.global_step, epoch, current.best_validation_loss)
+        ),
+    )
+
+    assert history[0]["initial_validation"] is True
+    assert saved == [(0, -1, 2.5)]
+    assert trainer.best_validation_loss == 2.5
+
+
+def test_initial_best_repairs_resumed_state_with_infinite_best_loss() -> None:
+    class FixedDomainEvaluator:
+        losses = iter([2.0, 3.0, 2.1, 3.1])
+
+        def evaluate(self, _loader):
+            loss = next(self.losses)
+            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    trainer.global_step = 5000
+    trainer.best_validation_domains = {"chat": 9.0, "knowledge": 9.0}
+    saved = []
+
+    trainer.fit(
+        make_loader(), epochs=1, evaluator=FixedDomainEvaluator(),
+        validation_dataloader={"chat": make_loader(), "knowledge": make_loader()},
+        validation_weights={"chat": 0.5, "knowledge": 0.5},
+        validation_evaluate_at_start=True, save_initial_best_checkpoint=True,
+        log_every=0,
+        best_checkpoint_callback=lambda current, _epoch: saved.append(
+            current.best_validation_loss
+        ),
+    )
+
+    assert saved == [2.5]
+    assert trainer.best_validation_domains == {"chat": 2.0, "knowledge": 3.0}
+
+
 def test_validation_callback_runs_after_periodic_validation() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):

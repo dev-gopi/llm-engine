@@ -278,6 +278,7 @@ class Trainer:
         validation_max_batches: int | Mapping[str, int] | None = None,
         validation_progress_every: int = 0,
         validation_evaluate_at_start: bool = False,
+        save_initial_best_checkpoint: bool = False,
         log_every: int = 10,
         log_interval_seconds: float | None = None,
         evaluate_every: int | None = None,
@@ -496,7 +497,10 @@ class Trainer:
             validation_evaluate_at_start
             and evaluator is not None
             and validation_dataloader is not None
-            and not self.best_validation_domains
+            and (
+                not self.best_validation_domains
+                or (save_initial_best_checkpoint and math.isinf(self.best_validation_loss))
+            )
         ):
             metrics, domains = evaluate_validation()
             log_validation(self.current_epoch - 1, metrics, domains)
@@ -505,8 +509,20 @@ class Trainer:
                     "step-zero domain retention gates require domain validation loaders"
                 )
             record_best_domains(domains)
+            initial_validation_loss = float(metrics["loss"])
             self.early_stopping_best_loss = validation_control_loss(metrics, domains)
             self.epochs_without_improvement = 0
+            if save_initial_best_checkpoint and math.isinf(self.best_validation_loss):
+                self.best_validation_loss = initial_validation_loss
+                logger.info(
+                    "initial_best_validation step=%d loss=%.6f metric=%s",
+                    self.global_step, initial_validation_loss,
+                    self.validation_metric_name or "validation_loss",
+                )
+                if best_checkpoint_callback:
+                    save_timed(
+                        best_checkpoint_callback, self.current_epoch - 1, "initial_best"
+                    )
             history.append({
                 "epoch": self.current_epoch,
                 "step": self.global_step,

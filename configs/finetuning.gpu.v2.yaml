@@ -130,6 +130,10 @@ validation_use_ema: true
 # Measure the unmodified initialization on every validation domain. These
 # values become hard regression baselines before any LoRA update is accepted.
 validation_evaluate_at_start: true
+# Always preserve one validated baseline before promotion gates are applied.
+# This also repairs an older resumed run whose latest.pt records no accepted
+# best checkpoint (best_validation_loss: inf).
+save_initial_best_checkpoint: true
 # LoRA/PEFT is disabled for this final full-parameter training run.
 # Keep this block as a reusable fallback if full training exceeds available VRAM.
 # peft:

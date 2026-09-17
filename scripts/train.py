@@ -771,6 +771,14 @@ def main() -> None:
         init_from=args.init_from,
         resume=args.resume,
     )
+    # A run created before initial-best support can resume with domain
+    # baselines but no best.pt. Re-evaluate its restored weights once and
+    # establish a recoverable baseline instead of waiting forever for all
+    # promotion gates to pass simultaneously.
+    save_initial_best_checkpoint = bool(config.get("save_initial_best_checkpoint", False))
+    evaluate_validation_at_start = (
+        evaluate_validation_at_start or save_initial_best_checkpoint
+    )
     history = trainer.fit(
         train_loader, epochs=epochs, evaluator=evaluator,
         validation_dataloader=validation_loader,
@@ -778,6 +786,7 @@ def main() -> None:
         validation_max_batches=config.get("validation_max_batches"),
         validation_progress_every=int(config.get("validation_progress_every", 0)),
         validation_evaluate_at_start=evaluate_validation_at_start,
+        save_initial_best_checkpoint=save_initial_best_checkpoint,
         log_every=int(config.get("log_every", 10)),
         log_interval_seconds=(
             float(config["log_interval_seconds"])

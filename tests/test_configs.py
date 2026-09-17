@@ -128,6 +128,7 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["generation_evaluation"]["preserve_passed"] is True
     assert config["generation_evaluation"]["cases"] == "configs/evaluation.retention.jsonl"
     assert config["validation_evaluate_at_start"] is True
+    assert config["save_initial_best_checkpoint"] is True
     assert sum(config["dataset_weights"][name] for name in (
         "fineweb_edu", "fineweb_edu_large", "code_pretraining",
     )) >= 0.10
