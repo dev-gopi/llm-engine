@@ -19,6 +19,7 @@ from inference.prompt_safety import blocked_prompt_message
 from inference.rag import RagIndex, SQLiteRagIndex, build_rag_prompt
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
+from inference.quantization import prepare_model_for_inference
 from mcp.client import MCPClient, MCPTool
 from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, relevant_tools, tool_result_context, tool_selection_prompt
 from datasets.preprocessor import format_messages
@@ -78,6 +79,9 @@ class ConfiguredModelBackend:
         mcp: dict | None = None,
         allow_checkpoint_fallback: bool = False,
         embed_safety_instruction: bool = True,
+        low_memory_loading: bool = False,
+        weight_dtype: str = "float32",
+        quantization: str = "none",
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
@@ -98,6 +102,15 @@ class ConfiguredModelBackend:
         self.tensor_parallel_size = tensor_parallel_size
         self.mcp_config = mcp or {}
         self.allow_checkpoint_fallback = bool(allow_checkpoint_fallback)
+        self.low_memory_loading = bool(low_memory_loading)
+        self.weight_dtype = str(weight_dtype).lower()
+        self.quantization = str(quantization).lower()
+        if self.weight_dtype not in {"float32", "float16", "bfloat16"}:
+            raise ValueError("weight_dtype must be float32, float16, or bfloat16")
+        if self.quantization not in {"none", "int8_dynamic"}:
+            raise ValueError("quantization must be none or int8_dynamic")
+        if self.quantization != "none" and self.tensor_parallel_size > 1:
+            raise ValueError("quantized inference cannot be combined with tensor parallelism")
         self.mcp_clients: dict[str, MCPClient] = {}
         self.mcp_tools: dict[str, list[MCPTool]] = {}
         self.sessions: SQLiteSessionStore | None = None
@@ -201,6 +214,7 @@ class ConfiguredModelBackend:
             model = MiniGPT.from_config(config, device="cpu")
             load_checkpoint(
                 self.checkpoint_path, model, use_ema=True, restore_rng=False,
+                low_memory=self.low_memory_loading,
                 **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
             )
         except RuntimeError as error:
@@ -213,6 +227,7 @@ class ConfiguredModelBackend:
                 model = MiniGPT.from_config(alt_config, device="cpu")
                 load_checkpoint(
                     self.checkpoint_path, model, use_ema=True, restore_rng=False,
+                    low_memory=self.low_memory_loading,
                     **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
                 )
                 self.model_config = alt_config_path
@@ -220,7 +235,10 @@ class ConfiguredModelBackend:
             else:
                 raise error
 
-        model.to(device)
+        model = prepare_model_for_inference(
+            model, device=device, weight_dtype=self.weight_dtype,
+            quantization=self.quantization,
+        )
         if self.tensor_parallel_size > 1:
             parallelize_minigpt(model)
 
@@ -910,6 +928,9 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         tensor_parallel_size=int(serving.get("tensor_parallel_size", 1)),
         mcp=_load_mcp_config(),
         allow_checkpoint_fallback=bool(serving.get("allow_checkpoint_fallback", False)),
+        low_memory_loading=bool(serving.get("low_memory_loading", False)),
+        weight_dtype=str(serving.get("weight_dtype", "float32")),
+        quantization=str(serving.get("quantization", "none")),
     )
 
 

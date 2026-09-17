@@ -54,6 +54,13 @@ serving:
   paged_kv_pages: 128
   paged_kv_page_size: 16
   tensor_parallel_size: 1
+  # mmap the PyTorch checkpoint and assign its tensors without a second full
+  # state-dict copy. bfloat16 halves resident weight memory after loading.
+  low_memory_loading: true
+  weight_dtype: bfloat16
+  # CPU-only alternative: int8_dynamic. It reduces steady-state Linear weight
+  # memory further but is not supported on CUDA.
+  quantization: none
   session_store_path: data/cache/sessions.sqlite
   workspace_agent_enabled: false
   workspace_root: .

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from inference.context import format_system_prompt
 from inference.generator import Generator
+from inference.quantization import prepare_model_for_inference
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
@@ -94,7 +95,13 @@ def main() -> None:
     model = MiniGPT.from_config(model_config, device="cpu")
     load_checkpoint(
         checkpoint_path, model, use_ema=True, restore_rng=False,
+        low_memory=bool(serving.get("low_memory_loading", False)),
         **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
+    )
+    model = prepare_model_for_inference(
+        model, device=device,
+        weight_dtype=str(serving.get("weight_dtype", "float32")),
+        quantization=str(serving.get("quantization", "none")),
     )
 
     response_format = args.response_format or str(inference_config.get("response_format", "plain"))

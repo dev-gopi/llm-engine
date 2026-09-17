@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from inference.context import ConversationMemory, format_system_prompt
 from inference.generator import Generator
+from inference.quantization import prepare_model_for_inference
 from inference.prompt_safety import blocked_prompt_message
 from inference.web_search import SearchResult, build_search_prompt, search_brave, search_searxng
 from model.gpt import MiniGPT
@@ -74,7 +75,13 @@ def main() -> None:
     model = MiniGPT.from_config(model_config, device="cpu")
     checkpoint_info = load_checkpoint(
         args.checkpoint, model, use_ema=args.weights == "ema", restore_rng=False,
+        low_memory=bool(serving.get("low_memory_loading", False)),
         **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
+    )
+    model = prepare_model_for_inference(
+        model, device=device,
+        weight_dtype=str(serving.get("weight_dtype", "float32")),
+        quantization=str(serving.get("quantization", "none")),
     )
     generator = Generator(model, tokenizer, device=device)
 

@@ -71,11 +71,16 @@ def load_checkpoint(
     expected_tokenizer_fingerprint: str | None = None,
     compatible_tokenizer_fingerprints: Collection[str] = (),
     allow_vocab_extension: bool = False,
+    low_memory: bool = False,
 ) -> dict[str, Any]:
     source = Path(path)
     if not source.is_file():
         raise FileNotFoundError(f"checkpoint not found: {source}")
-    payload = torch.load(source, map_location=map_location, weights_only=True)
+    if low_memory and str(map_location) != "cpu":
+        raise ValueError("low-memory checkpoint loading requires map_location='cpu'")
+    payload = torch.load(
+        source, map_location=map_location, weights_only=True, mmap=low_memory
+    )
     if not isinstance(payload, dict):
         raise ValueError("checkpoint must contain a mapping")
     metadata = payload.get("metadata", {})
@@ -100,7 +105,11 @@ def load_checkpoint(
     if allow_vocab_extension:
         state = _expand_vocabulary_state(state, model.state_dict())
     try:
-        model.load_state_dict(state, strict=strict)
+        model.load_state_dict(state, strict=strict, assign=low_memory)
+        # assign=True can replace tied Parameters with distinct objects even
+        # when their checkpoint tensors share storage.
+        if low_memory and hasattr(model, "tie_weights") and getattr(model, "tie_word_embeddings", False):
+            model.tie_weights()
     except RuntimeError as err:
         saved_config = payload.get("metadata", {}).get("model_config")
         if saved_config:

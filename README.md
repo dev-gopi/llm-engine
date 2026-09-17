@@ -388,6 +388,31 @@ Small MoE profiles can use the normal training and generation commands.
 Tensor-parallel MoE serving is rejected explicitly until expert parallelism is
 available; changing only the YAML cannot overcome physical weight memory.
 
+### Lower-memory inference
+
+Serving, `scripts/generate.py`, and `scripts/chat.py` read these options from
+the `serving` section of `configs/inference.yaml`:
+
+```yaml
+serving:
+  low_memory_loading: true
+  weight_dtype: bfloat16       # float32, float16, or bfloat16
+  quantization: none           # none or int8_dynamic
+```
+
+`low_memory_loading` memory-maps a PyTorch checkpoint and assigns tensors
+without first creating a second in-memory state-dict copy. `bfloat16` roughly
+halves resident weight memory relative to FP32. For CPU-only inference,
+`quantization: int8_dynamic` compresses Linear weights further; CUDA serving
+must use `quantization: none`. CPU FP16 is rejected because its kernel support
+is unsuitable here; use BF16 or INT8 instead.
+
+These controls lower loading peaks and resident memory, but they do not turn a
+100B model into an 8–16 GiB model. The supplied MoE profile still needs about
+181.2 GiB for BF16 weights or roughly 91 GiB at INT8 before runtime overhead.
+Disk-backed expert paging and expert-parallel checkpoint shards remain future
+work; the 100B profile therefore remains planning-only.
+
 ## Test suite
 
 ```bash

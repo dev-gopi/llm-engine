@@ -659,6 +659,24 @@ def test_checkpoint_architecture_mismatch_error(tmp_path) -> None:
         load_checkpoint(path, model_large)
 
 
+def test_low_memory_checkpoint_load_preserves_weights_and_tying(tmp_path) -> None:
+    source = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(tmp_path / "low-memory.pt", source)
+    restored = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    load_checkpoint(path, restored, low_memory=True, restore_rng=False)
+    assert restored.head.weight is restored.tok.weight
+    for name, expected in source.state_dict().items():
+        torch.testing.assert_close(restored.state_dict()[name], expected)
+
+
+def test_low_memory_checkpoint_requires_cpu_mapping(tmp_path) -> None:
+    import pytest
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(tmp_path / "low-memory.pt", model)
+    with pytest.raises(ValueError, match="map_location='cpu'"):
+        load_checkpoint(path, model, low_memory=True, map_location="meta")
+
+
 def test_checkpoint_rejects_different_same_size_tokenizer(tmp_path) -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     path = save_checkpoint(
