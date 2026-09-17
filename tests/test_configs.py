@@ -131,7 +131,9 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["save_initial_best_checkpoint"] is True
     assert sum(config["dataset_weights"][name] for name in (
         "fineweb_edu", "fineweb_edu_large", "code_pretraining",
-    )) >= 0.10
+    )) <= 0.05
+    assert config["dataset_weights"]["helpsteer"] >= 0.35
+    assert config["learning_rate"] <= 3e-5
     assert set(config["best_checkpoint_domain_max_regression"]) == {
         "chat", "english", "math", "coding", "bengali", "hindi",
     }

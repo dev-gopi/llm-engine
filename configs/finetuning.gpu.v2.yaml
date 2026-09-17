@@ -43,7 +43,7 @@ dataset_weights:
   orca_math: 0.05
   # Human-rated and curated chat replace the noisy OpenAssistant mixture and
   # the mostly non-conversational SmolTalk aggregate.
-  helpsteer: 0.28
+  helpsteer: 0.36
   core_chat: 0.10
   smoltalk_chat: 0.075
   english: 0.12
@@ -52,11 +52,11 @@ dataset_weights:
   safety_alignment: 0.03
   tool_calling: 0.02
   writing_editing: 0.025
-  fineweb_edu: 0.04
+  fineweb_edu: 0.015
   # Large storage does not imply a large SFT share: keep causal knowledge text
   # bounded so it cannot overwhelm assistant-response supervision.
-  fineweb_edu_large: 0.05
-  code_pretraining: 0.03
+  fineweb_edu_large: 0.015
+  code_pretraining: 0.01
 train_files:
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_bengali/train.jsonl
   - /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/llm-engine-v2/processed/aya_hindi/train.jsonl
@@ -147,7 +147,10 @@ save_initial_best_checkpoint: true
 #     - v_proj
 #     - out_proj
 #     - in_proj
-learning_rate: 0.0001
+# The previous 1e-4 peak produced pre-clip norms up to 10.25 and improved
+# token loss faster than behavioral retention. Use a gentler full-parameter
+# recovery rate and longer warmup for a fresh v2 stage.
+learning_rate: 0.00003
 weight_decay: 0.01
 beta1: 0.9
 beta2: 0.95
@@ -158,8 +161,8 @@ gradient_clip_norm: 1.0
 gradient_accumulation_steps: 16
 mixed_precision: bf16
 lr_schedule: cosine
-warmup_ratio: 0.03
-min_lr_ratio: 0.1
+warmup_ratio: 0.05
+min_lr_ratio: 0.2
 ema_decay: 0.995
 log_every: 25
 log_interval_seconds: null

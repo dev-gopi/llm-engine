@@ -94,6 +94,7 @@ def test_trainer_tracks_observability_metrics() -> None:
     assert trainer.learning_rate == pytest.approx(1e-3)
     assert torch.isfinite(torch.tensor(trainer.last_gradient_norm))
     assert trainer.last_gradient_norm > 0
+    assert trainer.last_clipped_gradient_norm <= trainer.gradient_clip_norm
     assert trainer.peak_memory_mb == 0
     assert trainer.gpu_memory_mb == (0.0, 0.0, 0.0)
     assert trainer.nonfinite_updates == 0

@@ -58,6 +58,7 @@ class Trainer:
         self.training_seconds = 0.0
         self.nonfinite_updates = 0
         self.last_gradient_norm = float("nan")
+        self.last_clipped_gradient_norm = float("nan")
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -200,6 +201,10 @@ class Trainer:
                 self.scaler.get_scale(),
             )
             return False
+        self.last_clipped_gradient_norm = (
+            min(self.last_gradient_norm, float(self.gradient_clip_norm))
+            if self.gradient_clip_norm is not None else self.last_gradient_norm
+        )
         self.scaler.step(self.opt)
         self.scaler.update()
         if self.scheduler is not None:
@@ -601,7 +606,8 @@ class Trainer:
                     next_validation_eta = event_eta(evaluate_every, bool(evaluator and validation_dataloader), epoch_end=True)
                     allocated_mb, reserved_mb, total_mb = self.gpu_memory_mb
                     logger.info(
-                        "epoch=%d step=%d loss=%.6f lr=%.8g grad_norm=%.4f tokens=%d "
+                        "epoch=%d step=%d loss=%.6f lr=%.8g grad_norm=%.4f "
+                        "clipped_grad_norm=%.4f tokens=%d "
                         "tokens_per_second=%.1f progress=%.2f%% epoch_progress=%.2f%% elapsed_seconds=%.0f "
                         "eta_seconds=%.0f best_validation_loss=%.6f peak_memory_mb=%.1f "
                         "gpu_memory_mb=%.1f/%.1f/%.1f nonfinite_updates=%d "
@@ -609,7 +615,8 @@ class Trainer:
                         "next_log_eta_seconds=%s next_checkpoint_eta_seconds=%s "
                         "next_validation_eta_seconds=%s (avg=%.6f)",
                         epoch + 1, self.global_step, current_loss, self.learning_rate,
-                        self.last_gradient_norm, self.tokens_processed, self.tokens_per_second,
+                        self.last_gradient_norm, self.last_clipped_gradient_norm,
+                        self.tokens_processed, self.tokens_per_second,
                         progress * 100.0, epoch_progress * 100.0, elapsed_seconds, eta_seconds,
                         self.best_validation_loss, self.peak_memory_mb,
                         allocated_mb, reserved_mb, total_mb,
@@ -748,6 +755,7 @@ class Trainer:
             "training_seconds": self.training_seconds,
             "nonfinite_updates": self.nonfinite_updates,
             "last_gradient_norm": self.last_gradient_norm,
+            "last_clipped_gradient_norm": self.last_clipped_gradient_norm,
         }
 
     def load_state_dict(self, state: Mapping[str, int | float | bool | str | None]) -> None:
@@ -771,3 +779,6 @@ class Trainer:
         self.training_seconds = float(state.get("training_seconds", 0.0))
         self.nonfinite_updates = int(state.get("nonfinite_updates", 0))
         self.last_gradient_norm = float(state.get("last_gradient_norm", float("nan")))
+        self.last_clipped_gradient_norm = float(
+            state.get("last_clipped_gradient_norm", self.last_gradient_norm)
+        )
