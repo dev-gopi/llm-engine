@@ -662,9 +662,12 @@ class Trainer:
                     last_validation_step = self.global_step
                     validation_loss = float(metrics["loss"])
                     update_from_validation(validation_control_loss(metrics, domains))
+                    # The loss-selected checkpoint and the generation-selected
+                    # checkpoint are separate artifacts. Generation retention
+                    # is enforced while writing best-generation.pt; it must not
+                    # veto an improved best.pt validation checkpoint.
                     if (validation_loss < self.best_validation_loss
-                            and checkpoint_passes_domain_gates(domains)
-                            and checkpoint_passes_generation_gate(callback_metrics)):
+                            and checkpoint_passes_domain_gates(domains)):
                         previous_best = self.best_validation_loss
                         self.best_validation_loss = validation_loss
                         record_best_domains(domains)
@@ -729,8 +732,7 @@ class Trainer:
                 if last_validation_step != self.global_step:
                     update_from_validation(validation_control_loss(metrics, domains))
                 if (validation_loss < self.best_validation_loss
-                        and checkpoint_passes_domain_gates(domains)
-                        and checkpoint_passes_generation_gate(callback_metrics)):
+                        and checkpoint_passes_domain_gates(domains)):
                     previous_best = self.best_validation_loss
                     self.best_validation_loss = validation_loss
                     record_best_domains(domains)

@@ -271,7 +271,7 @@ def test_validation_lr_decay_respects_minimum_step_spacing() -> None:
     assert scheduler.validation_scale == pytest.approx(0.25)
 
 
-def test_generation_gate_blocks_loss_only_best_checkpoint() -> None:
+def test_generation_accuracy_does_not_block_loss_best_checkpoint() -> None:
     class FixedEvaluator:
         def __init__(self):
             self.losses = iter([2.0, 1.9, 1.9])
@@ -294,11 +294,11 @@ def test_generation_gate_blocks_loss_only_best_checkpoint() -> None:
         best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
     )
 
-    assert saved == [2]
+    assert saved == [1, 2]
     assert trainer.best_validation_loss == pytest.approx(1.9)
 
 
-def test_retention_regression_blocks_loss_best_checkpoint() -> None:
+def test_retention_regression_does_not_block_loss_best_checkpoint() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):
             return {"loss": 1.0, "cross_entropy": 1.0, "perplexity": 1.0,
@@ -318,8 +318,8 @@ def test_retention_regression_blocks_loss_best_checkpoint() -> None:
         best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
     )
 
-    assert saved == []
-    assert trainer.best_validation_loss == float("inf")
+    assert saved == [1]
+    assert trainer.best_validation_loss == 1.0
 
 
 def test_chat_control_and_domain_gate_reject_hidden_regression() -> None:

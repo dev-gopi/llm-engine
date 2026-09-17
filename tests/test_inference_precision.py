@@ -17,6 +17,12 @@ def test_bfloat16_inference_precision_is_configurable():
     assert model(torch.tensor([[1, 2]])).dtype == torch.bfloat16
 
 
+@pytest.mark.filterwarnings(
+    "ignore:torch\\.ao\\.quantization is deprecated:DeprecationWarning"
+)
+@pytest.mark.filterwarnings(
+    "ignore:torch\\.quantize_per_tensor.*are deprecated:UserWarning"
+)
 def test_dynamic_int8_quantization_is_configurable():
     model = prepare_model_for_inference(
         _model(), device=torch.device("cpu"), quantization="int8_dynamic"
