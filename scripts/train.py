@@ -152,9 +152,11 @@ def main() -> None:
     })
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
+    required_init_checkpoint = config.get("required_init_checkpoint")
+    if not args.init_from and not args.resume and required_init_checkpoint:
+        args.init_from = Path(required_init_checkpoint)
     if config.get("require_init_from", False) and not (args.init_from or args.resume):
         parser.error("this post-training profile requires --init-from a completed checkpoint (or --resume its own interrupted run)")
-    required_init_checkpoint = config.get("required_init_checkpoint")
     if required_init_checkpoint and args.init_from:
         if args.init_from.resolve() != Path(required_init_checkpoint).resolve():
             parser.error(
