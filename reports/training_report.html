@@ -231,7 +231,7 @@
   <script>
     const query = new URLSearchParams(location.search);
     const DATA_URL = query.get('data');
-    const REPORT_URLS = DATA_URL ? [DATA_URL] : ['training_report.json', 'finetuning.json', 'finetuning-v2.json'];
+    const REPORT_URLS = DATA_URL ? [DATA_URL] : ['finetuning-v2-clean-chat-v2.json', 'finetuning-v2.json', 'training_report.json', 'finetuning.json'];
     const SAMPLE_URL = query.get('sample') || 'training_report.sample.json';
     const REFRESH_MS = Math.max(500, Number(query.get('refresh') || 2000));
     const STALL_MS = Math.max(60000, Number(query.get('stall') || 300000));
