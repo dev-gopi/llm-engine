@@ -45,6 +45,26 @@ def topology_from_environment(environment: dict[str, str] | None = None) -> Dist
                                world // local_world, env["MASTER_ADDR"], port)
 
 
+def validate_fsdp_topology(
+    topology: DistributedTopology, *, minimum_world_size: int = 2,
+    required_nodes: int | None = None,
+) -> None:
+    """Reject FSDP launches that cannot meet their declared distributed scope."""
+    if minimum_world_size < 2:
+        raise ValueError("minimum_world_size must be at least two for FSDP")
+    if topology.world_size < minimum_world_size:
+        raise ValueError(
+            f"FSDP requires at least {minimum_world_size} ranks, got {topology.world_size}"
+        )
+    if required_nodes is not None:
+        if required_nodes < 1:
+            raise ValueError("required_nodes must be positive")
+        if topology.nodes != required_nodes:
+            raise ValueError(
+                f"FSDP launch requires {required_nodes} nodes, got {topology.nodes}"
+            )
+
+
 def validate_collectives(*, backend: str | None = None, timeout_seconds: int = 120) -> dict:
     """Initialize from torchrun env and prove all ranks participate correctly."""
     topology = topology_from_environment()

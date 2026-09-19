@@ -68,6 +68,22 @@ def test_multimodal_wrapper_keeps_base_models_frozen_and_projector_trainable() -
     assert torch.isfinite(logits).all()
 
 
+def test_projector_training_backward_pass_never_accumulates_backbone_gradients() -> None:
+    language = MiniGPT(vocab_size=32, dim=16, layers=1, heads=2, max_pos=32)
+    model = VisionLanguageModel(small_vision(), language, visual_tokens=4).train()
+
+    logits, _ = model(
+        torch.randn(2, 3, 32, 32),
+        torch.tensor([[1, 2, 3], [4, 5, 6]]),
+        torch.tensor([[7, 8], [9, 10]]),
+    )
+    logits.sum().backward()
+
+    assert all(parameter.grad is None for parameter in model.vision_encoder.parameters())
+    assert all(parameter.grad is None for parameter in model.language_model.parameters())
+    assert any(parameter.grad is not None for parameter in model.projector.parameters())
+
+
 def test_multimodal_wrapper_does_not_change_language_state_keys() -> None:
     language = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=16)
     keys_before = tuple(language.state_dict())

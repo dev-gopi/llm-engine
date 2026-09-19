@@ -18,7 +18,7 @@
 | **Key-Value Heads (`kv_heads`)** | `2` (Grouped-Query Attention, 4:1 query-to-KV ratio) | `configs/model.gpu.yaml` |
 | **FFN Intermediate Dimension** | `2048` (`ffn_multiple_of: 128`) | `configs/model.gpu.yaml` |
 | **FFN Activation** | `swiglu` (gated linear unit with SiLU activation) | [`src/model/feed_forward.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/feed_forward.py) |
-| **Positional Encoding** | Rotary (`rotary`, RoPE), `rope_base: 10000.0`, `rope_scale: 1.0` | [`src/model/positional.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/positional.py) |
+| **Positional Encoding** | Rotary (`rotary`, RoPE), with opt-in linear, NTK-aware, and YaRN scaling policies; active profile remains unscaled for checkpoint compatibility | [`src/model/positional.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/positional.py) |
 | **Normalization** | Pre-Norm `rms_norm`, `norm_eps: 1e-5`, zero learnable bias | [`src/model/layer_norm.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/layer_norm.py) |
 | **Weight Tying** | `tie_word_embeddings: true` (input embeddings shared with LM head) | `configs/model.gpu.yaml` |
 | **Context Length (`max_position`)**| `1024` tokens max capacity; trained at `512` tokens | `configs/model.gpu.yaml` |
@@ -35,7 +35,7 @@
 | **Base Vocabulary Size** | `40,000` tokens | [`configs/tokenizer.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/tokenizer.yaml) |
 | **Fine-Tuning Vocabulary Size**| `42,000` tokens (verified append-only extension) | [`data/tokenizer-finetuning/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/data/tokenizer-finetuning/) |
 | **Special Tokens** | `<|pad|>` (0), `<|unk|>` (1), `<|bos|>` (2), `<|eos|>` (3), `<|mask|>` (4) | `src/tokenizer/bpe.py` |
-| **Chat & Control Tokens** | Extended in fine-tuning: `<|system|>`, `<|user|>`, `<|assistant|>`, `<|end|>` | `src/model/vocabulary.py` |
+| **Chat & Control Tokens** | Extended chat tags plus append-only `<thinking>` / `</thinking>` reasoning tags; chat SFT masks non-assistant tokens | [`src/model/vocabulary.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/vocabulary.py), [`src/inference/chat_session.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/chat_session.py) |
 | **Training Method** | Iterative pair frequency counting with byte-level pre-tokenization regex | [`src/tokenizer/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/tokenizer/trainer.py) |
 | **Loading Process** | JSON vocab + merges file with atomic hash and size verification | `src/tokenizer/decoder.py` |
 
@@ -82,8 +82,7 @@
 | **API Server** | FastAPI with Uvicorn ASGI backend | [`src/serving/api.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/api.py) |
 | **WebSocket** | Full-duplex WebSocket streaming at `/ws/generate` | [`src/serving/websocket.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/websocket.py) |
 | **Dynamic Batching** | Configurable micro-batch queue with timeout aggregation | [`src/serving/batching.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/batching.py) |
-| **KV Cache** | Tensor-based standard KV cache + Block-Paged KV cache | [`src/model/kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/kv_cache.py)<br>[`src/inference/paged_kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/paged_kv_cache.py) |
+| **KV Cache** | Tensor cache plus block-paged KV accounting and immutable LRU prefix-cache reuse | [`src/model/kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/kv_cache.py)<br>[`src/inference/paged_kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/paged_kv_cache.py) |
 | **Quantization** | Dynamic INT8 weight quantization | [`src/inference/quantization.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/quantization.py) |
 | **Sampling Methods** | Greedy, Temperature, Top-K, Top-P (Nucleus), Repetition Penalty | [`src/inference/sampler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/sampler.py) |
-| **Tool Execution** | Local filesystem/command tools + MCP client integration | [`src/inference/local_tools.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/local_tools.py)<br>[`src/mcp/client.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/mcp/client.py) |
-
+| **Tool Execution** | Local/MCP tools with strict JSON-envelope and schema validation; no autonomous multi-step agent loop | [`src/inference/local_tools.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/local_tools.py)<br>[`src/mcp/client.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/mcp/client.py) |

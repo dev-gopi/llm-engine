@@ -79,6 +79,68 @@ class PagedKVCache:
         self.free_pages.extend(self.tables.pop(request_id))
         self.lengths.pop(request_id)
 
+    def layer_cache(self, request_ids: list[str], layer: int) -> "PagedLayerKVCache":
+        """Expose page tables for one transformer layer without materializing KV."""
+        if not request_ids or any(request_id not in self.tables for request_id in request_ids):
+            raise KeyError("all paged-cache request IDs must be reserved")
+        if not 0 <= layer < self.storage.shape[1]:
+            raise ValueError("layer is outside the configured paged cache")
+        return PagedLayerKVCache(self, tuple(request_ids), layer)
+
+
+class PagedLayerKVCache:
+    """Read-only page-table view consumed directly by decode attention.
+
+    It intentionally exposes page-sized tensors rather than a contiguous KV
+    tensor.  ``pending`` holds only the newly projected decode token so the
+    serving runtime can append it to its owning request after a batched call.
+    """
+
+    is_paged_kv_cache = True
+
+    def __init__(self, allocator: PagedKVCache, request_ids: tuple[str, ...], layer: int) -> None:
+        self.allocator = allocator
+        self.request_ids = request_ids
+        self.layer = layer
+        self.pending: tuple[Tensor, Tensor] | None = None
+
+    @property
+    def length(self) -> int:
+        return max(self.allocator.lengths[request_id] for request_id in self.request_ids)
+
+    def pages(self) -> list[tuple[Tensor, Tensor, Tensor]]:
+        """Return ``(key, value, valid)`` page tensors for every table slot.
+
+        Key/value tensors are ``[batch, kv_heads, page, head_dim]`` and the
+        boolean validity mask is ``[batch, page]``.  No request cache is
+        concatenated or materialized.
+        """
+        tables = [self.allocator.tables[request_id] for request_id in self.request_ids]
+        widths = max(map(len, tables))
+        lengths = torch.tensor(
+            [self.allocator.lengths[request_id] for request_id in self.request_ids],
+            device=self.allocator.storage.device,
+        )
+        pages: list[tuple[Tensor, Tensor, Tensor]] = []
+        for slot in range(widths):
+            identifiers = torch.tensor(
+                [table[slot] if slot < len(table) else 0 for table in tables],
+                device=self.allocator.storage.device,
+            )
+            stored = self.allocator.storage[identifiers, self.layer]
+            valid = (
+                torch.arange(self.allocator.page_size, device=stored.device)
+                .unsqueeze(0)
+                < (lengths - slot * self.allocator.page_size).unsqueeze(1)
+            )
+            pages.append((stored[:, 0], stored[:, 1], valid))
+        return pages
+
+    def record_pending(self, key: Tensor, value: Tensor) -> None:
+        if key.shape != value.shape or key.ndim != 4 or key.shape[0] != len(self.request_ids):
+            raise ValueError("pending paged KV must match the active batch")
+        self.pending = (key.detach(), value.detach())
+
 
 class PrefixCache:
     """Bounded LRU mapping from prompt token tuples to immutable cache objects."""

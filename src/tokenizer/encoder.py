@@ -167,6 +167,45 @@ class Tokenizer:
             tokenizer_type=self.tokenizer_type,
         )
 
+    def extend_special_tokens(self, tokens: Iterable[str]) -> "Tokenizer":
+        """Append reserved tokens without changing any existing vocabulary ID.
+
+        This is deliberately separate from training-time ``special_tokens``:
+        applying it to an existing artifact is checkpoint-compatible, whereas
+        inserting tokens into a base trainer would reindex byte vocabulary IDs.
+        """
+        vocab = dict(self.vocab)
+        special_tokens = dict(self.special_tokens)
+        for token in tokens:
+            if not isinstance(token, str) or not token:
+                raise ValueError("special extension tokens must be non-empty strings")
+            if token in special_tokens:
+                continue
+            if token not in vocab:
+                vocab[token] = len(vocab)
+            special_tokens[token] = vocab[token]
+        if vocab == self.vocab and special_tokens == self.special_tokens:
+            return self
+        ancestors = [self.fingerprint, *sorted(self.compatible_base_fingerprints)]
+        metadata = dict(self.metadata)
+        metadata["extension"] = {
+            "base_fingerprint": self.fingerprint,
+            "base_vocab_size": self.base_vocab_size or self.vocab_size,
+            "parent_vocab_size": self.vocab_size,
+            "compatible_base_fingerprints": list(dict.fromkeys(ancestors)),
+            "added_vocab_size": len(vocab) - self.vocab_size,
+            "added_tokens": [],
+            "added_token_texts": list(self.added_tokens),
+        }
+        return Tokenizer(
+            vocab,
+            self.bpe.merges,
+            special_tokens=special_tokens,
+            pattern=self.pattern,
+            metadata=metadata,
+            tokenizer_type=self.tokenizer_type,
+        )
+
     def token_to_id(self, token: str) -> int | None:
         return self.vocab.get(token)
 

@@ -115,6 +115,24 @@ def test_append_only_extension_supports_phrases_and_rejects_specials(tokenizer: 
         tokenizer.extend(["<|eos|>"])
 
 
+def test_append_only_special_extension_is_atomic_and_persistent(tokenizer: Tokenizer, tmp_path):
+    protocol = ("<|system|>", "<|user|>", "<|assistant|>", "<|tool|>", "<|thinking|>", "<|end|>")
+    original = dict(tokenizer.vocab)
+    extended = tokenizer.extend_special_tokens(protocol)
+    text = "<|system|>rules<|tool|>{}<|end|>"
+    encoded = extended.encode(text, allowed_special=set(protocol))
+
+    assert all(extended.vocab[token] == identifier for token, identifier in original.items())
+    assert encoded[0] == extended.special_tokens["<|system|>"]
+    assert extended.special_tokens["<|tool|>"] in encoded
+    assert encoded[-1] == extended.special_tokens["<|end|>"]
+    assert extended.decode(encoded) == text
+    assert extended.decode(encoded, skip_special_tokens=True) == "rules{}"
+    restored = Tokenizer.load(extended.save(tmp_path))
+    assert restored.special_tokens == extended.special_tokens
+    assert restored.encode(text, allowed_special=set(protocol)) == encoded
+
+
 def test_invalid_configuration_and_ids(tokenizer: Tokenizer):
     with pytest.raises(ValueError, match="at least"):
         BPETokenizerTrainer(vocab_size=len(DEFAULT_SPECIAL_TOKENS) + 255)

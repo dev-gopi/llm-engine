@@ -14,11 +14,13 @@ sys.path[:] = [
     if os.path.realpath(entry or ".") != script_directory
 ]
 
+import torch
+
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
-from training.model_growth import grow_model
+from training.model_growth import grow_model, identity_output_error
 from utils.config import load_yaml
 
 
@@ -35,6 +37,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("checkpoints/grown/init.pt"))
     parser.add_argument("--embedding-init", choices=("mean", "normal", "zero"), default="mean")
     parser.add_argument("--use-ema", action="store_true", help="grow EMA weights instead of live weights")
+    parser.add_argument(
+        "--verify-prompt", type=str,
+        help="verify shared-vocabulary logits are unchanged for this source-tokenizer prompt",
+    )
     args = parser.parse_args()
 
     for label, path, directory in (
@@ -78,6 +84,14 @@ def main() -> None:
     except ValueError as error:
         parser.error(str(error))
 
+    identity_error = None
+    if args.verify_prompt is not None:
+        token_ids = source_tokenizer.encode(args.verify_prompt, add_bos=True)
+        if not token_ids:
+            parser.error("--verify-prompt encoded to no tokens")
+        identity_error = identity_output_error(
+            source, target, torch.tensor([token_ids], dtype=torch.long)
+        )
     save_checkpoint(
         args.output,
         target,
@@ -89,7 +103,7 @@ def main() -> None:
             "growth": report.__dict__,
         },
     )
-    print(json.dumps({"output": str(args.output), **report.__dict__}, indent=2))
+    print(json.dumps({"output": str(args.output), **report.__dict__, "identity_error": identity_error}, indent=2))
 
 
 if __name__ == "__main__":

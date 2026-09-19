@@ -170,6 +170,14 @@ The current project already contains the foundation of a custom LLM engine.
 * [x] Training reports
 * [x] Text generation
 * [x] WebSocket serving foundation
+* [x] Dataset cleaning, MinHash deduplication, PII/secret redaction, and governance audits
+* [x] Chat SFT, recovery SFT, DPO, and fixed-prompt/domain evaluation
+* [x] KV caching, prefix caching, paged KV accounting, dynamic batching, and CPU INT8 inference
+* [x] OpenAI-compatible API, SSE/WebSocket streaming, authentication, rate limiting, metrics, and health checks
+* [x] RAG, web search, MCP integration, sparse MoE, model growth, and vision-projector profile
+
+Status markers in the following sections are evidence-based: `[x]` implemented,
+`[~]` partial/optional or requiring workload-specific validation, and `[ ]` future.
 
 ---
 
@@ -467,15 +475,13 @@ Transformer
 
 ### Planned
 
-* [ ] BPE evaluation
-* [ ] Byte-level BPE evaluation
+* [x] Byte-level BPE evaluation
 * [ ] Multilingual optimization
-* [ ] Special chat tokens
+* [x] Special chat tokens
 * [ ] Tool tokens
-* [ ] Thinking tokens
+* [x] Thinking tokens
 * [ ] Vision tokens
-* [ ] Tokenizer versioning
-* [ ] Tokenizer/model compatibility checks
+* [x] Tokenizer fingerprinting and append-only compatibility checks
 
 Potential special tokens:
 
@@ -537,31 +543,28 @@ Training
 
 * [x] WikiText
 * [x] TinyStories
-* [ ] Web text
+* [x] Optional educational web text
 * [ ] Books
 * [ ] Wikipedia
 * [ ] Scientific text
 * [ ] Technical documentation
-* [ ] Programming code
+* [x] Optional code pretraining data
 * [ ] Mathematics
 * [ ] Multilingual text
-* [ ] Conversation data
-* [ ] Instruction data
+* [x] Conversation and instruction data
 * [ ] Reasoning data
 * [ ] Tool-use data
 * [ ] Vision-language data
 
 ### Data quality
 
-* [ ] Exact deduplication
-* [ ] Near-duplicate detection
-* [ ] MinHash/LSH
-* [ ] Language detection
-* [ ] Quality scoring
-* [ ] PII filtering
+* [x] Exact deduplication
+* [x] Near-duplicate detection (MinHash LSH)
+* [x] Language detection and low-quality filtering
+* [x] PII and secret redaction
 * [ ] Toxicity filtering
-* [ ] Data contamination detection
-* [ ] Dataset versioning
+* [x] Validation-contamination detection and audit reports
+* [~] Dataset manifests and audit fingerprints
 
 ---
 
@@ -601,11 +604,11 @@ P(x_t | x_1, x_2, ..., x_(t-1))
 * [ ] Dynamic dataset weighting
 * [ ] Curriculum learning
 * [ ] Longer sequences
-* [ ] Better learning-rate scheduling
-* [ ] Gradient clipping
-* [ ] BF16/FP16
-* [ ] NaN/Inf detection
-* [ ] Gradient monitoring
+* [x] Cosine scheduling with warmup
+* [x] Gradient clipping
+* [x] BF16/FP16 mixed precision
+* [x] NaN/Inf detection
+* [x] Gradient norm monitoring
 
 ---
 
@@ -652,16 +655,13 @@ Checkpoint
 * [x] DDP foundation
 * [x] Checkpointing
 * [x] Resume
-* [ ] BF16
-* [ ] FP16
-* [ ] AMP
-* [ ] Gradient clipping
-* [ ] Gradient norm monitoring
+* [x] BF16
+* [x] FP16 / AMP
+* [x] Gradient clipping
+* [x] Gradient norm monitoring
 * [ ] Activation monitoring
-* [ ] NaN detection
-* [ ] Inf detection
-* [ ] Optimizer state recovery
-* [ ] Scheduler state recovery
+* [x] NaN/Inf detection
+* [x] Optimizer and scheduler state recovery
 
 ---
 
@@ -696,14 +696,11 @@ HTTP is an application-layer protocol...
 
 ### Features
 
-* [ ] Instruction datasets
-* [ ] Chat template
-* [ ] System messages
-* [ ] User messages
-* [ ] Assistant messages
-* [ ] Multi-turn conversations
-* [ ] SFT
-* [ ] Instruction evaluation
+* [x] Instruction datasets
+* [x] Chat template with system, user, assistant, and end delimiters
+* [x] Prompt loss masking and multi-turn conversations
+* [x] SFT and recovery SFT
+* [x] Instruction/fixed-prompt evaluation
 
 ---
 
@@ -766,7 +763,7 @@ Aligned Model
 
 Potential approaches:
 
-* [ ] DPO
+* [x] DPO
 * [ ] ORPO
 * [ ] IPO
 * [ ] Reward model
@@ -896,11 +893,9 @@ Next Token
 
 Planned:
 
-* [ ] Basic KV cache
-* [ ] GPU KV cache
-* [ ] Paged KV cache
-* [ ] Prefix caching
-* [ ] KV cache reuse
+* [x] Basic GPU KV cache
+* [x] Block-paged KV cache accounting
+* [x] Prefix caching and KV reuse
 * [ ] INT8 KV cache
 * [ ] INT4 KV cache
 * [ ] Cache eviction
@@ -912,19 +907,11 @@ Planned:
 
 Generation should support:
 
-* [ ] Greedy decoding
-* [ ] Temperature
-* [ ] Top-K
-* [ ] Top-P
-* [ ] Min-P
+* [x] Greedy decoding, temperature, Top-K, Top-P, and Min-P
 * [ ] Repetition penalty
 * [ ] Frequency penalty
 * [ ] Presence penalty
-* [ ] Stop sequences
-* [ ] EOS handling
-* [ ] Seed
-* [ ] Streaming
-* [ ] Batch generation
+* [x] Stop sequences, EOS handling, seeded sampling, streaming, and batched generation
 
 Example:
 
@@ -1020,9 +1007,9 @@ Planned:
 
 * [ ] FP16 export
 * [ ] BF16 export
-* [ ] INT8
+* [x] CPU dynamic INT8
 * [ ] INT4
-* [ ] Weight-only quantization
+* [x] Dynamic weight quantization
 * [ ] Activation quantization
 * [ ] KV quantization
 * [ ] GGUF
@@ -1054,12 +1041,9 @@ Example:
 
 Features:
 
-* [ ] JSON generation
-* [ ] JSON schema
-* [ ] Grammar constraints
-* [ ] Schema validation
-* [ ] Enum constraints
-* [ ] Typed tool arguments
+* [~] JSON tool-call envelopes (validated after generation)
+* [x] JSON schema validation, enum constraints, and typed tool arguments
+* [ ] Token-level grammar/logit constraints
 
 This is especially important for tool calling and agents.
 
@@ -1107,13 +1091,10 @@ Example:
 
 Features:
 
-* [ ] Function schemas
-* [ ] Tool schemas
+* [x] Function and tool schemas
 * [ ] Tool selection
 * [ ] Argument generation
-* [ ] Tool execution
-* [ ] Tool result handling
-* [ ] Tool errors
+* [x] Local and MCP tool execution, result handling, and structured errors
 * [ ] Multiple tools
 * [ ] Sequential tool calls
 * [ ] Parallel tool calls
@@ -1152,15 +1133,11 @@ Answer
 
 Components:
 
-* [ ] Document ingestion
-* [ ] Document parsing
-* [ ] Chunking
-* [ ] Embeddings
-* [ ] Vector database
-* [ ] Retrieval
+* [x] Document ingestion, parsing, chunking, and retrieval
+* [~] Local lexical retrieval and optional PDF/document RAG
 * [ ] Reranking
-* [ ] Context assembly
-* [ ] Citation generation
+* [x] Context assembly and source-aware prompt construction
+* [~] Retrieval-result source references
 * [ ] Hybrid search
 
 ---
@@ -1199,10 +1176,8 @@ Ranked Documents
 
 Features:
 
-* [ ] Embedding model
-* [ ] Batch embeddings
-* [ ] Vector normalization
-* [ ] Similarity search
+* [ ] Dedicated embedding model
+* [x] Local similarity/lexical search for RAG
 * [ ] Reranker
 * [ ] Hybrid retrieval
 
@@ -1269,7 +1244,7 @@ Task memory
 
 Features:
 
-* [ ] Conversation history
+* [x] Persistent conversation history with expiration and explicit export approval
 * [ ] Summarization
 * [ ] Persistent memory
 * [ ] Vector memory
@@ -1281,10 +1256,11 @@ Features:
 
 # 26. Vision & Multimodal
 
-Current:
+Current / partial:
 
 ```text
 Text → LLM → Text
+Image → Vision encoder → projector → LLM → Text (small adapter profile)
 ```
 
 Future:
@@ -1307,9 +1283,7 @@ Text
 
 Features:
 
-* [ ] Vision encoder
-* [ ] Image projector
-* [ ] Image tokens
+* [x] Vision encoder, image projector, and visual tokens
 * [ ] OCR
 * [ ] Image understanding
 * [ ] Visual Q&A
@@ -1339,13 +1313,12 @@ Full Fine-Tuning
 
 Features:
 
-* [ ] Full fine-tuning
-* [ ] LoRA
+* [x] Full fine-tuning
+* [x] LoRA adapter training
 * [ ] QLoRA
-* [ ] Adapter training
-* [ ] Adapter merging
-* [ ] Domain fine-tuning
-* [ ] Instruction fine-tuning
+* [x] Adapter training
+* [~] Adapter merging/export integration
+* [x] Domain and instruction fine-tuning
 
 For limited GPU hardware, LoRA/QLoRA should be prioritized.
 
@@ -1393,11 +1366,11 @@ Loss and perplexity alone are insufficient.
 
 ## Language
 
-* [ ] Perplexity
+* [x] Perplexity and held-out validation
 
 ## Knowledge
 
-* [ ] General knowledge benchmarks
+* [x] Fixed-prompt benchmark runner
 
 ## Reasoning
 
@@ -1412,8 +1385,7 @@ Loss and perplexity alone are insufficient.
 
 ## Instruction
 
-* [ ] Instruction following
-* [ ] Multi-turn conversations
+* [x] Instruction-following and multi-turn regression cases
 
 ## Long Context
 
@@ -1492,13 +1464,10 @@ model/
 
 Export targets:
 
-* [ ] Native checkpoint
-* [ ] BF16
-* [ ] FP16
-* [ ] INT8
+* [x] Native checkpoint, BF16/FP16 loading, and CPU dynamic INT8
 * [ ] INT4
 * [ ] GGUF
-* [ ] ONNX
+* [x] SafeTensors and ONNX
 * [ ] Runtime-specific formats
 
 ---
@@ -1538,16 +1507,9 @@ GET  /metrics
 
 Features:
 
-* [ ] REST
-* [x] WebSocket foundation
-* [ ] Streaming
-* [ ] OpenAI-compatible API
-* [ ] Authentication
-* [ ] Rate limiting
-* [ ] Request cancellation
-* [ ] Request timeout
-* [ ] Request queue
-* [ ] Dynamic batching
+* [x] REST, OpenAI-compatible API, SSE, and WebSocket streaming
+* [x] API-key authentication, rate limiting, cancellation, timeouts, and request queueing
+* [x] Dynamic micro-batching
 * [ ] Continuous batching
 * [ ] Model routing
 
@@ -1557,21 +1519,15 @@ Features:
 
 Production runtime should support:
 
-* [ ] Docker
-* [ ] Docker Compose
-* [ ] GPU containers
-* [ ] Health checks
-* [ ] Readiness checks
-* [ ] Liveness checks
+* [x] Docker, Docker Compose, GPU container profile, health, readiness, and liveness checks
 * [ ] Load balancing
 * [ ] Reverse proxy
 * [ ] TLS
-* [ ] Authentication
+* [x] Authentication
 * [ ] Authorization
-* [ ] Rate limiting
+* [x] Rate limiting
 * [ ] Request tracing
-* [ ] Metrics
-* [ ] Logging
+* [x] Metrics and logging
 * [ ] Model version routing
 
 ---
@@ -1663,10 +1619,9 @@ Training and serving should handle failures safely.
 
 Features:
 
-* [ ] Atomic checkpoints
-* [ ] Checkpoint validation
+* [x] Atomic checkpoints and checkpoint validation
 * [ ] Automatic recovery
-* [ ] Resume training
+* [x] Resume training and training-state recovery
 * [ ] Worker failure recovery
 * [ ] Process restart
 * [ ] GPU failure detection
@@ -1952,18 +1907,10 @@ llm-engine/
 
 ### Priority: Critical
 
-* [ ] Dataset cleaning
-* [ ] Deduplication
-* [ ] Data quality scoring
-* [ ] Better dataset mixture
-* [ ] Learning-rate scheduler
-* [ ] Warmup
-* [ ] Gradient clipping
-* [ ] BF16/FP16
-* [ ] NaN/Inf detection
-* [ ] Gradient monitoring
-* [ ] Experiment tracking
-* [ ] Reproducibility
+* [x] Dataset cleaning, deduplication, PII filtering, governance, and packing
+* [x] Learning-rate scheduling, warmup, gradient clipping, mixed precision, and non-finite checks
+* [x] Training reports and reproducibility metadata
+* [ ] Advanced curriculum and gradient diagnostics
 
 ---
 
@@ -1971,8 +1918,7 @@ llm-engine/
 
 ### Priority: Critical
 
-* [ ] Automated benchmark runner
-* [ ] Perplexity evaluation
+* [x] Automated benchmark runner, perplexity, domain evaluation, and regression tests
 * [ ] Reasoning evaluation
 * [ ] Code evaluation
 * [ ] Instruction evaluation
@@ -1986,11 +1932,7 @@ llm-engine/
 
 ### Priority: Critical
 
-* [ ] Chat template
-* [ ] Instruction dataset
-* [ ] SFT
-* [ ] Multi-turn conversations
-* [ ] System prompts
+* [x] Chat template, instruction data, SFT, multi-turn conversations, and system prompts
 * [ ] Structured output
 * [ ] Better sampling
 
@@ -2010,13 +1952,10 @@ Instruction/Chat LLM
 
 ### Priority: Critical
 
-* [ ] KV cache
+* [x] KV cache, paged KV accounting, prefix caching, and dynamic batching
 * [ ] FlashAttention
-* [ ] Paged KV cache
-* [ ] Prefix caching
-* [ ] Continuous batching
-* [ ] Quantization
-* [ ] GGUF/export
+* [x] CPU INT8 quantization and SafeTensors/ONNX export
+* [ ] Continuous batching and full paged-attention execution
 
 ---
 
@@ -2029,7 +1968,7 @@ Instruction/Chat LLM
 * [ ] Reasoning data
 * [ ] Reasoning SFT
 * [ ] Verification
-* [ ] DPO
+* [x] DPO
 * [ ] Reasoning evaluation
 
 ---
@@ -2038,11 +1977,7 @@ Instruction/Chat LLM
 
 ### Priority: High
 
-* [ ] Function calling
-* [ ] Tool schema
-* [ ] Structured arguments
-* [ ] Tool executor
-* [ ] Tool result handling
+* [x] Tool schemas, structured arguments, local/MCP execution, and result handling
 * [ ] Tool permissions
 * [ ] Tool-use training
 
@@ -2052,11 +1987,7 @@ Instruction/Chat LLM
 
 ### Priority: High
 
-* [ ] Document ingestion
-* [ ] Chunking
-* [ ] Embeddings
-* [ ] Vector database
-* [ ] Retrieval
+* [x] Document ingestion, chunking, local retrieval, and RAG prompt construction
 * [ ] Reranking
 * [ ] Context construction
 * [ ] Citations
@@ -2095,7 +2026,7 @@ Instruction/Chat LLM
 
 Add:
 
-* [ ] RoPE scaling
+* [x] Opt-in NTK and YaRN RoPE scaling policies
 * [ ] Long-context training
 * [ ] Long-context evaluation
 * [ ] Efficient attention
@@ -2123,8 +2054,7 @@ Add:
 * [ ] Hybrid attention
 * [ ] Sliding-window attention
 * [ ] Sparse attention
-* [ ] MoE
-* [ ] Expert routing
+* [x] Configurable sparse MoE and expert routing
 * [ ] Expert parallelism
 
 ---
@@ -2133,9 +2063,7 @@ Add:
 
 ### Priority: Research/Product dependent
 
-* [ ] Vision encoder
-* [ ] Vision projector
-* [ ] Image tokens
+* [x] Vision encoder, projector, and visual tokens (small adapter profile)
 * [ ] Multimodal datasets
 * [ ] Multimodal SFT
 * [ ] OCR

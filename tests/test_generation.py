@@ -249,6 +249,19 @@ def test_active_paged_cache_appends_and_reclaims_pages() -> None:
     assert len(generator.paged_kv_allocator.free_pages) == available
 
 
+def test_active_paged_decode_uses_page_tables_without_materializing_kv(monkeypatch) -> None:
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)
+    generator = Generator(model, tokenizer, device="cpu", paged_kv_pages=8, paged_kv_page_size=4)
+    state = generator.start_batched_stream("hello", max_tokens=2, temperature=0)
+    monkeypatch.setattr(
+        generator.paged_kv_allocator, "materialize",
+        lambda _: pytest.fail("active paged decode materialized KV"),
+    )
+    generator.decode_batched_stream([state])
+    generator.release_batched_stream(state)
+
+
 def test_generator_tensor_batches_equal_length_prompts() -> None:
     tokenizer = make_tokenizer()
     model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)

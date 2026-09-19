@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from model.gpt import MiniGPT
-from training.model_growth import grow_model
+from training.model_growth import grow_model, identity_output_error
 
 
 def make_model(vocab_size: int, layers: int) -> MiniGPT:
@@ -53,3 +53,12 @@ def test_grow_model_rejects_non_growth_and_architecture_mismatch() -> None:
     )
     with pytest.raises(ValueError, match="architecture mismatch"):
         grow_model(make_model(32, 2), incompatible)
+
+
+def test_depth_doubling_from_sixteen_to_thirty_two_layers_is_an_exact_identity() -> None:
+    torch.manual_seed(9)
+    source = make_model(32, 16)
+    target = make_model(32, 32)
+    grow_model(source, target)
+
+    assert identity_output_error(source, target, torch.tensor([[1, 2, 3, 4]])) == 0.0

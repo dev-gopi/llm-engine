@@ -35,6 +35,18 @@ class DistributedContext:
 
 class DistributedTrainer:
     @staticmethod
+    def preflight_fsdp(
+        *, minimum_world_size: int = 2, required_nodes: int | None = None
+    ) -> None:
+        """Validate the torchrun topology before constructing an FSDP process group."""
+        from training.multinode import topology_from_environment, validate_fsdp_topology
+
+        validate_fsdp_topology(
+            topology_from_environment(), minimum_world_size=minimum_world_size,
+            required_nodes=required_nodes,
+        )
+
+    @staticmethod
     def initialize(backend: str | None = None) -> DistributedContext:
         world_size = int(os.getenv("WORLD_SIZE", "1"))
         rank = int(os.getenv("RANK", "0"))

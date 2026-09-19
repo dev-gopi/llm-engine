@@ -51,15 +51,25 @@ class LatentDiffusionPipeline:
                generator: torch.Generator | None = None) -> Tensor:
         if image_size % self.vae.downsample_factor:
             raise ValueError("image_size must be divisible by the VAE downsample factor")
-        context = None
-        if token_ids is not None:
-            if self.text_encoder is None:
-                raise ValueError("token_ids require a text encoder")
-            context = self.text_encoder(token_ids, attention_mask)
-        latent_size = image_size // self.vae.downsample_factor
-        latents = self.diffusion.sample(
-            batch_size, latent_size, device=device, text_context=context,
-            text_context_mask=attention_mask, guidance_scale=guidance_scale,
-            inference_steps=inference_steps, generator=generator,
-        )
-        return self.vae.decode(latents / self.latent_scale).clamp(-1, 1)
+        modules = [self.vae]
+        if self.text_encoder is not None:
+            modules.append(self.text_encoder)
+        modes = [module.training for module in modules]
+        for module in modules:
+            module.eval()
+        try:
+            context = None
+            if token_ids is not None:
+                if self.text_encoder is None:
+                    raise ValueError("token_ids require a text encoder")
+                context = self.text_encoder(token_ids, attention_mask)
+            latent_size = image_size // self.vae.downsample_factor
+            latents = self.diffusion.sample(
+                batch_size, latent_size, device=device, text_context=context,
+                text_context_mask=attention_mask, guidance_scale=guidance_scale,
+                inference_steps=inference_steps, generator=generator,
+            )
+            return self.vae.decode(latents / self.latent_scale).clamp(-1, 1)
+        finally:
+            for module, was_training in zip(modules, modes, strict=True):
+                module.train(was_training)

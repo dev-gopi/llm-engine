@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import itertools
 import re
+from collections.abc import Mapping
 
 import torch
 from torch import nn
@@ -20,6 +21,7 @@ from .context import ConversationMemory
 from .kv_cache import KVCache
 from .paged_kv_cache import PagedKVCache, PagedPrefixCache, PrefixCache
 from .local_tools import ToolCall, parse_tool_call
+from training.peft import load_lora_adapter, lora_adapter_state_dict
 
 logger = get_logger(__name__)
 
@@ -91,6 +93,7 @@ class Generator:
         self._paged_request_ids = itertools.count(1)
         self.prefix_cache_hits = 0
         self.prefix_cache_misses = 0
+        self._base_lora_adapter = lora_adapter_state_dict(self.model)
         if paged_kv_pages:
             first_attention = getattr(model, "blocks", [None])[0].attn
             allocator = PagedKVCache(
@@ -209,6 +212,13 @@ class Generator:
         result = self.generate(prompt, allow_special_tokens=True, **options)
         return parse_tool_call(result.text, schema)
 
+    def swap_lora_adapter(self, state: Mapping[str, torch.Tensor] | None) -> None:
+        """Activate an adapter-only state, or restore the initial adapter state."""
+        load_lora_adapter(self.model, self._base_lora_adapter if state is None else state)
+        # Prefix logits are adapter-dependent and cannot be reused across swaps.
+        if self.prefix_cache is not None:
+            self.prefix_cache = None
+
     @staticmethod
     def _trim_repeated_text(text: str, *, phrase_words: int = 4) -> str:
         """Cut obvious word-level loops that token n-gram blocking can miss."""
@@ -255,7 +265,10 @@ class Generator:
             values = torch.stack([layer[1].squeeze(0) for layer in cache])
             self.paged_kv_allocator.append(request_id, keys, values)
             state.page_request_id = request_id
-            state.cache = self._materialize_active_cache(request_id)
+            state.cache = tuple(
+                self.paged_kv_allocator.layer_cache([request_id], layer)
+                for layer in range(len(cache))
+            )
         return state
 
     @torch.inference_mode()
@@ -315,9 +328,40 @@ class Generator:
                 survivors.append((index, state, token_id))
 
         if survivors:
-            for _, state, _ in survivors:
-                if state.page_request_id is not None:
-                    state.cache = self._materialize_active_cache(state.page_request_id)
+            paged = all(state.page_request_id is not None for _, state, _ in survivors)
+            if any(state.page_request_id is not None for _, state, _ in survivors) and not paged:
+                raise RuntimeError("paged and non-paged stream states cannot share a decode call")
+            if paged:
+                request_ids = [state.page_request_id for _, state, _ in survivors]
+                assert self.paged_kv_allocator is not None
+                batched_layers = [
+                    self.paged_kv_allocator.layer_cache(request_ids, layer)
+                    for layer in range(len(survivors[0][1].cache))
+                ]
+                output = self._forward_model(
+                    torch.tensor([token for _, _, token in survivors], device=self.device).unsqueeze(1),
+                    position_ids=torch.tensor(
+                        [len(state.all_ids) - 1 for _, state, _ in survivors], device=self.device
+                    ).unsqueeze(1),
+                    past_key_values=tuple(batched_layers), use_cache=True,
+                )
+                if not isinstance(output, tuple):
+                    raise RuntimeError("model did not return a requested KV cache")
+                logits, cache = output
+                for row, (_, state, _) in enumerate(survivors):
+                    state.logits = logits[row:row + 1]
+                    keys = torch.stack([layer.pending[0][row] for layer in cache])
+                    values = torch.stack([layer.pending[1][row] for layer in cache])
+                    assert state.page_request_id is not None
+                    self.paged_kv_allocator.append(state.page_request_id, keys, values)
+                    state.cache = tuple(
+                        self.paged_kv_allocator.layer_cache([state.page_request_id], layer)
+                        for layer in range(len(cache))
+                    )
+                    state.cache_mask = torch.ones(
+                        self.paged_kv_allocator.lengths[state.page_request_id], dtype=torch.bool, device=self.device
+                    )
+                return [result for result in results if result is not None]
             maximum_cache = max(state.cache[0][0].shape[2] for _, state, _ in survivors)
             masks, positions, batched_layers = [], [], []
             for _, state, _ in survivors:

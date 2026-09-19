@@ -27,6 +27,49 @@ class BenchmarkCase:
             raise ValueError("benchmark max_answer_tokens must be positive")
 
 
+@dataclass(frozen=True)
+class NeedleInHaystackCase:
+    """A deterministic passkey-retrieval probe for an extended context window.
+
+    ``context_tokens`` counts whitespace-delimited filler tokens.  This keeps
+    the fixture tokenizer-independent while making its length and needle
+    placement reproducible for every checkpoint comparison.
+    """
+
+    context_tokens: int
+    passkey: str
+    needle_position: float = 0.5
+
+    def __post_init__(self) -> None:
+        if self.context_tokens < 128:
+            raise ValueError("long-context probes require at least 128 filler tokens")
+        if not self.passkey or not self.passkey.strip():
+            raise ValueError("passkey must be nonempty")
+        if not 0.0 <= self.needle_position <= 1.0:
+            raise ValueError("needle_position must be between 0 and 1")
+
+    @property
+    def needle_token_index(self) -> int:
+        return round(self.context_tokens * self.needle_position)
+
+    def prompt(self) -> str:
+        prefix = "filler " * self.needle_token_index
+        suffix = "filler " * (self.context_tokens - self.needle_token_index)
+        return (
+            f"{prefix}The passkey is {self.passkey}. {suffix}"
+            "What is the passkey? Reply with only the passkey."
+        )
+
+    def benchmark_case(self) -> BenchmarkCase:
+        return BenchmarkCase(
+            category="long_context",
+            prompt=self.prompt(),
+            expected=(self.passkey,),
+            match="exact",
+            max_answer_tokens=1,
+        )
+
+
 def normalize_answer(text: str) -> str:
     return " ".join(regex.findall(r"[\p{L}\p{M}\p{N}]+", text.casefold()))
 

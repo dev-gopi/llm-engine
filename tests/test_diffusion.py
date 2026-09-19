@@ -152,6 +152,31 @@ def test_text_encoder_and_cross_attention_condition_latent_diffusion() -> None:
     assert generated.shape == (2, 3, 32, 32)
 
 
+def test_latent_sampling_is_seeded_and_restores_vae_text_encoder_modes() -> None:
+    vae = AutoencoderKL(base_channels=8, latent_channels=4, downsample_factor=4).train()
+    text_encoder = DiffusionTextEncoder(
+        vocab_size=32, hidden_size=16, layers=1, heads=4, max_length=8, dropout=0.5,
+    ).train()
+    model = SmallUNet(
+        image_channels=4, base_channels=8, condition_size=16,
+        use_cross_attention=True, attention_heads=4,
+    )
+    pipeline = LatentDiffusionPipeline(vae, model, DiffusionScheduler(timesteps=4), text_encoder)
+    token_ids = torch.randint(1, 32, (1, 4))
+
+    first = pipeline.sample(
+        1, 16, device="cpu", token_ids=token_ids, inference_steps=2,
+        generator=torch.Generator().manual_seed(4),
+    )
+    second = pipeline.sample(
+        1, 16, device="cpu", token_ids=token_ids, inference_steps=2,
+        generator=torch.Generator().manual_seed(4),
+    )
+
+    torch.testing.assert_close(first, second)
+    assert vae.training and text_encoder.training
+
+
 @pytest.mark.parametrize("options,match", [
     ({"inference_steps": 0}, "inference_steps"),
     ({"inference_steps": 5}, "inference_steps"),

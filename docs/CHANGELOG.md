@@ -7,6 +7,31 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **Capability Backlog Audit**: Added dedicated tasks for efficient-attention
+  selection, safety evaluation, serving observability, recovery drills,
+  curriculum diagnostics, and embedding/retrieval-quality evaluation.
+- **TKN-001 Agent Protocol Token Extension**: Added a checkpoint-compatible,
+  append-only special-token extension for system, user, assistant, tool,
+  thinking, and end delimiters; existing vocabulary IDs remain unchanged.
+- **AGT-002 Multi-Step MCP Orchestration**: Added bounded sequential tool
+  planning and execution with server/tool allowlists, per-tool argument schema
+  validation, untrusted result injection, and structured recovery from errors.
+- **INF-005 Paged-Attention Decode**: Active streamed decode now consumes
+  per-layer page tables directly, combining page-level attention scores without
+  materializing a contiguous request KV cache; numerical parity is tested
+  against ordinary cached attention.
+- **INF-002 Continuous Serving Validation**: Confirmed the existing token-step
+  scheduler multiplexes active streams and admits queued work; split full
+  page-table-aware attention execution into follow-up `INF-005`.
+- **EVAL-001 Long-Context Evaluation**: Added deterministic 2K and 4K
+  needle-in-a-haystack passkey probes with explicit placement and exact-answer
+  scoring for checkpoint comparisons.
+- **SCALE-003 LoRA Serving and Merging**: Added adapter-only state swapping,
+  safe prefix-cache invalidation on adapter changes, standalone LoRA weight
+  merging, and `--merge-lora` export support.
+- **Documentation Capability Audit**: Updated `required.md`, current state,
+  and target state to distinguish implemented capabilities from optional,
+  partial, and future work based on the checked-in source and tests.
 - **CTX-001 Long-Context RoPE Policies**: Added opt-in NTK-aware and YaRN
   rotary-frequency scaling, validated at 4K positions while keeping default
   checkpoint behavior unchanged.

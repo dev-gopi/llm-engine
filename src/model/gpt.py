@@ -207,7 +207,7 @@ class MiniGPT(nn.Module):
         cached_length = 0
         if past_key_values:
             for cache in past_key_values:
-                if isinstance(cache, StaticLayerKVCache):
+                if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False):
                     continue
                 if not isinstance(cache, tuple) or len(cache) != 2:
                     raise TypeError("each past_key_values entry must be a (key, value) tuple")
@@ -215,14 +215,14 @@ class MiniGPT(nn.Module):
                     raise ValueError("cached keys and values must have four dimensions")
             cached_length = (
                 past_key_values[0].length
-                if isinstance(past_key_values[0], StaticLayerKVCache)
+                if isinstance(past_key_values[0], StaticLayerKVCache) or getattr(past_key_values[0], "is_paged_kv_cache", False)
                 else past_key_values[0][0].shape[2]
             )
             if any(
-                (cache.length if isinstance(cache, StaticLayerKVCache) else cache[0].shape[2])
+                (cache.length if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False) else cache[0].shape[2])
                 != cached_length
                 or (
-                    not isinstance(cache, StaticLayerKVCache)
+                    not isinstance(cache, StaticLayerKVCache) and not getattr(cache, "is_paged_kv_cache", False)
                     and cache[1].shape[2] != cached_length
                 )
                 for cache in past_key_values

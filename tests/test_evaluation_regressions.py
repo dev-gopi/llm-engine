@@ -1,6 +1,38 @@
 import pytest
 
-from evaluation.benchmarks import BenchmarkCase, compare_reports, score_answer
+from evaluation.benchmarks import (
+    BenchmarkCase,
+    NeedleInHaystackCase,
+    compare_reports,
+    score_answer,
+)
+
+
+def test_needle_in_haystack_probe_is_deterministic_and_scores_only_the_passkey():
+    probe = NeedleInHaystackCase(4096, "zephyr42", needle_position=0.75)
+    prompt = probe.prompt()
+    assert prompt == probe.prompt()
+    assert probe.needle_token_index == 3072
+    assert prompt.index("The passkey is zephyr42.") == 3072 * len("filler ")
+    case = probe.benchmark_case()
+    assert score_answer("zephyr42", case) == 1
+    assert score_answer("zephyr41", case) == 0
+    assert score_answer("The passkey is zephyr42", case) == 0
+
+
+def test_needle_in_haystack_supports_the_2k_probe_size():
+    probe = NeedleInHaystackCase(2048, "harbor7", needle_position=0.5)
+    assert probe.needle_token_index == 1024
+    assert score_answer("harbor7", probe.benchmark_case()) == 1
+
+
+def test_needle_in_haystack_probe_validates_its_contract():
+    with pytest.raises(ValueError, match="at least"):
+        NeedleInHaystackCase(127, "key")
+    with pytest.raises(ValueError, match="nonempty"):
+        NeedleInHaystackCase(2048, "")
+    with pytest.raises(ValueError, match="between"):
+        NeedleInHaystackCase(2048, "key", needle_position=1.1)
 
 
 def test_expression_scoring_preserves_operators():

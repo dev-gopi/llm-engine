@@ -101,6 +101,51 @@ def has_lora(model: nn.Module) -> bool:
     return any(isinstance(module, LoRALinear) for module in model.modules())
 
 
+def lora_adapter_state_dict(model: nn.Module) -> dict[str, Tensor]:
+    """Return a portable adapter-only state dictionary."""
+    return {
+        name: parameter.detach().clone()
+        for name, parameter in model.named_parameters()
+        if ".lora_a" in name or ".lora_b" in name
+    }
+
+
+def load_lora_adapter(model: nn.Module, state: Mapping[str, Tensor]) -> None:
+    """Atomically replace only LoRA weights on an already-adapted model."""
+    expected = lora_adapter_state_dict(model)
+    if set(state) != set(expected):
+        raise ValueError("adapter state does not match the model's LoRA modules")
+    for name, value in state.items():
+        if not isinstance(value, Tensor) or value.shape != expected[name].shape:
+            raise ValueError(f"adapter parameter has incompatible shape: {name}")
+    with torch.no_grad():
+        named_parameters = dict(model.named_parameters())
+        for name, value in state.items():
+            named_parameters[name].copy_(value.to(named_parameters[name]))
+
+
+def merge_and_unload(model: nn.Module) -> nn.Module:
+    """Fold LoRA residuals into fresh ``nn.Linear`` modules and remove adapters."""
+    replacements: list[tuple[nn.Module, str, LoRALinear]] = []
+    for full_name, module in model.named_modules():
+        if not isinstance(module, LoRALinear):
+            continue
+        parent_name, _, child_name = full_name.rpartition(".")
+        replacements.append((model.get_submodule(parent_name) if parent_name else model, child_name, module))
+    with torch.no_grad():
+        for parent, child_name, module in replacements:
+            base = module.base
+            merged = nn.Linear(
+                base.in_features, base.out_features, bias=base.bias is not None,
+                device=base.weight.device, dtype=base.weight.dtype,
+            )
+            merged.weight.copy_(base.weight + (module.lora_b @ module.lora_a).to(base.weight) * module.scaling)
+            if base.bias is not None:
+                merged.bias.copy_(base.bias)
+            setattr(parent, child_name, merged)
+    return model
+
+
 def _targets(value: Any) -> tuple[str, ...]:
     if isinstance(value, str) or not isinstance(value, Sequence):
         raise TypeError("PEFT target_modules must be a sequence of module names")
@@ -110,4 +155,7 @@ def _targets(value: Any) -> tuple[str, ...]:
     return targets
 
 
-__all__ = ["DEFAULT_LORA_TARGETS", "LoRALinear", "apply_lora", "has_lora"]
+__all__ = [
+    "DEFAULT_LORA_TARGETS", "LoRALinear", "apply_lora", "has_lora",
+    "load_lora_adapter", "lora_adapter_state_dict", "merge_and_unload",
+]

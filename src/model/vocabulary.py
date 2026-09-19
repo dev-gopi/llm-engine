@@ -9,12 +9,21 @@ from tokenizer.encoder import Tokenizer
 
 
 THINKING_TOKENS = ("<thinking>", "</thinking>")
+AGENT_PROTOCOL_TOKENS = (
+    "<|system|>", "<|user|>", "<|assistant|>", "<|tool|>",
+    "<|thinking|>", "<|end|>",
+)
 
 
 def extend_tokenizer_for_reasoning(tokenizer: Tokenizer) -> Tokenizer:
     """Create a verified append-only tokenizer with atomic reasoning tags."""
     missing = [token for token in THINKING_TOKENS if token not in tokenizer.vocab]
     return tokenizer.extend(missing) if missing else tokenizer
+
+
+def extend_tokenizer_for_agent_protocol(tokenizer: Tokenizer) -> Tokenizer:
+    """Create a checkpoint-compatible tokenizer with atomic agent delimiters."""
+    return tokenizer.extend_special_tokens(AGENT_PROTOCOL_TOKENS)
 
 
 def adapt_config_to_tokenizer(
@@ -49,7 +58,9 @@ def checkpoint_tokenizer_options(tokenizer: Tokenizer, *, allow_extension: bool 
 
 __all__ = [
     "THINKING_TOKENS",
+    "AGENT_PROTOCOL_TOKENS",
     "adapt_config_to_tokenizer",
     "checkpoint_tokenizer_options",
     "extend_tokenizer_for_reasoning",
+    "extend_tokenizer_for_agent_protocol",
 ]

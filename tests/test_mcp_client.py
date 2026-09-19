@@ -106,7 +106,7 @@ def test_model_tool_call_is_allowlisted_and_result_is_untrusted() -> None:
 
 def test_backend_model_plans_executes_and_injects_mcp_result() -> None:
     class FakeClient:
-        async def call_tool(self, name, arguments):
+        async def call_tool(self, name, arguments, **_kwargs):
             assert name == "read_text_file"
             assert arguments == {"path": "README.md"}
             return {"content": [{"type": "text", "text": "Gopi documentation"}]}
@@ -132,6 +132,47 @@ def test_backend_model_plans_executes_and_injects_mcp_result() -> None:
         augmented = await backend._augment_with_mcp(GenerateRequest(prompt="read docs", mcp=True), "read docs")
         assert "Gopi documentation" in augmented
         assert "untrusted external data" in augmented
+
+    asyncio.run(scenario())
+
+
+def test_backend_mcp_loop_executes_bounded_sequential_calls() -> None:
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        async def call_tool(self, name, arguments, **_kwargs):
+            self.calls.append((name, arguments))
+            return {"content": [{"type": "text", "text": f"result-{len(self.calls)}"}]}
+
+    async def scenario():
+        backend = ConfiguredModelBackend(mcp={"planning_max_tokens": 64, "max_steps": 2})
+        class FakeTokenizer:
+            def encode(self, text, **_kwargs):
+                return list(text.encode())
+
+        class FakeGenerator:
+            tokenizer = FakeTokenizer()
+            max_positions = 4096
+
+        backend.generator = FakeGenerator()
+        backend.mcp_tools = {"files": [MCPTool("read_text_file", "Read text", {"type": "object"})]}
+        client = FakeClient()
+        backend.mcp_clients = {"files": client}
+        decisions = iter((
+            '{"tool_call":{"server":"files","name":"read_text_file","arguments":{"path":"one"}}}',
+            '{"tool_call":{"server":"files","name":"read_text_file","arguments":{"path":"two"}}}',
+        ))
+
+        async def plan(_prompt, _options):
+            return next(decisions)
+
+        backend._generate_once = plan
+        context = await backend._augment_with_mcp(GenerateRequest(prompt="read", mcp=True), "read")
+        assert client.calls == [
+            ("read_text_file", {"path": "one"}), ("read_text_file", {"path": "two"}),
+        ]
+        assert "result-2" in context
 
     asyncio.run(scenario())
 

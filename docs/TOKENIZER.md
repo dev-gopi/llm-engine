@@ -37,6 +37,11 @@ The tokenizer extends the base 40,000 vocabulary with dedicated conversational r
 | `<|thinking|>` | `40000+` | Begins chain-of-thought reasoning block |
 | `<|end|>` | `40000+` | Terminating turn token |
 
+For an existing checkpoint tokenizer, add these delimiters with the append-only
+agent-protocol extension rather than inserting them into a base tokenizer.
+This preserves every existing token ID; `<|tool|>` is included alongside the
+role, thinking, and end delimiters.
+
 ---
 
 ## 3. Training a New Tokenizer
@@ -63,4 +68,3 @@ This generates:
 1. **Deterministic Merges**: The order of merges in `merges.txt` must never be altered once a model checkpoint is trained.
 2. **Append-Only Additions**: New special tokens or domain tokens must be added to the end of the vocabulary (`new_id >= old_vocab_size`).
 3. **Validation**: Any vocabulary alteration must pass [`tests/test_vocabulary_compatibility.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_vocabulary_compatibility.py).
-

@@ -20,6 +20,7 @@ from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
+from training.peft import merge_and_unload
 from utils.config import load_yaml
 
 
@@ -51,6 +52,7 @@ def main() -> None:
     parser.add_argument("--format", choices=("safetensors", "torch_export", "onnx"), default="safetensors")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sequence-length", type=int, default=16)
+    parser.add_argument("--merge-lora", action="store_true", help="fold a loaded LoRA adapter into base weights")
     args = parser.parse_args()
     suffixes = {"safetensors": ".safetensors", "torch_export": ".pt2", "onnx": ".onnx"}
     output = args.output or Path("exports") / args.format / f"gopi{suffixes[args.format]}"
@@ -66,6 +68,8 @@ def main() -> None:
         args.checkpoint, model, use_ema=True,
         **checkpoint_tokenizer_options(tokenizer),
     )
+    if args.merge_lora:
+        merge_and_unload(model)
     artifact = export_model(model, output, args.format, sequence_length=args.sequence_length)
     destination_config = artifact.parent / "model.yaml"
     destination_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")

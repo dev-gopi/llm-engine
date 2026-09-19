@@ -105,4 +105,25 @@ def grow_model(
     )
 
 
-__all__ = ["GrowthReport", "grow_model"]
+@torch.inference_mode()
+def identity_output_error(
+    source: MiniGPT, target: MiniGPT, token_ids: torch.Tensor
+) -> float:
+    """Return the maximum shared-vocabulary logit error after depth growth."""
+    if token_ids.ndim != 2:
+        raise ValueError("token_ids must have shape [batch, sequence]")
+    if token_ids.numel() and (int(token_ids.min()) < 0 or int(token_ids.max()) >= source.vocab_size):
+        raise ValueError("token_ids must fit within the source vocabulary")
+    source_was_training, target_was_training = source.training, target.training
+    try:
+        source.eval()
+        target.eval()
+        source_logits = source(token_ids)
+        target_logits = target(token_ids)[..., :source.vocab_size]
+        return float((source_logits - target_logits).abs().max().item())
+    finally:
+        source.train(source_was_training)
+        target.train(target_was_training)
+
+
+__all__ = ["GrowthReport", "grow_model", "identity_output_error"]

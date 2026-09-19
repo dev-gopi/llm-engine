@@ -14,7 +14,7 @@ from torch import Tensor
 from .positional import apply_rotary_pos_emb
 from .kv_cache import StaticLayerKVCache
 
-KeyValueCache: TypeAlias = tuple[Tensor, Tensor] | StaticLayerKVCache
+KeyValueCache: TypeAlias = tuple[Tensor, Tensor] | StaticLayerKVCache | Any
 AttentionOutput: TypeAlias = Tensor | tuple[Tensor, KeyValueCache]
 
 
@@ -131,6 +131,23 @@ class MultiHeadAttention(nn.Module):
         batch_size, _, query_length, _ = query.shape
         past_length = 0
 
+        if getattr(past_key_value, "is_paged_kv_cache", False):
+            if attention_mask is not None:
+                raise ValueError("paged KV decode does not accept an attention_mask")
+            if query_length != 1:
+                raise ValueError("paged KV cache supports decode queries of length one")
+            past_length = past_key_value.length
+            attended = self._paged_attention(query, key, value, past_key_value)
+            past_key_value.record_pending(key, value)
+            present_key_value = past_key_value if use_cache else None
+            output_width = self.heads * self.head_dim
+            output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, output_width)
+            output = self.out_proj(output)
+            if self.tensor_parallel_group is not None:
+                torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
+            if use_cache:
+                return output, present_key_value
+            return output
         if isinstance(past_key_value, StaticLayerKVCache):
             past_length = past_key_value.length
             key, value = past_key_value.append(key, value)
@@ -190,6 +207,27 @@ class MultiHeadAttention(nn.Module):
             assert present_key_value is not None
             return output, present_key_value
         return output
+
+    def _paged_attention(self, query: Tensor, key: Tensor, value: Tensor, cache: Any) -> Tensor:
+        """Attend to page-table KV without rebuilding a contiguous cache tensor."""
+        score_chunks: list[Tensor] = []
+        value_chunks: list[Tensor] = []
+        for page_key, page_value, valid in cache.pages():
+            page_key = page_key.repeat_interleave(self.num_kv_groups, dim=1)
+            page_value = page_value.repeat_interleave(self.num_kv_groups, dim=1)
+            scores = torch.matmul(query, page_key.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            score_chunks.append(scores.masked_fill(~valid[:, None, None, :], float("-inf")))
+            value_chunks.append(page_value)
+        current_key = key.repeat_interleave(self.num_kv_groups, dim=1)
+        current_value = value.repeat_interleave(self.num_kv_groups, dim=1)
+        score_chunks.append(torch.matmul(query, current_key.transpose(-2, -1)) / math.sqrt(self.head_dim))
+        probabilities = torch.softmax(torch.cat(score_chunks, dim=-1), dim=-1, dtype=torch.float32).to(query.dtype)
+        widths = [chunk.shape[-1] for chunk in score_chunks]
+        weights = probabilities.split(widths, dim=-1)
+        attended = torch.zeros_like(query)
+        for page_weights, page_value in zip(weights[:-1], value_chunks, strict=True):
+            attended = attended + torch.matmul(page_weights, page_value)
+        return attended + torch.matmul(weights[-1], current_value)
 
     def _prepare_mask(
         self,

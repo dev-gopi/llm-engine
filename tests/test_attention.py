@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from model.attention import MultiHeadAttention
+from inference.paged_kv_cache import PagedKVCache
 
 
 def manual_attention(module: MultiHeadAttention, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -106,6 +107,25 @@ def test_token_by_token_kv_cache_matches_full_sequence():
     torch.testing.assert_close(incremental_output, full_output, rtol=1e-5, atol=1e-6)
     assert cache is not None
     assert cache[0].shape == cache[1].shape == (2, 4, 7, 8)
+
+
+def test_paged_kv_decode_matches_contiguous_cache_without_materialization(monkeypatch):
+    torch.manual_seed(12)
+    module = MultiHeadAttention(dim=16, heads=4, causal=True).eval()
+    prefix, next_token = torch.randn(2, 3, 16), torch.randn(2, 1, 16)
+    _, contiguous = module(prefix, use_cache=True)
+    expected = module(next_token, past_key_value=contiguous)
+    allocator = PagedKVCache(
+        num_pages=4, page_size=2, layers=1, kv_heads=4, head_dim=4,
+        device="cpu", dtype=torch.float32,
+    )
+    for row, request_id in enumerate(("one", "two")):
+        allocator.reserve(request_id, 4)
+        allocator.append(request_id, contiguous[0][row:row + 1].squeeze(0).unsqueeze(0),
+                         contiguous[1][row:row + 1].squeeze(0).unsqueeze(0))
+    monkeypatch.setattr(allocator, "materialize", lambda _: pytest.fail("paged attention materialized KV"))
+    actual = module(next_token, past_key_value=allocator.layer_cache(["one", "two"], 0))
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
 
 def test_backward_is_finite():

@@ -1,6 +1,10 @@
 import pytest
 
-from model.vocabulary import THINKING_TOKENS, adapt_config_to_tokenizer, checkpoint_tokenizer_options, extend_tokenizer_for_reasoning
+from model.vocabulary import (
+    AGENT_PROTOCOL_TOKENS, THINKING_TOKENS, adapt_config_to_tokenizer,
+    checkpoint_tokenizer_options, extend_tokenizer_for_agent_protocol,
+    extend_tokenizer_for_reasoning,
+)
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
@@ -44,6 +48,14 @@ def test_reasoning_extension_adds_atomic_thinking_tokens_append_only():
     extended = extend_tokenizer_for_reasoning(base)
 
     assert tuple(token for token in THINKING_TOKENS if token in extended.vocab) == THINKING_TOKENS
+    assert base.fingerprint in extended.compatible_base_fingerprints
+
+
+def test_agent_protocol_extension_preserves_base_ids_and_marks_tokens_special():
+    base = make_tokenizer()
+    extended = extend_tokenizer_for_agent_protocol(base)
+    assert all(extended.vocab[token] == identifier for token, identifier in base.vocab.items())
+    assert all(token in extended.special_tokens for token in AGENT_PROTOCOL_TOKENS)
     assert base.fingerprint in extended.compatible_base_fingerprints
 
 

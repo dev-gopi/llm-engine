@@ -739,42 +739,59 @@ class ConfiguredModelBackend:
         catalogs = {name: tools for name, tools in catalogs.items() if tools}
         if not catalogs:
             return user_prompt + "\n\nMCP status: no requested MCP tools are available."
+        context = user_prompt
         call = parse_explicit_tool_call(user_prompt, catalogs)
-        if call is None:
-            planning_catalogs = relevant_tools(user_prompt, catalogs)
-            planning_prompt = self._fit_mcp_planning_prompt(user_prompt, planning_catalogs)
-            if planning_prompt is None:
-                logger.warning("MCP planning skipped because no tool catalog fits the model context")
-                return user_prompt
-            planning_tokens = min(int(self.mcp_config.get("planning_max_tokens", 96)), 96)
+        max_steps = int(self.mcp_config.get("max_steps", 3))
+        if not 1 <= max_steps <= 8:
+            raise ValueError("mcp max_steps must be between 1 and 8")
+        for step in range(max_steps):
+            if call is None:
+                planning_catalogs = relevant_tools(context, catalogs)
+                planning_prompt = self._fit_mcp_planning_prompt(context, planning_catalogs)
+                if planning_prompt is None:
+                    logger.warning("MCP planning skipped because no tool catalog fits the model context")
+                    return context
+                planning_tokens = min(int(self.mcp_config.get("planning_max_tokens", 96)), 96)
+                try:
+                    decision = await self._generate_once(planning_prompt, {
+                        "max_tokens": planning_tokens,
+                        "temperature": 0.0, "top_k": 1, "top_p": 1.0,
+                        "repetition_penalty": 1.1, "no_repeat_ngram_size": 3,
+                        "seed": request.seed, "stop": [],
+                        "allow_special_tokens": True,
+                    })
+                except ValueError as error:
+                    logger.warning("MCP planning skipped: %s", error)
+                    return context
+                call = parse_tool_call(decision, planning_catalogs)
+            if call is None:
+                return context
+            client = self.mcp_clients.get(call.server)
+            if client is None:
+                return context + f"\n\nMCP tool error: unavailable server {call.server!r}."
+            schema = next(
+                (tool.input_schema for tool in catalogs[call.server] if tool.name == call.name), None
+            )
             try:
-                decision = await self._generate_once(planning_prompt, {
-                    "max_tokens": planning_tokens,
-                    "temperature": 0.0, "top_k": 1, "top_p": 1.0,
-                    "repetition_penalty": 1.1, "no_repeat_ngram_size": 3,
-                    "seed": request.seed, "stop": [],
-                    "allow_special_tokens": True,
-                })
-            except ValueError as error:
-                logger.warning("MCP planning skipped: %s", error)
-                return user_prompt
-            call = parse_tool_call(decision, planning_catalogs)
-        if call is None:
-            return user_prompt
-        client = self.mcp_clients.get(call.server)
-        if client is None:
-            return user_prompt + f"\n\nMCP status: server {call.server!r} is unavailable."
-        try:
-            result = await client.call_tool(call.name, call.arguments)
-        except Exception as error:
-            logger.warning("MCP tool %s/%s failed: %s", call.server, call.name, error)
-            return user_prompt + f"\n\nMCP tool error: {type(error).__name__}"
+                result = await client.call_tool(call.name, call.arguments, input_schema=schema)
+            except Exception as error:
+                logger.warning("MCP tool %s/%s failed: %s", call.server, call.name, error)
+                context += f"\n\nMCP tool error: {type(error).__name__}"
+            else:
+                context = self._fit_mcp_result(context, call, result)
+            # An explicit call is only the first step. Subsequent decisions see
+            # the untrusted result/error context and may stop or select another
+            # allowlisted tool.
+            call = None
+        return context
+
+    def _fit_mcp_result(self, prompt: str, call, result: dict) -> str:
         maximum_chars = int(self.mcp_config.get("max_result_chars", 2000))
-        context = tool_result_context(user_prompt, call, result, max_result_chars=maximum_chars)
+        context = tool_result_context(prompt, call, result, max_result_chars=maximum_chars)
         maximum_tokens = max(32, int(getattr(self.generator, "max_positions", 0)) - 128)
         while len(self.generator.tokenizer.encode(context, allowed_special="all")) > maximum_tokens and maximum_chars > 128:
             maximum_chars //= 2
-            context = tool_result_context(user_prompt, call, result, max_result_chars=maximum_chars)
+            context = tool_result_context(prompt, call, result, max_result_chars=maximum_chars)
         return context
 
     def _fit_mcp_planning_prompt(self, user_prompt: str, catalogs: dict[str, list[MCPTool]]) -> str | None:

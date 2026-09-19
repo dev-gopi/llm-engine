@@ -7,7 +7,8 @@ This document defines the intended upgraded production platform. It clearly deli
 ## 1. Model Architecture & Attention Mechanism
 
 ### CURRENT
-- Dense causal Transformer decoder with 16 identical full-attention layers.
+- Dense causal Transformer decoder with 16 identical full-attention layers;
+  configurable sparse MoE FFNs are also available for selected profiles.
 - Standard Grouped-Query Attention (GQA, 8 query heads, 2 KV heads).
 - $O(N^2)$ attention computation limits sequence length to 1024 tokens.
 
@@ -30,7 +31,8 @@ This document defines the intended upgraded production platform. It clearly deli
 ## 2. Context Length & Positional Encoding
 
 ### CURRENT
-- `max_position: 1024` with standard Rotary Position Embeddings (RoPE, `rope_base: 10000.0`, `rope_scale: 1.0`).
+- `max_position: 1024` with RoPE; linear, NTK-aware, and YaRN scaling policies
+  are implemented but not enabled in the checkpoint-compatible active profile.
 - Pretraining and fine-tuning datasets formatted to 512 tokens.
 
 ### TARGET
@@ -41,9 +43,8 @@ This document defines the intended upgraded production platform. It clearly deli
 - Passkey retrieval and "Needle in a Haystack" benchmark validation.
 
 ### MIGRATION
-1. Add `rope_scaling_type` (`linear`, `ntk`, `yarn`) to [`src/model/positional.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/positional.py).
-2. Create synthetic long-context evaluation suite in [`src/evaluation/benchmarks.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/evaluation/benchmarks.py).
-3. Incrementally fine-tune on packed multi-turn dialogues with extended sequence lengths.
+1. Add synthetic passkey/needle evaluation in [`src/evaluation/benchmarks.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/evaluation/benchmarks.py).
+2. Incrementally fine-tune on packed multi-turn dialogues with extended sequence lengths.
 
 ---
 
@@ -51,7 +52,8 @@ This document defines the intended upgraded production platform. It clearly deli
 
 ### CURRENT
 - 40,000 base BPE vocabulary; extended to 42,000 for fine-tuning.
-- Special tokens: `<|pad|>`, `<|unk|>`, `<|bos|>`, `<|eos|>`, `<|mask|>`, and basic chat tags.
+- Canonical chat formatting and prompt loss masking are implemented; append-only
+  `<thinking>` / `</thinking>` tokenizer extensions support reasoning datasets.
 
 ### TARGET
 - Complete structured chat and agent token suite:
@@ -77,7 +79,8 @@ This document defines the intended upgraded production platform. It clearly deli
 
 ### CURRENT
 - Fixed mixture: WikiText-103 (90%) + TinyStories (10%).
-- Basic sample-level deduplication and length filtering.
+- Unicode cleaning, exact and MinHash LSH deduplication, PII/secret redaction,
+  language/quality filters, contamination checks, and audit reporting.
 
 ### TARGET
 - Large-scale multi-domain dataset mixture:
@@ -89,16 +92,16 @@ This document defines the intended upgraded production platform. It clearly deli
 - Automated PII and toxicity filtering with dataset governance audits.
 
 ### MIGRATION
-1. Enhance [`src/datasets/filters.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/datasets/filters.py) with MinHash deduplication and quality scoring heuristics.
-2. Configure weighted multi-domain data mixing in `configs/pretraining.gpu.yaml`.
-3. Pre-shard cleaned data into binary token shards using `scripts/build_token_shards.py`.
+1. Configure and license-review weighted multi-domain data mixing.
+2. Pre-shard approved cleaned data into binary token shards using `scripts/build_token_shards.py`.
 
 ---
 
 ## 5. Post-Training, Alignment & Reasoning
 
 ### CURRENT
-- Basic supervised fine-tuning (SFT) scripts and early-stage Direct Preference Optimization (DPO) prototypes.
+- SFT, recovery SFT, DPO, fixed-prompt evaluation, and structured thinking-trace
+  validation are implemented. They do not establish trained reasoning quality.
 
 ### TARGET
 - Three-stage post-training pipeline:
@@ -117,9 +120,10 @@ This document defines the intended upgraded production platform. It clearly deli
 
 ### CURRENT
 - Dynamic batching with basic micro-batch queue.
-- Standard tensor KV cache and basic Paged KV cache implementation.
+- Standard tensor KV cache, block-paged KV accounting, and immutable prefix-cache reuse.
 - Dynamic INT8 weight quantization.
-- WebSocket streaming and basic FastAPI REST endpoints.
+- OpenAI-compatible REST, SSE/WebSocket streaming, API-key authentication,
+  rate limiting, cancellation, timeout, health, readiness, and metrics endpoints.
 
 ### TARGET
 - **Continuous Batching & Paged KV Cache**:
@@ -134,9 +138,8 @@ This document defines the intended upgraded production platform. It clearly deli
   - Full `/v1/chat/completions`, `/v1/completions`, `/v1/models`, `/v1/embeddings`.
 
 ### MIGRATION
-1. Integrate prefix caching into [`src/inference/paged_kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/paged_kv_cache.py).
-2. Add OpenAI-compatible router in [`src/serving/api.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/api.py).
-3. Validate throughput and latency metrics using `src/evaluation/load_testing.py`.
+1. Implement continuous batching and full paged-attention execution.
+2. Validate throughput and latency metrics using `src/evaluation/load_testing.py`.
 
 ---
 
@@ -144,7 +147,8 @@ This document defines the intended upgraded production platform. It clearly deli
 
 ### CURRENT
 - MCP client (`src/mcp/client.py`) and basic local tool registry (`src/inference/local_tools.py`).
-- Basic workspace file operations and search.
+- Strict `<tool_call>` JSON envelope and schema validation are available before
+  local or MCP execution; RAG and optional web search are integrated separately.
 
 ### TARGET
 - Autonomous multi-step agent loop:
@@ -154,7 +158,5 @@ This document defines the intended upgraded production platform. It clearly deli
   - Retrieval-Augmented Generation (RAG) with local vector store and reranker.
 
 ### MIGRATION
-1. Build structured JSON output enforcement in [`src/inference/generator.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/generator.py).
-2. Wire MCP client tool schemas directly into chat session system prompts.
-3. Add end-to-end integration tests in `tests/test_workspace_agent.py`.
-
+1. Add token-level constrained decoding and wire MCP schemas into chat prompts.
+2. Add end-to-end multi-step agent integration tests in `tests/test_workspace_agent.py`.
