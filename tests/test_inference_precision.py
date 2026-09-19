@@ -1,7 +1,8 @@
 import pytest
 import torch
 
-from inference.quantization import prepare_model_for_inference
+from inference.paged_kv_cache import PagedKVCache
+from inference.quantization import dequantize_int4, prepare_model_for_inference, quantize_int4
 from model.gpt import MiniGPT
 
 
@@ -59,3 +60,28 @@ def test_invalid_gpu_quantization_fails_before_mutating_model():
 
     assert next(model.parameters()).device.type == "cpu"
     assert next(model.parameters()).dtype == torch.float32
+
+
+def test_portable_int4_round_trip_has_bounded_error():
+    values = torch.tensor([[-1.0, -0.2, 0.0], [0.25, 0.8, 1.0]])
+    packed, scale, original_numel = quantize_int4(values)
+    restored = dequantize_int4(packed, scale, shape=values.shape, original_numel=original_numel)
+    torch.testing.assert_close(restored, values, atol=0.15, rtol=0)
+
+
+def test_int8_paged_kv_cache_reduces_storage_and_preserves_values():
+    native = PagedKVCache(
+        num_pages=2, page_size=2, layers=1, kv_heads=1, head_dim=8, device="cpu", dtype=torch.float32,
+    )
+    compressed = PagedKVCache(
+        num_pages=2, page_size=2, layers=1, kv_heads=1, head_dim=8, device="cpu", dtype=torch.float32,
+        quantization="int8",
+    )
+    keys, values = torch.randn(1, 1, 2, 8), torch.randn(1, 1, 2, 8)
+    for cache in (native, compressed):
+        cache.reserve("test", 2)
+        cache.append("test", keys, values)
+    actual_keys, actual_values = compressed.materialize("test")
+    assert compressed.storage_nbytes < native.storage_nbytes
+    torch.testing.assert_close(actual_keys, keys, atol=0.02, rtol=0.02)
+    torch.testing.assert_close(actual_values, values, atol=0.02, rtol=0.02)

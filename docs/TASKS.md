@@ -257,11 +257,13 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 ### RSN-003: Reasoning and Code Evaluation Suite
 - **ID**: `RSN-003`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Add versioned math, logic, and code benchmark manifests plus a comparison report format.
 - **Dependencies**: `RSN-001`
 - **Relevant files**: `src/evaluation/benchmarks.py`, `scripts/evaluate_benchmarks.py`, `tests/test_evaluation_regressions.py`
+- **Validation**: `.venv/bin/pytest tests/test_evaluation_regressions.py -q`
+- **Acceptance criteria**: Versioned reasoning/code probes preserve all scoring controls and produce comparable regression reports.
 
 ### INF-002: Continuous-Batching Execution Engine
 - **ID**: `INF-002`
@@ -294,11 +296,13 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 ### RAG-002: Retrieval Reranking and Citations
 - **ID**: `RAG-002`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Add deterministic reranking, context-budget construction, and source citations to retrieved answers.
 - **Dependencies**: `AGT-002`
 - **Relevant files**: `src/inference/rag.py`, `tests/test_rag.py`
+- **Validation**: `.venv/bin/pytest tests/test_rag.py -q`
+- **Acceptance criteria**: Retrieval results are deterministically reranked, total context is bounded, and every citation includes a source URL.
 
 ### DATA-002: Reproducible Multi-Domain Data Mixtures
 - **ID**: `DATA-002`
@@ -334,27 +338,33 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 ### QNT-001: Portable Low-Precision Export and KV-Cache Quantization
 - **ID**: `QNT-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Add reproducible FP16/BF16 and INT4 export choices plus measured KV-cache precision trade-offs.
 - **Dependencies**: `INF-002`
 - **Relevant files**: `src/inference/quantization.py`, `src/inference/paged_kv_cache.py`, `scripts/export.py`, `tests/test_inference_precision.py`
+- **Validation**: `.venv/bin/pytest tests/test_inference_precision.py tests/test_export.py tests/test_scaling_features.py tests/test_attention.py -q` (51 passed)
+- **Acceptance criteria**: Export supports FP16, BF16, and self-describing packed INT4 safetensors; per-token scaled INT8 paged-KV storage reports its full allocated footprint and dequantizes within tested error bounds.
 
 ### MEM-001: Privacy-Bounded Conversation Memory
 - **ID**: `MEM-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Add opt-in session memory with expiry, retrieval, deletion, and privacy boundaries suitable for agent use.
 - **Dependencies**: `AGT-002`
 - **Relevant files**: `src/inference/chat_session.py`, `src/serving/api.py`, `tests/test_chat_session.py`, `tests/test_serving.py`
+- **Validation**: `.venv/bin/pytest tests/test_chat_session.py tests/test_serving.py -q` (46 passed)
+- **Acceptance criteria**: Session-scoped lexical retrieval is bounded and never spans sessions; persisted history remains TTL-expiring; authenticated memory retrieval/deletion is disabled by default and requires explicit enablement.
 
 ### SEC-001: Serving Authentication, Tool Isolation, and Audit Events
 - **ID**: `SEC-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P1`
 - **Description**: Close production-hardening gaps with explicit authorization policy, sandboxed tool execution, secret isolation, and immutable audit events.
 - **Dependencies**: `AGT-002`
 - **Relevant files**: `src/serving/api.py`, `src/mcp/client.py`, `src/inference/local_tools.py`, `tests/test_serving.py`, `tests/test_mcp_client.py`
+- **Validation**: `.venv/bin/pytest tests/test_serving.py tests/test_mcp_client.py tests/test_local_tools.py -q`
+- **Acceptance criteria**: Protected operations require authorization; sandbox/allowlist boundaries are retained; audit events exclude prompts, credentials, and tool payloads.
 
 ### REG-001: Versioned Model Registry and Deployment Manifests
 - **ID**: `REG-001`
@@ -375,19 +385,23 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 ### SAFE-001: Safety, Jailbreak, and Prompt-Injection Evaluation
 - **ID**: `SAFE-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P1`
 - **Description**: Add a versioned safety probe suite for refusal, jailbreak resistance, and untrusted tool/RAG prompt-injection handling.
 - **Dependencies**: `AGT-002`, `EVAL-001`
 - **Relevant files**: `src/inference/prompt_safety.py`, `src/evaluation/benchmarks.py`, `tests/test_prompt_safety.py`, `tests/test_evaluation_regressions.py`
+- **Validation**: `.venv/bin/pytest tests/test_prompt_safety.py tests/test_evaluation_regressions.py -q`
+- **Acceptance criteria**: A versioned deterministic manifest covers harmful, injection, and benign controls without retaining prompt contents in the summary.
 
 ### OBS-001: Serving Latency and Resource Observability
 - **ID**: `OBS-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Add bounded percentile latency metrics, queue delay, token throughput, error rate, and paged-KV utilization to the serving metrics contract.
 - **Dependencies**: `INF-002`, `INF-005`
 - **Relevant files**: `src/serving/runtime.py`, `src/serving/api.py`, `tests/test_serving.py`
+- **Validation**: `.venv/bin/pytest tests/test_serving.py tests/test_serving_orchestration.py -q`
+- **Acceptance criteria**: Metrics expose bounded latency percentiles, queue delay, token throughput, error rate, and paged-KV utilization when available.
 
 ### FTL-001: Checkpoint Integrity and Recovery Drills
 - **ID**: `FTL-001`

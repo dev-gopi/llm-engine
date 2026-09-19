@@ -7,6 +7,28 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **MEM-001 Privacy-Bounded Session Memory**: Added deterministic, session-only
+  memory retrieval and explicitly enabled, API-key-protected endpoints to read
+  or delete persisted session memory. The interface is disabled by default.
+- **QNT-001 Portable Low-Precision Artifacts**: Added FP16/BF16 export
+  selection, self-describing packed INT4 safetensors artifacts, and opt-in
+  per-token scaled INT8 paged-KV storage with explicit allocated-byte
+  accounting.
+- **SAFE-001 Safety Regression Probes**: Added a versioned deterministic
+  guardrail manifest for prompt injection, harmful requests, and benign
+  controls, with privacy-preserving aggregate results.
+- **OBS-001 Serving Observability**: Added bounded p50/p95 latency, p50
+  time-to-first-token, queue delay, token throughput, error-rate, and optional
+  paged-KV utilization metrics.
+- **RSN-003 Reasoning and Code Evaluation**: Added a versioned reasoning/code
+  JSONL manifest and ensured benchmark loading preserves thinking-trace and
+  answer-length scoring controls.
+- **RAG-002 Reranking and Citations**: Added deterministic lexical-coverage
+  reranking, a total retrieval-context budget, and source URLs alongside
+  numeric RAG citations.
+- **SEC-001 Auditable Serving Operations**: Added bounded, authenticated audit
+  events for protected API operations. Events deliberately exclude prompts,
+  credentials, tool arguments, and tool results.
 - **Capability Backlog Audit**: Added dedicated tasks for efficient-attention
   selection, safety evaluation, serving observability, recovery drills,
   curriculum diagnostics, and embedding/retrieval-quality evaluation.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
+from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -82,11 +83,14 @@ class ServingRuntime:
         queue_timeout_seconds: float = 1.0,
         generation_timeout_seconds: float = 120.0,
         continuous_streams: int = 0,
+        metrics_window: int = 256,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
         if queue_timeout_seconds <= 0 or generation_timeout_seconds <= 0:
             raise ValueError("serving timeouts must be positive")
+        if metrics_window < 1:
+            raise ValueError("metrics_window must be positive")
         self.backend = backend or UnavailableBackend()
         self.max_concurrency = max_concurrency
         self.queue_timeout_seconds = queue_timeout_seconds
@@ -114,6 +118,10 @@ class ServingRuntime:
         self.completed_requests = 0
         self.failed_requests = 0
         self.total_generation_seconds = 0.0
+        self.total_queue_seconds = 0.0
+        self.total_completion_tokens = 0
+        self._latencies: deque[float] = deque(maxlen=metrics_window)
+        self._ttft: deque[float] = deque(maxlen=metrics_window)
 
     @property
     def ready(self) -> bool:
@@ -141,6 +149,7 @@ class ServingRuntime:
             async with asyncio.timeout(self.generation_timeout_seconds):
                 result = await self.backend.generate(request)
                 self.completed_requests += 1
+                self.total_completion_tokens += result.completion_tokens
                 return result
         except TimeoutError as error:
             self.failed_requests += 1
@@ -149,7 +158,9 @@ class ServingRuntime:
             self.failed_requests += 1
             raise
         finally:
-            self.total_generation_seconds += time.monotonic() - started
+            elapsed = time.monotonic() - started
+            self.total_generation_seconds += elapsed
+            self._latencies.append(elapsed)
             self._release()
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
@@ -157,12 +168,18 @@ class ServingRuntime:
             raise BackendUnavailableError("generation backend is not ready")
         await self._acquire()
         started = time.monotonic()
+        first_token_at: float | None = None
+        completion_tokens = 0
         try:
             async with asyncio.timeout(self.generation_timeout_seconds):
                 source = self.stream_scheduler.stream(request) if self.stream_scheduler else self.backend.stream(request)
                 async for event in source:
+                    if first_token_at is None and event.token:
+                        first_token_at = time.monotonic()
+                    completion_tokens = max(completion_tokens, event.completion_tokens)
                     yield event
             self.completed_requests += 1
+            self.total_completion_tokens += completion_tokens
         except TimeoutError as error:
             self.failed_requests += 1
             raise GenerationTimeoutError("streaming generation exceeded its deadline") from error
@@ -170,20 +187,38 @@ class ServingRuntime:
             self.failed_requests += 1
             raise
         finally:
-            self.total_generation_seconds += time.monotonic() - started
+            elapsed = time.monotonic() - started
+            self.total_generation_seconds += elapsed
+            self._latencies.append(elapsed)
+            if first_token_at is not None:
+                self._ttft.append(first_token_at - started)
             self._release()
 
     def metrics(self) -> dict[str, int | float | str]:
-        return {
+        elapsed = max(self.total_generation_seconds, 1e-9)
+        metrics: dict[str, int | float | str] = {
             "active_requests": self.active_requests,
             "total_requests": self.total_requests,
             "completed_requests": self.completed_requests,
             "failed_requests": self.failed_requests,
             "total_generation_seconds": self.total_generation_seconds,
+            "total_queue_seconds": self.total_queue_seconds,
+            "tokens_per_second": self.total_completion_tokens / elapsed,
+            "error_rate": self.failed_requests / max(self.total_requests, 1),
+            "latency_p50_seconds": self._percentile(self._latencies, 0.50),
+            "latency_p95_seconds": self._percentile(self._latencies, 0.95),
+            "ttft_p50_seconds": self._percentile(self._ttft, 0.50),
             "stream_scheduler_mode": self.stream_scheduler_mode,
         }
+        allocator = getattr(getattr(self.backend, "generator", None), "paged_kv_allocator", None)
+        if allocator is not None:
+            capacity = len(allocator.free_pages) + sum(len(table) for table in allocator.tables.values())
+            metrics["paged_kv_pages_used"] = capacity - len(allocator.free_pages)
+            metrics["paged_kv_page_utilization"] = (metrics["paged_kv_pages_used"] / capacity if capacity else 0.0)
+        return metrics
 
     async def _acquire(self) -> None:
+        queued = time.monotonic()
         try:
             await asyncio.wait_for(
                 self._semaphore.acquire(), timeout=self.queue_timeout_seconds
@@ -192,6 +227,7 @@ class ServingRuntime:
             raise ServerBusyError("all generation workers are busy") from error
         self.active_requests += 1
         self.total_requests += 1
+        self.total_queue_seconds += time.monotonic() - queued
 
     def _release(self) -> None:
         self.active_requests -= 1
@@ -204,3 +240,11 @@ class ServingRuntime:
         result = method()
         if inspect.isawaitable(result):
             await result
+
+    @staticmethod
+    def _percentile(values: deque[float], percentile: float) -> float:
+        if not values:
+            return 0.0
+        ordered = sorted(values)
+        index = round((len(ordered) - 1) * percentile)
+        return ordered[index]

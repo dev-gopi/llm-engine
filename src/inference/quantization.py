@@ -3,7 +3,39 @@
 from __future__ import annotations
 
 import torch
-from torch import nn
+from torch import Tensor, nn
+
+
+def quantize_int4(tensor: Tensor) -> tuple[Tensor, Tensor, int]:
+    """Symmetrically quantize a floating tensor and pack two signed INT4s/byte.
+
+    The returned scale is per tensor, which keeps the representation portable
+    across PyTorch and safetensors consumers.  ``original_numel`` is required
+    because an odd-sized tensor receives one padding nibble.
+    """
+    if not tensor.is_floating_point():
+        raise ValueError("INT4 quantization requires a floating-point tensor")
+    values = tensor.detach().to(torch.float32).reshape(-1)
+    scale = values.abs().amax().reshape(1) / 7
+    scale = torch.where(scale == 0, torch.ones_like(scale), scale)
+    quantized = torch.clamp(torch.round(values / scale), -8, 7).to(torch.int16) + 8
+    if quantized.numel() % 2:
+        quantized = torch.cat((quantized, torch.zeros(1, device=quantized.device, dtype=quantized.dtype)))
+    packed = (quantized[0::2] | (quantized[1::2] << 4)).to(torch.uint8)
+    return packed.cpu(), scale.cpu(), values.numel()
+
+
+def dequantize_int4(
+    packed: Tensor, scale: Tensor, *, shape: torch.Size | tuple[int, ...], original_numel: int,
+    dtype: torch.dtype = torch.float32,
+) -> Tensor:
+    """Restore a tensor produced by :func:`quantize_int4`."""
+    if packed.dtype != torch.uint8 or scale.numel() != 1:
+        raise ValueError("invalid packed INT4 tensor or scale")
+    nibbles = torch.stack((packed.to(torch.int16) & 0x0F, packed.to(torch.int16) >> 4), dim=1).reshape(-1)
+    if original_numel != int(torch.tensor(shape).prod()) or original_numel > nibbles.numel():
+        raise ValueError("INT4 metadata does not match the packed tensor")
+    return ((nibbles[:original_numel] - 8).to(torch.float32) * scale.to(torch.float32)).reshape(shape).to(dtype)
 
 
 def prepare_model_for_inference(

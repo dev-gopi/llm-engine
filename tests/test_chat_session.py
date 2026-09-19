@@ -85,6 +85,21 @@ def test_history_is_used_and_training_export_is_loadable(tmp_path):
     assert dataset[0]["loss_mask"].any()
 
 
+def test_session_memory_retrieval_is_scoped_ranked_and_opt_in(tmp_path):
+    b = backend()
+    alice = ChatSession(b, tmp_path / "chat.sqlite", "alice")
+    bob = ChatSession(b, tmp_path / "chat.sqlite", "bob")
+    alice.chat("My favourite colour is green")
+    bob.chat("My favourite colour is blue")
+
+    matches = alice.retrieve_memory("what colour do I like?")
+    assert matches[0]["content"] == "My favourite colour is green"
+    assert "blue" not in str(matches)
+    assert alice.retrieve_memory("unrelated") == []
+    with pytest.raises(ValueError, match="nonempty"):
+        alice.retrieve_memory(" ")
+
+
 def test_canonical_chat_template_masks_every_non_assistant_token() -> None:
     b = backend()
     messages = [

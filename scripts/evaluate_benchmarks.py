@@ -73,10 +73,12 @@ def main() -> None:
     with args.cases.open(encoding="utf-8") as stream:
         for line in stream:
             item = json.loads(line)
-            cases.append(BenchmarkCase(
-                item["category"], item["prompt"], tuple(item["expected"]),
-                tuple(item.get("forbidden", ())), item.get("match", "contains"),
-            ))
+            if not isinstance(item, dict):
+                parser.error("each benchmark case must be a JSON object")
+            try:
+                cases.append(BenchmarkCase.from_mapping(item))
+            except ValueError as error:
+                parser.error(str(error))
     if not cases or len({(c.category, c.prompt) for c in cases}) != len(cases):
         parser.error("cases must be nonempty and unique")
     device = resolve_device(args.device)

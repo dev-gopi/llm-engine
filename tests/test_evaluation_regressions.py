@@ -1,4 +1,6 @@
 import pytest
+import json
+from pathlib import Path
 
 from evaluation.benchmarks import (
     BenchmarkCase,
@@ -63,6 +65,17 @@ def test_gsm8k_case_requires_a_complete_thinking_trace_before_final_answer():
     assert score_answer("<thinking>2 + 2 = 4.</thinking>\n#### 4", case) == 1
     assert score_answer("#### 4", case) == 0
     assert score_answer("<thinking>2 + 2 = 4.</thinking>", case) == 0
+
+
+def test_reasoning_code_manifest_preserves_all_scoring_controls():
+    path = Path("configs/evaluation.reasoning_code.jsonl")
+    cases = [BenchmarkCase.from_mapping(json.loads(line)) for line in path.read_text().splitlines()]
+    assert [case.category for case in cases] == ["reasoning_math", "reasoning_logic", "code"]
+    assert cases[0].require_thinking_trace
+    assert cases[0].max_answer_tokens == 96
+    assert score_answer("<thinking>7 + 5 = 12.</thinking>\n#### 12", cases[0]) == 1
+    assert score_answer("a + b", cases[2]) == 0
+    assert score_answer("a % b", cases[2]) == 1
 
 
 def test_contains_match_rejects_overlong_or_identity_leaking_answer():

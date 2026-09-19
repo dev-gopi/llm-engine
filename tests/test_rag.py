@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from inference.rag import (
-    DocumentChunk, RagIndex, SQLiteRagIndex, build_chunks, build_rag_prompt, chunk_text,
+    DocumentChunk, RagIndex, RetrievalResult, SQLiteRagIndex, build_chunks,
+    build_rag_prompt, build_rag_prompt_with_budget, chunk_text, rerank_results,
 )
 from inference.web_search import SearchResult
 from serving.backend import ConfiguredModelBackend
@@ -33,6 +34,22 @@ def test_rag_prompt_marks_context_untrusted_and_cites_sources() -> None:
     assert "untrusted reference material" in prompt
     assert "Cite facts as [1]" in prompt
     assert "The answer is 42" in prompt
+    assert "Source: document://guide.txt#chunk-1" in prompt
+
+
+def test_rag_reranking_and_context_budget_are_deterministic():
+    results = [
+        RetrievalResult("Other", "https://example.com/other", "unrelated words", 2.0),
+        RetrievalResult("Refund policy", "https://example.com/refund", "Refunds take thirty days.", 1.0),
+    ]
+    reranked = rerank_results("refund days", results)
+    assert reranked[0].title == "Refund policy"
+    prompt = build_rag_prompt_with_budget(
+        "refund days", reranked, char_limit=100, context_char_limit=75,
+    )
+    context = prompt.split("RETRIEVED CONTEXT\n", 1)[1]
+    assert len(context) <= 75
+    assert "https://example.com/refund" in context
 
 
 def test_rag_backend_retrieves_for_flag_and_slash_command(monkeypatch) -> None:

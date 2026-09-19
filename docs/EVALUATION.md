@@ -43,6 +43,23 @@ Loss and perplexity are necessary for monitoring pretraining convergence, but co
   --baseline-report reports/pretraining.json
 ```
 
+### Reasoning and Code Probes:
+```bash
+.venv/bin/python scripts/evaluate_benchmarks.py \
+  --cases configs/evaluation.reasoning_code.jsonl \
+  --checkpoint checkpoints/finetuning/best.pt
+```
+
+The bundled manifest is a small deterministic regression probe, not a
+standardized benchmark or evidence of broad reasoning capability.
+
+### Safety Guardrail Probes
+
+`configs/evaluation.safety.jsonl` is a versioned, deterministic regression
+manifest for prompt-injection, high-confidence harmful-request, and benign
+control cases. It tests the pre-generation guardrail—not model alignment—and
+is covered by `tests/test_prompt_safety.py`.
+
 ---
 
 ## 3. Automated Regression Tests
@@ -51,4 +68,3 @@ Regression contracts are guarded by automated tests in `tests/`:
 - `tests/test_evaluation_regressions.py`: Verifies metric agreement and thresholds.
 - `tests/test_retention_training.py`: Tests that chat tuning does not exceed retention degradation bounds.
 - `tests/test_training_system.py`: Verifies early stopping and baseline checkpoint restoration.
-

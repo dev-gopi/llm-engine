@@ -97,6 +97,46 @@ def test_api_key_rate_limit_and_metrics():
     assert metrics["completed_requests"] == 1
 
 
+def test_authenticated_audit_log_records_protected_operations_without_prompt_content():
+    app = create_app(FakeBackend(), settings=settings(api_key="secret", audit_log_capacity=2))
+    headers = {"Authorization": "Bearer secret", "X-Request-ID": "audit-123"}
+    accepted = request(app, "POST", "/v1/generate", json={"prompt": "private prompt"}, headers=headers)
+    assert accepted.status_code == 200
+    events = request(app, "GET", "/v1/audit/events", headers=headers)
+    assert events.status_code == 200
+    event = events.json()["events"][0]
+    assert event["request_id"] == "audit-123"
+    assert event["path"] == "/v1/generate"
+    assert event["status_code"] == 200
+    assert "private prompt" not in str(event)
+
+
+def test_session_memory_access_is_opt_in_authenticated_and_deletable(tmp_path):
+    from inference.context import SQLiteSessionStore
+    from tokenizer.bpe import BYTE_ENCODER
+    from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
+
+    pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
+    vocab = {piece: index for index, piece in enumerate(pieces)}
+    tokenizer = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    backend = FakeBackend()
+    backend.sessions = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer, max_tokens=64, system_prompt="")
+    memory = backend.sessions.load("alice")
+    memory.add("user", "private preference")
+    backend.sessions.save("alice", memory)
+    headers = {"Authorization": "Bearer secret"}
+
+    disabled = request(create_app(backend, settings=settings(api_key="secret")), "GET", "/v1/sessions/alice/memory", headers=headers)
+    assert disabled.status_code == 403
+    app = create_app(backend, settings=settings(api_key="secret", session_memory_enabled=True))
+    loaded = request(app, "GET", "/v1/sessions/alice/memory", headers=headers)
+    assert loaded.status_code == 200
+    assert loaded.json()["messages"][-1]["content"] == "private preference"
+    deleted = request(app, "DELETE", "/v1/sessions/alice/memory", headers=headers)
+    assert deleted.status_code == 200 and deleted.json()["deleted"]
+    assert request(app, "GET", "/v1/sessions/alice/memory", headers=headers).json()["messages"] == []
+
+
 def test_runtime_selects_token_step_scheduler_for_capable_backend():
     class TokenBackend(FakeBackend):
         async def start_stream(self, request):
@@ -123,6 +163,36 @@ def test_runtime_selects_token_step_scheduler_for_capable_backend():
     events, metrics = asyncio.run(scenario())
     assert events[0].token == "batched"
     assert metrics["stream_scheduler_mode"] == "token_step"
+
+
+def test_runtime_metrics_include_latency_ttft_throughput_and_error_rate():
+    async def scenario():
+        runtime = ServingRuntime(FakeBackend())
+        await runtime.startup()
+        await runtime.generate(GenerateRequest(prompt="one"))
+        [event async for event in runtime.stream(GenerateRequest(prompt="two"))]
+        metrics = runtime.metrics()
+        await runtime.shutdown()
+        return metrics
+
+    metrics = asyncio.run(scenario())
+    assert metrics["latency_p50_seconds"] >= 0
+    assert metrics["latency_p95_seconds"] >= metrics["latency_p50_seconds"]
+    assert metrics["ttft_p50_seconds"] >= 0
+    assert metrics["tokens_per_second"] > 0
+    assert metrics["error_rate"] == 0
+
+
+def test_runtime_reports_paged_kv_utilization_when_backend_exposes_an_allocator():
+    class Allocator:
+        free_pages = [3, 4]
+        tables = {"active": [0, 1, 2]}
+
+    backend = FakeBackend()
+    backend.generator = type("Generator", (), {"paged_kv_allocator": Allocator()})()
+    metrics = ServingRuntime(backend).metrics()
+    assert metrics["paged_kv_pages_used"] == 3
+    assert metrics["paged_kv_page_utilization"] == pytest.approx(0.6)
 
 
 def test_backend_lifecycle_and_readiness():

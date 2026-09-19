@@ -14,7 +14,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import torch
 import yaml
-from safetensors.torch import save_model
+from safetensors.torch import save_file, save_model
 
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
@@ -22,11 +22,42 @@ from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from training.peft import merge_and_unload
 from utils.config import load_yaml
+from inference.quantization import quantize_int4
 
 
-def export_model(model: MiniGPT, output: Path, export_format: str, *, sequence_length: int = 16) -> Path:
+def _export_int4_safetensors(model: MiniGPT, output: Path) -> None:
+    tensors: dict[str, torch.Tensor] = {}
+    manifest: dict[str, dict[str, object]] = {}
+    for name, value in model.state_dict().items():
+        if value.is_floating_point():
+            packed, scale, original_numel = quantize_int4(value)
+            tensors[f"{name}.int4_packed"] = packed
+            tensors[f"{name}.int4_scale"] = scale
+            manifest[name] = {"shape": list(value.shape), "numel": original_numel}
+        else:
+            tensors[name] = value.detach().cpu().contiguous()
+    save_file(
+        tensors, output,
+        metadata={"format": "llm-engine.int4.v1", "architecture": "MiniGPT", "int4_manifest": json.dumps(manifest)},
+    )
+
+
+def export_model(
+    model: MiniGPT, output: Path, export_format: str, *, sequence_length: int = 16,
+    weight_dtype: str = "float32",
+) -> Path:
+    """Export float32/float16/bfloat16 weights, or portable packed INT4 safetensors."""
     output.parent.mkdir(parents=True, exist_ok=True)
     model = model.cpu().eval()
+    dtypes = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
+    if weight_dtype not in {*dtypes, "int4"}:
+        raise ValueError("weight_dtype must be float32, float16, bfloat16, or int4")
+    if weight_dtype == "int4":
+        if export_format != "safetensors":
+            raise ValueError("INT4 export is supported only for safetensors")
+        _export_int4_safetensors(model, output)
+        return output
+    model.to(dtype=dtypes[weight_dtype])
     example = torch.zeros((1, sequence_length), dtype=torch.long)
     if export_format == "safetensors":
         save_model(model, output, metadata={"format": "pt", "architecture": "MiniGPT"})
@@ -52,6 +83,10 @@ def main() -> None:
     parser.add_argument("--format", choices=("safetensors", "torch_export", "onnx"), default="safetensors")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sequence-length", type=int, default=16)
+    parser.add_argument(
+        "--weight-dtype", choices=("float32", "float16", "bfloat16", "int4"), default="float32",
+        help="persist float weights at this dtype, or write a portable packed INT4 safetensors artifact",
+    )
     parser.add_argument("--merge-lora", action="store_true", help="fold a loaded LoRA adapter into base weights")
     args = parser.parse_args()
     suffixes = {"safetensors": ".safetensors", "torch_export": ".pt2", "onnx": ".onnx"}
@@ -70,14 +105,17 @@ def main() -> None:
     )
     if args.merge_lora:
         merge_and_unload(model)
-    artifact = export_model(model, output, args.format, sequence_length=args.sequence_length)
+    artifact = export_model(
+        model, output, args.format, sequence_length=args.sequence_length,
+        weight_dtype=args.weight_dtype,
+    )
     destination_config = artifact.parent / "model.yaml"
     destination_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     destination_tokenizer = artifact.parent / "tokenizer"
     if destination_tokenizer.exists():
         shutil.rmtree(destination_tokenizer)
     shutil.copytree(args.tokenizer, destination_tokenizer)
-    print(json.dumps({"artifact": str(artifact), "model_config": str(destination_config)}, indent=2))
+    print(json.dumps({"artifact": str(artifact), "model_config": str(destination_config), "weight_dtype": args.weight_dtype}, indent=2))
 
 
 if __name__ == "__main__":

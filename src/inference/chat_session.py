@@ -105,6 +105,33 @@ class ChatSession:
             return [{"role": item.role, "content": item.content}
                     for item in self.store.load(self.session_id).snapshot()]
 
+    def retrieve_memory(self, query, *, limit=3):
+        """Return a bounded, deterministic subset of this session's non-system history.
+
+        Memory is scoped to the owning session and remains opt-in because a
+        caller must explicitly construct a ``ChatSession``.  It never searches
+        across sessions or writes retrieved text to training data.
+        """
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("memory query must be nonempty text")
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise ValueError("memory limit must be a positive integer")
+        terms = frozenset(query.casefold().split())
+        with self._lock:
+            messages = self.store.load(self.session_id).snapshot()
+        ranked = sorted(
+            (
+                (len(terms.intersection(message.content.casefold().split())), index, message)
+                for index, message in enumerate(messages)
+                if message.role != "system"
+            ),
+            key=lambda item: (item[0], item[1]), reverse=True,
+        )
+        return [
+            {"role": message.role, "content": message.content}
+            for score, _, message in ranked[:limit] if score
+        ]
+
     def review_pending(self):
         """Return a copy of the exact bounded conversation awaiting approval."""
         with self._lock:

@@ -1,0 +1,3 @@
+{"category":"reasoning_math","prompt":"Solve: A box has 7 red balls and 5 blue balls. How many balls are in the box? Return a thinking trace followed by the final number as #### N.","expected":["12"],"match":"final_number","require_thinking_trace":true,"max_answer_tokens":96}
+{"category":"reasoning_logic","prompt":"Solve: All glims are norks. All norks are bright. Is every glim bright? Return a thinking trace followed by Yes or No.","expected":["yes"],"match":"contains","require_thinking_trace":true,"max_answer_tokens":96}
+{"category":"code","prompt":"Return only Python code that computes the remainder of a divided by b.","expected":["a % b","a%b"],"match":"exact_code","max_answer_tokens":12}

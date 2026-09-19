@@ -9,8 +9,10 @@ import subprocess
 import time
 import uuid
 import secrets
+from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Security, status
@@ -124,6 +126,8 @@ class ServingSettings:
     protect_metrics: bool = False
     workspace_agent_enabled: bool = False
     workspace_root: str = "."
+    audit_log_capacity: int = 256
+    session_memory_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.max_concurrency < 1:
@@ -132,6 +136,8 @@ class ServingSettings:
             raise ValueError("serving timeouts must be positive")
         if self.requests_per_minute < 0 or self.continuous_streams < 0:
             raise ValueError("rate and stream limits cannot be negative")
+        if self.audit_log_capacity < 1:
+            raise ValueError("audit_log_capacity must be positive")
         if not self.model_name.strip() or not self.bot_name.strip():
             raise ValueError("model_name and bot_name cannot be empty")
         if not self.allowed_hosts or any(not host.strip() for host in self.allowed_hosts):
@@ -191,7 +197,33 @@ class ServingSettings:
             workspace_root=os.getenv(
                 "GOPI_WORKSPACE_ROOT", str(serving.get("workspace_root", "."))
             ),
+            audit_log_capacity=int(os.getenv(
+                "GOPI_AUDIT_LOG_CAPACITY", str(serving.get("audit_log_capacity", 256))
+            )),
+            session_memory_enabled=_environment_flag(
+                "GOPI_SESSION_MEMORY_ENABLED",
+                bool(serving.get("session_memory_enabled", False)),
+            ),
         )
+
+
+class AuditLog:
+    """Bounded append-only operational audit trail with no request content or secrets."""
+
+    def __init__(self, capacity: int) -> None:
+        self._events: deque[dict[str, str | int]] = deque(maxlen=capacity)
+
+    def record(self, *, request_id: str, method: str, path: str, status_code: int) -> None:
+        self._events.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "request_id": request_id,
+            "method": method,
+            "path": path,
+            "status_code": status_code,
+        })
+
+    def events(self) -> list[dict[str, str | int]]:
+        return [dict(event) for event in self._events]
 
 
 def create_app(
@@ -249,6 +281,8 @@ def create_app(
         else InMemoryRateLimiter(settings.requests_per_minute)
     )
     application.state.rate_limiter = rate_limiter
+    audit_log = AuditLog(settings.audit_log_capacity)
+    application.state.audit_log = audit_log
 
     application.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.allowed_hosts))
 
@@ -277,6 +311,8 @@ def create_app(
                     response = _error_response(request, "unauthorized", "valid bearer token required", 401)
                     response.headers["X-Request-ID"] = request_id
                     _add_security_headers(response, is_https=request.url.scheme == "https")
+                    audit_log.record(request_id=request_id, method=request.method,
+                                     path=request.url.path, status_code=response.status_code)
                     return response
             if settings.requests_per_minute > 0:
                 identity = request.client.host if request.client else "unknown"
@@ -284,10 +320,15 @@ def create_app(
                     response = _error_response(request, "rate_limit_exceeded", "request rate limit exceeded", 429)
                     response.headers["X-Request-ID"] = request_id
                     _add_security_headers(response, is_https=request.url.scheme == "https")
+                    audit_log.record(request_id=request_id, method=request.method,
+                                     path=request.url.path, status_code=response.status_code)
                     return response
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         _add_security_headers(response, is_https=request.url.scheme == "https")
+        if protected_path:
+            audit_log.record(request_id=request_id, method=request.method,
+                             path=request.url.path, status_code=response.status_code)
         return response
 
     @application.exception_handler(RequestValidationError)
@@ -467,6 +508,62 @@ def create_app(
             )
         version = await callback()
         return {"status": "reloaded", "version": version}
+
+    @application.get(
+        "/v1/audit/events",
+        tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def audit_events(request: Request):
+        if not settings.api_key:
+            return _error_response(
+                request, "audit_disabled", "configure GOPI_API_KEY to read audit events", 403
+            )
+        return {"events": audit_log.events()}
+
+    def session_store_or_error(request: Request):
+        """Expose stored conversations only under an explicit admin boundary."""
+        if not settings.session_memory_enabled:
+            return _error_response(
+                request, "session_memory_disabled",
+                "enable GOPI_SESSION_MEMORY_ENABLED to access session memory", 403,
+            )
+        if not settings.api_key:
+            return _error_response(
+                request, "session_memory_auth_required",
+                "configure GOPI_API_KEY before enabling session memory access", 403,
+            )
+        store = getattr(runtime.backend, "sessions", None)
+        if store is None:
+            return _error_response(
+                request, "session_memory_unavailable", "backend has no persistent session store", 409,
+            )
+        return store
+
+    @application.get(
+        "/v1/sessions/{session_id}/memory", tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def retrieve_session_memory(session_id: str, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        messages = [
+            {"role": message.role, "content": message.content}
+            for message in store.load(session_id).snapshot()
+        ]
+        return {"session_id": session_id, "messages": messages}
+
+    @application.delete(
+        "/v1/sessions/{session_id}/memory", tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def delete_session_memory(session_id: str, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        store.delete(session_id)
+        return {"session_id": session_id, "deleted": True}
 
     @application.post(
         "/v1/workspace/actions",

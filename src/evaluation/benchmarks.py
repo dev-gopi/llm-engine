@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 
 import regex
 from decimal import Decimal, InvalidOperation
@@ -25,6 +26,29 @@ class BenchmarkCase:
             raise ValueError("benchmark expected answers must be nonempty")
         if self.max_answer_tokens is not None and self.max_answer_tokens < 1:
             raise ValueError("benchmark max_answer_tokens must be positive")
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "BenchmarkCase":
+        """Load a versioned JSONL manifest record without dropping controls."""
+        try:
+            expected = value["expected"]
+            category = value["category"]
+            prompt = value["prompt"]
+        except KeyError as error:
+            raise ValueError(f"benchmark case is missing {error.args[0]!r}") from error
+        if not isinstance(category, str) or not isinstance(prompt, str):
+            raise ValueError("benchmark category and prompt must be strings")
+        if not isinstance(expected, (list, tuple)) or not all(isinstance(item, str) for item in expected):
+            raise ValueError("benchmark expected must be a string list")
+        forbidden = value.get("forbidden", ())
+        if not isinstance(forbidden, (list, tuple)) or not all(isinstance(item, str) for item in forbidden):
+            raise ValueError("benchmark forbidden must be a string list")
+        return cls(
+            category, prompt, tuple(expected), tuple(forbidden),
+            str(value.get("match", "contains")),
+            value.get("max_answer_tokens") if isinstance(value.get("max_answer_tokens"), int) else None,
+            bool(value.get("require_thinking_trace", False)),
+        )
 
 
 @dataclass(frozen=True)
