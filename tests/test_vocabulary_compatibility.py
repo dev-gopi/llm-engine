@@ -1,6 +1,6 @@
 import pytest
 
-from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
+from model.vocabulary import THINKING_TOKENS, adapt_config_to_tokenizer, checkpoint_tokenizer_options, extend_tokenizer_for_reasoning
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
@@ -37,6 +37,14 @@ def test_unrelated_vocabulary_size_is_rejected():
     tokenizer = make_tokenizer()
     with pytest.raises(ValueError, match="not a verified append-only extension"):
         adapt_config_to_tokenizer({"vocab_size": tokenizer.vocab_size - 1}, tokenizer)
+
+
+def test_reasoning_extension_adds_atomic_thinking_tokens_append_only():
+    base = make_tokenizer()
+    extended = extend_tokenizer_for_reasoning(base)
+
+    assert tuple(token for token in THINKING_TOKENS if token in extended.vocab) == THINKING_TOKENS
+    assert base.fingerprint in extended.compatible_base_fingerprints
 
 
 def test_inference_rejects_untrained_tokenizer_extension(tmp_path):

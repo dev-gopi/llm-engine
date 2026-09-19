@@ -45,3 +45,18 @@ def test_filter_can_preserve_code_indentation() -> None:
     source = "def example():\n    value = 1\n    return value"
     corpus_filter = CorpusFilter(min_chars=5, preserve_whitespace=True)
     assert corpus_filter.apply(source) == source
+
+
+def test_filter_removes_over_ninety_percent_of_near_duplicate_documents() -> None:
+    base = " ".join(f"token{index}" for index in range(100))
+    corpus_filter = CorpusFilter(min_chars=5, near_duplicate_distance=3)
+
+    accepted = [corpus_filter.apply(base)]
+    accepted.extend(
+        corpus_filter.apply(base.replace(f"token{index}", f"replacement{index}", 1))
+        for index in range(1, 11)
+    )
+
+    assert sum(text is not None for text in accepted) == 1
+    assert corpus_filter.stats.near_duplicate == 10
+    assert corpus_filter.apply("completely different text " * 10) is not None

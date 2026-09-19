@@ -7,7 +7,59 @@ from pathlib import Path
 import sqlite3
 from threading import RLock
 
+import torch
+
 from inference.context import SQLiteSessionStore
+
+
+_CHAT_ROLES = frozenset({"system", "user", "assistant"})
+
+
+def format_chat_messages(messages, *, add_generation_prompt: bool = False) -> str:
+    """Render the canonical, unambiguous instruction-tuning chat format."""
+    rendered: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            raise ValueError("each message must be a mapping")
+        role = message.get("role")
+        content = message.get("content")
+        if role not in _CHAT_ROLES:
+            raise ValueError("message role must be system, user, or assistant")
+        if not isinstance(content, str):
+            raise ValueError("message content must be text")
+        rendered.append(f"<|{role}|>\n{content}\n<|end|>\n")
+    if add_generation_prompt:
+        rendered.append("<|assistant|>\n")
+    return "".join(rendered)
+
+
+def build_chat_sft_example(tokenizer, messages) -> dict[str, torch.Tensor]:
+    """Tokenize chat turns and supervise only assistant responses and end tags."""
+    token_ids: list[int] = []
+    loss_mask: list[bool] = []
+    for index, message in enumerate(messages):
+        # Validate all records before tokenizing so malformed role labels can
+        # never silently become supervised training data.
+        format_chat_messages([message])
+        role = message["role"]
+        header = tokenizer.encode(
+            f"<|{role}|>\n", add_bos=index == 0, allowed_special="all"
+        )
+        content = tokenizer.encode(message["content"], add_bos=False)
+        end = tokenizer.encode("\n<|end|>\n", add_bos=False, allowed_special="all")
+        token_ids.extend(header)
+        token_ids.extend(content)
+        token_ids.extend(end)
+        supervise = role == "assistant"
+        loss_mask.extend([False] * len(header))
+        loss_mask.extend([supervise] * len(content))
+        loss_mask.extend([supervise] * len(end))
+    if not token_ids:
+        raise ValueError("at least one chat message is required")
+    inputs = torch.tensor(token_ids, dtype=torch.long)
+    mask = torch.tensor(loss_mask, dtype=torch.bool)
+    labels = inputs.masked_fill(~mask, -100)
+    return {"input_ids": inputs, "labels": labels, "loss_mask": mask}
 
 
 class ChatSession:

@@ -19,6 +19,7 @@ from .sampler import TopKSampler
 from .context import ConversationMemory
 from .kv_cache import KVCache
 from .paged_kv_cache import PagedKVCache, PagedPrefixCache, PrefixCache
+from .local_tools import ToolCall, parse_tool_call
 
 logger = get_logger(__name__)
 
@@ -202,6 +203,11 @@ class Generator:
         if result.text:
             memory.add("assistant", result.text)
         return result
+
+    def generate_tool_call(self, prompt: str, *, schema=None, **options) -> ToolCall:
+        """Generate and strictly validate one tool-call envelope before execution."""
+        result = self.generate(prompt, allow_special_tokens=True, **options)
+        return parse_tool_call(result.text, schema)
 
     @staticmethod
     def _trim_repeated_text(text: str, *, phrase_words: int = 4) -> str:

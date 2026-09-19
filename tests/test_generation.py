@@ -193,6 +193,31 @@ def test_generator_reuses_prefix_cache_without_repeating_prefill() -> None:
     assert generator.prefix_cache_hits == 1
 
 
+def test_paged_prefix_cache_skips_second_prefill_without_changing_output() -> None:
+    tokenizer = make_tokenizer()
+    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)
+    generator = Generator(
+        model, tokenizer, device="cpu", prefix_cache_capacity=2,
+        paged_kv_pages=8, paged_kv_page_size=4,
+    )
+    calls = 0
+    forward = model.forward
+
+    def count_prefills(token_ids, *args, **kwargs):
+        nonlocal calls
+        if token_ids.shape[1] > 1:
+            calls += 1
+        return forward(token_ids, *args, **kwargs)
+
+    model.forward = count_prefills
+    first = generator.generate("shared system prompt", max_tokens=1, temperature=0)
+    second = generator.generate("shared system prompt", max_tokens=1, temperature=0)
+
+    assert calls == 1
+    assert generator.prefix_cache_hits == 1
+    assert second == first
+
+
 def test_generator_reuses_paged_prefix_cache() -> None:
     tokenizer = make_tokenizer()
     model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)

@@ -16,6 +16,7 @@ class BenchmarkCase:
     forbidden: tuple[str, ...] = ()
     match: str = "contains"
     max_answer_tokens: int | None = None
+    require_thinking_trace: bool = False
 
     def __post_init__(self) -> None:
         if self.match not in {"contains", "exact", "exact_code", "number", "final_number"}:
@@ -31,6 +32,16 @@ def normalize_answer(text: str) -> str:
 
 
 def score_answer(answer: str, case: BenchmarkCase) -> float:
+    if case.require_thinking_trace:
+        opening = answer.find("<thinking>")
+        closing = answer.find("</thinking>")
+        if opening < 0 or closing <= opening + len("<thinking>"):
+            return 0.0
+        if answer.find("<thinking>", opening + 1) >= 0 or answer.find("</thinking>", closing + 1) >= 0:
+            return 0.0
+        answer = answer[closing + len("</thinking>"):].strip()
+        if not answer:
+            return 0.0
     answer_tokens = normalize_answer(answer).split()
     if case.max_answer_tokens is not None and len(answer_tokens) > case.max_answer_tokens:
         return 0.0

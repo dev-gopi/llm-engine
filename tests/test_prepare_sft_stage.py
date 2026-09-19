@@ -61,6 +61,17 @@ def test_preparation_rejects_unsupported_tools_and_keeps_code_whitespace():
     assert record_key(chat("ＡＢＣ")) == record_key(chat("abc"))
 
 
+def test_preparation_requires_complete_thinking_trace_before_the_answer():
+    tok = tokenizer()
+    valid = chat("What is 2 + 2?", "<thinking>Two plus two is four.</thinking>\n4")
+    malformed = chat("What is 2 + 2?", "<thinking>Two plus two is four.\n4")
+    no_final_answer = chat("What is 2 + 2?", "<thinking>Two plus two is four.</thinking>")
+
+    assert rejection_reason(valid, tok, 128) is None
+    assert rejection_reason(malformed, tok, 128) == "invalid_thinking_trace"
+    assert rejection_reason(no_final_answer, tok, 128) == "invalid_thinking_trace"
+
+
 def test_refresh_training_config_reuses_audited_files(tmp_path):
     tok = tokenizer()
     tok.save(tmp_path / "tokenizer")

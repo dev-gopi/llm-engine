@@ -76,7 +76,9 @@ class CorpusFilter:
         self.preserve_whitespace = preserve_whitespace
         self.seen: set[bytes] = set()
         self._seen_order: deque[bytes] = deque()
-        self.near_duplicates = _SimilarityIndex(near_duplicate_distance, max_fingerprints)
+        self.near_duplicates = _MinHashLSHIndex(
+            near_duplicate_distance is not None, max_fingerprints
+        )
         self.contamination = _SimilarityIndex(contamination_distance, max_fingerprints)
         self.excluded_digests: set[bytes] = set()
         self.excluded_normalized: list[str] = []
@@ -131,12 +133,11 @@ class CorpusFilter:
         if digest in self.seen:
             self.stats.duplicate += 1
             return None
-        if fingerprint is not None and self.near_duplicates.contains(fingerprint):
+        if self.near_duplicates.contains(canonical):
             self.stats.near_duplicate += 1
             return None
         self._remember_digest(digest)
-        if fingerprint is not None:
-            self.near_duplicates.add(fingerprint)
+        self.near_duplicates.add(canonical)
         if self.redact_pii:
             preserved = self._redact_pii(preserved)
         self.stats.accepted += 1
@@ -234,6 +235,62 @@ class _SimilarityIndex:
             end = (band + 1) * 64 // self.band_count
             mask = (1 << (end - start)) - 1
             yield band, (fingerprint >> start) & mask
+
+
+class _MinHashLSHIndex:
+    """Bounded 5-gram MinHash index using 128 signatures in 32 LSH bands."""
+
+    _PRIME = (1 << 61) - 1
+    _PERMUTATIONS = tuple(
+        (
+            int.from_bytes(hashlib.blake2b(f"minhash-a:{index}".encode(), digest_size=8).digest(), "big")
+            % ((1 << 61) - 2) + 1,
+            int.from_bytes(hashlib.blake2b(f"minhash-b:{index}".encode(), digest_size=8).digest(), "big")
+            % ((1 << 61) - 1),
+        )
+        for index in range(128)
+    )
+
+    def __init__(self, enabled: bool, capacity: int) -> None:
+        self.enabled = enabled
+        self.capacity = capacity
+        self.buckets: set[tuple[int, tuple[int, ...]]] = set()
+        self.order: deque[tuple[tuple[int, tuple[int, ...]], ...]] = deque()
+
+    def contains(self, text: str) -> bool:
+        if not self.enabled:
+            return False
+        return any(key in self.buckets for key in self._keys(text))
+
+    def add(self, text: str) -> None:
+        if not self.enabled:
+            return
+        keys = self._keys(text)
+        self.buckets.update(keys)
+        self.order.append(keys)
+        if len(self.order) > self.capacity:
+            for key in self.order.popleft():
+                self.buckets.discard(key)
+
+    @classmethod
+    def _keys(cls, text: str) -> tuple[tuple[int, tuple[int, ...]], ...]:
+        words = _words(text)
+        if len(words) < 5:
+            return ()
+        shingles = {" ".join(words[index:index + 5]) for index in range(len(words) - 4)}
+        values = [
+            int.from_bytes(hashlib.blake2b(shingle.encode("utf-8"), digest_size=8).digest(), "big")
+            % cls._PRIME
+            for shingle in shingles
+        ]
+        signature = tuple(
+            min((multiplier * value + offset) % cls._PRIME for value in values)
+            for multiplier, offset in cls._PERMUTATIONS
+        )
+        return tuple(
+            (band, signature[band * 4:(band + 1) * 4])
+            for band in range(32)
+        )
 
 
 def _normalize(text: str) -> str:

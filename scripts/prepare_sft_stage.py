@@ -29,6 +29,25 @@ from training.data import _mixture_name
 from utils.config import load_yaml
 
 
+def has_valid_thinking_trace(messages) -> bool:
+    """Validate optional CoT traces without treating tags alone as reasoning."""
+    for message in messages:
+        if message.get("role") != "assistant":
+            continue
+        content = message["content"]
+        opens = content.count("<thinking>")
+        closes = content.count("</thinking>")
+        if not opens and not closes:
+            continue
+        if opens != 1 or closes != 1:
+            return False
+        start = content.index("<thinking>") + len("<thinking>")
+        end = content.index("</thinking>")
+        if start >= end or not content[end + len("</thinking>"):].strip():
+            return False
+    return True
+
+
 def record_key(record):
     messages = record.get("messages")
     if isinstance(messages, list):
@@ -57,6 +76,8 @@ def rejection_reason(record, tokenizer, max_length):
             return "invalid_chat"
         if messages[-1]["role"] != "assistant" or not any(m["role"] == "user" for m in messages):
             return "incomplete_chat"
+        if not has_valid_thinking_trace(messages):
+            return "invalid_thinking_trace"
         ids, mask = TextDataset._encode_chat(messages, tokenizer, True, True)
         if len(ids) > max_length:
             return "overlength_chat"
@@ -129,6 +150,12 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
                         if reason:
                             stats[reason] += 1
                             continue
+                        if any(
+                            m.get("role") == "assistant" and "<thinking>" in m.get("content", "")
+                            for m in record.get("messages", [])
+                            if isinstance(m, dict)
+                        ):
+                            stats["thinking_traces"] += 1
                         if split == "train" and database.execute("SELECT 1 FROM heldout WHERE key=?", (key,)).fetchone():
                             stats["heldout_overlap"] += 1
                             continue

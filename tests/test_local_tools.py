@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from inference.local_tools import calculate, direct_tool_answer, tool_context
+from inference.local_tools import ToolCallError, calculate, direct_tool_answer, parse_tool_call, tool_context
 
 
 def test_calculator_evaluates_arithmetic() -> None:
@@ -46,3 +46,30 @@ def test_direct_datetime_answer_is_human_readable() -> None:
         "/time", [], now=datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
     )
     assert answer == "Current local date and time: Thursday, 27 August 2026 at 12:00:00 PM (UTC)"
+
+
+def test_tool_call_parser_requires_one_valid_envelope_and_schema() -> None:
+    schema = {
+        "type": "object", "properties": {"expression": {"type": "string"}},
+        "required": ["expression"], "additionalProperties": False,
+    }
+    call = parse_tool_call(
+        '<tool_call>{"name":"calculator","arguments":{"expression":"6 * 7"}}</tool_call>', schema,
+    )
+    assert call.name == "calculator"
+    assert call.arguments == {"expression": "6 * 7"}
+    for value in (
+        "not JSON",
+        '<tool_call>{"name":"calculator","arguments":[]}</tool_call>',
+        '<tool_call>{"name":"calculator","arguments":{"extra":1}}</tool_call>',
+    ):
+        with pytest.raises(ToolCallError):
+            parse_tool_call(value, schema)
+
+
+def test_tool_call_parser_has_no_syntax_failures_for_repeated_valid_calls() -> None:
+    for value in range(100):
+        call = parse_tool_call(
+            f'<tool_call>{{"name":"calculator","arguments":{{"expression":"{value} + 1"}}}}</tool_call>'
+        )
+        assert call.arguments["expression"] == f"{value} + 1"

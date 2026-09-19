@@ -46,7 +46,7 @@ This task registry maintains stable task identifiers across sessions. When start
 ### DATA-001: MinHash Deduplication Pipeline
 - **ID**: `DATA-001`
 - **Title**: Scalable MinHash LSH Corpus Deduplication
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P1`
 - **Description**: Implement MinHash Locality-Sensitive Hashing (LSH) deduplication in the data preprocessing pipeline.
 - **Why**: Pretraining on repetitive web data degrades model quality and causes memorization.
@@ -64,7 +64,7 @@ This task registry maintains stable task identifiers across sessions. When start
 ### CHAT-001: Chat Template Standardization & Loss Masking
 - **ID**: `CHAT-001`
 - **Title**: Standardized Chat Templating with Prompt Loss Masking
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P1`
 - **Description**: Standardize multi-turn chat templates (`<|system|>`, `<|user|>`, `<|assistant|>`, `<|end|>`) and apply cross-entropy loss only on assistant tokens.
 - **Why**: Base models learn to generate prompts rather than answers if prompt tokens are unmasked during fine-tuning.
@@ -83,7 +83,7 @@ This task registry maintains stable task identifiers across sessions. When start
 ### RSN-001: Chain-of-Thought Reasoning Pipeline
 - **ID**: `RSN-001`
 - **Title**: Structured Chain-of-Thought Reasoning with Thinking Tags
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P1`
 - **Description**: Add `<thinking>...</thinking>` token traces to fine-tuning data and evaluate reasoning performance on GSM8K.
 - **Why**: Enables step-by-step problem solving for arithmetic and algorithmic questions.
@@ -101,7 +101,7 @@ This task registry maintains stable task identifiers across sessions. When start
 ### INF-001: Production Paged KV Cache with Prefix Caching
 - **ID**: `INF-001`
 - **Title**: Block-Paged KV Cache with System Prompt Prefix Sharing
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P1`
 - **Description**: Implement virtual block-based KV cache allocation with hash-indexed prefix caching across concurrent sessions.
 - **Why**: Eliminates memory fragmentation and prevents recomputing KV representations for repeated system prompts or tool schemas.
@@ -119,7 +119,7 @@ This task registry maintains stable task identifiers across sessions. When start
 ### AGT-001: Constrained JSON Tool Calling & Schema Validation
 - **ID**: `AGT-001`
 - **Title**: Constrained JSON Tool Calling & Schema Validation
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P1`
 - **Description**: Add grammar-constrained decoding and strict JSON schema validation for tool function calls.
 - **Why**: LLMs often generate slightly malformed JSON, causing runtime crashes in agent loops.
@@ -138,7 +138,7 @@ This task registry maintains stable task identifiers across sessions. When start
 ### CTX-001: Long Context RoPE Scaling (NTK & YaRN)
 - **ID**: `CTX-001`
 - **Title**: Context Extension via NTK-Aware & YaRN RoPE Scaling
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Implement NTK-aware and YaRN position interpolation in `RotaryEmbedding` to expand context to 2K, 4K, and 8K.
 - **Why**: Current 1024 context window restricts multi-turn chat and document RAG.
@@ -213,7 +213,7 @@ This task registry maintains stable task identifiers across sessions. When start
 ### VIS-001: Vision-Language Model Projector Pretraining
 - **ID**: `VIS-001`
 - **Title**: VisionProjector Alignment Training with Frozen Backbones
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Train `VisionProjector` connecting `VisionEncoder` and `MiniGPT` on image-caption pairs while freezing both backbones.
 - **Why**: Establishes cross-modal alignment without catastrophic forgetting of text generation capabilities.
@@ -226,4 +226,3 @@ This task registry maintains stable task identifiers across sessions. When start
 - **Implementation notes**: Frozen backbones must be set to `eval()` mode to ensure deterministic representations without dropout noise.
 - **Validation**: Training loss convergence on multimodal image-caption split.
 - **Acceptance criteria**: `VisionLanguageModel` generates coherent descriptive text from input images.
-

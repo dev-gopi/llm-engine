@@ -36,6 +36,10 @@ class VisionLanguageModel(nn.Module):
         )
         self._set_trainable(vision_encoder, not freeze_vision)
         self._set_trainable(language_model, not freeze_language)
+        if freeze_vision:
+            self.vision_encoder.eval()
+        if freeze_language:
+            self.language_model.eval()
 
     def train(self, mode: bool = True) -> "VisionLanguageModel":
         super().train(mode)

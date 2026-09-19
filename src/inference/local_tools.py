@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import dataclass
+import json
 import math
 import operator
 import re
+from collections.abc import Mapping
+from typing import Any
 from datetime import datetime
 
 
@@ -19,6 +23,73 @@ _BINARY_OPERATORS = {
     ast.Pow: operator.pow,
 }
 _UNARY_OPERATORS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_TOOL_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
+
+
+class ToolCallError(ValueError):
+    """Raised when generated tool-call text is not valid under its schema."""
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: dict[str, Any]
+
+
+def parse_tool_call(text: str, schema: Mapping[str, Any] | None = None) -> ToolCall:
+    """Parse exactly one `<tool_call>` envelope and validate its JSON payload."""
+    match = re.fullmatch(r"\s*<tool_call>(.*?)</tool_call>\s*", text, flags=re.DOTALL)
+    if match is None:
+        raise ToolCallError("tool call must use one <tool_call> JSON envelope")
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError as error:
+        raise ToolCallError("tool call contains invalid JSON") from error
+    if not isinstance(payload, dict) or set(payload) != {"name", "arguments"}:
+        raise ToolCallError("tool call requires exactly name and arguments")
+    name, arguments = payload["name"], payload["arguments"]
+    if not isinstance(name, str) or not _TOOL_NAME.fullmatch(name):
+        raise ToolCallError("tool name is invalid")
+    if not isinstance(arguments, dict):
+        raise ToolCallError("tool arguments must be an object")
+    if schema is not None:
+        validate_json_schema(arguments, schema)
+    return ToolCall(name, arguments)
+
+
+def validate_json_schema(value: Any, schema: Mapping[str, Any]) -> None:
+    """Validate the safe JSON-schema subset used by local and MCP tools."""
+    expected = schema.get("type")
+    valid_types = {
+        "object": dict, "array": list, "string": str, "integer": int,
+        "number": (int, float), "boolean": bool, "null": type(None),
+    }
+    if expected in valid_types:
+        accepted = valid_types[expected]
+        if not isinstance(value, accepted) or (expected in {"integer", "number"} and isinstance(value, bool)):
+            raise ToolCallError(f"expected {expected}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ToolCallError("value is not an allowed enum member")
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        if not isinstance(properties, Mapping):
+            raise ToolCallError("object schema properties must be an object")
+        required = schema.get("required", [])
+        if not isinstance(required, list) or any(not isinstance(key, str) for key in required):
+            raise ToolCallError("object schema required must be a string list")
+        missing = [key for key in required if key not in value]
+        if missing:
+            raise ToolCallError("missing required argument: " + ", ".join(missing))
+        if schema.get("additionalProperties") is False:
+            unknown = set(value) - set(properties)
+            if unknown:
+                raise ToolCallError("unexpected argument: " + sorted(unknown)[0])
+        for key, item in value.items():
+            if key in properties:
+                validate_json_schema(item, properties[key])
+    if isinstance(value, list) and isinstance(schema.get("items"), Mapping):
+        for item in value:
+            validate_json_schema(item, schema["items"])
 
 
 def calculate(expression: str) -> int | float:

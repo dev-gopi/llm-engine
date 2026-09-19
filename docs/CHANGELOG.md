@@ -7,6 +7,28 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **CTX-001 Long-Context RoPE Policies**: Added opt-in NTK-aware and YaRN
+  rotary-frequency scaling, validated at 4K positions while keeping default
+  checkpoint behavior unchanged.
+- **AGT-001 Validated Tool Calls**: Added strict tool-call envelopes, JSON
+  schema validation for local and MCP arguments, and a generator API that
+  returns only validated tool-call payloads.
+- **INF-001 Paged Prefix Cache Regression Contract**: Added verification that
+  repeated paged-cache prompts reuse their immutable prefix state, skip a
+  second prefill, and retain identical generation output.
+- **RSN-001 Structured Reasoning Traces**: Added append-only thinking-token
+  extensions, SFT validation and audit metrics for complete reasoning traces,
+  and GSM8K-style scoring that requires a trace before the final answer.
+- **CHAT-001 Canonical Chat SFT Format**: Added standard system, user, and
+  assistant turn delimiters plus token-level SFT labels that ignore all prompt
+  tokens and supervise assistant responses only.
+- **DATA-001 MinHash LSH Deduplication**: Corpus cleaning now identifies near
+  duplicates with five-token shingles, 128 deterministic MinHash permutations,
+  and 32 collision bands; existing audit output reports the removals.
+- **VIS-001 Vision Projector Training Invariant**: Frozen vision and language
+  backbones now enter evaluation mode when the vision-language wrapper is
+  constructed, ensuring deterministic projector-training targets from the
+  first forward pass.
 - **AI Agent Entry Point (`AGENTS.md`)**: Progressive context protocol directing AI coding agents to relevant files without whole-repository scanning.
 - **Machine-Friendly Project Index (`docs/PROJECT_INDEX.md`)**: Instant lookup matrix mapping components to source code, configs, tests, and documentation.
 - **Current-State Snapshot (`docs/CURRENT_STATE.md`)**: Verified architecture parameters (81.3M / 82.3M params, 16 layers, hidden 512, 8 query heads, 2 KV heads, GQA, RoPE, RMSNorm, SwiGLU, 4 GB VRAM budget).
@@ -30,4 +52,3 @@ Notable user-visible changes and architectural milestones are recorded here.
 
 ## [0.1.0] — Initial Platform Release
 - Initial configuration-driven GPT model, tokenizer, training, evaluation, generation, export, and serving implementation.
-

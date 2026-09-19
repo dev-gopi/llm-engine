@@ -24,6 +24,15 @@ def test_final_number_requires_explicit_final_answer():
     assert score_answer("1234", case) == 0
 
 
+def test_gsm8k_case_requires_a_complete_thinking_trace_before_final_answer():
+    case = BenchmarkCase(
+        "gsm8k", "Solve this.", ("4",), match="final_number", require_thinking_trace=True,
+    )
+    assert score_answer("<thinking>2 + 2 = 4.</thinking>\n#### 4", case) == 1
+    assert score_answer("#### 4", case) == 0
+    assert score_answer("<thinking>2 + 2 = 4.</thinking>", case) == 0
+
+
 def test_contains_match_rejects_overlong_or_identity_leaking_answer():
     case = BenchmarkCase(
         "chat", "Greet me", ("hello",), ("open assistant",),

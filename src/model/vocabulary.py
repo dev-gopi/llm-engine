@@ -8,6 +8,15 @@ from typing import Any
 from tokenizer.encoder import Tokenizer
 
 
+THINKING_TOKENS = ("<thinking>", "</thinking>")
+
+
+def extend_tokenizer_for_reasoning(tokenizer: Tokenizer) -> Tokenizer:
+    """Create a verified append-only tokenizer with atomic reasoning tags."""
+    missing = [token for token in THINKING_TOKENS if token not in tokenizer.vocab]
+    return tokenizer.extend(missing) if missing else tokenizer
+
+
 def adapt_config_to_tokenizer(
     model_config: Mapping[str, Any], tokenizer: Tokenizer
 ) -> dict[str, Any]:
@@ -38,4 +47,9 @@ def checkpoint_tokenizer_options(tokenizer: Tokenizer, *, allow_extension: bool 
     }
 
 
-__all__ = ["adapt_config_to_tokenizer", "checkpoint_tokenizer_options"]
+__all__ = [
+    "THINKING_TOKENS",
+    "adapt_config_to_tokenizer",
+    "checkpoint_tokenizer_options",
+    "extend_tokenizer_for_reasoning",
+]

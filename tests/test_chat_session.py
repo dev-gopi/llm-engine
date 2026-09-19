@@ -2,8 +2,10 @@ import json
 from types import SimpleNamespace
 
 import pytest
+import torch
 
-from inference.chat_session import ChatSession
+from datasets.collator import Collator
+from inference.chat_session import ChatSession, build_chat_sft_example, format_chat_messages
 from inference.generator import GenerationResult
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
@@ -81,3 +83,27 @@ def test_history_is_used_and_training_export_is_loadable(tmp_path):
     dataset = TextDataset.from_files([path], b.tokenizer, max_length=256)
     assert len(dataset) == 1
     assert dataset[0]["loss_mask"].any()
+
+
+def test_canonical_chat_template_masks_every_non_assistant_token() -> None:
+    b = backend()
+    messages = [
+        {"role": "system", "content": "Be concise."},
+        {"role": "user", "content": "Say hello."},
+        {"role": "assistant", "content": "Hello!"},
+    ]
+
+    assert format_chat_messages(messages) == (
+        "<|system|>\nBe concise.\n<|end|>\n"
+        "<|user|>\nSay hello.\n<|end|>\n"
+        "<|assistant|>\nHello!\n<|end|>\n"
+    )
+    example = build_chat_sft_example(b.tokenizer, messages)
+    batch = Collator(pad_token_id=0)([example])
+
+    assert batch["loss_mask"].sum().item() > 0
+    assert torch.equal(batch["labels"].eq(-100), ~batch["loss_mask"])
+    supervised = b.tokenizer.decode(batch["input_ids"][0][batch["loss_mask"][0]].tolist())
+    assert "Hello!" in supervised
+    assert "Be concise." not in supervised
+    assert "Say hello." not in supervised

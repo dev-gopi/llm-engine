@@ -68,6 +68,10 @@ class RotaryPositionalEmbedding(nn.Module):
         max_position_embeddings: int = 2048,
         base: float = 10000.0,
         scaling_factor: float = 1.0,
+        scaling_type: str = "none",
+        original_max_position_embeddings: int | None = None,
+        yarn_beta_fast: float = 32.0,
+        yarn_beta_slow: float = 1.0,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -80,16 +84,28 @@ class RotaryPositionalEmbedding(nn.Module):
             raise ValueError("base must be positive")
         if scaling_factor <= 0:
             raise ValueError("scaling_factor must be positive")
+        if scaling_type not in {"none", "linear", "ntk", "yarn"}:
+            raise ValueError("scaling_type must be none, linear, ntk, or yarn")
+        if scaling_type == "ntk" and dim <= 2:
+            raise ValueError("NTK RoPE scaling requires a dimension greater than two")
+        if original_max_position_embeddings is not None and original_max_position_embeddings < 1:
+            raise ValueError("original_max_position_embeddings must be positive")
+        if yarn_beta_fast <= 0 or yarn_beta_slow <= 0 or yarn_beta_fast < yarn_beta_slow:
+            raise ValueError("YaRN beta_fast must be at least beta_slow and both must be positive")
 
         self.dim = dim
         self.max_position_embeddings = max_position_embeddings
         self.base = float(base)
         self.scaling_factor = float(scaling_factor)
+        self.scaling_type = scaling_type
+        self.original_max_position_embeddings = (
+            int(original_max_position_embeddings or max_position_embeddings)
+        )
+        self.yarn_beta_fast = float(yarn_beta_fast)
+        self.yarn_beta_slow = float(yarn_beta_slow)
 
         # Inverse frequencies
-        inv_freq = 1.0 / (
-            self.base ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim)
-        )
+        inv_freq = self._inverse_frequencies(device)
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
         self._build_cos_sin_cache(max_position_embeddings, device=device, dtype=dtype)
@@ -102,17 +118,31 @@ class RotaryPositionalEmbedding(nn.Module):
         # rounded the non-persistent frequency buffer. Position arithmetic must
         # remain FP32, especially beyond BF16's consecutive integer range.
         target_device = device if device is not None else self.inv_freq.device
-        self.inv_freq = 1.0 / (
-            self.base ** (torch.arange(0, self.dim, 2, device=target_device, dtype=torch.float32) / self.dim)
-        )
+        self.inv_freq = self._inverse_frequencies(target_device)
         t = torch.arange(seq_len, device=target_device, dtype=torch.float32)
-        if self.scaling_factor != 1.0:
+        if self.scaling_type in {"linear", "yarn"} and self.scaling_factor != 1.0:
             t = t / self.scaling_factor
 
         freqs = torch.outer(t, self.inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
         self.register_buffer("cos_cached", emb.cos()[None, None, :, :].to(dtype=dtype, device=device), persistent=False)
         self.register_buffer("sin_cached", emb.sin()[None, None, :, :].to(dtype=dtype, device=device), persistent=False)
+
+    def _inverse_frequencies(self, device: torch.device | str | None) -> Tensor:
+        positions = torch.arange(0, self.dim, 2, device=device, dtype=torch.float32) / self.dim
+        base = self.base
+        if self.scaling_type == "ntk" and self.scaling_factor != 1.0:
+            # NTK-aware scaling changes the RoPE base, preserving short-range
+            # phases while extending the lowest-frequency wavelengths.
+            base *= self.scaling_factor ** (self.dim / (self.dim - 2))
+        inv_freq = 1.0 / (base ** positions)
+        if self.scaling_type != "yarn" or self.scaling_factor == 1.0:
+            return inv_freq
+        # YaRN blends original and interpolated frequencies by wavelength:
+        # high frequencies stay local; low frequencies are stretched.
+        rotations = self.original_max_position_embeddings * inv_freq / (2 * math.pi)
+        ramp = ((rotations - self.yarn_beta_slow) / (self.yarn_beta_fast - self.yarn_beta_slow)).clamp(0, 1)
+        return inv_freq * (ramp + (1 - ramp) / self.scaling_factor)
 
     def _apply(self, fn, recurse=True):
         result = super()._apply(fn, recurse=recurse)

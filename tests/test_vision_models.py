@@ -50,6 +50,8 @@ def test_multimodal_wrapper_keeps_base_models_frozen_and_projector_trainable() -
     assert not any(parameter.requires_grad for parameter in model.vision_encoder.parameters())
     assert not any(parameter.requires_grad for parameter in model.language_model.parameters())
     assert all(parameter.requires_grad for parameter in model.projector.parameters())
+    assert not model.vision_encoder.training
+    assert not model.language_model.training
     model.train()
     assert model.projector.training
     assert not model.vision_encoder.training

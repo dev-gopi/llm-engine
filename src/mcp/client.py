@@ -170,10 +170,17 @@ class MCPClient:
             if not isinstance(cursor, str) or not cursor:
                 return tools
 
-    async def call_tool(self, name: str, arguments: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    async def call_tool(
+        self, name: str, arguments: Mapping[str, Any] | None = None,
+        *, input_schema: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not name.strip():
             raise ValueError("tool name cannot be empty")
-        result = await self.request("tools/call", {"name": name, "arguments": dict(arguments or {})})
+        normalized_arguments = dict(arguments or {})
+        if input_schema is not None:
+            from inference.local_tools import validate_json_schema
+            validate_json_schema(normalized_arguments, input_schema)
+        result = await self.request("tools/call", {"name": name, "arguments": normalized_arguments})
         if not isinstance(result.get("content", []), list):
             raise MCPProtocolError("tools/call result contains invalid content")
         return result

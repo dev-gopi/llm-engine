@@ -109,3 +109,26 @@ def test_rotary_cache_growth_after_dtype_conversion_matches_fp32(dtype):
     module.float()
     for result, target in zip(module(x.float(), seq_len=1024), reference(x.float(), seq_len=1024)):
         torch.testing.assert_close(result, target, atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("scaling_type", ["ntk", "yarn"])
+def test_rope_long_context_scaling_builds_extended_position_tables(scaling_type):
+    from model.positional import RotaryPositionalEmbedding
+    module = RotaryPositionalEmbedding(
+        16, max_position_embeddings=1024, scaling_type=scaling_type,
+        scaling_factor=4.0, original_max_position_embeddings=1024,
+    )
+    cos, sin = module(torch.zeros(1, 1, 4096, 16), seq_len=4096)
+    assert cos.shape == sin.shape == (1, 1, 4096, 16)
+    assert torch.isfinite(cos).all() and torch.isfinite(sin).all()
+
+
+def test_yarn_preserves_high_frequency_and_stretches_low_frequency_features():
+    from model.positional import RotaryPositionalEmbedding
+    baseline = RotaryPositionalEmbedding(16, max_position_embeddings=1024)
+    yarn = RotaryPositionalEmbedding(
+        16, max_position_embeddings=1024, scaling_type="yarn",
+        scaling_factor=4.0, original_max_position_embeddings=1024,
+    )
+    assert yarn.inv_freq[0] == baseline.inv_freq[0]
+    assert yarn.inv_freq[-1] < baseline.inv_freq[-1]
