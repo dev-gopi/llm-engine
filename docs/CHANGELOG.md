@@ -1,4 +1,4 @@
-# Changelog
+# Changelog (`docs/CHANGELOG.md`)
 
 Notable user-visible changes and architectural milestones are recorded here.
 
@@ -28,6 +28,6 @@ Notable user-visible changes and architectural milestones are recorded here.
 
 ---
 
-## 0.1.0
-
+## [0.1.0] — Initial Platform Release
 - Initial configuration-driven GPT model, tokenizer, training, evaluation, generation, export, and serving implementation.
+

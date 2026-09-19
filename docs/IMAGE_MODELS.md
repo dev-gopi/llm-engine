@@ -1,5 +1,8 @@
 # Vision and diffusion models
 
+> [!NOTE]
+> **Authoritative Subsystem Specification**: For the complete and updated engineering reference on Vision Transformer, Multimodal VLM, and Latent Diffusion architectures, see **[`docs/VISION.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/VISION.md)** and compact context pack **[`docs/context/vision.context.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/context/vision.context.md)**.
+
 The image stack is independent from text-model checkpoints. It includes a Vision
 Transformer encoder and classifier, a multimodal projector, and a conditional
 pixel-space diffusion U-Net. The repository provides local smoke-test profiles and

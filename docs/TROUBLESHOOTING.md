@@ -1,118 +1,157 @@
-# Troubleshooting guide
+# Troubleshooting & Diagnostics Guide (`docs/TROUBLESHOOTING.md`)
 
-Run commands from the repository root with the virtual environment activated:
+This guide diagnoses common failures in `llm-engine` across training, CUDA memory, tokenization, checkpointing, and serving.
 
+---
+
+## 1. CUDA Out-of-Memory (OOM)
+
+### Problem
+Training or generation crashes with `torch.cuda.OutOfMemoryError: CUDA out of memory`.
+
+### Symptoms
+- Training halts during forward or backward pass.
+- Peak allocated memory exceeds 4,096 MiB on RTX 3050.
+
+### Cause
+- `gradient_checkpointing` disabled in model config.
+- `batch_size` too high (e.g. 4 or 8 instead of 2).
+- Sequence length exceeds context without chunked loss.
+- Stale background processes still occupying GPU VRAM.
+
+### Diagnosis
+Check active GPU memory allocation:
 ```bash
-source .venv/bin/activate
-python scripts/capabilities.py
-pytest -q
-```
-
-## Non-finite gradients
-
-A warning such as `gradient_norm=inf` or `gradient_norm=nan` means that one
-optimizer update was discarded. With FP16, the gradient scaler then reduces
-the loss scale. An isolated event is recoverable; repeated events indicate an
-unstable run.
-
-Check these values in subsequent log entries:
-
-- `nonfinite_updates` should stop increasing;
-- loss and gradient norm should return to finite values;
-- validation loss should remain stable or improve.
-
-On supported hardware, BF16 is usually more stable and does not use a gradient
-scaler. Verify support before changing a configuration:
-
-```bash
+nvidia-smi
 .venv/bin/python scripts/capabilities.py
 ```
 
-If BF16 is unavailable, lower `learning_rate`, keep `gradient_clip_norm`
-enabled, and use conservative `grad_scaler_initial_scale` and
-`grad_scaler_growth_interval` settings. Do not restart from scratch for one
-discarded update.
+### Solution
+1. Verify `gradient_checkpointing: true` in `configs/model.gpu.yaml`.
+2. Ensure `batch_size: 2` and compensate by increasing `gradient_accumulation_steps: 16` or `32`.
+3. Verify `loss_reduction: mean` and chunked loss is active in `src/model/loss.py`.
+4. Kill any orphan Python processes: `pkill -f train.py`.
 
-## CUDA out of memory
+### Prevention
+Always run `scripts/capabilities.py` before starting long runs to verify available VRAM.
 
-Reduce resource use in this order:
+### Related Files
+- [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)
+- [`src/model/loss.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/loss.py)
 
-1. lower `batch_size`;
-2. increase `gradient_accumulation_steps` to preserve the effective batch;
-3. lower `max_sequence_length`;
-4. enable gradient checkpointing in the model configuration;
-5. use a packed-data profile to remove runtime tokenization overhead.
+---
 
-Before retrying, stop the failed process and confirm that no old training
-process still owns GPU memory. `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
-can reduce allocator fragmentation, but it does not create additional VRAM.
+## 2. Non-Finite Gradients (NaN / Inf)
 
-## Tokenizer fingerprint mismatch
+### Problem
+Logs report `gradient_norm=nan` or `gradient_norm=inf`, and optimizer updates are discarded.
 
-The selected tokenizer does not match the tokenizer recorded in the
-checkpoint. Use the original tokenizer, or extend it only by appending tokens
-while preserving every old token ID. A retrained tokenizer that changes old
-IDs is incompatible with the checkpoint.
+### Symptoms
+- `nonfinite_updates` count increments in `reports/training_report.json`.
+- PyTorch AMP GradScaler decreases its loss scale factor.
 
-Use `--resume` only to continue the same run. Use `--init-from` when starting a
-new stage such as pretraining to SFT or SFT to another experiment.
+### Cause
+- FP16 underflow/overflow on high learning rates or large logits.
+- Missing `z_loss_coefficient` causing logits to drift to large magnitudes.
 
-## Checkpoint does not load
-
-Confirm that model architecture, tokenizer, and checkpoint belong together.
-Do not use a CPU architecture configuration to load a GPU-profile checkpoint;
-the names describe model shapes as well as intended hardware.
-
-`latest.pt` stores the most recent resumable state. `best.pt` is selected by
-validation and should normally initialize the next training stage or inference.
-
-## Training loss changes after resume
-
-Small batch-to-batch changes are normal. A resumed run restores optimizer and
-scheduler state, so its learning rate should continue rather than restart.
-Verify the logged epoch, step, learning rate, tokenizer fingerprint, and
-validation metric name.
-
-Changing data weights or the validation metric creates a different comparison
-baseline. The trainer intentionally resets best-loss tracking when the metric
-identity changes; this does not erase model weights.
-
-## Validation gets worse
-
-Compare validation checkpoints, not individual training batches. Inspect every
-domain separately because an aggregate can hide regressions. Stop or rely on
-`best.pt` when several evaluations fail to improve. If TinyStories improves but
-WikiText worsens, rebalance the training mix instead of merely adding epochs.
-
-## Generation repeats or becomes incoherent
-
-First try a lower temperature, lower `top_p`, and a modest repetition penalty.
-Ensure the prompt plus requested completion fits the model context window.
-Persistent quality problems require better data, domain-balanced evaluation,
-continued pretraining, or SFT; decoding settings cannot add missing knowledge.
-
-## API reports not ready
-
-Check:
-
+### Diagnosis
+Inspect the training log for step-by-step gradient norms:
 ```bash
-curl -s http://127.0.0.1:8000/health/live
-curl -s http://127.0.0.1:8000/health/ready
+tail -n 50 logs/training.log
 ```
 
-Verify `GOPI_CHECKPOINT_PATH`, `GOPI_MODEL_CONFIG`, `GOPI_TOKENIZER_PATH`, and
-`GOPI_DEVICE`. Read the server traceback if readiness stays false.
+### Solution
+1. If hardware supports it, switch to `mixed_precision: bf16` in training config (RTX 3050 supports BF16). BF16 has the dynamic range of FP32 and eliminates GradScaler scaling instability.
+2. If using `fp16`, lower `learning_rate` from `5e-5` to `3e-5` and verify `gradient_clip_norm: 1.0`.
+3. Confirm `z_loss_coefficient: 0.0001` is active in `configs/pretraining.gpu.yaml`.
 
-## Third-party UI cannot connect
+### Prevention
+Keep gradient clipping active and monitor z-loss regularization.
 
-Use base URL `http://HOST:8000/v1`, the configured model name, and the bearer
-key from `GOPI_API_KEY`. A container cannot reach the host through its own
-`127.0.0.1`; use the Docker host-gateway address or an explicitly reachable
-host address. Configure `GOPI_CORS_ORIGINS` only for browser origins you trust.
+### Related Files
+- [`src/optim/adamw.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/optim/adamw.py)
+- [`src/training/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/trainer.py)
 
-## Still unresolved
+---
 
-Capture the command, configuration paths, checkpoint step, last validation
-block, full traceback, Python/PyTorch versions, GPU name, VRAM, and output from
-`scripts/capabilities.py`. Remove secrets and private dataset text before
-sharing logs.
+## 3. Tokenizer Fingerprint & Vocabulary Mismatch
+
+### Problem
+Resuming or fine-tuning fails with `ValueError: tokenizer fingerprint mismatch` or tensor shape mismatch on embedding weights.
+
+### Symptoms
+- Error loading state dict into `EmbeddingLayer` or `lm_head`.
+- Model output contains scrambled characters or repetitive `<|unk|>`.
+
+### Cause
+- Checkpoint was trained with a different vocabulary size or different merge ranks.
+- Retraining the tokenizer re-indexed base tokens.
+
+### Diagnosis
+Verify tokenizer compatibility with:
+```bash
+.venv/bin/pytest tests/test_vocabulary_compatibility.py -q
+```
+
+### Solution
+- Ensure vocabulary expansion is **strictly append-only** (`data/tokenizer-finetuning/`).
+- Never retrain a base tokenizer from scratch for an existing model checkpoint.
+
+### Related Files
+- [`src/model/vocabulary.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/vocabulary.py)
+- [`src/tokenizer/bpe.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/tokenizer/bpe.py)
+
+---
+
+## 4. Repetitive or Incoherent Generation
+
+### Problem
+Autoregressive generation outputs looping text (e.g. "the the the...") or nonsensical token strings.
+
+### Symptoms
+- Model fails to produce `<|eos|>` stop token.
+- High repetitive n-gram frequency.
+
+### Cause
+- Sampling temperature set to 0 without repetition penalty, or temperature too high (>1.2).
+- Base pretraining checkpoint tested with conversational questions without SFT chat tuning.
+
+### Diagnosis
+Run test generation with repetition penalty:
+```bash
+.venv/bin/python scripts/generate.py \
+  --checkpoint checkpoints/finetuning/best.pt \
+  --temperature 0.7 \
+  --repetition-penalty 1.15 \
+  --top-p 0.9
+```
+
+### Solution
+1. Apply `repetition_penalty: 1.15` in `configs/inference.yaml`.
+2. For conversational prompts, ensure the fine-tuned chat checkpoint (`checkpoints/finetuning/best.pt`) is loaded, not the raw pretraining checkpoint.
+
+### Related Files
+- [`src/inference/sampler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/sampler.py)
+- [`src/inference/generator.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/generator.py)
+
+---
+
+## 5. Build & Packaging Metadata Issues (`*.egg-info`)
+
+### Problem
+Untracked `src/llm_engine.egg-info` appears after running editable pip install, cluttering the working tree.
+
+### Symptoms
+- Build metadata or stale dependency records persist in `src/`.
+
+### Cause
+- `pyproject.toml` configures setuptools package search with `where = ["src"]`. When `pip install -e .` runs, setuptools generates `<pkg>.egg-info` in `src/`.
+
+### Solution
+- `*.egg-info/` is already ignored in `.gitignore`.
+- Remove safely at any time: `rm -rf src/llm_engine.egg-info`.
+- Tests run directly using `.venv/bin/pytest` via `PYTHONPATH=src:.` without requiring egg-info metadata.
+
+### Related Files
+- [`pyproject.toml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/pyproject.toml)
+- [`.gitignore`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/.gitignore)
