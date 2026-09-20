@@ -35,6 +35,23 @@ def test_matches_manual_causal_reference():
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
 
+def test_auto_backend_uses_deterministic_eager_fallback_on_cpu():
+    module = MultiHeadAttention(dim=16, heads=4, attention_backend="auto").eval()
+    assert module.resolve_attention_backend(torch.device("cpu"), torch.float32) == "eager"
+    module(torch.randn(1, 3, 16))
+    assert module.last_attention_backend == "eager"
+
+
+def test_explicit_eager_backend_never_selects_sdpa():
+    module = MultiHeadAttention(dim=16, heads=4, attention_backend="eager").eval()
+    assert module.resolve_attention_backend(torch.device("cuda"), torch.float16) == "eager"
+
+
+def test_invalid_attention_backend_fails_loudly():
+    with pytest.raises(ValueError, match="attention_backend"):
+        MultiHeadAttention(dim=16, heads=4, attention_backend="flash")
+
+
 def test_causal_attention_cannot_see_future_tokens():
     torch.manual_seed(8)
     module = MultiHeadAttention(dim=24, heads=4, causal=True).eval()
@@ -153,6 +170,7 @@ def test_from_model_config():
             "attention_bias": False,
             "causal_attention": True,
             "initializer_range": 0.01,
+            "attention_backend": "eager",
         }
     )
     assert module.dim == 48
@@ -161,6 +179,7 @@ def test_from_model_config():
     assert module.dropout == 0.1
     assert module.qkv_proj.bias is None
     assert module.causal
+    assert module.attention_backend == "eager"
 
 
 @pytest.mark.parametrize(

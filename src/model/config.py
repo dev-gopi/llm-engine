@@ -123,6 +123,7 @@ def validate_moe_config(config: Mapping[str, Any]) -> None:
     if ffn_type not in {"dense", "moe"}:
         raise ValueError("ffn_type must be 'dense' or 'moe'")
     if ffn_type == "dense":
+        _validate_attention_backend(config)
         return
     experts = _positive_int(config.get("num_experts", 1), "num_experts")
     active = _positive_int(config.get("experts_per_token", 1), "experts_per_token")
@@ -131,6 +132,13 @@ def validate_moe_config(config: Mapping[str, Any]) -> None:
     jitter = float(config.get("router_jitter", 0.0))
     if not math.isfinite(jitter) or jitter < 0:
         raise ValueError("router_jitter must be finite and non-negative")
+    _validate_attention_backend(config)
+
+
+def _validate_attention_backend(config: Mapping[str, Any]) -> None:
+    backend = str(config.get("attention_backend", "auto")).lower()
+    if backend not in {"auto", "sdpa", "eager"}:
+        raise ValueError("attention_backend must be auto, sdpa, or eager")
 
 
 def _positive_int(value: Any, name: str) -> int:

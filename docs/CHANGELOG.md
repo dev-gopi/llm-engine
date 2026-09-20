@@ -7,6 +7,13 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **ATT-001 Hardware-Aware Attention Selection**: Added explicit `auto`,
+  `sdpa`, and `eager` attention policies. Compatible CUDA tensors delegate to
+  PyTorch SDPA/FlashAttention dispatch; CPU and unsupported inputs use the
+  deterministic eager fallback.
+- **REG-001 Content-Addressed Export Manifests**: Export bundles now include a
+  deterministic manifest with model/config/tokenizer hashes, tokenizer
+  fingerprint, compatibility configuration, format, and precision metadata.
 - **MEM-001 Privacy-Bounded Session Memory**: Added deterministic, session-only
   memory retrieval and explicitly enabled, API-key-protected endpoints to read
   or delete persisted session memory. The interface is disabled by default.

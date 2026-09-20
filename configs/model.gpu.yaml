@@ -22,6 +22,10 @@ freeze_embeddings: false
 tie_word_embeddings: true
 lm_head_bias: false
 attention_dropout: 0.0
+# ``auto`` lets CUDA half/bfloat16 tensors use PyTorch SDPA (which dispatches
+# to FlashAttention when the installed build and shape permit it); all other
+# hardware has a deterministic eager fallback.
+attention_backend: auto
 attention_bias: false
 causal_attention: true
 ffn_hidden_size: 2048

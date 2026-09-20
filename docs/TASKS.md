@@ -328,6 +328,14 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Dependencies**: `INF-002`
 - **Relevant files**: `src/inference/generator.py`, `tests/test_generation.py`
 
+### MTP-001: Multi-Token Prediction Training Objective
+- **ID**: `MTP-001`
+- **Status**: `TODO`
+- **Priority**: `P3`
+- **Description**: Add an opt-in multi-token prediction auxiliary objective and validate its compatibility with ordinary causal-language-model checkpoints before speculative-decoding integration.
+- **Dependencies**: `SPC-001`
+- **Relevant files**: `src/model/gpt.py`, `src/model/loss.py`, `src/training/trainer.py`, `tests/test_gpt.py`, `tests/test_loss.py`
+
 ### OUT-001: Token-Level Structured Output Constraints
 - **ID**: `OUT-001`
 - **Status**: `TODO`
@@ -368,20 +376,24 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 ### REG-001: Versioned Model Registry and Deployment Manifests
 - **ID**: `REG-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Produce content-addressed model/export manifests with tokenizer, config, evaluation, and compatibility metadata.
 - **Dependencies**: `QNT-001`
 - **Relevant files**: `scripts/export.py`, `src/training/checkpoint.py`, `tests/test_export.py`
+- **Validation**: `.venv/bin/pytest tests/test_export.py -q` (3 passed)
+- **Acceptance criteria**: Every CLI export writes a relocatable `manifest.json` with a schema version, artifact/config/tokenizer SHA-256 hashes, tokenizer fingerprint, model configuration, export format, and weight precision.
 
 ### ATT-001: Hardware-Aware Efficient Attention Backend
 - **ID**: `ATT-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Select and validate a scaled-dot-product/FlashAttention backend by device and dtype, with a deterministic fallback for CPU and unsupported GPUs.
 - **Why**: The architecture uses standard attention; long-context training and high-throughput decode need an explicit kernel-selection and validation contract.
 - **Dependencies**: `CTX-001`, `INF-005`
 - **Relevant files**: `src/model/attention.py`, `src/model/config.py`, `tests/test_attention.py`
+- **Validation**: `.venv/bin/pytest tests/test_attention.py tests/test_model_config.py -q` (34 passed)
+- **Acceptance criteria**: `attention_backend: auto` uses PyTorch SDPA on compatible CUDA FP16/BF16/FP32 tensors (allowing its FlashAttention dispatch) and the explicit eager implementation on CPU or unsupported inputs; `eager` always selects the deterministic fallback.
 
 ### SAFE-001: Safety, Jailbreak, and Prompt-Injection Evaluation
 - **ID**: `SAFE-001`

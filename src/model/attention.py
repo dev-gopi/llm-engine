@@ -38,6 +38,7 @@ class MultiHeadAttention(nn.Module):
         causal: bool = True,
         qk_norm: bool = False,
         qk_norm_eps: float = 1e-6,
+        attention_backend: str = "auto",
         initializer_range: float = 0.02,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
@@ -55,6 +56,8 @@ class MultiHeadAttention(nn.Module):
             raise ValueError("qk_norm_eps must be finite and positive")
         self.qk_norm = bool(qk_norm)
         self.qk_norm_eps = float(qk_norm_eps)
+        self.attention_backend = self._validate_attention_backend(attention_backend)
+        self.last_attention_backend: str | None = None
         self.initializer_range = float(initializer_range)
 
         factory_kwargs = {"device": device, "dtype": dtype}
@@ -175,7 +178,9 @@ class MultiHeadAttention(nn.Module):
         )
 
         dropout_probability = self.dropout if self.training else 0.0
-        if hasattr(F, "scaled_dot_product_attention"):
+        backend = self.resolve_attention_backend(query.device, query.dtype)
+        self.last_attention_backend = backend
+        if backend == "sdpa":
             attended = F.scaled_dot_product_attention(
                 query,
                 key,
@@ -186,7 +191,7 @@ class MultiHeadAttention(nn.Module):
                 scale=1.0 / math.sqrt(self.head_dim),
                 enable_gqa=self.num_kv_groups > 1,
             )
-        else:  # pragma: no cover
+        else:
             key_attn = key.repeat_interleave(self.num_kv_groups, dim=1)
             value_attn = value.repeat_interleave(self.num_kv_groups, dim=1)
             attended = self._attention_fallback(
@@ -389,6 +394,7 @@ class MultiHeadAttention(nn.Module):
             qk_norm=bool(config.get("qk_norm", False)),
             qk_norm_eps=float(config.get("qk_norm_eps", 1e-6)),
             initializer_range=float(config.get("initializer_range", 0.02)),
+            attention_backend=str(config.get("attention_backend", "auto")),
             device=device,
             dtype=dtype,
         )
@@ -396,8 +402,32 @@ class MultiHeadAttention(nn.Module):
     def extra_repr(self) -> str:
         return (
             f"dim={self.dim}, heads={self.heads}, kv_heads={self.kv_heads}, "
-            f"head_dim={self.head_dim}, dropout={self.dropout}, causal={self.causal}"
+            f"head_dim={self.head_dim}, dropout={self.dropout}, causal={self.causal}, "
+            f"attention_backend={self.attention_backend}"
         )
+
+    def resolve_attention_backend(self, device: torch.device, dtype: torch.dtype) -> str:
+        """Select the fastest safe kernel without changing numerical contracts.
+
+        PyTorch SDPA dispatches to FlashAttention/memory-efficient kernels on
+        compatible CUDA builds. CPU and unsupported dtypes deliberately use
+        the explicit eager path so behavior is stable across PyTorch builds.
+        """
+        supports_sdpa = (
+            hasattr(F, "scaled_dot_product_attention")
+            and device.type == "cuda"
+            and dtype in {torch.float16, torch.bfloat16, torch.float32}
+        )
+        if self.attention_backend == "eager":
+            return "eager"
+        return "sdpa" if supports_sdpa else "eager"
+
+    @staticmethod
+    def _validate_attention_backend(value: str) -> str:
+        backend = str(value).lower()
+        if backend not in {"auto", "sdpa", "eager"}:
+            raise ValueError("attention_backend must be auto, sdpa, or eager")
+        return backend
 
     def _validate_hidden_states(self, hidden_states: Tensor) -> None:
         if not isinstance(hidden_states, Tensor):
