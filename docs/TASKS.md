@@ -314,6 +314,54 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Validation**: `.venv/bin/pytest tests/test_dataset_governance.py -q` (9 passed)
 - **Acceptance criteria**: Source declarations require unique name, domain, version, paths, positive weight, license, and numeric quality metrics; records stream in deterministic weighted order with source/version provenance and no corpus-wide materialization.
 
+### DATA-003: Curated Capability Corpus Acquisition and Audit
+- **ID**: `DATA-003`
+- **Status**: `TODO`
+- **Priority**: `P0`
+- **Description**: Curate reviewed, versioned web, documentation, code, mathematics, science, multilingual, conversation, instruction, reasoning, and tool-use corpora; publish provenance, licensing, quality, and contamination audit artifacts before activation.
+- **Dependencies**: `DATA-002`
+- **Relevant files**: `configs/pretraining.gpu.yaml`, `src/datasets/governance.py`, `scripts/audit_datasets.py`, `tests/test_dataset_governance.py`
+
+### CHAT-002: Instruction Quality and Multi-Turn Evaluation
+- **ID**: `CHAT-002`
+- **Status**: `TODO`
+- **Priority**: `P0`
+- **Description**: Define a reviewed instruction/multi-turn corpus contract covering clarification, refusals, format following, conversational consistency, and tool-message turns; add deterministic instruction-following evaluation.
+- **Dependencies**: `CHAT-001`, `DATA-003`
+- **Relevant files**: `src/inference/chat_session.py`, `src/evaluation/benchmarks.py`, `tests/test_chat_session.py`, `tests/test_evaluation_regressions.py`
+
+### RSN-002: Reasoning SFT Data and Training Profile
+- **ID**: `RSN-002`
+- **Status**: `TODO`
+- **Priority**: `P0`
+- **Description**: Add governed math, code, logic, planning, verification, and self-correction reasoning SFT data plus a reproducible training profile that preserves explicit reasoning-trace boundaries.
+- **Dependencies**: `RSN-001`, `DATA-003`
+- **Relevant files**: `src/inference/chat_session.py`, `src/training/trainer.py`, `configs/finetuning.gpu.yaml`, `tests/test_chat_session.py`, `tests/test_training_system.py`
+
+### CTX-002: Long-Context Training and Retrieval Validation
+- **ID**: `CTX-002`
+- **Status**: `TODO`
+- **Priority**: `P0`
+- **Description**: Produce 2K/4K/8K context training profiles, long-document data packs, memory measurements, and checkpoint-backed retrieval evaluations before claiming long-context capability.
+- **Dependencies**: `CTX-001`, `EVAL-001`, `DATA-003`
+- **Relevant files**: `configs/pretraining.gpu.yaml`, `src/model/positional.py`, `scripts/evaluate_benchmarks.py`, `tests/test_positional.py`, `tests/test_evaluation_regressions.py`
+
+### AGT-003: Tool-Use Training and Reliability Evaluation
+- **ID**: `AGT-003`
+- **Status**: `TODO`
+- **Priority**: `P1`
+- **Description**: Build governed tool-use SFT/evaluation cases for selection, schema-conformant arguments, result handling, error recovery, sequential/parallel calls, and permission boundaries.
+- **Dependencies**: `AGT-001`, `AGT-002`, `CHAT-002`
+- **Relevant files**: `src/inference/generator.py`, `src/inference/local_tools.py`, `src/evaluation/benchmarks.py`, `tests/test_generation.py`, `tests/test_local_tools.py`
+
+### EVAL-002: Comprehensive Capability Regression Matrix
+- **ID**: `EVAL-002`
+- **Status**: `TODO`
+- **Priority**: `P0`
+- **Description**: Version a release-gating evaluation matrix for knowledge, math, code, reasoning, instruction following, structured JSON, tools, RAG, long context, safety, hallucination, and refusal behavior.
+- **Dependencies**: `RSN-003`, `SAFE-001`, `EVAL-001`, `CHAT-002`, `AGT-003`, `EMB-001`
+- **Relevant files**: `src/evaluation/benchmarks.py`, `scripts/evaluate_benchmarks.py`, `configs/evaluation.domains.yaml`, `tests/test_evaluation_regressions.py`
+
 ### VIS-002: Multimodal Instruction-Tuning Pipeline
 - **ID**: `VIS-002`
 - **Status**: `TODO`
