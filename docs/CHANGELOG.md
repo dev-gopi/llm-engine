@@ -7,6 +7,10 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **DATA-002 Versioned Streaming Mixtures**: Added validated, license-aware
+  source declarations with retained quality metrics and deterministic weighted
+  streaming provenance. The web/code/math/reasoning profile remains inactive
+  until its reviewed local artifacts are supplied.
 - **ATT-001 Hardware-Aware Attention Selection**: Added explicit `auto`,
   `sdpa`, and `eager` attention policies. Compatible CUDA tensors delegate to
   PyTorch SDPA/FlashAttention dispatch; CPU and unsupported inputs use the

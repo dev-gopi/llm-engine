@@ -26,6 +26,38 @@ train_files:
 dataset_weights:
   tinystories: 0.10
   wikitext_103: 0.90
+# Versioned candidate sources for the next governed mixture stage. They are
+# declared here for reproducibility and auditability; train_files above remain
+# the active laptop profile until each source has local, reviewed artifacts.
+dataset_mixture:
+  - name: fineweb_edu
+    domain: web
+    version: "2025-01-reviewed"
+    paths: [data/processed/fineweb_edu/train.jsonl]
+    weight: 0.55
+    license: ODC-BY-1.0
+    quality_metrics: {deduplication_rate: 0.0, pii_redaction_rate: 0.0}
+  - name: code_pretraining
+    domain: code
+    version: "2025-01-reviewed"
+    paths: [data/processed/code_pretraining/train.jsonl]
+    weight: 0.20
+    license: Apache-2.0
+    quality_metrics: {deduplication_rate: 0.0, pii_redaction_rate: 0.0}
+  - name: math_reasoning
+    domain: math
+    version: "2025-01-reviewed"
+    paths: [data/processed/math_reasoning/train.jsonl]
+    weight: 0.15
+    license: CC-BY-4.0
+    quality_metrics: {deduplication_rate: 0.0, pii_redaction_rate: 0.0}
+  - name: reasoning_traces
+    domain: reasoning
+    version: "2025-01-reviewed"
+    paths: [data/processed/reasoning_traces/train.jsonl]
+    weight: 0.10
+    license: CC-BY-SA-4.0
+    quality_metrics: {deduplication_rate: 0.0, pii_redaction_rate: 0.0}
 validation_files:
   - data/processed/tinystories/validation.jsonl
   - data/processed/wikitext_103/validation.jsonl

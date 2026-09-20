@@ -11,6 +11,7 @@ from datasets.governance import (
     enforce_dataset_governance,
     load_dataset_manifest,
 )
+from datasets.loader import iter_mixture_records, load_mixture_sources
 
 
 def write_dataset(tmp_path, **overrides):
@@ -123,3 +124,30 @@ def test_expanded_sft_sources_have_stage_compatible_manifests() -> None:
     assert not {
         "missing_manifest", "invalid_manifest", "stage_not_allowed"
     } & {finding.code for finding in findings}
+
+
+def test_versioned_mixture_streams_records_and_retains_source_quality_metrics(tmp_path) -> None:
+    first = tmp_path / "web.jsonl"
+    second = tmp_path / "code.jsonl"
+    first.write_text('{"text": "web one"}\n{"text": "web two"}\n', encoding="utf-8")
+    second.write_text('{"text": "code one"}\n', encoding="utf-8")
+    config = {"dataset_mixture": [
+        {"name": "web", "domain": "web", "version": "v1", "paths": [str(first)], "weight": 2,
+         "license": "MIT", "quality_metrics": {"deduplication_rate": 0.2}},
+        {"name": "code", "domain": "code", "version": "v3", "paths": [str(second)], "weight": 1,
+         "license": "Apache-2.0", "quality_metrics": {"deduplication_rate": 0.1}},
+    ]}
+    sources = load_mixture_sources(config)
+    assert sources[0].version == "v1"
+    assert sources[1].quality_metrics["deduplication_rate"] == 0.1
+    records = list(iter_mixture_records(sources))
+    assert [record["_mixture_source"] for record in records] == ["web", "code", "web"]
+    assert records[1]["_mixture_version"] == "v3"
+
+
+def test_active_pretraining_profile_declares_all_target_mixture_domains() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = yaml.safe_load((root / "configs/pretraining.gpu.yaml").read_text(encoding="utf-8"))
+    sources = load_mixture_sources(config)
+    assert {source.domain for source in sources} == {"web", "code", "math", "reasoning"}
+    assert all(source.license_identifier and source.quality_metrics for source in sources)

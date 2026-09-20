@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,89 @@ from tokenizer.encoder import Tokenizer
 from .preprocessor import clean, record_to_text
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class MixtureSource:
+    """Versioned, governed input declaration for deterministic streaming."""
+
+    name: str
+    domain: str
+    version: str
+    paths: tuple[Path, ...]
+    weight: float
+    license_identifier: str
+    quality_metrics: Mapping[str, float]
+
+
+def load_mixture_sources(config: Mapping[str, Any]) -> tuple[MixtureSource, ...]:
+    """Validate declared sources without opening or materializing their records."""
+    entries = config.get("dataset_mixture", ())
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("dataset_mixture must be a non-empty list")
+    names: set[str] = set()
+    sources: list[MixtureSource] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, Mapping):
+            raise ValueError(f"dataset_mixture[{index}] must be a mapping")
+        required = ("name", "domain", "version", "paths", "weight", "license", "quality_metrics")
+        missing = [key for key in required if key not in entry]
+        if missing:
+            raise ValueError(f"dataset_mixture[{index}] missing {', '.join(missing)}")
+        name = entry["name"]
+        if not isinstance(name, str) or not name.strip() or name in names:
+            raise ValueError("mixture source names must be unique, non-empty text")
+        domain = entry["domain"]
+        version = entry["version"]
+        paths = entry["paths"]
+        license_identifier = entry["license"]
+        quality_metrics = entry["quality_metrics"]
+        if not isinstance(domain, str) or not isinstance(version, str) or not version.strip():
+            raise ValueError("mixture source domain and version must be non-empty text")
+        if not isinstance(paths, list) or not paths or not all(isinstance(path, str) and path for path in paths):
+            raise ValueError("mixture source paths must be a non-empty list of paths")
+        if not isinstance(entry["weight"], (int, float)) or isinstance(entry["weight"], bool) or entry["weight"] <= 0:
+            raise ValueError("mixture source weight must be positive")
+        if not isinstance(license_identifier, str) or not license_identifier.strip():
+            raise ValueError("mixture source license must be non-empty text")
+        if not isinstance(quality_metrics, Mapping) or not quality_metrics:
+            raise ValueError("mixture source quality_metrics must be a non-empty mapping")
+        metrics = {}
+        for metric, value in quality_metrics.items():
+            if not isinstance(metric, str) or not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ValueError("mixture quality metrics must map names to numbers")
+            metrics[metric] = float(value)
+        names.add(name)
+        sources.append(MixtureSource(
+            name=name, domain=domain, version=version, paths=tuple(Path(path) for path in paths),
+            weight=float(entry["weight"]), license_identifier=license_identifier,
+            quality_metrics=metrics,
+        ))
+    return tuple(sources)
+
+
+def iter_mixture_records(sources: tuple[MixtureSource, ...]) -> Iterator[dict[str, Any]]:
+    """Yield a finite, weighted round-robin stream annotated with source identity.
+
+    A source is opened only through :func:`iter_records`; no corpus is loaded
+    into memory.  Ties are resolved by declaration order for reproducibility.
+    """
+    streams = [iter(record for path in source.paths for record in iter_records(path)) for source in sources]
+    credits = [0.0] * len(sources)
+    active = set(range(len(sources)))
+    total_weight = sum(source.weight for source in sources)
+    while active:
+        for index in active:
+            credits[index] += sources[index].weight
+        selected = max(active, key=lambda index: (credits[index], -index))
+        try:
+            record = next(streams[selected])
+        except StopIteration:
+            active.remove(selected)
+            continue
+        credits[selected] -= total_weight
+        yield {**record, "_mixture_source": sources[selected].name,
+               "_mixture_version": sources[selected].version}
 
 def iter_records(path: str | Path) -> Iterator[dict[str, Any]]:
     source = Path(path)

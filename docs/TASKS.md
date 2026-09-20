@@ -306,11 +306,13 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 ### DATA-002: Reproducible Multi-Domain Data Mixtures
 - **ID**: `DATA-002`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Define versioned, license-aware streaming mixtures for web, code, math, and reasoning data; retain per-source quality metrics.
 - **Dependencies**: `DATA-001`
 - **Relevant files**: `src/datasets/loader.py`, `configs/pretraining.gpu.yaml`, `tests/test_dataset_governance.py`
+- **Validation**: `.venv/bin/pytest tests/test_dataset_governance.py -q` (9 passed)
+- **Acceptance criteria**: Source declarations require unique name, domain, version, paths, positive weight, license, and numeric quality metrics; records stream in deterministic weighted order with source/version provenance and no corpus-wide materialization.
 
 ### VIS-002: Multimodal Instruction-Tuning Pipeline
 - **ID**: `VIS-002`
