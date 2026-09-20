@@ -475,11 +475,13 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 ### CUR-001: Curriculum Scheduling and Gradient Diagnostics
 - **ID**: `CUR-001`
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 - **Priority**: `P2`
 - **Description**: Add configuration-driven domain curricula, per-domain loss reporting, activation/gradient diagnostics, and safe schedule resume semantics.
 - **Dependencies**: `DATA-002`
 - **Relevant files**: `src/datasets/sampler.py`, `src/training/trainer.py`, `configs/pretraining.gpu.yaml`, `tests/test_training_data.py`
+- **Validation**: `.venv/bin/pytest tests/test_training_data.py tests/test_training_system.py -q` (58 passed)
+- **Acceptance criteria**: Epoch-indexed curricula validate a stable source ordering and update grouped sampler weights deterministically; sampler/trainer state preserves the active stage for resume; history records gradient, clipping, and output-magnitude diagnostics alongside existing per-domain validation loss.
 
 ### EMB-001: Dedicated Embedding and Retrieval Quality Evaluation
 - **ID**: `EMB-001`
@@ -488,3 +490,68 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Description**: Define a dedicated embedding-model interface and retrieval recall/reranking evaluation rather than relying solely on lexical or generic model representations.
 - **Dependencies**: `RAG-002`
 - **Relevant files**: `src/inference/rag.py`, `src/evaluation/benchmarks.py`, `tests/test_rag.py`
+
+### QNT-002: Interoperable Quantized Deployment Formats
+- **ID**: `QNT-002`
+- **Status**: `TODO`
+- **Priority**: `P2`
+- **Description**: Evaluate and implement verified GPTQ/AWQ/GGUF-compatible export or import paths, including calibration provenance, architecture compatibility checks, and quality/latency/memory regression measurements.
+- **Dependencies**: `QNT-001`, `REG-001`
+- **Relevant files**: `src/inference/quantization.py`, `scripts/export.py`, `tests/test_inference_precision.py`, `tests/test_export.py`
+
+### AGT-004: Stateful Agent Runtime and Human Approval
+- **ID**: `AGT-004`
+- **Status**: `TODO`
+- **Priority**: `P2`
+- **Description**: Add a bounded agent state machine for planning, observations, task decomposition, explicit human approval gates, and recoverable multi-step execution without granting unbounded tool authority.
+- **Dependencies**: `AGT-002`, `AGT-003`, `MEM-001`
+- **Relevant files**: `src/inference/generator.py`, `src/inference/local_tools.py`, `src/mcp/client.py`, `tests/test_generation.py`, `tests/test_mcp_client.py`
+
+### MEM-002: Long-Term Semantic and Episodic Memory
+- **ID**: `MEM-002`
+- **Status**: `TODO`
+- **Priority**: `P3`
+- **Description**: Extend session-only memory with opt-in semantic and episodic retrieval, explicit retention policies, user-scoped deletion, and evaluation of memory relevance and privacy boundaries.
+- **Dependencies**: `MEM-001`, `EMB-001`
+- **Relevant files**: `src/inference/chat_session.py`, `src/inference/rag.py`, `src/serving/api.py`, `tests/test_chat_session.py`, `tests/test_rag.py`
+
+### ATT-002: Advanced Long-Context Attention Research Profiles
+- **ID**: `ATT-002`
+- **Status**: `TODO`
+- **Priority**: `P3`
+- **Description**: Prototype and benchmark sliding-window, sparse, linear, or hybrid attention profiles against the dense GQA baseline; retain deterministic fallback and checkpoint compatibility guarantees.
+- **Dependencies**: `ATT-001`, `CTX-002`
+- **Relevant files**: `src/model/attention.py`, `src/model/config.py`, `tests/test_attention.py`
+
+### SCALE-004: QLoRA Fine-Tuning Profile
+- **ID**: `SCALE-004`
+- **Status**: `TODO`
+- **Priority**: `P2`
+- **Description**: Add a calibrated low-bit base-model plus LoRA fine-tuning profile suitable for constrained GPUs, with merge/export compatibility and quality regression checks.
+- **Dependencies**: `SCALE-003`, `QNT-002`
+- **Relevant files**: `src/training/peft.py`, `src/inference/quantization.py`, `configs/finetuning.gpu.yaml`, `tests/test_peft.py`, `tests/test_inference_precision.py`
+
+### SCALE-005: Tensor, Pipeline, and Expert Parallelism Readiness
+- **ID**: `SCALE-005`
+- **Status**: `TODO`
+- **Priority**: `P3`
+- **Description**: Define and validate topology-aware tensor, pipeline, and MoE expert-parallel execution/checkpoint contracts before claiming multi-node large-model support.
+- **Dependencies**: `SCALE-001`, `SCALE-002`
+- **Relevant files**: `src/inference/tensor_parallel.py`, `src/training/multinode.py`, `src/training/distributed_checkpoint.py`, `tests/test_tensor_parallel.py`, `tests/test_multinode.py`
+
+### VIS-003: Audio and Video Multimodal Research Profile
+- **ID**: `VIS-003`
+- **Status**: `TODO`
+- **Priority**: `P3`
+- **Description**: Establish separately versioned audio/video data, encoder, projection, safety, and evaluation contracts; do not extend the image projector implicitly into unsupported modalities.
+- **Dependencies**: `VIS-002`, `DATA-003`
+- **Relevant files**: `src/vision/encoder.py`, `src/multimodal/model.py`, `tests/test_vision_models.py`
+
+### DOC-001: Evidence-Backed Capability-State Reconciliation
+- **ID**: `DOC-001`
+- **Status**: `TODO`
+- **Priority**: `P1`
+- **Description**: Reconcile `required.md`, `docs/CURRENT_STATE.md`, `docs/TARGET_STATE.md`, and `docs/TASKS.md` against authoritative source/tests. Classify each capability as implemented, partial, planned, or research and resolve contradictory agent/tool-orchestration claims.
+- **Dependencies**: `OPS-002`
+- **Relevant files**: `required.md`, `docs/CURRENT_STATE.md`, `docs/TARGET_STATE.md`, `docs/TASKS.md`, `docs/CHANGELOG.md`
+- **Acceptance criteria**: Every state claim links to an authoritative implementation/test or a clearly scoped external-validation requirement; no two current-state documents assign conflicting statuses to the same capability.

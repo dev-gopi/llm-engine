@@ -15,6 +15,7 @@ from torch import Tensor
 from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
 from optim.ema import EMA
 from training.evaluator import aggregate_domain_metrics
+from datasets.sampler import CurriculumSchedule
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -59,6 +60,9 @@ class Trainer:
         self.nonfinite_updates = 0
         self.last_gradient_norm = float("nan")
         self.last_clipped_gradient_norm = float("nan")
+        self.last_logit_abs_mean = float("nan")
+        self.last_logit_abs_max = float("nan")
+        self.curriculum_stage = 0
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -120,6 +124,8 @@ class Trainer:
             logits = self.model(token_ids, attention_mask=attention_mask) if attention_mask is not None else self.model(token_ids)
             if isinstance(logits, tuple):
                 logits = logits[0]
+            self.last_logit_abs_mean = float(logits.detach().float().abs().mean())
+            self.last_logit_abs_max = float(logits.detach().float().abs().max())
             loss_function = self.batch_loss_fn if is_batch else self.tensor_loss_fn
             # Reuse the count already computed by the standard loss. Custom
             # objectives retain their existing tensor-returning contract.
@@ -302,6 +308,7 @@ class Trainer:
         validation_metric_name: str | None = None,
         validation_callback=None,
         stop_requested=None,
+        curriculum_schedule: CurriculumSchedule | None = None,
     ) -> list[dict[str, object]]:
         if epochs < 1:
             raise ValueError("epochs must be positive")
@@ -351,6 +358,8 @@ class Trainer:
         history: list[dict[str, object]] = []
         last_validation_lr_decay_step: int | None = None
         batch_sampler = getattr(dataloader, "batch_sampler", None)
+        if curriculum_schedule is not None and not isinstance(curriculum_schedule, CurriculumSchedule):
+            raise TypeError("curriculum_schedule must be a CurriculumSchedule")
         # A resumable sampler reports only its remaining batches from __len__.
         # Progress and ETA need the full epoch length, independent of that
         # resume offset. Other iterable loaders retain their ordinary length.
@@ -552,6 +561,12 @@ class Trainer:
 
         for epoch in range(self.current_epoch, epochs):
             last_validation_step = None
+            if curriculum_schedule is not None:
+                stage_index, stage = curriculum_schedule.stage_for_epoch(epoch)
+                if batch_sampler is None or not hasattr(batch_sampler, "set_sampling_group_weights"):
+                    raise ValueError("curriculum scheduling requires a grouped resumable batch sampler")
+                batch_sampler.set_sampling_group_weights(stage.weights)
+                self.curriculum_stage = stage_index
             if hasattr(batch_sampler, "set_epoch"):
                 batch_sampler.set_epoch(epoch)
             if hasattr(batch_sampler, "set_start_batch"):
@@ -712,6 +727,10 @@ class Trainer:
                 "train_loss": running_loss / max(running_batches, 1),
                 "learning_rate": self.learning_rate,
                 "gradient_norm": self.last_gradient_norm,
+                "clipped_gradient_norm": self.last_clipped_gradient_norm,
+                "logit_abs_mean": self.last_logit_abs_mean,
+                "logit_abs_max": self.last_logit_abs_max,
+                "curriculum_stage": self.curriculum_stage,
                 "tokens_processed": self.tokens_processed,
                 "tokens_per_second": self.tokens_per_second,
                 "peak_memory_mb": self.peak_memory_mb,
@@ -772,6 +791,9 @@ class Trainer:
             "nonfinite_updates": self.nonfinite_updates,
             "last_gradient_norm": self.last_gradient_norm,
             "last_clipped_gradient_norm": self.last_clipped_gradient_norm,
+            "last_logit_abs_mean": self.last_logit_abs_mean,
+            "last_logit_abs_max": self.last_logit_abs_max,
+            "curriculum_stage": self.curriculum_stage,
         }
 
     def load_state_dict(self, state: Mapping[str, int | float | bool | str | None]) -> None:
@@ -798,3 +820,6 @@ class Trainer:
         self.last_clipped_gradient_norm = float(
             state.get("last_clipped_gradient_norm", self.last_gradient_norm)
         )
+        self.last_logit_abs_mean = float(state.get("last_logit_abs_mean", float("nan")))
+        self.last_logit_abs_max = float(state.get("last_logit_abs_max", float("nan")))
+        self.curriculum_stage = int(state.get("curriculum_stage", 0))

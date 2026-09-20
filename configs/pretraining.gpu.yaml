@@ -26,6 +26,14 @@ train_files:
 dataset_weights:
   tinystories: 0.10
   wikitext_103: 0.90
+# Weights use the train_files/dataset_weights order. Stage selection is saved
+# in trainer state, while sampler state retains active group weights for safe
+# resume if batch size changes.
+curriculum:
+  - start_epoch: 0
+    weights: [0.10, 0.90]
+  - start_epoch: 2
+    weights: [0.20, 0.80]
 # Versioned candidate sources for the next governed mixture stage. They are
 # declared here for reproducibility and auditability; train_files above remain
 # the active laptop profile until each source has local, reviewed artifacts.

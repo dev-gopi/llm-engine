@@ -5,8 +5,52 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 
 from torch.utils.data import Sampler as TorchSampler
+
+
+@dataclass(frozen=True)
+class CurriculumStage:
+    start_epoch: int
+    weights: tuple[float, ...]
+
+
+class CurriculumSchedule:
+    """Validated epoch-indexed mixture weights for a fixed source ordering."""
+
+    def __init__(self, stages: Sequence[CurriculumStage]) -> None:
+        if not stages or stages[0].start_epoch != 0:
+            raise ValueError("curriculum must start at epoch zero")
+        if any(stage.start_epoch < 0 for stage in stages):
+            raise ValueError("curriculum start_epoch must be non-negative")
+        if any(right.start_epoch <= left.start_epoch for left, right in zip(stages, stages[1:])):
+            raise ValueError("curriculum stages must have increasing start_epoch values")
+        width = len(stages[0].weights)
+        if not width or any(len(stage.weights) != width for stage in stages):
+            raise ValueError("curriculum stages must have equally sized non-empty weights")
+        if any(any(weight < 0 or not math.isfinite(weight) for weight in stage.weights) or not any(stage.weights)
+               for stage in stages):
+            raise ValueError("curriculum weights must be finite and include a positive value")
+        self.stages = tuple(stages)
+
+    @classmethod
+    def from_config(cls, config: Sequence[dict]) -> "CurriculumSchedule":
+        stages = []
+        for entry in config:
+            if not isinstance(entry, dict):
+                raise ValueError("each curriculum stage must be a mapping")
+            weights = entry.get("weights")
+            if not isinstance(weights, list):
+                raise ValueError("curriculum stage weights must be a list")
+            stages.append(CurriculumStage(int(entry.get("start_epoch", -1)), tuple(float(value) for value in weights)))
+        return cls(stages)
+
+    def stage_for_epoch(self, epoch: int) -> tuple[int, CurriculumStage]:
+        if epoch < 0:
+            raise ValueError("epoch must be non-negative")
+        index = max(index for index, stage in enumerate(self.stages) if stage.start_epoch <= epoch)
+        return index, self.stages[index]
 
 
 class Sampler(TorchSampler[list[int]]):
@@ -55,6 +99,20 @@ class Sampler(TorchSampler[list[int]]):
             raise ValueError("start_batch must be non-negative")
         self.start_batch = start_batch
 
+    def set_sampling_group_weights(self, weights: Sequence[float]) -> None:
+        """Atomically replace source-group weights without changing ranges."""
+        if not self.sampling_groups:
+            raise ValueError("curriculum requires sampling_groups")
+        if len(weights) != len(self.sampling_groups):
+            raise ValueError("curriculum weights must match sampling_groups")
+        normalized = [float(weight) for weight in weights]
+        if any(weight < 0 or not math.isfinite(weight) for weight in normalized) or not any(normalized):
+            raise ValueError("curriculum weights must be finite and include a positive value")
+        self.sampling_groups = [
+            (start, end, weight)
+            for (start, end, _), weight in zip(self.sampling_groups, normalized, strict=True)
+        ]
+
     def __iter__(self) -> Iterator[list[int]]:
         randomizer = random.Random(self.seed + self.epoch)
         if self.shuffle and self.sampling_groups:
@@ -96,14 +154,15 @@ class Sampler(TorchSampler[list[int]]):
         batches = examples // self.batch_size if self.drop_last else math.ceil(examples / self.batch_size)
         return batches
 
-    def state_dict(self) -> dict[str, int]:
+    def state_dict(self) -> dict[str, object]:
         return {
             "epoch": self.epoch,
             "start_batch": self.start_batch,
             "batch_size": self.batch_size,
+            "sampling_group_weights": [weight for _, _, weight in self.sampling_groups],
         }
 
-    def load_state_dict(self, state: dict[str, int]) -> None:
+    def load_state_dict(self, state: dict[str, object]) -> None:
         self.epoch = int(state.get("epoch", 0))
         start_batch = int(state.get("start_batch", 0))
         saved_batch_size = int(state.get("batch_size", self.batch_size))
@@ -113,3 +172,6 @@ class Sampler(TorchSampler[list[int]]):
         # batch-size change otherwise skips data or jumps beyond the epoch.
         completed_examples = start_batch * saved_batch_size
         self.set_start_batch(completed_examples // self.batch_size)
+        weights = state.get("sampling_group_weights")
+        if weights is not None:
+            self.set_sampling_group_weights(weights)

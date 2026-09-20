@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 from training.data import _mixture_groups, _mixture_name, build_loader, interleave_loaders
+from datasets.sampler import CurriculumSchedule, CurriculumStage, Sampler
 
 
 def test_validation_sources_are_interleaved_before_batch_cap() -> None:
@@ -158,3 +160,29 @@ def test_validation_worker_budget_is_independent(tmp_path):
     assert validation.num_workers == 1 and not validation.persistent_workers
     config["validation_num_workers"] = 0
     assert build_loader([source], tokenizer, config, shuffle=False).num_workers == 0
+
+
+def test_curriculum_schedule_updates_and_restores_sampler_group_weights() -> None:
+    sampler = Sampler(
+        [3, 4, 5, 6], batch_size=1, sampling_groups=[(0, 2, 0.1), (2, 4, 0.9)],
+    )
+    schedule = CurriculumSchedule((
+        CurriculumStage(0, (0.1, 0.9)), CurriculumStage(2, (0.4, 0.6)),
+    ))
+    stage_index, stage = schedule.stage_for_epoch(2)
+    sampler.set_sampling_group_weights(stage.weights)
+    restored = Sampler(
+        [3, 4, 5, 6], batch_size=1, sampling_groups=[(0, 2, 0.1), (2, 4, 0.9)],
+    )
+    restored.load_state_dict(sampler.state_dict())
+
+    assert stage_index == 1
+    assert [weight for _, _, weight in restored.sampling_groups] == [0.4, 0.6]
+
+
+def test_pretraining_curriculum_matches_active_source_count() -> None:
+    root = Path(__file__).resolve().parents[1]
+    import yaml
+    config = yaml.safe_load((root / "configs/pretraining.gpu.yaml").read_text(encoding="utf-8"))
+    schedule = CurriculumSchedule.from_config(config["curriculum"])
+    assert len(schedule.stages[0].weights) == len(config["train_files"])

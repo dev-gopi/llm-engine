@@ -7,6 +7,9 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **CUR-001 Curriculum and Diagnostics**: Added validated epoch-indexed
+  source-mixture schedules with resume-safe sampler weights, plus training
+  history/checkpoint metrics for gradient clipping and output magnitudes.
 - **DATA-002 Versioned Streaming Mixtures**: Added validated, license-aware
   source declarations with retained quality metrics and deterministic weighted
   streaming provenance. The web/code/math/reasoning profile remains inactive
