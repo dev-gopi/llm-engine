@@ -878,7 +878,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `EMB-001`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P2`
 
@@ -906,7 +906,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `AGT-004`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P2`
 
@@ -920,7 +920,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `MEM-002`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P3`
 
@@ -948,7 +948,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `SCALE-004`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P2`
 
@@ -1032,7 +1032,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Track**: `AGENT`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
@@ -1212,7 +1212,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TRAINING`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
@@ -1220,15 +1220,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### CHAT-003: Instruction Dataset Quality Pipeline
 
 - **ID**: `CHAT-003`
 
 - **Track**: `CHAT`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
@@ -1236,15 +1234,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### ALIGN-001: Preference Dataset Pipeline
 
 - **ID**: `ALIGN-001`
 
 - **Track**: `ALIGNMENT`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
@@ -1252,8 +1248,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### ALIGN-002: DPO Evaluation and Regression
 
 - **ID**: `ALIGN-002`
@@ -1268,15 +1262,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### ALIGN-003: Alignment Method Experiment Interface
 
 - **ID**: `ALIGN-003`
 
 - **Track**: `ALIGNMENT`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P2`
 
@@ -1284,15 +1276,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### RSN-004: Reasoning Verification Pipeline
 
 - **ID**: `RSN-004`
 
 - **Track**: `REASONING`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
@@ -1300,15 +1290,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### RSN-005: Reasoning Difficulty Curriculum
 
 - **ID**: `RSN-005`
 
 - **Track**: `REASONING`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
@@ -1316,15 +1304,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### EVAL-003: External Benchmark Adapter Framework
 
 - **ID**: `EVAL-003`
 
 - **Track**: `EVALUATION`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
@@ -1332,15 +1318,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### EVAL-004: Dynamic / Anti-Contamination Evaluation
 
 - **ID**: `EVAL-004`
 
 - **Track**: `EVALUATION`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
@@ -1348,15 +1332,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### EVAL-005: Calibration and Confidence Evaluation
 
 - **ID**: `EVAL-005`
 
 - **Track**: `EVALUATION`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P2`
 
@@ -1364,15 +1346,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### EVAL-006: Hallucination and Uncertainty Evaluation
 
 - **ID**: `EVAL-006`
 
 - **Track**: `EVALUATION`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
@@ -1380,15 +1360,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### EVAL-007: Release Regression Gate
 
 - **ID**: `EVAL-007`
 
 - **Track**: `EVALUATION`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
@@ -1396,15 +1374,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### TOKEN-002: Tokenizer Quality Benchmark
 
 - **ID**: `TOKEN-002`
 
 - **Track**: `TOKENIZER`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
@@ -1412,15 +1388,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### TOKEN-003: Tokenizer Version Compatibility Gate
 
 - **ID**: `TOKEN-003`
 
 - **Track**: `TOKENIZER`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
@@ -1428,8 +1402,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### CTX-003: Context Scaling Ablation
 
 - **ID**: `CTX-003`
@@ -1444,8 +1416,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### INF-003: End-to-End Throughput Benchmark
 
 - **ID**: `INF-003`
@@ -1460,8 +1430,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### INF-004: Serving Load and Soak Testing
 
 - **ID**: `INF-004`
@@ -1476,8 +1444,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### INF-006: Cancellation and Failure Stress Testing
 
 - **ID**: `INF-006`
@@ -1492,15 +1458,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
-
-- **Implementation notes**: Implemented deterministic, evidence-gated contracts and automated regression tests; hardware/dataset-scale measurements remain external evidence and are never fabricated by the code.
 ### API-002: Structured Output / JSON Schema Enforcement
 
 * **ID**: `API-002`
 
 * **Title**: Structured Output / JSON Schema Enforcement
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P0`
 
@@ -1539,7 +1503,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: OpenAI-Compatible Responses API
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -1612,7 +1576,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Native MCP Tool Execution Contract
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -1687,7 +1651,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Token Usage & Cache Accounting Contract
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -1725,7 +1689,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Generation Parameter Compatibility Suite
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -1765,7 +1729,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Request Cancellation Contract
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P0`
 

@@ -42,8 +42,15 @@ def format_system_prompt(
     include_safety_instruction: bool = True,
 ) -> str:
     """Add behavior-mode and output-format contracts to a system prompt."""
-    normalized_format = response_format.strip().lower() if response_format else None
-    if normalized_format == "markdown":
+    if isinstance(response_format, dict):
+        normalized_format = str(response_format.get("type", "")).strip().lower()
+    else:
+        normalized_format = response_format.strip().lower() if response_format else None
+    if normalized_format == "json_schema":
+        instruction = "Return only JSON conforming to the supplied JSON Schema. Do not add commentary."
+    elif normalized_format == "json_object":
+        instruction = "Return only a valid JSON object."
+    elif normalized_format == "markdown":
         instruction = "Use valid Markdown."
     elif normalized_format == "plain":
         instruction = "Use plain text."

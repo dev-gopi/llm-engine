@@ -40,6 +40,10 @@ class BackendGeneration:
     prompt_tokens: int
     completion_tokens: int
     finish_reason: FinishReason = FinishReason.STOP
+    cached_tokens: int = 0
+    reasoning_tokens: int = 0
+    structured_output_valid: bool | None = None
+    structured_output_error: str | None = None
 
 
 @dataclass(frozen=True)

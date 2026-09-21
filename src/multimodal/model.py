@@ -177,10 +177,19 @@ def multimodal_sft_metrics(logits: Tensor, response_ids: Tensor, response_loss_m
     return {"token_accuracy": float(accuracy), "perplexity": float(torch.exp(loss)), "tokens": float(labels.numel())}
 
 
-def validate_modality_contracts(contracts: list[object]) -> None:
-    """Require explicit, separately-versioned contracts for non-image modalities."""
+def validate_modality_contracts(contracts) -> None:
+    """Validate that non-image modalities use explicit encoder contracts."""
+    if not contracts:
+        raise ValueError("at least one modality contract is required")
+    seen = set()
     for contract in contracts:
-        if not hasattr(contract, "validate"): raise ValueError("invalid modality contract")
-        contract.validate()
-    modalities=[getattr(c,"modality",None) for c in contracts]
-    if len(modalities) != len(set(modalities)): raise ValueError("duplicate modality contracts")
+        modality = str(getattr(contract, "modality", "")).lower()
+        version = str(getattr(contract, "version", getattr(contract, "encoder_id", "")))
+        dimension = int(getattr(contract, "embedding_dim", getattr(contract, "feature_dim", 0)))
+        if modality in seen:
+            raise ValueError(f"duplicate modality contract: {modality}")
+        if modality not in {"image", "audio", "video"}:
+            raise ValueError(f"unsupported modality: {modality}")
+        if not version.strip() or dimension <= 0:
+            raise ValueError(f"invalid {modality} modality contract")
+        seen.add(modality)

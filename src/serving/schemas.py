@@ -12,7 +12,10 @@ from pydantic import (
     PrivateAttr,
     StringConstraints,
     field_validator,
+    model_validator,
 )
+
+from schema.structured_outputs import make_spec, StructuredSchemaError
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -59,7 +62,8 @@ class GenerateRequest(StrictSchema):
         pattern=r"^[A-Za-z0-9._-]{1,128}$",
     )
 
-    response_format: Literal["plain", "markdown"] | None = None
+    response_format: str | dict[str, Any] | None = None
+    reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
     web_search: bool = False
     rag: bool = False
 
@@ -106,6 +110,15 @@ class GenerateRequest(StrictSchema):
         max_length=128,
     )
     tool_choice: "OpenAIToolChoice" = "auto"
+
+    @field_validator("response_format")
+    @classmethod
+    def validate_response_format(cls, value):
+        if value is None or isinstance(value, dict):
+            return value
+        if value not in {"plain", "markdown"}:
+            raise ValueError("response format must be plain, markdown, or a structured response object")
+        return value
 
     @field_validator("stop")
     @classmethod
@@ -155,6 +168,8 @@ class TokenUsage(StrictSchema):
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
     total_tokens: int = Field(ge=0)
+    cached_tokens: int = Field(default=0, ge=0)
+    reasoning_tokens: int = Field(default=0, ge=0)
 
 
 class OpenAIToolFunction(StrictSchema):
@@ -230,6 +245,35 @@ class OpenAIChatMessage(BaseModel):
         return value
 
 
+class OpenAIJSONSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: NonEmptyText = Field(max_length=64)
+    description: str | None = Field(default=None, max_length=4096)
+    schema_: dict[str, Any] = Field(alias="schema")
+    strict: bool = False
+
+    @field_validator("schema_")
+    @classmethod
+    def validate_schema(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            make_spec(name="schema", schema=value, strict=False)
+        except StructuredSchemaError as exc:
+            raise ValueError(str(exc)) from exc
+        return value
+
+    @model_validator(mode="after")
+    def validate_strict_schema(self):
+        try:
+            make_spec(name=self.name, schema=self.schema_, strict=self.strict)
+        except StructuredSchemaError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
+
+class OpenAIResponseFormat(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["text", "json_object", "json_schema"]
+    json_schema: OpenAIJSONSchema | None = None
+
 class OpenAIChatCompletionRequest(BaseModel):
     """OpenAI Chat Completions compatible request used by the serving API."""
 
@@ -242,6 +286,8 @@ class OpenAIChatCompletionRequest(BaseModel):
     )
 
     stream: bool = False
+    response_format: OpenAIResponseFormat | None = None
+    reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
 
     max_tokens: int | None = Field(default=None, ge=1, le=8_192)
     max_completion_tokens: int | None = Field(
@@ -263,6 +309,7 @@ class OpenAIChatCompletionRequest(BaseModel):
         le=1.0,
         allow_inf_nan=False,
     )
+    top_k: int = Field(default=40, ge=0, le=100_000)
 
     min_p: float = Field(
         default=0.0,
@@ -278,7 +325,7 @@ class OpenAIChatCompletionRequest(BaseModel):
         ge=0,
         le=2**63 - 1,
     )
-
+    repetition_penalty: float = Field(default=1.1, ge=0.1, le=2.0)
     user: str | None = Field(
         default=None,
         max_length=128,
@@ -416,12 +463,16 @@ class OpenAIChatCompletionRequest(BaseModel):
             prompt=latest_user,
             max_tokens=maximum,
             temperature=self.temperature,
+            top_k=self.top_k,
             top_p=self.top_p,
             min_p=self.min_p,
+            repetition_penalty=self.repetition_penalty,
             seed=self.seed,
             stop=stops,
             chat_tools=self.tools or [],
             tool_choice=self.tool_choice,
+            response_format=(self.response_format.model_dump(mode="json") if self.response_format else None),
+            reasoning_effort=self.reasoning_effort,
         )
 
         request._chat_messages = [
@@ -463,6 +514,7 @@ class GenerateResponse(StrictSchema):
 class OpenAIChatCompletionMessage(StrictSchema):
     role: Literal["assistant"] = "assistant"
     content: str | None = None
+    refusal: str | None = None
     tool_calls: list[OpenAIToolCall] | None = None
 
 
@@ -479,6 +531,7 @@ class OpenAIChatCompletionResponse(StrictSchema):
     model: str
     choices: list[OpenAIChatCompletionChoice]
     usage: TokenUsage
+    incomplete_details: dict[str, Any] | None = None
 
 
 class OpenAIChatCompletionDelta(StrictSchema):

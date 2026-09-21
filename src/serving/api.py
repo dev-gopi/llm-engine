@@ -9,6 +9,7 @@ import subprocess
 import time
 import uuid
 import secrets
+import asyncio
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -24,9 +25,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from fastapi.security import HTTPBearer
 from utils.config import load_yaml
 from utils.logger import get_logger
+from runtime.cancellation import CancellationRegistry
 
 from .runtime import (
     BackendUnavailableError,
+    BackendGeneration,
+    FinishReason,
     GenerationBackend,
     GenerationTimeoutError,
     InvalidGenerationRequestError,
@@ -47,8 +51,11 @@ from .schemas import (
     TokenUsage,
     WorkspaceAgentRequest,
     WorkspaceAgentResponse,
+    OpenAITool,
 )
 from .workspace import WorkspaceService
+from api.responses import ResponsesRequest, ResponsesResponse, ResponsesOutput
+from api.chat_completions import parse_response_format
 from .websocket import router as websocket_router
 from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
 
@@ -277,6 +284,28 @@ def _session_context_usage(store, session_id: str, *, reserve_tokens: int) -> di
     }
 
 
+async def _generate_with_disconnect(runtime: ServingRuntime, request: Request, generation_request: GenerateRequest, *, request_id: str | None = None, registry: CancellationRegistry | None = None):
+    task = asyncio.create_task(runtime.generate(generation_request))
+    if request_id and registry:
+        registry.register(request_id, task)
+    try:
+        while not task.done():
+            if await request.is_disconnected():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise asyncio.CancelledError("client disconnected")
+            await asyncio.sleep(0.05)
+        return await task
+    except BaseException:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        raise
+    finally:
+        if request_id and registry:
+            registry.unregister(request_id)
+
+
 def create_app(
     backend: GenerationBackend | None = None,
     *,
@@ -290,6 +319,7 @@ def create_app(
         generation_timeout_seconds=settings.generation_timeout_seconds,
         continuous_streams=settings.continuous_streams,
     )
+    cancellation_registry = CancellationRegistry()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -473,7 +503,7 @@ def create_app(
         tags=["openai-compatible"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
-    async def openai_chat_completions(request: OpenAIChatCompletionRequest):
+    async def openai_chat_completions(request: OpenAIChatCompletionRequest, http_request: Request):
         try:
             generation_request = request.generation_request(settings.model_name)
         except ValueError as error:
@@ -482,6 +512,9 @@ def create_app(
         created = int(time.time())
         if request.stream:
             async def events():
+                cancellation_registry.register(completion_id, asyncio.current_task())
+                structured_parts: list[str] = []
+                is_structured = isinstance(generation_request.response_format, dict) and generation_request.response_format.get("type") == "json_schema"
                 start = {
                     "id": completion_id,
                     "object": "chat.completion.chunk",
@@ -495,7 +528,12 @@ def create_app(
                 yield f"data: {json.dumps(start, ensure_ascii=False)}\n\n"
                 finish_reason = "stop"
                 async for event in runtime.stream(generation_request):
+                    if await http_request.is_disconnected():
+                        raise asyncio.CancelledError("client disconnected")
                     if event.token:
+                        if is_structured:
+                            structured_parts.append(event.token)
+                            continue
                         chunk = {
                             "id": completion_id,
                             "object": "chat.completion.chunk",
@@ -509,6 +547,17 @@ def create_app(
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     if event.finish_reason is not None:
                         finish_reason = event.finish_reason.value
+                if is_structured:
+                    from schema.structured_outputs import make_spec, validate_structured_output, StructuredOutputError
+                    payload = generation_request.response_format["json_schema"]
+                    try:
+                        spec = make_spec(name=str(payload.get("name", "response")), schema=payload["schema"], strict=bool(payload.get("strict", False)))
+                        validate_structured_output("".join(structured_parts).strip(), spec)
+                        chunk = {"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": settings.model_name, "choices": [{"index": 0, "delta": {"content": "".join(structured_parts).strip()}, "finish_reason": None}]}
+                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                    except StructuredOutputError as exc:
+                        chunk = {"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": settings.model_name, "choices": [{"index": 0, "delta": {"refusal": str(exc)}, "finish_reason": "length"}]}
+                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                 done = {
                     "id": completion_id,
                     "object": "chat.completion.chunk",
@@ -520,11 +569,22 @@ def create_app(
                     }],
                 }
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+                cancellation_registry.unregister(completion_id)
                 yield "data: [DONE]\n\n"
 
             return StreamingResponse(events(), media_type="text/event-stream")
 
-        result = await runtime.generate(generation_request)
+        result = await _generate_with_disconnect(runtime, http_request, generation_request, request_id=completion_id, registry=cancellation_registry)
+        structured_incomplete = result.structured_output_valid is False
+        if not structured_incomplete:
+            spec = parse_response_format(request.response_format)
+            if spec is not None:
+                from schema.structured_outputs import validate_structured_output, StructuredOutputError
+                try:
+                    validate_structured_output(result.text, spec)
+                except StructuredOutputError as exc:
+                    structured_incomplete = True
+                    result = BackendGeneration(result.text, result.prompt_tokens, result.completion_tokens, FinishReason.LENGTH, result.cached_tokens, result.reasoning_tokens, False, str(exc))
         return {
             "id": completion_id,
             "object": "chat.completion",
@@ -532,15 +592,79 @@ def create_app(
             "model": settings.model_name,
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": result.text},
-                "finish_reason": result.finish_reason.value,
+                "message": ({"role": "assistant", "content": None, "refusal": result.structured_output_error}
+                            if structured_incomplete else {"role": "assistant", "content": result.text}),
+                "finish_reason": "length" if structured_incomplete else result.finish_reason.value,
             }],
             "usage": {
                 "prompt_tokens": result.prompt_tokens,
                 "completion_tokens": result.completion_tokens,
                 "total_tokens": result.prompt_tokens + result.completion_tokens,
+                "cached_tokens": result.cached_tokens,
+                "reasoning_tokens": result.reasoning_tokens,
             },
+            "incomplete_details": ({"reason": "structured_output_validation_failed"} if structured_incomplete else None),
         }
+
+    @application.post(
+        "/v1/responses",
+        tags=["openai-compatible"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def responses(request: ResponsesRequest, http_request: Request):
+        if request.model != settings.model_name:
+            raise InvalidGenerationRequestError(f"unknown model: {request.model}")
+        if isinstance(request.input, str):
+            messages = [{"role": "user", "content": request.input}]
+        else:
+            messages = [item.model_dump() for item in request.input]
+        latest = next((m["content"] for m in reversed(messages) if m.get("content")), None)
+        if not latest:
+            raise InvalidGenerationRequestError("input must contain non-empty content")
+        response_format = request.response_format
+        generation_request = GenerateRequest(
+            prompt=latest, max_tokens=request.max_output_tokens, temperature=request.temperature,
+            top_k=request.top_k, top_p=request.top_p, min_p=request.min_p, seed=request.seed,
+            stop=([request.stop] if isinstance(request.stop, str) else list(request.stop or [])),
+            response_format=response_format, reasoning_effort=request.reasoning_effort,
+            rag=request.rag, web_search=request.web_search,
+            chat_tools=[OpenAITool.model_validate(tool) for tool in request.tools], tool_choice=request.tool_choice,
+        )
+        generation_request._chat_messages = messages
+        response_id = f"resp_{uuid.uuid4().hex}"
+        created = int(time.time())
+        if request.stream:
+            async def events():
+                cancellation_registry.register(response_id, asyncio.current_task())
+                async for event in runtime.stream(generation_request):
+                    if await http_request.is_disconnected():
+                        raise asyncio.CancelledError("client disconnected")
+                    payload = {"type": "response.output_text.delta", "delta": event.token, "response_id": response_id}
+                    if event.finish_reason is not None:
+                        payload = {"type": "response.completed", "response_id": response_id, "finish_reason": event.finish_reason.value}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                cancellation_registry.unregister(response_id)
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(events(), media_type="text/event-stream")
+        result = await _generate_with_disconnect(runtime, http_request, generation_request, request_id=response_id, registry=cancellation_registry)
+        status_value = "completed" if result.structured_output_valid is not False else "incomplete"
+        output_text = result.text if status_value == "completed" else ""
+        body = ResponsesResponse(
+            id=response_id, created=created, model=settings.model_name, status=status_value,
+            output=[ResponsesOutput(content=output_text)] if output_text else [],
+            usage={"prompt_tokens": result.prompt_tokens, "completion_tokens": result.completion_tokens,
+                   "total_tokens": result.prompt_tokens + result.completion_tokens,
+                   "cached_tokens": result.cached_tokens, "reasoning_tokens": result.reasoning_tokens},
+            error=( {"code": "structured_output_incomplete", "message": result.structured_output_error} if result.structured_output_valid is False else None),
+        )
+        return body
+
+    @application.post("/v1/requests/{request_id}/cancel", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    async def cancel_request(request_id: str):
+        if not REQUEST_ID_PATTERN.fullmatch(request_id):
+            return JSONResponse(status_code=400, content={"error": {"code": "invalid_request_id", "message": "invalid request id"}})
+        cancelled = cancellation_registry.cancel(request_id)
+        return {"request_id": request_id, "cancelled": cancelled}
 
     @application.post(
         "/v1/admin/reload",

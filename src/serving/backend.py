@@ -17,6 +17,7 @@ from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
 from inference.rag import RagIndex, SQLiteRagIndex, build_rag_prompt
+from rag.reranker import LexicalCrossEncoderBaseline
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from inference.quantization import prepare_model_for_inference
@@ -36,6 +37,8 @@ from .runtime import (
     InvalidGenerationRequestError,
 )
 from .schemas import FinishReason, GenerateRequest
+from schema.structured_outputs import make_spec, validate_structured_output, StructuredOutputError
+from runtime.reasoning import resolve_reasoning_budget
 from .orchestration import ReloadableBackend, ReplicaPoolBackend
 
 logger = get_logger(__name__)
@@ -96,6 +99,7 @@ class ConfiguredModelBackend:
         self.web_search = web_search or {}
         self.rag_config = rag or {}
         self.rag_index: RagIndex | None = None
+        self.reranker = LexicalCrossEncoderBaseline()
         self.prefix_cache_capacity = prefix_cache_capacity
         self.paged_kv_pages = paged_kv_pages
         self.paged_kv_page_size = paged_kv_page_size
@@ -305,13 +309,16 @@ class ConfiguredModelBackend:
                 completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
             )
         user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
+        reasoning = resolve_reasoning_budget(request.reasoning_effort, max_tokens=request.max_tokens)
+        effective_max_tokens = request.max_tokens
+        if request.reasoning_effort != "none":
+            effective_max_tokens = max(1, min(request.max_tokens, reasoning.max_tokens))
         options = dict(
-            max_tokens=request.max_tokens, temperature=request.temperature,
+            max_tokens=effective_max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
             repetition_penalty=request.repetition_penalty,
             no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
-            seed=request.seed, stop=request.stop,
-            allow_special_tokens=True,
+            seed=request.seed, stop=request.stop, allow_special_tokens=True,
         )
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
@@ -326,6 +333,8 @@ class ConfiguredModelBackend:
             reserve = min(request.max_tokens, max(1, maximum - 1))
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
         prompt_ids = ConfiguredModelBackend._validate_prompt(self, prompt)
+        cache_hits_before = getattr(self.generator, "prefix_cache_hits", 0)
+        cache_misses_before = getattr(self.generator, "prefix_cache_misses", 0)
         logger.debug("Generating from a %d-token prompt", len(prompt_ids))
         generated_ids: list[int] = []
         pieces: list[str] = []
@@ -340,7 +349,23 @@ class ConfiguredModelBackend:
             if event.finish_reason is not None:
                 finish_reason = event.finish_reason
         text = "".join(pieces).strip()
-        if not text:
+        structured_valid = None
+        structured_error = None
+        if isinstance(request.response_format, dict) and request.response_format.get("type") == "json_schema":
+            payload = request.response_format.get("json_schema")
+            if not isinstance(payload, dict) or not isinstance(payload.get("schema"), dict):
+                raise InvalidGenerationRequestError("response_format.json_schema.schema is required")
+            spec = make_spec(name=str(payload.get("name", "response")), schema=payload["schema"], strict=bool(payload.get("strict", False)))
+            try:
+                validate_structured_output(text, spec)
+                structured_valid = True
+            except StructuredOutputError as exc:
+                structured_error = str(exc)
+                structured_valid = False
+                if request.max_tokens >= effective_max_tokens and request.max_tokens > effective_max_tokens:
+                    raise InvalidGenerationRequestError(structured_error)
+                # Never claim a malformed structured result as a successful completion.
+                finish_reason = "length"
             text = DEFAULT_EMPTY_RESPONSE
             generated_ids = list(self.generator.tokenizer.encode(text))
         if memory:
@@ -350,9 +375,14 @@ class ConfiguredModelBackend:
         visible_text = text
         if search_results:
             visible_text = f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
+        cache_hit = getattr(self.generator, "prefix_cache_hits", 0) > cache_hits_before
+        cache_miss = getattr(self.generator, "prefix_cache_misses", 0) > cache_misses_before
         return BackendGeneration(
             text=visible_text, prompt_tokens=prompt_tokens,
             completion_tokens=len(generated_ids), finish_reason=FinishReason(finish_reason),
+            cached_tokens=prompt_tokens if cache_hit else 0,
+            reasoning_tokens=0 if request.reasoning_effort == "none" else min(len(generated_ids), reasoning.max_tokens),
+            structured_output_valid=structured_valid, structured_output_error=structured_error,
         )
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
@@ -668,12 +698,19 @@ class ConfiguredModelBackend:
                     raise ValueError("RAG index is not loaded; build it with scripts/build_rag_index.py")
                 logger.warning("Hybrid retrieval is continuing without the unavailable RAG index")
             else:
+                candidate_k = int(rag_config.get("candidate_k", max(10, int(rag_config.get("top_k", 3)) * 4)))
                 rag_results = await asyncio.to_thread(
-                    rag_index.search,
-                    query,
-                    top_k=int(rag_config.get("top_k", 3)),
+                    rag_index.search, query, top_k=candidate_k,
                     min_score=float(rag_config.get("min_score", 0.01)),
                 )
+                if bool(rag_config.get("rerank_enabled", False)) and rag_results:
+                    ranked = await asyncio.to_thread(
+                        self.reranker.rerank, query, rag_results,
+                        top_k=int(rag_config.get("top_k", 3)),
+                    )
+                    rag_results = [item.document for item in ranked]
+                else:
+                    rag_results = rag_results[:int(rag_config.get("top_k", 3))]
         if not use_web_search:
             if not rag_results:
                 return None, []

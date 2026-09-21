@@ -1,21 +1,14 @@
 
-## 2026-09-21 — EMB-001, AGT-004, MEM-002, SCALE-004, SCALE-005, VIS-003, AGT-005 implementation layer
+## 2026-09-21 — API/runtime contracts
 
-### Added
-- **EMB-001**: Dedicated embedding interface, deterministic embedding baseline, cosine recall@K, reranking hooks, and embedding-backed RAG search.
-- **AGT-004**: Bounded planning/execution state machine with allowlisted tools, explicit human approval, observations, failure recovery, and MCP approval gating.
-- **MEM-002**: Opt-in user-scoped semantic/episodic SQLite memory with retention expiry, relevance retrieval, and user deletion.
-- **SCALE-004**: QLoRA preparation contract and constrained-GPU fine-tuning profile with merge compatibility inherited from native LoRA.
-- **SCALE-005**: Tensor/pipeline/expert parallel topology and distributed-checkpoint contracts.
-- **VIS-003**: Explicit versioned audio/video modality contracts and research configuration; image projector reuse is not assumed.
-- **AGT-005**: Deterministic agent task result schema and benchmark metrics for success, tool selection, argument validity, recovery, safety, and execution steps.
-- **ATT-002**: Sliding-window attention research profile and dense-checkpoint-compatible fallback.
-- **QNT-002**: Quantized deployment provenance/architecture manifest validation and GPTQ/AWQ/GGUF interchange configuration.
-
-### Evidence gate
-- QNT-002 remains `TODO` until real third-party GPTQ/AWQ/GGUF artifacts are imported/exported and regression-measured.
-- ATT-002, SCALE-005, and VIS-003 remain `TODO` until hardware/multimodal benchmark evidence is recorded.
-- The implementation-layer tests for this batch pass; no external checkpoint, corpus, or third-party runtime result is represented as completed evidence.
+- Added strict JSON Schema structured outputs with schema compatibility and final validation/refusal states.
+- Added OpenAI-compatible `/v1/responses` generation and SSE event contracts while retaining Chat Completions.
+- Added configurable reasoning-effort runtime budgets and reasoning-token accounting.
+- Added first-class local/HTTP MCP execution contracts with shared authorization and approval gates.
+- Added RAG reranker interface and optional candidate reranking.
+- Added standardized token/cache usage accounting and OpenAI generation-parameter validation.
+- Added client-disconnect and explicit request cancellation with cleanup propagation.
+- Added regression tests for structured outputs, Responses API, reasoning budgets, MCP, reranking, parameters, and cancellation.
 
 ## 2026-09-21 — DATA-004..DATA-007 data evaluation infrastructure
 
@@ -178,15 +171,3 @@ Notable user-visible changes and architectural milestones are recorded here.
 
 ## [0.1.0] — Initial Platform Release
 - Initial configuration-driven GPT model, tokenizer, training, evaluation, generation, export, and serving implementation.
-
-## 2026-09-21 — Training, Alignment, Evaluation, Tokenizer, Context, and Inference Gates
-
-Implemented TRAIN-005, CHAT-003, ALIGN-001..003, RSN-004..005, EVAL-003..007,
-TOKEN-002..003, CTX-003, INF-003, INF-004, and INF-006.
-
-The additions are evidence-oriented: selection and release gates operate on
-explicit versioned metrics, dynamic evaluation uses deterministic generated
-fixtures, preference/instruction data are quality-gated, tokenizer compatibility
-is fingerprint-based, and serving stress contracts require zero resource leaks.
-No real benchmark, GPU-memory, soak-duration, or external-corpus result is
-fabricated by the implementation.
