@@ -126,6 +126,28 @@ def test_token_by_token_kv_cache_matches_full_sequence():
     assert cache[0].shape == cache[1].shape == (2, 4, 7, 8)
 
 
+def test_sliding_window_kv_cache_matches_full_sequence():
+    """Incremental decode must retain the same local receptive field as prefill."""
+    torch.manual_seed(111)
+    module = MultiHeadAttention(
+        dim=32, heads=4, causal=True, attention_pattern="sliding_window", attention_window=3
+    ).eval()
+    hidden_states = torch.randn(2, 7, 32)
+    full_output = module(hidden_states)
+
+    cache = None
+    incremental_outputs = []
+    for position in range(hidden_states.size(1)):
+        output, cache = module(
+            hidden_states[:, position : position + 1], past_key_value=cache, use_cache=True
+        )
+        incremental_outputs.append(output)
+
+    torch.testing.assert_close(
+        torch.cat(incremental_outputs, dim=1), full_output, rtol=1e-5, atol=1e-6
+    )
+
+
 def test_paged_kv_decode_matches_contiguous_cache_without_materialization(monkeypatch):
     torch.manual_seed(12)
     module = MultiHeadAttention(dim=16, heads=4, causal=True).eval()

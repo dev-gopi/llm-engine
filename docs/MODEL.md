@@ -114,6 +114,11 @@ processed in bounded chunks, and autoregressive decoding stores recurrent
 This is a **reference research implementation**, not an implementation of the
 architecture-specific Qwen linear-convolution layer.
 
+The optional `sliding_window` attention pattern applies the same configured
+local window during both full-sequence prefill and one-token KV-cache decoding.
+This preserves the model's receptive field rather than allowing cached decoding
+to see an unintended full prefix.
+
 Sparse MoE layers expose a Switch-style router balance signal. The trainer only
 adds it when `moe_aux_loss_weight` is non-zero, so existing dense and MoE
 checkpoints retain their previous inference behavior. The trainer also records

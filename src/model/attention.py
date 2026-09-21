@@ -277,7 +277,14 @@ class MultiHeadAttention(nn.Module):
         device: torch.device,
         dtype: torch.dtype,
     ) -> tuple[Tensor | None, bool]:
-        if attention_mask is None and causal and past_length == 0:
+        # SDPA's built-in causal mask is sufficient only for dense attention.
+        # Sliding-window prefill needs an explicit local-context mask.
+        if (
+            attention_mask is None
+            and causal
+            and past_length == 0
+            and self.attention_pattern == "dense"
+        ):
             return None, True
         if attention_mask is None and not causal:
             return None, False
@@ -293,9 +300,16 @@ class MultiHeadAttention(nn.Module):
                 dtype=dtype,
             )
 
-        # A single final query may attend to every key in its prefix.
-        # Preserve the user mask, but no causal matrix is needed.
-        if causal and query_length == 1 and key_length == past_length + 1:
+        # A single final query may attend to every key in its prefix for dense
+        # causal attention. Sliding-window attention still needs its window
+        # mask during incremental decoding; otherwise each decode token could
+        # see the entire cache instead of only its configured local context.
+        if (
+            causal
+            and self.attention_pattern == "dense"
+            and query_length == 1
+            and key_length == past_length + 1
+        ):
             return prepared, False
 
         if causal:
