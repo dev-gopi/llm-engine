@@ -10,27 +10,13 @@ This is an educational and experimental engine. It does not ship pretrained
 weights, and its small-model profiles are not substitutes for production-scale
 foundation models.
 
-## Guides
+## Documentation
 
-- [Step-by-step MiniGPT training plan](docs/README_MODEL_TRAINING.md) — detailed
-  commands for your current checkpoint, data checks, controlled pretraining,
-  instruction fine-tuning, evaluation, resuming, and troubleshooting.
-- [Training guide](docs/TRAINING_GUIDE.md) — prepare datasets and the
-  tokenizer, pretrain, fine-tune, run recovery or DPO, evaluate, and export.
-- [Direct model-growth guide](docs/DIRECT_TRAINING_GUIDE.md) — extend the
-  tokenizer, grow a compatible source checkpoint, initialize a new stage,
-  resume it safely, and monitor training.
-- [Usage guide](docs/USAGE_GUIDE.md) — generate from the CLI, chat in the
-  terminal, use the browser/API, stream responses, and run exports.
-- [Capabilities and scaling guide](docs/CAPABILITIES_AND_SCALING.md) —
-  realistic uses, limitations, and the path toward the provided 1B, 7B, and
-  30B architecture targets.
-- [Dataset catalog](docs/DATASET_CATALOG.md) — dataset purposes, provenance,
-  preparation, and governance.
-- [Deployment guide](docs/DEPLOYMENT.md) — local and container serving,
-  security, monitoring, and recovery.
-- [Vision and diffusion guide](docs/IMAGE_MODELS.md) — image datasets, training,
-  checkpoint resume, classification, sampling, and production validation.
+- [Project index](docs/PROJECT_INDEX.md) — authoritative source, config, and test locations.
+- [Model reference](docs/MODEL.md) and [configuration reference](docs/CONFIGURATION.md).
+- [Training guide](docs/TRAINING_GUIDE.md) and [model-growth guide](docs/DIRECT_TRAINING_GUIDE.md).
+- [Usage guide](docs/USAGE_GUIDE.md), [deployment guide](docs/DEPLOYMENT.md), and [dataset catalog](docs/DATASET_CATALOG.md).
+- [Capabilities and scaling](docs/CAPABILITIES_AND_SCALING.md), [vision and diffusion](docs/IMAGE_MODELS.md), and [modern runtime features](docs/MODERN_MODEL_FEATURES_2026.md).
 
 Documentation and active configuration filenames are unversioned.
 
@@ -255,7 +241,7 @@ cp .env.production.example .env.production
 docker compose --env-file .env.production up --build -d
 ```
 
-Read [DEPLOYMENT.md](docs/DEPLOYMENT.md) before exposing the service publicly.
+Review the [deployment guide](docs/DEPLOYMENT.md) before exposing the service publicly.
 
 ## Architecture and training behavior
 
@@ -421,8 +407,6 @@ work; the 100B profile therefore remains planning-only.
 ```
 
 `pyarrow` is a declared core dependency used by the Arrow/Hugging Face data-preparation tests. In an offline/source-only environment where it is not installed, report those modules as not executed rather than treating them as passing. Generated tokenizer artifacts are intentionally gitignored, so the compatibility test skips when those artifacts are absent from a source archive.
-
-See [`docs/AUDIT_2026-09-21.md`](docs/AUDIT_2026-09-21.md) for the latest full repository audit.
 
 ## Modern optional model/runtime features (2026-09-21)
 
