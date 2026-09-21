@@ -263,3 +263,35 @@ def test_invalid_loss_chunk_size(value):
 def test_loss_chunk_size_from_config():
     assert CausalLanguageModelLoss.from_config({"loss_chunk_size": 128}).chunk_size == 128
     assert CausalLanguageModelLoss.from_config({}).chunk_size == 0
+
+
+def test_multi_token_prediction_loss_masks_future_targets() -> None:
+    torch.manual_seed(91)
+    labels = torch.randint(0, 17, (2, 8))
+    logits = [torch.randn(2, 8, 17, requires_grad=True), torch.randn(2, 8, 17, requires_grad=True)]
+    mask = torch.ones_like(labels, dtype=torch.bool)
+    mask[:, -1] = False
+    from model.loss import MultiTokenPredictionLoss, MultiTokenPredictionLossOutput
+    result = MultiTokenPredictionLoss(2, weight=0.25)(logits, labels, loss_mask=mask)
+    assert isinstance(result, MultiTokenPredictionLossOutput)
+    assert result.token_count > 0
+    assert len(result.horizon_losses) == 2
+    assert torch.isfinite(result.loss)
+    result.loss.backward()
+    assert all(item.grad is not None for item in logits)
+
+
+def test_trainer_opt_in_mtp_objective_updates_auxiliary_heads():
+    from model.gpt import MiniGPT
+    model = MiniGPT(vocab_size=24, dim=8, layers=1, heads=2, max_pos=12, mtp_num_predictions=1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    trainer = Trainer(model, optimizer, mtp_loss_weight=0.2)
+    batch = {
+        "input_ids": torch.randint(0, 24, (2, 8)),
+        "labels": torch.randint(0, 24, (2, 8)),
+        "loss_mask": torch.ones(2, 8, dtype=torch.bool),
+    }
+    before = model.mtp_heads[0].weight.detach().clone()
+    loss = trainer.train_step(batch)
+    assert math.isfinite(loss)
+    assert not torch.equal(model.mtp_heads[0].weight, before)

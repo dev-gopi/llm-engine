@@ -195,3 +195,68 @@ class CausalLanguageModelLoss(nn.Module):
                 raise TypeError("loss_mask must be a torch.Tensor")
             if loss_mask.shape != labels.shape:
                 raise ValueError("loss_mask shape must match labels")
+
+@dataclass(frozen=True)
+class MultiTokenPredictionLossOutput:
+    """Auxiliary MTP objective and its supervised-token count."""
+
+    loss: Tensor
+    token_count: int
+    horizon_losses: tuple[float, ...]
+
+
+class MultiTokenPredictionLoss(nn.Module):
+    """Predict tokens at horizons 2..N from the same decoder hidden states.
+
+    ``labels`` are the original token IDs aligned with the input sequence.
+    Auxiliary head zero predicts two tokens ahead, head one predicts three
+    tokens ahead, and so on, leaving the ordinary LM head as the one-token
+    prediction objective.
+    """
+
+    def __init__(self, num_predictions: int, *, weight: float = 0.1, ignore_index: int = -100) -> None:
+        super().__init__()
+        if not isinstance(num_predictions, int) or isinstance(num_predictions, bool) or num_predictions < 1:
+            raise ValueError("num_predictions must be a positive integer")
+        if not math.isfinite(weight) or weight < 0:
+            raise ValueError("weight must be finite and non-negative")
+        self.num_predictions = num_predictions
+        self.weight = float(weight)
+        self.ignore_index = int(ignore_index)
+
+    def forward(
+        self,
+        mtp_logits: list[Tensor] | tuple[Tensor, ...],
+        labels: Tensor,
+        *,
+        loss_mask: Tensor | None = None,
+    ) -> MultiTokenPredictionLossOutput:
+        if len(mtp_logits) != self.num_predictions:
+            raise ValueError("number of MTP heads does not match the configured objective")
+        if labels.ndim != 2:
+            raise ValueError("labels must have shape [batch, sequence]")
+        total = labels.new_zeros((), dtype=torch.float32)
+        count = 0
+        horizon_losses: list[float] = []
+        for index, logits in enumerate(mtp_logits, start=2):
+            if logits.ndim != 3 or logits.shape[:2] != labels.shape:
+                raise ValueError("MTP logits must have the same batch/sequence shape as labels")
+            if logits.shape[1] <= index:
+                continue
+            selected_logits = logits[:, :-index].reshape(-1, logits.size(-1)).float()
+            selected_labels = labels[:, index:].reshape(-1).long()
+            if loss_mask is not None:
+                selected_mask = loss_mask[:, index:].reshape(-1).bool()
+                selected_labels = selected_labels.masked_fill(~selected_mask, self.ignore_index)
+            valid = selected_labels.ne(self.ignore_index)
+            if not valid.any():
+                continue
+            ce = F.cross_entropy(selected_logits[valid], selected_labels[valid], reduction="mean")
+            total = total + ce
+            count += int(valid.sum().item())
+            horizon_losses.append(float(ce.detach()))
+        if not horizon_losses:
+            zero = total
+            return MultiTokenPredictionLossOutput(zero, 0, ())
+        total = total / len(horizon_losses) * self.weight
+        return MultiTokenPredictionLossOutput(total, count, tuple(horizon_losses))

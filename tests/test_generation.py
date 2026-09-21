@@ -589,3 +589,43 @@ def test_min_p_api_validation_and_chat_conversion():
     assert request.generation_request("gopi").min_p == 0.2
     with pytest.raises(ValidationError):
         GenerateRequest(prompt="hello", min_p=1.1)
+
+
+def test_speculative_greedy_matches_target_generation() -> None:
+    tokenizer = make_tokenizer()
+    b_id = tokenizer.token_to_id(BYTE_ENCODER[ord("b")])
+    eos_id = tokenizer.token_to_id("<|eos|>")
+
+    class GreedySequence(nn.Module):
+        max_positions = 16
+        def __init__(self):
+            super().__init__()
+            self.anchor = nn.Parameter(torch.zeros(()))
+        def forward(self, token_ids, *, past_key_values=None, use_cache=False):
+            logits = torch.full((*token_ids.shape, tokenizer.vocab_size), -100.0, device=token_ids.device)
+            for row in range(token_ids.shape[0]):
+                for pos in range(token_ids.shape[1]):
+                    logits[row, pos, eos_id if token_ids[row, : pos + 1].tolist()[-1] == b_id else b_id] = 100.0
+            if use_cache:
+                length = token_ids.shape[1] + (past_key_values[0][0].shape[2] if past_key_values else 0)
+                cache = torch.zeros((1, 1, length, 1), device=token_ids.device)
+                return logits, ((cache, cache.clone()),)
+            return logits
+
+    target = GreedySequence()
+    draft = GreedySequence()
+    generator = Generator(target, tokenizer, device="cpu")
+    ordinary = generator.generate("a", max_tokens=4, temperature=0)
+    speculative = generator.generate_speculative("a", draft, max_tokens=4, draft_tokens=3)
+    assert speculative == ordinary
+    assert generator.last_speculative_stats["proposed_tokens"] >= 1
+
+
+def test_json_schema_constraint_validates_complete_json() -> None:
+    from inference.sampler import JSONSchemaConstraint
+    constraint = JSONSchemaConstraint({"type": "object", "required": ["answer"], "properties": {"answer": {"type": "string"}}})
+    assert constraint._prefix_valid('{"answer":"ok"}')
+    assert constraint._prefix_valid('{"answer":"')
+    assert not constraint._prefix_valid('{"answer":}')
+    assert constraint.validate('{"answer":"ok"}')
+    assert not constraint.validate('{"answer": 2}')

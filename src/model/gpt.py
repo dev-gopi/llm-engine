@@ -73,6 +73,7 @@ class MiniGPT(nn.Module):
         router_jitter: float = 0.0,
         gradient_checkpointing: bool = False,
         logit_softcap: float | None = None,
+        mtp_num_predictions: int = 0,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -84,6 +85,9 @@ class MiniGPT(nn.Module):
         self.position_type = str(position_type).lower()
         self.tie_word_embeddings = bool(tie_word_embeddings)
         self.gradient_checkpointing = bool(gradient_checkpointing)
+        if not isinstance(mtp_num_predictions, int) or isinstance(mtp_num_predictions, bool) or mtp_num_predictions < 0:
+            raise ValueError("mtp_num_predictions must be a non-negative integer")
+        self.mtp_num_predictions = int(mtp_num_predictions)
         if logit_softcap is not None and (not math.isfinite(logit_softcap) or logit_softcap <= 0):
             raise ValueError("logit_softcap must be finite and positive when provided")
         self.logit_softcap = float(logit_softcap) if logit_softcap is not None else None
@@ -176,6 +180,14 @@ class MiniGPT(nn.Module):
             nn.init.zeros_(self.head.bias)
         if self.tie_word_embeddings:
             self.tie_weights()
+        self.mtp_heads = nn.ModuleList(
+            nn.Linear(dim, vocab_size, bias=lm_head_bias, device=device, dtype=dtype)
+            for _ in range(self.mtp_num_predictions)
+        )
+        for head in self.mtp_heads:
+            nn.init.normal_(head.weight, mean=0.0, std=initializer_range)
+            if head.bias is not None:
+                nn.init.zeros_(head.bias)
         logger.debug("Initialized GPT with %d layers and %d parameters", layers, self.num_parameters())
 
     def gradient_checkpointing_enable(self) -> None:
@@ -194,13 +206,18 @@ class MiniGPT(nn.Module):
         past_key_values: tuple[KeyValueCache, ...] | None = None,
         use_cache: bool = False,
         logits_to_keep: int = 0,
-    ) -> Tensor | tuple[Tensor, tuple[KeyValueCache, ...]]:
+        return_mtp_logits: bool = False,
+    ) -> Tensor | tuple[Tensor, tuple[KeyValueCache, ...]] | tuple[Tensor, list[Tensor]]:
         # Zero preserves full-sequence training/export behavior. Generation
         # only needs the final token projection, while KV caches stay complete.
         if not isinstance(logits_to_keep, int) or isinstance(logits_to_keep, bool):
             raise TypeError("logits_to_keep must be an integer")
         if logits_to_keep < 0:
             raise ValueError("logits_to_keep must be non-negative")
+        if return_mtp_logits and not self.mtp_num_predictions:
+            raise ValueError("return_mtp_logits requires mtp_num_predictions > 0")
+        if return_mtp_logits and use_cache:
+            raise ValueError("MTP logits are only available for full-sequence training")
         self._validate_inputs(token_ids)
         if not isinstance(position_offset, int) or isinstance(position_offset, bool):
             raise TypeError("position_offset must be an integer")
@@ -345,12 +362,23 @@ class MiniGPT(nn.Module):
                         raise RuntimeError("Transformer block unexpectedly returned a cache")
                     hidden_states = block_output
 
+        normalized_hidden_states = self.norm(hidden_states)
         if logits_to_keep:
-            hidden_states = hidden_states[:, -logits_to_keep:, :]
-        logits = self.head(self.norm(hidden_states))
+            normalized_hidden_states = normalized_hidden_states[:, -logits_to_keep:, :]
+        logits = self.head(normalized_hidden_states)
         if self.logit_softcap is not None:
             logits = self.logit_softcap * torch.tanh(logits / self.logit_softcap)
+        if return_mtp_logits:
+            mtp_logits = [head(normalized_hidden_states) for head in self.mtp_heads]
+            return logits, mtp_logits
         return (logits, tuple(present_key_values)) if use_cache else logits
+
+    def load_causal_checkpoint_state_dict(self, state_dict: Mapping[str, Tensor], *, strict: bool = True):
+        """Load an ordinary causal checkpoint while leaving opt-in MTP heads initialized."""
+        if self.mtp_num_predictions:
+            base_state = {key: value for key, value in state_dict.items() if not key.startswith("mtp_heads.")}
+            return self.load_state_dict(base_state, strict=False)
+        return self.load_state_dict(state_dict, strict=strict)
 
     def tie_weights(self) -> None:
         """Share token embedding and vocabulary projection weights."""
@@ -478,6 +506,7 @@ class MiniGPT(nn.Module):
                 float(config["logit_softcap"])
                 if config.get("logit_softcap") is not None else None
             ),
+            mtp_num_predictions=int(config.get("mtp_num_predictions", 0)),
             device=device,
             dtype=dtype,
         )

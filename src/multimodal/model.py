@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 from torch import Tensor, nn
 
@@ -112,3 +114,64 @@ class VisionLanguageModel(nn.Module):
                 logits / self.language_model.logit_softcap
             )
         return logits
+
+
+@dataclass(frozen=True)
+class ImageTextSFTExample:
+    """One governed image-to-text SFT example."""
+
+    image: Tensor
+    prompt_ids: Tensor
+    response_ids: Tensor
+    sample_id: str = ""
+
+
+def collate_image_text_sft(examples: list[ImageTextSFTExample], *, pad_token_id: int = 0) -> dict[str, Tensor]:
+    """Pad image-text SFT examples and build an assistant-only loss mask."""
+    if not examples:
+        raise ValueError("examples must not be empty")
+    images = torch.stack([example.image for example in examples])
+    prompt_width = max(int(example.prompt_ids.numel()) for example in examples)
+    response_width = max(int(example.response_ids.numel()) for example in examples)
+    prompt = torch.full((len(examples), prompt_width), pad_token_id, dtype=torch.long)
+    response = torch.full((len(examples), response_width), pad_token_id, dtype=torch.long)
+    prompt_mask = torch.zeros_like(prompt, dtype=torch.bool)
+    response_mask = torch.zeros_like(response, dtype=torch.bool)
+    for row, example in enumerate(examples):
+        pids = example.prompt_ids.reshape(-1).long()
+        rids = example.response_ids.reshape(-1).long()
+        prompt[row, : pids.numel()] = pids
+        response[row, : rids.numel()] = rids
+        prompt_mask[row, : pids.numel()] = True
+        response_mask[row, : rids.numel()] = True
+    return {
+        "images": images,
+        "prompt_ids": prompt,
+        "response_ids": response,
+        "prompt_attention_mask": prompt_mask,
+        "response_loss_mask": response_mask,
+        "sample_ids": [example.sample_id for example in examples],
+    }
+
+
+def multimodal_sft_metrics(logits: Tensor, response_ids: Tensor, response_loss_mask: Tensor) -> dict[str, float]:
+    """Compute token accuracy/perplexity for the response portion only."""
+    if logits.ndim != 3 or response_ids.ndim != 2 or response_loss_mask.shape != response_ids.shape:
+        raise ValueError("invalid multimodal SFT evaluation tensors")
+    # logits contain prompt + visual + response positions; compare response token
+    # t against the preceding position, excluding the first response token.
+    response_start = logits.shape[1] - response_ids.shape[1]
+    response_logits = logits[:, response_start - 1 : -1]
+    targets = response_ids
+    mask = response_loss_mask.clone()
+    if mask.shape[1]:
+        mask[:, 0] = False
+    if response_logits.shape[1] != targets.shape[1]:
+        raise ValueError("logits do not contain a full response window")
+    selected = response_logits[mask]
+    labels = targets[mask]
+    if labels.numel() == 0:
+        return {"token_accuracy": 0.0, "perplexity": float("inf"), "tokens": 0.0}
+    loss = torch.nn.functional.cross_entropy(selected.float(), labels, reduction="mean")
+    accuracy = (selected.argmax(dim=-1) == labels).float().mean()
+    return {"token_accuracy": float(accuracy), "perplexity": float(torch.exp(loss)), "tokens": float(labels.numel())}

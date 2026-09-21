@@ -189,3 +189,26 @@ def test_rotary_autocast_cached_decoding_matches_full_forward(static_cache):
             cache = tuple(StaticLayerKVCache(k, v, capacity=16) for k, v in cache)
         actual, _ = model(tokens[:, 3:], past_key_values=cache, use_cache=True)
     torch.testing.assert_close(actual, full[:, -1:], atol=2e-3, rtol=2e-2)
+
+
+def test_mtp_is_opt_in_and_changes_only_opt_in_state() -> None:
+    base = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2)
+    mtp = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2, mtp_num_predictions=2)
+    assert base.mtp_num_predictions == 0
+    assert mtp.mtp_num_predictions == 2
+    assert len(mtp.mtp_heads) == 2
+    logits, aux = mtp(torch.randint(0, 32, (2, 8)), return_mtp_logits=True)
+    assert logits.shape == (2, 8, 32)
+    assert [item.shape for item in aux] == [(2, 8, 32), (2, 8, 32)]
+    with pytest.raises(ValueError, match="requires mtp_num_predictions"):
+        base(torch.randint(0, 32, (1, 4)), return_mtp_logits=True)
+
+
+def test_mtp_model_can_load_ordinary_causal_checkpoint() -> None:
+    torch.manual_seed(7)
+    base = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2)
+    mtp = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2, mtp_num_predictions=2)
+    result = mtp.load_causal_checkpoint_state_dict(base.state_dict())
+    assert not result.missing_keys or all(key.startswith("mtp_heads.") for key in result.missing_keys)
+    assert result.unexpected_keys == []
+    torch.testing.assert_close(mtp.tok.weight, base.tok.weight)

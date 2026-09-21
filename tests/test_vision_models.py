@@ -103,3 +103,24 @@ def test_flexible_vision_resolution_interpolates_position_embeddings() -> None:
 def test_vision_classifier_returns_class_logits() -> None:
     classifier = VisionClassifier(small_vision(), num_classes=5, dropout=0.1)
     assert classifier(torch.randn(2, 3, 32, 32)).shape == (2, 5)
+
+
+def test_image_text_sft_collator_and_metrics() -> None:
+    from multimodal.model import ImageTextSFTExample, collate_image_text_sft, multimodal_sft_metrics
+    examples = [
+        ImageTextSFTExample(torch.zeros(3, 32, 32), torch.tensor([1, 2]), torch.tensor([3, 4]), "a"),
+        ImageTextSFTExample(torch.ones(3, 32, 32), torch.tensor([1]), torch.tensor([5, 6, 7]), "b"),
+    ]
+    batch = collate_image_text_sft(examples)
+    assert batch["images"].shape == (2, 3, 32, 32)
+    assert batch["prompt_ids"].shape == (2, 2)
+    assert batch["response_ids"].shape == (2, 3)
+    assert batch["response_loss_mask"].sum().item() == 5
+
+    logits = torch.full((2, 2 + 4 + 3, 16), -20.0)
+    logits[0, 2 + 4, 4] = 20.0
+    logits[1, 2 + 4, 6] = 20.0
+    logits[1, 2 + 4 + 1, 7] = 20.0
+    metrics = multimodal_sft_metrics(logits, batch["response_ids"], batch["response_loss_mask"])
+    assert metrics["tokens"] == 3
+    assert metrics["token_accuracy"] == 1.0

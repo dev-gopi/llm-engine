@@ -12,7 +12,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch import Tensor
 
-from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
+from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput, MultiTokenPredictionLoss
 from optim.ema import EMA
 from training.evaluator import aggregate_domain_metrics
 from training.accounting import TrainingAccounting
@@ -38,6 +38,7 @@ class Trainer:
         grad_scaler_initial_scale: float = 65536.0,
         grad_scaler_growth_interval: int = 2000,
         reasoning_trace_policy: str = "optional",
+        mtp_loss_weight: float = 0.0,
     ) -> None:
         self.model = model
         self.opt = optimizer
@@ -71,6 +72,13 @@ class Trainer:
         if reasoning_trace_policy not in {"optional", "assistant_only"}:
             raise ValueError("reasoning_trace_policy must be optional or assistant_only")
         self.reasoning_trace_policy = reasoning_trace_policy
+        if not math.isfinite(mtp_loss_weight) or mtp_loss_weight < 0:
+            raise ValueError("mtp_loss_weight must be finite and non-negative")
+        self.mtp_loss_weight = float(mtp_loss_weight)
+        mtp_count = int(getattr(model, "mtp_num_predictions", 0))
+        if self.mtp_loss_weight > 0 and mtp_count <= 0:
+            raise ValueError("mtp_loss_weight > 0 requires model.mtp_num_predictions > 0")
+        self.mtp_loss_fn = MultiTokenPredictionLoss(mtp_count, weight=self.mtp_loss_weight) if mtp_count else None
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -134,9 +142,20 @@ class Trainer:
                 raise ValueError("targets are required when inputs is a tensor")
             targets = targets.to(self.device, non_blocking=non_blocking)
         with torch.autocast(device_type=self.device.type, dtype=self.autocast_dtype, enabled=self.mixed_precision != "none"):
-            logits = self.model(token_ids, attention_mask=attention_mask) if attention_mask is not None else self.model(token_ids)
-            if isinstance(logits, tuple):
-                logits = logits[0]
+            wants_mtp = self.mtp_loss_fn is not None and is_batch
+            if wants_mtp:
+                model_output = (self.model(token_ids, attention_mask=attention_mask, return_mtp_logits=True)
+                                if attention_mask is not None else self.model(token_ids, return_mtp_logits=True))
+            else:
+                model_output = (self.model(token_ids, attention_mask=attention_mask)
+                                if attention_mask is not None else self.model(token_ids))
+            mtp_logits = None
+            if wants_mtp:
+                if not isinstance(model_output, tuple) or len(model_output) != 2:
+                    raise RuntimeError("MTP-enabled model must return (logits, mtp_logits)")
+                logits, mtp_logits = model_output
+            else:
+                logits = model_output[0] if isinstance(model_output, tuple) else model_output
             self.last_logit_abs_mean = float(logits.detach().float().abs().mean())
             self.last_logit_abs_max = float(logits.detach().float().abs().max())
             loss_function = self.batch_loss_fn if is_batch else self.tensor_loss_fn
@@ -146,6 +165,11 @@ class Trainer:
                        if type(loss_function) is CausalLanguageModelLoss else None)
             loss = (details.loss if isinstance(details, LanguageModelLossOutput)
                     else loss_function(logits, targets, loss_mask=loss_mask))
+            if self.mtp_loss_fn is not None:
+                if not is_batch or mtp_logits is None:
+                    raise ValueError("MTP training requires mapping batches with aligned input_ids/labels")
+                mtp_details = self.mtp_loss_fn(mtp_logits, token_ids, loss_mask=loss_mask)
+                loss = loss + mtp_details.loss
         if not bool(torch.isfinite(loss.detach())):
             self.nonfinite_updates += 1
             self.opt.zero_grad(set_to_none=True)

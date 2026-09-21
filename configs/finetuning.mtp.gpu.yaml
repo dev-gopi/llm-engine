@@ -18,9 +18,10 @@ dataset_governance:
   commercial_use: false
 # RSN-002 schema. The dedicated reasoning profile below this base config enables
 # strict assistant-only supervision and activates the governed reasoning corpora.
-reasoning_trace_policy: optional
+reasoning_trace_policy: assistant_only
+training_stage_id: mtp-sft-v1
 # MTP remains disabled in the ordinary SFT profile; use the dedicated MTP model/profile to enable it.
-mtp_loss_weight: 0.0
+mtp_loss_weight: 0.1
 reasoning_sft:
   schema_version: 1
   trace_open: <thinking>

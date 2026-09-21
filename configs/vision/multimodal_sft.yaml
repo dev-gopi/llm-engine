@@ -1,0 +1,23 @@
+# VIS-002 frozen-backbone image-text SFT profile.
+base_profile: configs/vision/multimodal.yaml
+stage: multimodal_sft
+seed: 20260921
+batch_size: 2
+gradient_accumulation_steps: 16
+learning_rate: 5.0e-5
+epochs: 1
+mixed_precision: bf16
+freeze_vision: true
+freeze_language: true
+trainable_component: projector
+loss:
+  type: causal_language_model
+  shift_labels: true
+data:
+  manifest: data/processed/multimodal_sft/train.jsonl
+  validation_manifest: data/processed/multimodal_sft/validation.jsonl
+  image_size: 128
+  max_response_tokens: 256
+evaluation:
+  metrics: [token_accuracy, perplexity]
+  response_only: true

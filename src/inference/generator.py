@@ -16,7 +16,7 @@ from tokenizer.encoder import Tokenizer
 from utils.device import resolve_device
 from utils.logger import get_logger
 
-from .sampler import TopKSampler
+from .sampler import JSONSchemaConstraint, PrefixGrammarConstraint, TokenConstraint, TopKSampler
 from .context import ConversationMemory
 from .kv_cache import KVCache
 from .paged_kv_cache import PagedKVCache, PagedPrefixCache, PrefixCache
@@ -92,6 +92,7 @@ class Generator:
         self.paged_kv_allocator: PagedKVCache | None = None
         self._paged_request_ids = itertools.count(1)
         self.prefix_cache_hits = 0
+        self.last_speculative_stats = {"proposed_tokens": 0, "accepted_tokens": 0, "acceptance_rate": 0.0, "rounds": 0}
         self.prefix_cache_misses = 0
         self._base_lora_adapter = lora_adapter_state_dict(self.model)
         if paged_kv_pages:
@@ -126,9 +127,18 @@ class Generator:
         seed: int | None = None,
         stop: list[str] | None = None,
         allow_special_tokens: bool = False,
+        constraint: TokenConstraint | None = None,
+        json_schema: dict | None = None,
+        constraint_candidate_k: int = 256,
     ) -> GenerationResult:
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
+        if constraint is not None and json_schema is not None:
+            raise ValueError("provide either constraint or json_schema, not both")
+        if constraint_candidate_k < 1:
+            raise ValueError("constraint_candidate_k must be positive")
+        if json_schema is not None:
+            constraint = JSONSchemaConstraint(json_schema)
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
         self._validate_no_repeat_ngram_size(no_repeat_ngram_size)
@@ -159,6 +169,10 @@ class Generator:
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, no_repeat_ngram_size)
             self._suppress_special_tokens(next_logits, len(generated), min_tokens)
+            if constraint is not None:
+                next_logits = constraint.filter_logits(
+                    next_logits, generated, self.tokenizer, candidate_k=constraint_candidate_k
+                )
             next_id = int(
                 self.sampler(
                     next_logits, temperature=temperature, top_k=top_k,
@@ -174,6 +188,8 @@ class Generator:
             if any(sequence in text for sequence in stop_sequences):
                 finish_reason = "stop"
                 text = self._trim_stop(text, stop_sequences)
+                if constraint is not None and not constraint.validate(text):
+                    raise ValueError("generated text failed the requested output constraint")
                 return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
             if step + 1 == limit:
                 break
@@ -190,7 +206,115 @@ class Generator:
             text = trimmed
             finish_reason = "stop"
         logger.debug("Generated %d tokens from a %d-token prompt", len(generated), len(prompt_ids))
+        if constraint is not None and not constraint.validate(text):
+            raise ValueError("generated text failed the requested output constraint")
         return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
+
+    @torch.inference_mode()
+    def generate_speculative(
+        self,
+        prompt: str,
+        draft_model: nn.Module,
+        *,
+        max_tokens: int = 128,
+        draft_tokens: int = 4,
+        seed: int | None = None,
+    ) -> GenerationResult:
+        """Greedy speculative-decoding baseline with target verification.
+
+        The baseline deliberately uses greedy decoding so acceptance is exact and
+        reproducible. The draft proposes a short continuation; the target scores
+        the complete proposal in one forward pass and accepts the longest prefix
+        matching target argmax tokens. On a mismatch, the target token replaces
+        the rejected draft token.
+        """
+        if max_tokens < 1 or draft_tokens < 1:
+            raise ValueError("max_tokens and draft_tokens must be positive")
+        prompt_ids = self.tokenizer.encode(prompt, add_bos=True)
+        if not prompt_ids or len(prompt_ids) >= self.max_positions:
+            raise ValueError("prompt is empty or exceeds the model context")
+        draft_model = draft_model.to(self.device).eval()
+        draft_max = int(getattr(draft_model, "max_positions", self.max_positions))
+        if draft_max < len(prompt_ids) + 1:
+            raise ValueError("draft model context is too short for the prompt")
+        generated: list[int] = []
+        all_ids = list(prompt_ids)
+        accepted = 0
+        proposed = 0
+        rounds = 0
+        limit = min(max_tokens, self.max_positions - len(prompt_ids))
+        finish_reason = "length"
+        while len(generated) < limit:
+            rounds += 1
+            remaining = limit - len(generated)
+            proposal_len = min(draft_tokens, remaining, draft_max - len(all_ids))
+            if proposal_len <= 0:
+                break
+            draft_ids = list(all_ids)
+            proposal: list[int] = []
+            for _ in range(proposal_len):
+                draft_input = torch.tensor([draft_ids], dtype=torch.long, device=self.device)
+                draft_logits = draft_model(draft_input)
+                if isinstance(draft_logits, tuple):
+                    draft_logits = draft_logits[0]
+                token = int(draft_logits[:, -1, :].argmax(dim=-1).item())
+                proposal.append(token)
+                draft_ids.append(token)
+            proposed += len(proposal)
+
+            target_ids = torch.tensor([all_ids + proposal], dtype=torch.long, device=self.device)
+            target_logits = self.model(target_ids)
+            if isinstance(target_logits, tuple):
+                target_logits = target_logits[0]
+            prefix_len = len(all_ids)
+            mismatch = False
+            for offset, draft_token in enumerate(proposal):
+                target_token = int(target_logits[:, prefix_len - 1 + offset, :].argmax(dim=-1).item())
+                if target_token != draft_token:
+                    mismatch = True
+                    if self.eos_token_id is not None and target_token == self.eos_token_id:
+                        finish_reason = "stop"
+                    else:
+                        all_ids.append(target_token)
+                        generated.append(target_token)
+                    break
+                all_ids.append(draft_token)
+                generated.append(draft_token)
+                accepted += 1
+                if self.eos_token_id is not None and draft_token == self.eos_token_id:
+                    generated.pop()
+                    all_ids.pop()
+                    finish_reason = "stop"
+                    mismatch = True
+                    break
+            if mismatch:
+                if finish_reason == "stop" or len(generated) >= limit:
+                    break
+                continue
+            if len(generated) >= limit:
+                break
+            # If every proposed token was accepted, verify the next target token
+            # too. This is the greedy equivalent of the target's extra sample.
+            next_token = int(target_logits[:, prefix_len + len(proposal) - 1, :].argmax(dim=-1).item())
+            all_ids.append(next_token)
+            generated.append(next_token)
+            if self.eos_token_id is not None and next_token == self.eos_token_id:
+                generated.pop()
+                all_ids.pop()
+                finish_reason = "stop"
+                break
+        if seed is not None:
+            logger.debug("speculative seed=%s is accepted for API compatibility; greedy baseline is deterministic", seed)
+        self.last_speculative_stats = {
+            "proposed_tokens": proposed,
+            "accepted_tokens": accepted,
+            "acceptance_rate": accepted / proposed if proposed else 0.0,
+            "rounds": rounds,
+        }
+        return GenerationResult(
+            self.tokenizer.decode(generated, skip_special_tokens=True),
+            tuple(generated), len(prompt_ids), finish_reason,
+        )
 
     def generate_chat(
         self,

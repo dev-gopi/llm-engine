@@ -654,7 +654,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `VIS-002`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P3`
 
@@ -662,13 +662,15 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Dependencies**: `VIS-001`, `CHAT-001`
 
-- **Relevant files**: `src/multimodal/model.py`, `src/vision/encoder.py`, `tests/test_vision_models.py`
+- **Relevant files**: `src/multimodal/model.py`, `src/multimodal/sft.py`, `src/vision/encoder.py`, `scripts/evaluate_multimodal_sft.py`, `tests/test_vision_models.py`
+
+- **Implementation notes**: Added lazy JSONL image-text SFT loading, padded response-only supervision, frozen-backbone projector evaluation metrics, and an evaluation CLI. Real corpus governance and checkpoint-backed evaluation remain required before activation.
 
 ### SPC-001: Speculative Decoding Baseline
 
 - **ID**: `SPC-001`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P3`
 
@@ -676,13 +678,15 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Dependencies**: `INF-002`
 
-- **Relevant files**: `src/inference/generator.py`, `tests/test_generation.py`
+- **Relevant files**: `src/inference/generator.py`, `scripts/benchmark_speculative.py`, `tests/test_generation.py`
+
+- **Implementation notes**: Added deterministic greedy draft/target verification, longest-prefix acceptance, target replacement on mismatch, and a reproducible benchmark CLI. A real draft/target checkpoint throughput run remains pending.
 
 ### MTP-001: Multi-Token Prediction Training Objective
 
 - **ID**: `MTP-001`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P3`
 
@@ -690,13 +694,15 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Dependencies**: `SPC-001`
 
-- **Relevant files**: `src/model/gpt.py`, `src/model/loss.py`, `src/training/trainer.py`, `tests/test_gpt.py`, `tests/test_loss.py`
+- **Relevant files**: `src/model/gpt.py`, `src/model/loss.py`, `src/training/trainer.py`, `configs/model.mtp.gpu.yaml`, `configs/finetuning.mtp.gpu.yaml`, `tests/test_gpt.py`, `tests/test_loss.py`
+
+- **Implementation notes**: Added opt-in two-horizon auxiliary heads, an MTP loss, trainer integration, and a compatibility loader for ordinary causal checkpoints. The default model remains unchanged.
 
 ### OUT-001: Token-Level Structured Output Constraints
 
 - **ID**: `OUT-001`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -705,6 +711,8 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Dependencies**: `AGT-001`
 
 - **Relevant files**: `src/inference/generator.py`, `src/inference/sampler.py`, `tests/test_generation.py`
+
+- **Implementation notes**: Added token-time JSON-schema prefix filtering and a generic prefix-grammar callback, while retaining final post-generation validation.
 
 ### QNT-001: Portable Low-Precision Export and KV-Cache Quantization
 
