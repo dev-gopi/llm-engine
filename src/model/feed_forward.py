@@ -233,6 +233,9 @@ class SparseMoE(nn.Module):
             bias=bias, initializer_range=initializer_range, device=device, dtype=dtype,
         ) for _ in range(num_experts))
         self.hidden_dim = self.experts[0].hidden_dim
+        self.last_router_aux_loss: Tensor | None = None
+        self.last_router_entropy: float | None = None
+        self.last_expert_load: tuple[float, ...] = ()
 
     def forward(self, hidden_states: Tensor) -> Tensor:
         self.experts[0]._validate_hidden_states(hidden_states)
@@ -245,10 +248,22 @@ class SparseMoE(nn.Module):
             )
             router_inputs = tokens * noise
         router_logits = self.router(router_inputs)
+        router_probabilities = F.softmax(router_logits.float(), dim=-1)
         top_weights, top_experts = torch.topk(
             router_logits, self.experts_per_token, dim=-1
         )
         top_weights = F.softmax(top_weights.float(), dim=-1).to(tokens.dtype)
+        # Switch-Transformer-style load-balancing signal. Keep this unweighted
+        # in the module so training policy can choose the coefficient without
+        # changing checkpoint structure or inference behavior.
+        importance = router_probabilities.mean(dim=0)
+        hard_routes = F.one_hot(top_experts, num_classes=self.num_experts).float()
+        load = hard_routes.mean(dim=(0, 1))
+        self.last_router_aux_loss = self.num_experts * torch.sum(importance * load)
+        with torch.no_grad():
+            entropy = -(router_probabilities * router_probabilities.clamp_min(1e-12).log()).sum(dim=-1).mean()
+            self.last_router_entropy = float(entropy)
+            self.last_expert_load = tuple(float(value) for value in load)
         output = torch.zeros_like(tokens)
         # Dispatch only tokens selected for an expert; inactive experts are not run.
         for expert_index, expert in enumerate(self.experts):

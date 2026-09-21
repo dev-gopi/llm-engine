@@ -130,3 +130,40 @@ def test_invalid_moe_config_fails_before_model_construction(override):
     }
     with pytest.raises(ValueError):
         MiniGPT.from_config(config)
+
+
+def test_hybrid_attention_estimator_counts_only_dense_kv_layers():
+    config = {
+        "vocab_size": 64,
+        "hidden_size": 32,
+        "layers": 8,
+        "heads": 4,
+        "kv_heads": 2,
+        "max_position": 1024,
+        "position_type": "rotary",
+        "attention_layer_pattern": ["linear", "linear", "linear", "dense"],
+    }
+    hybrid = estimate_model_size(config)
+    dense = estimate_model_size({**config, "attention_layer_pattern": ["dense"]})
+    assert hybrid.linear_attention_layers == 6
+    assert hybrid.full_attention_layers == 2
+    assert hybrid.kv_cache_bytes_bf16_per_sequence == dense.kv_cache_bytes_bf16_per_sequence // 4
+    assert hybrid.linear_state_bytes_bf16_per_sequence > 0
+    assert hybrid.runtime_state_bytes_bf16_per_sequence < dense.runtime_state_bytes_bf16_per_sequence
+
+
+def test_modern_hybrid_profiles_are_plannable_without_changing_default_model():
+    from utils.config import load_yaml
+    default = load_yaml("configs/model.gpu.yaml")
+    hybrid = load_yaml("configs/model.hybrid.gpu.yaml")
+    planned = load_yaml("configs/scaling/model.hybrid-moe-7b.yaml")
+    assert "attention_layer_pattern" not in default
+    assert hybrid["attention_layer_pattern"] == ["linear", "linear", "linear", "dense"]
+    hybrid_size = estimate_model_size(hybrid)
+    assert hybrid_size.linear_attention_layers == 12
+    assert hybrid_size.full_attention_layers == 4
+    planned_size = estimate_model_size(planned)
+    assert 6_000_000_000 < planned_size.parameters < 8_000_000_000
+    assert planned_size.active_parameters_per_token < planned_size.parameters / 2
+    with pytest.raises(ValueError, match="planning-only"):
+        MiniGPT.from_config(planned)

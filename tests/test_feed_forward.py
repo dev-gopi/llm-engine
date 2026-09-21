@@ -176,3 +176,20 @@ def test_sparse_moe_runs_only_routed_experts_and_backpropagates():
 def test_sparse_moe_rejects_invalid_routing(experts, top_k):
     with pytest.raises(ValueError):
         SparseMoE(dim=8, num_experts=experts, experts_per_token=top_k)
+
+
+def test_sparse_moe_exposes_differentiable_load_balancing_signal():
+    torch.manual_seed(17)
+    module = SparseMoE(dim=8, hidden_dim=16, num_experts=4, experts_per_token=2)
+    hidden = torch.randn(3, 5, 8, requires_grad=True)
+    output = module(hidden)
+    assert output.shape == hidden.shape
+    assert module.last_router_aux_loss is not None
+    assert module.last_router_aux_loss.ndim == 0
+    assert torch.isfinite(module.last_router_aux_loss)
+    assert module.last_router_entropy is not None and module.last_router_entropy >= 0
+    assert len(module.last_expert_load) == 4
+    assert pytest.approx(sum(module.last_expert_load), rel=1e-6) == 1.0
+    module.last_router_aux_loss.backward()
+    assert module.router.weight.grad is not None
+    assert torch.isfinite(module.router.weight.grad).all()

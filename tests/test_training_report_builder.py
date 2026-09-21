@@ -363,3 +363,31 @@ def test_generation_quality_distinguishes_probes_and_empty_benchmarks() -> None:
     assert MODULE.generation_accuracy({'summary': {'cases': 0, 'accuracy': 0}}) is None
     coverage = MODULE.evaluation_coverage(None, {'responses': [{'prompt': 'Hello', 'response': 'Hi'}]})
     assert coverage['generation_quality'] == 'available (qualitative probes; accuracy not measured)'
+
+
+def test_model_deployment_analysis_reports_hybrid_memory_alternatives():
+    from utils.config import load_yaml
+    analysis = MODULE.model_deployment_analysis(
+        load_yaml("configs/model.hybrid.gpu.yaml"),
+        {"max_sequence_length": 4096},
+        [{"gpus": [{"memory_total_mb": 4096}]}],
+    )
+    assert analysis["available"] is True
+    assert analysis["attention_pattern"] == "hybrid"
+    assert analysis["linear_attention_layers"] == 12
+    assert analysis["full_attention_layers"] == 4
+    assert analysis["memory_budget_gib"] == pytest.approx(4.0)
+    assert len(analysis["deployment_matrix"]) == 12
+    assert analysis["deployment_matrix"][0]["estimated_total_bytes"] <= analysis["deployment_matrix"][-1]["estimated_total_bytes"]
+
+
+def test_parser_captures_mtp_and_moe_auxiliary_losses(tmp_path):
+    log = tmp_path / "train.log"
+    log.write_text(
+        "2026 | INFO | trainer | epoch=1 step=1 loss=2.0 lr=1e-4 grad_norm=1 "
+        "tokens=10 tokens_per_second=5 progress=1% mtp_loss=0.25 moe_aux_loss=0.01 (avg=2.0)\n",
+        encoding="utf-8",
+    )
+    parsed = MODULE.parse_training_log(log)
+    assert parsed["training"][0]["mtp_loss"] == pytest.approx(0.25)
+    assert parsed["training"][0]["moe_aux_loss"] == pytest.approx(0.01)

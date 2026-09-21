@@ -200,3 +200,7 @@ Notable user-visible changes and architectural milestones are recorded here.
 - Added checkpoint evaluation/regression/promotion pipeline with release-candidate report generation.
 - Added model card, dataset card, and reproducibility manifest generation.
 - Added capability evidence gating so client-visible capability flags can be tied to explicit validation evidence.
+
+## 2026-09-21 — Modern model/runtime enhancement audit
+
+See root [`CHANGELOG.md`](../CHANGELOG.md). Documentation now covers hybrid attention, MoE balancing, Q1 research packing, GGUF runtime delegation, resource planning, modern playground controls and architecture-aware training reports. External-model research and non-claims are recorded in [`MODERN_MODEL_FEATURES_2026.md`](MODERN_MODEL_FEATURES_2026.md).

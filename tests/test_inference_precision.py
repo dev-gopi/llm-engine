@@ -2,7 +2,14 @@ import pytest
 import torch
 
 from inference.paged_kv_cache import PagedKVCache
-from inference.quantization import dequantize_int4, prepare_model_for_inference, quantize_int4
+from inference.quantization import (
+    Q1_0_EFFECTIVE_BITS,
+    dequantize_int4,
+    dequantize_q1_0,
+    prepare_model_for_inference,
+    quantize_int4,
+    quantize_q1_0,
+)
 from model.gpt import MiniGPT
 
 
@@ -67,6 +74,22 @@ def test_portable_int4_round_trip_has_bounded_error():
     packed, scale, original_numel = quantize_int4(values)
     restored = dequantize_int4(packed, scale, shape=values.shape, original_numel=original_numel)
     torch.testing.assert_close(restored, values, atol=0.15, rtol=0)
+
+
+def test_q1_0_binary_pack_is_1_125_bpw_and_self_consistent():
+    values = torch.linspace(-2.0, 2.0, 257).reshape(1, 257)
+    packed, scales, original_numel = quantize_q1_0(values)
+    restored = dequantize_q1_0(
+        packed, scales, shape=values.shape, original_numel=original_numel
+    )
+    assert Q1_0_EFFECTIVE_BITS == 1.125
+    assert packed.shape == (3, 16)
+    assert scales.shape == (3,)
+    assert restored.shape == values.shape
+    # Binary quantization is intentionally aggressive. Validate representation
+    # semantics rather than pretending it is a near-lossless round-trip.
+    assert torch.all(torch.isfinite(restored))
+    assert torch.all(restored.abs().sum(dim=-1) > 0)
 
 
 def test_int8_paged_kv_cache_reduces_storage_and_preserves_values():

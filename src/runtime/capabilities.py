@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping
+
+from model.config import resolve_attention_layer_pattern
 import json
 
 
@@ -35,6 +37,14 @@ class ModelCapabilities:
     attention_heads: int | None = None
     kv_heads: int | None = None
     position_type: str | None = None
+    attention_pattern: str | None = None
+    full_attention_layers: int | None = None
+    linear_attention_layers: int | None = None
+    ffn_type: str | None = None
+    num_experts: int | None = None
+    experts_per_token: int | None = None
+    mtp_predictions: int | None = None
+    qk_norm: bool | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -80,10 +90,12 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
         return discover_capabilities(nested, model_config=config, validation_evidence=validation_evidence)
 
     context_length = _positive_or_none(
-        getattr(generator, "max_positions", None) or config.get("max_position")
+        getattr(generator, "max_positions", None) or config.get("max_position") or getattr(backend, "context_length", None)
     ) or 0
     architecture = str(config.get("architecture", "decoder-only-transformer"))
     parameter_count = _positive_or_none(getattr(getattr(generator, "model", None), "num_parameters", lambda: 0)())
+    if parameter_count is None:
+        parameter_count = _positive_or_none(getattr(backend, "parameter_count", None))
 
     # These flags map directly to implemented serving contracts.  Vision/audio
     # are intentionally false: the multimodal modules are not wired into the
@@ -115,6 +127,19 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
                 elif name == "rag": rag = rag and value
                 elif name == "mcp": mcp = mcp and value
 
+    layer_patterns: tuple[str, ...] = ()
+    try:
+        if _positive_or_none(config.get("layers")):
+            layer_patterns = resolve_attention_layer_pattern(config)
+    except (KeyError, TypeError, ValueError):
+        layer_patterns = ()
+    linear_layers = sum(item == "linear" for item in layer_patterns)
+    full_layers = len(layer_patterns) - linear_layers if layer_patterns else None
+    pattern_name = None
+    if layer_patterns:
+        unique_patterns = set(layer_patterns)
+        pattern_name = next(iter(unique_patterns)) if len(unique_patterns) == 1 else "hybrid"
+
     return ModelCapabilities(
         chat=chat,
         streaming=streaming,
@@ -136,17 +161,25 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
         attention_heads=_positive_or_none(config.get("heads")),
         kv_heads=_positive_or_none(config.get("kv_heads")),
         position_type=str(config["position_type"]) if config.get("position_type") is not None else None,
+        attention_pattern=pattern_name,
+        full_attention_layers=full_layers,
+        linear_attention_layers=linear_layers if layer_patterns else None,
+        ffn_type=str(config.get("ffn_type", "dense")),
+        num_experts=_positive_or_none(config.get("num_experts")) if str(config.get("ffn_type", "dense")).lower() == "moe" else None,
+        experts_per_token=_positive_or_none(config.get("experts_per_token")) if str(config.get("ffn_type", "dense")).lower() == "moe" else None,
+        mtp_predictions=int(config.get("mtp_num_predictions", 0) or 0),
+        qk_norm=bool(config.get("qk_norm", False)),
     )
 
 
 def load_model_config(path: str | Path) -> dict[str, Any]:
-    """Load a YAML model configuration without importing serving internals."""
-    import yaml
+    """Load a model configuration including project ``extends`` inheritance."""
+    from utils.config import load_yaml
 
     source = Path(path)
     if not source.is_file():
         return {}
-    value = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
+    value = load_yaml(source)
     if not isinstance(value, dict):
         raise ValueError(f"model configuration must be a mapping: {source}")
     return value

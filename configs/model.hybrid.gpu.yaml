@@ -1,0 +1,15 @@
+# Opt-in checkpoint-shape-compatible hybrid-attention research profile.
+# The default model.gpu.yaml remains unchanged. This profile alternates three
+# fixed-state causal linear-attention layers with one dense GQA layer, reducing
+# context-growing KV state while retaining periodic full attention. RoPE is
+# extended with YaRN from the original 1K training window; quality at 8K still
+# requires checkpoint-backed CTX-002 validation before deployment claims.
+extends: model.gpu.yaml
+max_position: 8192
+rope_scaling_type: yarn
+rope_original_max_position: 1024
+attention_layer_pattern: [linear, linear, linear, dense]
+linear_attention_eps: 0.000001
+linear_attention_chunk_size: 128
+qk_norm: true
+qk_norm_eps: 0.000001

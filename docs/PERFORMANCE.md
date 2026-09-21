@@ -52,3 +52,36 @@ $$\text{Bytes per token} = 2 \times 16 \times 2 \times 64 \times 2 = 8,192\text{
 - At context $L=1024$: $\approx 8\text{ MB}$ per sequence.
 - Contrast with standard Multi-Head Attention ($H_{kv}=8$): would require $32\text{ MB}$ per sequence. GQA yields a **4x reduction** in cache footprint.
 
+
+---
+
+## 5. Hybrid Attention Runtime-State Reduction
+
+For the opt-in hybrid schedule, only dense/sliding full-attention layers grow a
+conventional KV cache with context. Linear-attention layers retain fixed
+recurrent state. `estimate_model_size()` reports both components separately,
+and
+[`src/runtime/resource_planner.py`](../src/runtime/resource_planner.py) scales
+them by context, batch and requested KV precision.
+
+This changes the memory-growth model from "every layer stores K and V for every
+past token" to a mixed model: periodic dense layers retain full retrieval while
+linear layers use context-independent state. Quality and throughput still need
+checkpoint/hardware benchmarks at the requested context length.
+
+## 6. Ultra-Low-Bit Deployment Policy
+
+Q1_0 planning and research export are deliberately separated from quality
+claims. The planner can tell whether a 1.125-bit representation is small enough
+for a memory budget; only checkpoint-backed evaluation can determine whether
+that representation is acceptable for a release. Native GGUF/custom-kernel
+execution is delegated to a specialized runtime instead of expanding binary
+weights back to high precision inside the Python engine.
+
+## 7. MoE Compute Diagnostics
+
+When sparse MoE is enabled, total stored parameters and active parameters per
+token are tracked separately. Training can opt into `moe_aux_loss_weight` to
+reduce router collapse. The training report records the auxiliary loss, while
+`SparseMoE` retains detached expert-load and router-entropy diagnostics for
+inspection without persisting token-level routing data.

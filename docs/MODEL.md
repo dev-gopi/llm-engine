@@ -93,3 +93,33 @@ An atomic PyTorch checkpoint (`checkpoints/*/*.pt`) contains:
 - `config`: Complete copy of the model and training configuration.
 - `rng_state`: PyTorch, Python, and NumPy random number generator states for deterministic training resumption.
 
+
+---
+
+## 5. Opt-In Hybrid Attention and Sparse MoE Research Profiles
+
+The default active architecture remains the dense-GQA 16-layer model above. An
+optional layer cycle can now be supplied through `attention_layer_pattern`.
+For example, [`configs/model.hybrid.gpu.yaml`](../configs/model.hybrid.gpu.yaml)
+uses:
+
+```yaml
+attention_layer_pattern: [linear, linear, linear, dense]
+```
+
+`CausalLinearAttention` preserves the ordinary Q/K/V/output projection tensor
+shapes but replaces softmax attention with an `ELU(x)+1` feature map. Prefill is
+processed in bounded chunks, and autoregressive decoding stores recurrent
+`key_sum` and `key_value_sum` state whose size does not grow with context.
+This is a **reference research implementation**, not an implementation of the
+architecture-specific Qwen linear-convolution layer.
+
+Sparse MoE layers expose a Switch-style router balance signal. The trainer only
+adds it when `moe_aux_loss_weight` is non-zero, so existing dense and MoE
+checkpoints retain their previous inference behavior. The trainer also records
+router entropy/load diagnostics and the weighted auxiliary loss.
+
+A planning-only 7B-class hybrid-MoE profile is provided at
+[`configs/scaling/model.hybrid-moe-7b.yaml`](../configs/scaling/model.hybrid-moe-7b.yaml).
+It can be sized and planned without allocating the weights; it is not a bundled
+trained model.

@@ -44,6 +44,7 @@ class Trainer:
         grad_scaler_growth_interval: int = 2000,
         reasoning_trace_policy: str = "optional",
         mtp_loss_weight: float = 0.0,
+        moe_aux_loss_weight: float = 0.0,
     ) -> None:
         self.model = model
         self.opt = optimizer
@@ -88,6 +89,12 @@ class Trainer:
             if self.mtp_loss_weight > 0 else None
         )
         self.last_mtp_loss = 0.0
+        if not isinstance(moe_aux_loss_weight, (int, float)) or isinstance(moe_aux_loss_weight, bool) or not math.isfinite(float(moe_aux_loss_weight)) or float(moe_aux_loss_weight) < 0:
+            raise ValueError("moe_aux_loss_weight must be a finite non-negative number")
+        self.moe_aux_loss_weight = float(moe_aux_loss_weight)
+        if self.moe_aux_loss_weight and not callable(getattr(model, "router_aux_loss", None)):
+            raise ValueError("moe_aux_loss_weight requires a model with router_aux_loss()")
+        self.last_moe_aux_loss = 0.0
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -181,6 +188,15 @@ class Trainer:
                 loss = loss + mtp_result.loss
             else:
                 self.last_mtp_loss = 0.0
+            if self.moe_aux_loss_weight:
+                router_loss = self.model.router_aux_loss()
+                if router_loss is None:
+                    raise RuntimeError("MoE auxiliary loss requested but no routed experts were active")
+                weighted_router_loss = router_loss * self.moe_aux_loss_weight
+                self.last_moe_aux_loss = float(weighted_router_loss.detach())
+                loss = loss + weighted_router_loss
+            else:
+                self.last_moe_aux_loss = 0.0
         if not bool(torch.isfinite(loss.detach())):
             self.nonfinite_updates += 1
             self.opt.zero_grad(set_to_none=True)
@@ -713,7 +729,8 @@ class Trainer:
                         "gpu_memory_mb=%.1f/%.1f/%.1f nonfinite_updates=%d "
                         "log_interval_seconds=%.2f seconds_per_step=%.3f "
                         "next_log_eta_seconds=%s next_checkpoint_eta_seconds=%s "
-                        "next_validation_eta_seconds=%s (avg=%.6f)",
+                        f"next_validation_eta_seconds=%s mtp_loss={self.last_mtp_loss:.6f} "
+                        f"moe_aux_loss={self.last_moe_aux_loss:.6f} (avg=%.6f)",
                         epoch + 1, self.global_step, current_loss, self.learning_rate,
                         self.last_gradient_norm, self.last_clipped_gradient_norm,
                         self.tokens_processed, self.tokens_per_second,
@@ -798,6 +815,8 @@ class Trainer:
                 "train_loss": running_loss / max(running_batches, 1),
                 "learning_rate": self.learning_rate,
                 "gradient_norm": self.last_gradient_norm,
+                "mtp_loss": self.last_mtp_loss,
+                "moe_aux_loss": self.last_moe_aux_loss,
                 "clipped_gradient_norm": self.last_clipped_gradient_norm,
                 "loss": self.last_loss,
                 "logit_abs_mean": self.last_logit_abs_mean,
@@ -868,6 +887,8 @@ class Trainer:
             "last_logit_abs_mean": self.last_logit_abs_mean,
             "last_logit_abs_max": self.last_logit_abs_max,
             "last_loss": self.last_loss,
+            "last_mtp_loss": self.last_mtp_loss,
+            "last_moe_aux_loss": self.last_moe_aux_loss,
             "last_parameter_norm": self.last_parameter_norm,
             "last_gradient_to_parameter_ratio": self.last_gradient_to_parameter_ratio,
             "curriculum_stage": self.curriculum_stage,
@@ -900,6 +921,8 @@ class Trainer:
         self.last_logit_abs_mean = float(state.get("last_logit_abs_mean", float("nan")))
         self.last_logit_abs_max = float(state.get("last_logit_abs_max", float("nan")))
         self.last_loss = float(state.get("last_loss", float("nan")))
+        self.last_mtp_loss = float(state.get("last_mtp_loss", 0.0))
+        self.last_moe_aux_loss = float(state.get("last_moe_aux_loss", 0.0))
         self.last_parameter_norm = float(state.get("last_parameter_norm", float("nan")))
         self.last_gradient_to_parameter_ratio = float(
             state.get("last_gradient_to_parameter_ratio", float("nan"))

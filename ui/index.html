@@ -33,6 +33,9 @@
             <span>Stream response</span>
             <input id="stream" type="checkbox" checked>
           </label>
+          <div id="modelSummary" class="model-summary" aria-live="polite">
+            Model details appear after a health check.
+          </div>
 
           <label>Response format
             <select id="responseFormat">
@@ -106,6 +109,14 @@
                 <option value="coding">&lt;/&gt; Coding</option>
               </select>
               <span id="modeDescription">Natural answers for everyday questions</span>
+              <label class="reasoning-control" for="reasoningEffort">Reasoning
+                <select id="reasoningEffort">
+                  <option value="none">None</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
               <details class="tool-menu">
                 <summary>＋ Tools <b id="toolCount" hidden>0</b></summary>
                 <div class="tool-popover">

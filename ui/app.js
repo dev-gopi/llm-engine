@@ -11,7 +11,8 @@ const elements = {
   repetitionPenalty: $("repetitionPenalty"), seed: $("seed"), reset: $("resetButton"),
   responseFormat: $("responseFormat"), webSearch: $("webSearch"),
   attachments: $("attachments"),
-  chatMode: $("chatMode"), modeDescription: $("modeDescription"),
+  chatMode: $("chatMode"), modeDescription: $("modeDescription"), reasoningEffort: $("reasoningEffort"),
+  modelSummary: $("modelSummary"),
   calculatorTool: $("calculatorTool"), datetimeTool: $("datetimeTool"),
   searchTool: $("searchTool"), ragTool: $("ragTool"), mcpTool: $("mcpTool"), mcpServer: $("mcpServer"), toolCount: $("toolCount")
 };
@@ -45,6 +46,7 @@ function requestPayload() {
     seed: seed === "" ? null : Number(seed), stop: elements.stopStrings.value.split("\n").filter((value) => value.length > 0),
     session_id: elements.useMemory.checked ? sessionId : null,
     mode: elements.chatMode.value,
+    reasoning_effort: elements.reasoningEffort.value,
     tools: [elements.calculatorTool.checked && "calculator", elements.datetimeTool.checked && "datetime"].filter(Boolean),
     response_format: elements.responseFormat.value, web_search: elements.webSearch.checked || elements.searchTool.checked,
     rag: elements.ragTool.checked,
@@ -139,7 +141,12 @@ function restoreTranscript() {
   return true;
 }
 function updateUsage(usage, reason) {
-  if (usage) elements.usage.textContent = `${usage.prompt_tokens} prompt + ${usage.completion_tokens} generated tokens · ${reason}`;
+  if (!usage) return;
+  const extras = [];
+  if (usage.cached_tokens) extras.push(`${usage.cached_tokens} cached`);
+  if (usage.reasoning_tokens) extras.push(`${usage.reasoning_tokens} reasoning`);
+  const suffix = extras.length ? ` · ${extras.join(" · ")}` : "";
+  elements.usage.textContent = `${usage.prompt_tokens} prompt + ${usage.completion_tokens} generated tokens${suffix} · ${reason}`;
 }
 function headers() {
   const result = { "Content-Type": "application/json" };
@@ -183,6 +190,21 @@ async function checkHealth() {
   try {
     const response = await fetch(`${baseUrl()}/health/ready`); const result = await response.json();
     elements.health.classList.add(result.ready ? "ready" : "failed"); elements.healthText.textContent = result.ready ? `${result.model} ready` : "Model not ready";
+    if (!result.ready) return;
+    const modelsResponse = await fetch(`${baseUrl()}/v1/models`, { headers: headers() });
+    if (!modelsResponse.ok) return;
+    const model = (await modelsResponse.json()).data?.[0];
+    if (!model) return;
+    const caps = model.capabilities || {};
+    const parts = [model.id, caps.parameter_count ? `${(caps.parameter_count / 1e6).toFixed(1)}M params` : null,
+      model.context_length ? `${model.context_length.toLocaleString()} ctx` : null, caps.attention_pattern ? `${caps.attention_pattern} attention` : null,
+      caps.ffn_type === "moe" ? `${caps.experts_per_token}/${caps.num_experts} MoE` : caps.ffn_type].filter(Boolean);
+    elements.modelSummary.textContent = parts.join(" · ");
+    const resources = await fetch(`${baseUrl()}/v1/models/${encodeURIComponent(model.id)}/resources?context_length=${Math.min(model.context_length || 1024, 8192)}&weight_precision=bf16&kv_precision=bf16`, { headers: headers() });
+    if (resources.ok) {
+      const estimate = (await resources.json()).estimate;
+      elements.modelSummary.textContent += ` · ~${Number(estimate.estimated_total_gib).toFixed(2)} GiB planned`;
+    }
   } catch { elements.health.classList.add("failed"); elements.healthText.textContent = "Server offline"; }
 }
 function saveSettings() {
@@ -193,14 +215,14 @@ function saveSettings() {
     minP: elements.minP.value, stopStrings: elements.stopStrings.value, useMemory: elements.useMemory.checked,
     repetitionPenalty: elements.repetitionPenalty.value, seed: elements.seed.value,
     responseFormat: elements.responseFormat.value, webSearch: elements.webSearch.checked,
-    chatMode: elements.chatMode.value, calculatorTool: elements.calculatorTool.checked,
+    chatMode: elements.chatMode.value, reasoningEffort: elements.reasoningEffort.value, calculatorTool: elements.calculatorTool.checked,
     datetimeTool: elements.datetimeTool.checked, searchTool: elements.searchTool.checked, ragTool: elements.ragTool.checked,
     mcpTool: elements.mcpTool.checked, mcpServer: elements.mcpServer.value
   }));
 }
 function loadSettings() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(settingsKey) || "{}"); } catch { saved = {}; }
-  for (const key of ["baseUrl", "maxTokens", "temperature", "topK", "topP", "minP", "minTokens", "noRepeatNgram", "stopStrings", "repetitionPenalty", "seed", "responseFormat", "chatMode", "mcpServer"]) {
+  for (const key of ["baseUrl", "maxTokens", "temperature", "topK", "topP", "minP", "minTokens", "noRepeatNgram", "stopStrings", "repetitionPenalty", "seed", "responseFormat", "chatMode", "reasoningEffort", "mcpServer"]) {
     if (saved[key] !== undefined) elements[key].value = saved[key];
   }
   if (saved.useMemory !== undefined) elements.useMemory.checked = saved.useMemory;

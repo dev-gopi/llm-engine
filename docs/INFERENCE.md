@@ -59,3 +59,53 @@ The sampler in [`src/inference/sampler.py`](../src/inference/sampler.py) applies
   --checkpoint checkpoints/finetuning/best.pt
 ```
 
+
+---
+
+## 5. Q1_0 Research Packing and GGUF Delegation
+
+`src/inference/quantization.py` now includes a Q1_0-style binary research
+representation: one sign bit per weight with one FP16 scale for each group of
+128 weights, or 1.125 effective bits/weight. `scripts/export.py --weight-dtype
+q1_0` writes a self-describing safetensors artifact. This format is intended for
+engine experiments and is **not** represented as byte-for-byte GGUF
+compatibility.
+
+For actual GGUF models and runtime-specific low-bit kernels, use the delegated
+backend. A local llama.cpp server can be started with:
+
+```bash
+python scripts/serve_gguf.py /path/to/Bonsai-27B-Q1_0.gguf \
+  --context 8192 --gpu-layers 99 --cache-type-k q8_0 --cache-type-v q8_0
+```
+
+Then run the Gopi server with the external backend selected:
+
+```bash
+GOPI_BACKEND=llama_cpp \
+GOPI_EXTERNAL_BASE_URL=http://127.0.0.1:8080 \
+GOPI_EXTERNAL_MODEL=local-model \
+GOPI_EXTERNAL_CONTEXT_LENGTH=8192 \
+python scripts/serve.py
+```
+
+The adapter forwards OpenAI-compatible chat generation and streaming while the
+Gopi API continues to provide its authentication, client compatibility,
+observability and playground surface.
+
+## 6. Deployment Resource Planning
+
+Use the analytical planner before loading a large checkpoint:
+
+```bash
+python scripts/plan_deployment.py \
+  --model-config configs/model.hybrid.gpu.yaml \
+  --context-length 8192 --memory-gib 4
+```
+
+The same information is available at
+`GET /v1/models/{model_id}/resources`. Estimates include resident weights,
+context-growing full-attention KV state, fixed-size linear-attention recurrent
+state, batch size, precision and a configurable safety margin. Backend
+workspaces and fragmentation are intentionally described as unmeasured rather
+than hidden inside a false precision claim.

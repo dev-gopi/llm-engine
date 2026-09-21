@@ -801,6 +801,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Dependencies**: `CTX-001`, `INF-005`
 
 - **Relevant files**: `src/model/attention.py`, `src/model/config.py`, `tests/test_attention.py`
+- **Implementation note (2026-09-21)**: Hybrid linear/dense execution is implemented by `ATT-003`; this broader research task remains open until sliding/sparse/linear/hybrid profiles have checkpoint-backed quality, memory, and throughput comparisons.
 
 - **Validation**: `.venv/bin/pytest tests/test_attention.py tests/test_model_config.py -q` (34 passed)
 
@@ -905,6 +906,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Dependencies**: `QNT-001`, `REG-001`
 
 - **Relevant files**: `src/inference/quantization.py`, `scripts/export.py`, `tests/test_inference_precision.py`, `tests/test_export.py`
+- **Implementation note (2026-09-21)**: GGUF execution is now available through `EXT-001` delegation and Q1 research packing through `QNT-003`; this task remains open because native interoperable GPTQ/AWQ/GGUF conversion plus calibration/quality/latency evidence is not complete.
 
 ### AGT-004: Stateful Agent Runtime and Human Approval
 
@@ -2288,3 +2290,91 @@ The document also identifies several capabilities that should become implementat
 - `DOC-001` incorporates the sheet's documentation consistency gate and is prioritized `P0`.
 - `OPS-002` — task list: **AI Agent Documentation & Knowledge System** / `COMPLETED`; sheet: **AI Agent Documentation & Engineering Knowledge System** / `COMPLETED`.
 - `RSN-001` — task list: **Chain-of-Thought Reasoning Pipeline** / `COMPLETED`; sheet: **Structured Chain-of-Thought Reasoning Pipeline** / `COMPLETED`.
+
+---
+
+## Modern Model & Runtime Enhancements — 2026-09-21
+
+### ATT-003: Hybrid Linear/Dense Attention Reference Backend
+
+- **ID**: `ATT-003`
+- **Track**: `ATTENTION`
+- **Status**: `COMPLETED`
+- **Priority**: `P1`
+- **Description**: Add an opt-in repeating hybrid attention schedule and a fixed-state causal linear-attention reference backend without changing the default dense checkpoint contract.
+- **Dependencies**: `ATT-001`
+- **Relevant files**: `src/model/attention.py`, `src/model/transformer_block.py`, `src/model/gpt.py`, `src/model/config.py`, `configs/model.hybrid.gpu.yaml`, `tests/test_attention_research.py`, `tests/test_model_config.py`
+- **Validation**: Cached token-by-token linear decode matches full causal decode within tested tolerance; hybrid layer/cache schedules and memory accounting are deterministic.
+- **Acceptance criteria**: Hybrid profiles are opt-in, default config remains unchanged, linear decode state is context-independent, and invalid schedules fail before model construction.
+
+### MOE-001: Router Load Balancing and Diagnostics
+
+- **ID**: `MOE-001`
+- **Track**: `MODEL`
+- **Status**: `COMPLETED`
+- **Priority**: `P1`
+- **Description**: Add a differentiable sparse-MoE load-balancing objective plus bounded router diagnostics and trainer integration.
+- **Dependencies**: `TRAIN-004`
+- **Relevant files**: `src/model/feed_forward.py`, `src/model/gpt.py`, `src/training/trainer.py`, `scripts/train.py`, `tests/test_feed_forward.py`, `tests/test_loss.py`
+- **Validation**: Unit tests verify finite auxiliary loss, router gradients, expert-load accounting, and opt-in trainer updates.
+- **Acceptance criteria**: The objective is disabled by default, does not change inference checkpoint structure, and is resumable through trainer state.
+
+### QNT-003: Engine-Native Q1_0 Binary Research Export
+
+- **ID**: `QNT-003`
+- **Track**: `QUANTIZATION`
+- **Status**: `COMPLETED`
+- **Priority**: `P1`
+- **Description**: Add deterministic 1-bit sign packing with an FP16 scale per 128 weights (1.125 effective bits/weight) and a self-describing safetensors export.
+- **Dependencies**: `QNT-001`, `REG-001`
+- **Relevant files**: `src/inference/quantization.py`, `scripts/export.py`, `tests/test_inference_precision.py`, `tests/test_export.py`
+- **Validation**: Tests verify group semantics, bit packing/dequantization, effective bit width and exported metadata.
+- **Acceptance criteria**: The export identifies itself as an engine research format and never falsely claims GGUF byte compatibility or checkpoint quality retention.
+
+### INF-008: Deployment Resource Planner
+
+- **ID**: `INF-008`
+- **Track**: `INFERENCE`
+- **Status**: `COMPLETED`
+- **Priority**: `P1`
+- **Description**: Estimate weight, KV-cache and fixed linear-state memory across context, batch and low-precision deployment choices without allocating model weights.
+- **Dependencies**: `QNT-003`, `ATT-003`
+- **Relevant files**: `src/runtime/resource_planner.py`, `scripts/plan_deployment.py`, `src/serving/api.py`, `tests/test_resource_planner.py`, `tests/test_serving.py`
+- **Validation**: Deterministic resource matrices are tested for ordering, budgets, context limits, hybrid state and Q1/low-bit choices.
+- **Acceptance criteria**: API and CLI return analytical estimates with explicit unmeasured-workspace/quality caveats.
+
+### EXT-001: OpenAI-Compatible GGUF Runtime Delegation
+
+- **ID**: `EXT-001`
+- **Track**: `INFERENCE`
+- **Status**: `COMPLETED`
+- **Priority**: `P1`
+- **Description**: Allow the Gopi API to delegate generation/streaming to a local OpenAI-compatible optimized runtime, including llama.cpp GGUF deployments.
+- **Dependencies**: `API-003`
+- **Relevant files**: `src/serving/external_backend.py`, `src/serving/backend.py`, `scripts/serve_gguf.py`, `tests/test_external_backend.py`, `tests/test_serve_gguf.py`
+- **Validation**: Mock-transport tests cover response usage, sampler forwarding, reasoning controls, SSE streaming and GGUF launcher arguments.
+- **Acceptance criteria**: Native serving remains the default; external execution is selected explicitly and does not pretend Python implements runtime-specific GGUF kernels.
+
+### UI-001: Model-Aware Playground Modernization
+
+- **ID**: `UI-001`
+- **Track**: `INTERFACE`
+- **Status**: `COMPLETED`
+- **Priority**: `P2`
+- **Description**: Expose reasoning effort, architecture/context metadata, cached/reasoning token usage and planned memory in the local playground.
+- **Dependencies**: `RSN-007`, `INF-008`, `OPS-003`
+- **Relevant files**: `ui/index.html`, `ui/app.js`, `ui/styles.css`, `tests/test_serving.py`
+- **Validation**: Serving regression tests verify the new controls and resource endpoint integration are present while old controls remain available.
+- **Acceptance criteria**: UI additions remain optional client controls and do not change server defaults or model weights.
+
+### REP-001: Architecture and Deployment Training Report
+
+- **ID**: `REP-001`
+- **Track**: `REPORTING`
+- **Status**: `COMPLETED`
+- **Priority**: `P2`
+- **Description**: Add model-architecture, deployment-memory, MTP-loss and MoE-auxiliary visibility to the live training report.
+- **Dependencies**: `INF-008`, `MOE-001`, `MTP-001`
+- **Relevant files**: `scripts/build_training_report.py`, `reports/training_report.html`, `tests/test_training_report_builder.py`
+- **Validation**: Report-builder tests verify hybrid architecture analysis, memory alternatives and auxiliary-loss parsing.
+- **Acceptance criteria**: The report separates analytical estimates from measured telemetry and only shows auxiliary metrics when present.

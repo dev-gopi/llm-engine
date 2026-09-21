@@ -89,3 +89,22 @@
 | **Tool Execution** | Local/MCP tools with strict JSON-envelope/schema validation, bounded sequential orchestration, and a separate approval-gated bounded agent state machine; autonomous model-generated planning/reflection and parallel execution are not claimed | [`src/inference/local_tools.py`](../src/inference/local_tools.py), [`src/inference/agent_runtime.py`](../src/inference/agent_runtime.py), [`src/serving/backend.py`](../src/serving/backend.py) |
 | **Long-Term Memory** | Opt-in user-scoped semantic/episodic SQLite memory with embedding retrieval, TTL expiry, purge, and user deletion | [`src/inference/memory.py`](../src/inference/memory.py) |
 | **Reasoning Budget** | `none` / `low` / `medium` / `high` runtime token budgets with reasoning-token usage accounting | [`src/runtime/reasoning.py`](../src/runtime/reasoning.py), [`src/api/usage.py`](../src/api/usage.py) |
+
+---
+
+## 9. Optional Modern Architecture & Deployment Features (2026-09-21)
+
+These features were added **without modifying the default `configs/model.gpu.yaml` checkpoint contract**.
+
+| Capability | Verified local state | Authoritative files |
+| :--- | :--- | :--- |
+| Hybrid dense/linear attention | Opt-in repeating layer schedules; reference causal linear attention uses fixed-size recurrent decode state | [`src/model/attention.py`](../src/model/attention.py), [`src/model/config.py`](../src/model/config.py), [`configs/model.hybrid.gpu.yaml`](../configs/model.hybrid.gpu.yaml) |
+| Sparse MoE balancing | Differentiable router load-balancing auxiliary objective plus entropy/expert-load diagnostics; disabled unless `moe_aux_loss_weight > 0` | [`src/model/feed_forward.py`](../src/model/feed_forward.py), [`src/training/trainer.py`](../src/training/trainer.py) |
+| Q1_0 research packing | Engine-native binary weight packing at 1.125 effective bits/weight with self-describing safetensors export | [`src/inference/quantization.py`](../src/inference/quantization.py), [`scripts/export.py`](../scripts/export.py) |
+| GGUF model serving | Delegation to a local OpenAI-compatible runtime such as `llama-server`; Gopi retains its API/UI while specialized kernels remain external | [`src/serving/external_backend.py`](../src/serving/external_backend.py), [`scripts/serve_gguf.py`](../scripts/serve_gguf.py) |
+| Deployment memory planning | Weight + KV + fixed linear-state estimates across BF16/INT8/INT4/Q1 combinations, exposed through API and CLI | [`src/runtime/resource_planner.py`](../src/runtime/resource_planner.py), [`scripts/plan_deployment.py`](../scripts/plan_deployment.py) |
+| Runtime capability metadata | Reports attention pattern, dense/linear layer counts, MoE topology, MTP horizons and QK normalization | [`src/runtime/capabilities.py`](../src/runtime/capabilities.py) |
+| Playground controls | Reasoning effort, architecture/context summary, cached/reasoning tokens and analytical memory footprint | [`ui/index.html`](../ui/index.html), [`ui/app.js`](../ui/app.js) |
+| Training report | Architecture summary, deployment matrix, MTP loss and MoE auxiliary loss visibility | [`scripts/build_training_report.py`](../scripts/build_training_report.py), [`reports/training_report.html`](../reports/training_report.html) |
+
+See [`MODERN_MODEL_FEATURES_2026.md`](MODERN_MODEL_FEATURES_2026.md) for the external research references and explicit non-claims.

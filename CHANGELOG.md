@@ -31,3 +31,14 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## 0.1.0
 
 - Initial configuration-driven GPT model, tokenizer, training, evaluation, generation, export, and serving implementation.
+
+## 2026-09-21 — Modern model/runtime enhancement audit
+
+- Added opt-in hybrid linear/dense attention with fixed-state causal linear decoding; default model/checkpoint configuration remains unchanged.
+- Added sparse-MoE router load-balancing objective and bounded routing diagnostics, disabled by default.
+- Added Q1_0-style 1.125-bit engine-native research packing/export with explicit non-GGUF compatibility labeling.
+- Added analytical deployment memory planning across weight/KV precisions, context and batch size, with API/CLI access.
+- Added OpenAI-compatible external inference backend and GGUF llama.cpp launcher so specialized low-bit models can run behind the Gopi API without duplicating custom kernels.
+- Expanded runtime capability metadata and upgraded the playground with reasoning-effort/model/resource visibility.
+- Expanded the live training report with model architecture, deployment footprints, MTP auxiliary loss and MoE auxiliary loss.
+- Added modern 8K hybrid and planning-only 7B hybrid-MoE profiles plus research documentation grounded in current published model cards.

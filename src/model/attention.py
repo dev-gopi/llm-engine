@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 import torch
@@ -14,7 +15,26 @@ from torch import Tensor
 from .positional import apply_rotary_pos_emb
 from .kv_cache import StaticLayerKVCache
 
-KeyValueCache: TypeAlias = tuple[Tensor, Tensor] | StaticLayerKVCache | Any
+
+@dataclass
+class LinearAttentionState:
+    r"""Fixed-size recurrent state for causal linear-attention decoding.
+
+    ``key_sum`` stores :math:`\sum \phi(k)` and ``key_value_sum`` stores
+    :math:`\sum \phi(k) \otimes v`.  Unlike a conventional KV cache, its
+    memory footprint does not grow with context length.
+    """
+
+    key_sum: Tensor
+    key_value_sum: Tensor
+    length: int
+
+    @property
+    def is_linear_attention_state(self) -> bool:
+        return True
+
+
+KeyValueCache: TypeAlias = tuple[Tensor, Tensor] | StaticLayerKVCache | LinearAttentionState | Any
 AttentionOutput: TypeAlias = Tensor | tuple[Tensor, KeyValueCache]
 
 
@@ -407,6 +427,11 @@ class MultiHeadAttention(nn.Module):
             qk_norm_eps=float(config.get("qk_norm_eps", 1e-6)),
             initializer_range=float(config.get("initializer_range", 0.02)),
             attention_backend=str(config.get("attention_backend", "auto")),
+            attention_pattern=str(config.get("attention_pattern", "dense")),
+            attention_window=(
+                int(config["attention_window"])
+                if config.get("attention_window") is not None else None
+            ),
             device=device,
             dtype=dtype,
         )
@@ -479,3 +504,192 @@ class MultiHeadAttention(nn.Module):
             raise ValueError("dropout must satisfy 0 <= dropout < 1")
         if not math.isfinite(initializer_range) or initializer_range <= 0:
             raise ValueError("initializer_range must be finite and positive")
+
+
+class CausalLinearAttention(MultiHeadAttention):
+    """Kernelized causal attention with fixed-size recurrent decode state.
+
+    This is an opt-in research backend for hybrid-attention models. It keeps
+    the same Q/K/V and output projection layout as :class:`MultiHeadAttention`
+    so dense checkpoints can be used to initialize architecture experiments.
+    The feature map is ``ELU(x) + 1`` and accumulation is performed in float32
+    for numerical stability. Training/prefill uses bounded chunks to avoid a
+    sequence-length-sized ``D x D`` intermediate; incremental decoding keeps
+    only the recurrent sums.
+
+    It intentionally supports causal self-attention and 2-D padding masks only.
+    Arbitrary additive attention biases do not have an exact linear-attention
+    equivalent and are rejected rather than silently approximated.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        heads: int = 8,
+        *,
+        kv_heads: int | None = None,
+        dropout: float = 0.0,
+        bias: bool = True,
+        causal: bool = True,
+        qk_norm: bool = False,
+        qk_norm_eps: float = 1e-6,
+        attention_backend: str = "auto",
+        initializer_range: float = 0.02,
+        eps: float = 1e-6,
+        chunk_size: int = 128,
+        device: torch.device | str | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> None:
+        if not causal:
+            raise ValueError("CausalLinearAttention requires causal=True")
+        if not math.isfinite(eps) or eps <= 0:
+            raise ValueError("linear attention eps must be finite and positive")
+        if not isinstance(chunk_size, int) or isinstance(chunk_size, bool) or chunk_size < 1:
+            raise ValueError("linear attention chunk_size must be a positive integer")
+        super().__init__(
+            dim,
+            heads,
+            kv_heads=kv_heads,
+            dropout=dropout,
+            bias=bias,
+            causal=True,
+            qk_norm=qk_norm,
+            qk_norm_eps=qk_norm_eps,
+            attention_backend=attention_backend,
+            initializer_range=initializer_range,
+            attention_pattern="dense",
+            device=device,
+            dtype=dtype,
+        )
+        self.attention_pattern = "linear"
+        self.linear_attention_eps = float(eps)
+        self.linear_attention_chunk_size = int(chunk_size)
+
+    @staticmethod
+    def _feature_map(value: Tensor) -> Tensor:
+        return F.elu(value.float()) + 1.0
+
+    def _validate_linear_mask(
+        self,
+        attention_mask: Tensor | None,
+        *,
+        batch_size: int,
+        query_length: int,
+    ) -> Tensor | None:
+        if attention_mask is None:
+            return None
+        if not isinstance(attention_mask, Tensor) or attention_mask.ndim != 2:
+            raise ValueError("linear attention supports only a 2D padding attention_mask")
+        if attention_mask.shape[0] != batch_size or attention_mask.shape[1] < query_length:
+            raise ValueError("linear attention_mask has incompatible shape")
+        return attention_mask[:, -query_length:].to(dtype=torch.bool)
+
+    def _initial_state(self, query: Tensor) -> tuple[Tensor, Tensor, int]:
+        batch_size = query.shape[0]
+        key_sum = torch.zeros(
+            (batch_size, self.heads, self.head_dim),
+            device=query.device,
+            dtype=torch.float32,
+        )
+        key_value_sum = torch.zeros(
+            (batch_size, self.heads, self.head_dim, self.head_dim),
+            device=query.device,
+            dtype=torch.float32,
+        )
+        return key_sum, key_value_sum, 0
+
+    def _load_state(
+        self,
+        state: KeyValueCache | None,
+        query: Tensor,
+    ) -> tuple[Tensor, Tensor, int]:
+        if state is None:
+            return self._initial_state(query)
+        if not isinstance(state, LinearAttentionState):
+            raise TypeError("linear attention past_key_value must be LinearAttentionState")
+        expected_key = (query.shape[0], self.heads, self.head_dim)
+        expected_kv = (*expected_key, self.head_dim)
+        if tuple(state.key_sum.shape) != expected_key:
+            raise ValueError("linear attention key_sum has incompatible shape")
+        if tuple(state.key_value_sum.shape) != expected_kv:
+            raise ValueError("linear attention key_value_sum has incompatible shape")
+        if state.key_sum.device != query.device or state.key_value_sum.device != query.device:
+            raise ValueError("linear attention state must match the current tensor device")
+        if state.length < 0:
+            raise ValueError("linear attention state length cannot be negative")
+        return state.key_sum.float(), state.key_value_sum.float(), int(state.length)
+
+    def forward(
+        self,
+        hidden_states: Tensor,
+        attention_mask: Tensor | None = None,
+        *,
+        rotary_pos_emb: tuple[Tensor, Tensor] | None = None,
+        position_ids: Tensor | None = None,
+        past_key_value: KeyValueCache | None = None,
+        use_cache: bool = False,
+        is_causal: bool | None = None,
+    ) -> AttentionOutput:
+        if is_causal is False:
+            raise ValueError("linear attention supports causal attention only")
+        query, key, value = self.project_qkv(hidden_states)
+        if rotary_pos_emb is not None:
+            cos, sin = rotary_pos_emb
+            query, key = apply_rotary_pos_emb(query, key, cos, sin, position_ids=position_ids)
+
+        batch_size, _, query_length, _ = query.shape
+        current_mask = self._validate_linear_mask(
+            attention_mask,
+            batch_size=batch_size,
+            query_length=query_length,
+        )
+        # GQA shares K/V projections. Expanding them here preserves the same
+        # mathematical grouping while keeping the recurrent state simple and
+        # fixed-size per query head.
+        key = key.repeat_interleave(self.num_kv_groups, dim=1)
+        value = value.repeat_interleave(self.num_kv_groups, dim=1)
+        query_phi = self._feature_map(query)
+        key_phi = self._feature_map(key)
+        value32 = value.float()
+
+        if current_mask is not None:
+            valid = current_mask[:, None, :, None].to(torch.float32)
+            key_phi = key_phi * valid
+            value32 = value32 * valid
+        key_sum, key_value_sum, past_length = self._load_state(past_key_value, query)
+
+        outputs: list[Tensor] = []
+        for start in range(0, query_length, self.linear_attention_chunk_size):
+            stop = min(query_length, start + self.linear_attention_chunk_size)
+            q_chunk = query_phi[:, :, start:stop, :]
+            k_chunk = key_phi[:, :, start:stop, :]
+            v_chunk = value32[:, :, start:stop, :]
+            outer = torch.einsum("bhtd,bhte->bhtde", k_chunk, v_chunk)
+            key_prefix = k_chunk.cumsum(dim=2) + key_sum.unsqueeze(2)
+            kv_prefix = outer.cumsum(dim=2) + key_value_sum.unsqueeze(2)
+            numerator = torch.einsum("bhtd,bhtde->bhte", q_chunk, kv_prefix)
+            denominator = torch.einsum("bhtd,bhtd->bht", q_chunk, key_prefix).unsqueeze(-1)
+            chunk_output = numerator / denominator.clamp_min(self.linear_attention_eps)
+            if current_mask is not None:
+                chunk_output = chunk_output * current_mask[:, None, start:stop, None]
+            outputs.append(chunk_output)
+            key_sum = key_prefix[:, :, -1, :]
+            key_value_sum = kv_prefix[:, :, -1, :, :]
+
+        attended = torch.cat(outputs, dim=2).to(query.dtype)
+        if self.training and self.dropout:
+            attended = F.dropout(attended, p=self.dropout, training=True)
+        output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, self.dim)
+        output = self.out_proj(output)
+        if self.tensor_parallel_group is not None:
+            torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
+        self.last_attention_backend = "linear_recurrent"
+
+        if not use_cache:
+            return output
+        state = LinearAttentionState(
+            key_sum=key_sum.detach() if not self.training else key_sum,
+            key_value_sum=key_value_sum.detach() if not self.training else key_value_sum,
+            length=past_length + query_length,
+        )
+        return output, state

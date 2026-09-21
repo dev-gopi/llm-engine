@@ -28,6 +28,8 @@ import time
 from typing import Any
 
 from utils.config import load_yaml
+from model.config import estimate_model_size, resolve_attention_layer_pattern
+from runtime.resource_planner import deployment_matrix
 
 
 KEY_VALUE = re.compile(r"([a-zA-Z_]+)=([^\s]+)")
@@ -607,6 +609,51 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def model_deployment_analysis(
+    model_config: dict[str, Any], training_config: dict[str, Any],
+    telemetry: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Summarize architecture and analytical deployment footprints safely."""
+    try:
+        size = estimate_model_size(model_config)
+        patterns = resolve_attention_layer_pattern(model_config)
+    except (KeyError, TypeError, ValueError) as error:
+        return {"available": False, "error": str(error)}
+    context = min(
+        int(model_config.get("max_position", 1)),
+        max(1, int(training_config.get("max_sequence_length", model_config.get("max_position", 1)))),
+    )
+    gpu_budget = None
+    latest = (telemetry or [])[-1] if telemetry else {}
+    gpus = latest.get("gpus", []) if isinstance(latest, dict) else []
+    if gpus and all(isinstance(gpu.get("memory_total_mb"), (int, float)) for gpu in gpus):
+        gpu_budget = int(sum(float(gpu["memory_total_mb"]) for gpu in gpus) * 1024 ** 2)
+    rows = deployment_matrix(
+        model_config, context_length=context, memory_budget_bytes=gpu_budget,
+    )
+    return {
+        "available": True,
+        "parameter_count": size.parameters,
+        "active_parameters_per_token": size.active_parameters_per_token,
+        "bf16_weight_gib": size.parameter_bytes_bf16 / 1024 ** 3,
+        "configured_context": int(model_config.get("max_position", 0)),
+        "report_context": context,
+        "attention_pattern": "hybrid" if len(set(patterns)) > 1 else patterns[0],
+        "full_attention_layers": size.full_attention_layers,
+        "linear_attention_layers": size.linear_attention_layers,
+        "bf16_kv_cache_gib_per_sequence_at_max_context": size.kv_cache_bytes_bf16_per_sequence / 1024 ** 3,
+        "bf16_linear_state_gib_per_sequence": size.linear_state_bytes_bf16_per_sequence / 1024 ** 3,
+        "ffn_type": str(model_config.get("ffn_type", "dense")),
+        "num_experts": model_config.get("num_experts"),
+        "experts_per_token": model_config.get("experts_per_token"),
+        "mtp_predictions": int(model_config.get("mtp_num_predictions", 0) or 0),
+        "qk_norm": bool(model_config.get("qk_norm", False)),
+        "memory_budget_gib": gpu_budget / 1024 ** 3 if gpu_budget else None,
+        "deployment_matrix": rows,
+        "note": "Footprints are analytical estimates; measured peak memory and checkpoint quality remain separate validation requirements.",
+    }
+
+
 def build_report(
     args: argparse.Namespace,
     parsed: dict[str, Any] | None = None,
@@ -655,6 +702,7 @@ def build_report(
             "generation_quality": generation_evaluation,
         },
         "analysis": analyze_progress(parsed),
+        "model_analysis": model_deployment_analysis(model_config, training_config, telemetry),
         "telemetry": telemetry or [],
         **parsed,
     }
@@ -667,6 +715,9 @@ def build_report(
     elif coverage["generation_quality"].startswith("available"):
         comparison["note"] = "Qualitative fixed-prompt responses are included; generation accuracy has not been measured."
     latest_telemetry = report["telemetry"][-1] if report["telemetry"] else {}
+    latest_training = report.get("training", [])[-1] if report.get("training") else {}
+    report["analysis"]["runtime"]["mtp_loss"] = latest_training.get("mtp_loss")
+    report["analysis"]["runtime"]["moe_aux_loss"] = latest_training.get("moe_aux_loss")
     if latest_telemetry.get("gpus"):
         report["analysis"]["report_coverage"]["gpu_telemetry"] = "available"
     elif report["telemetry"]:

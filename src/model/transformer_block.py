@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from .attention import KeyValueCache, MultiHeadAttention
+from .attention import CausalLinearAttention, KeyValueCache, MultiHeadAttention
 from .feed_forward import FeedForward, SparseMoE
 from .layer_norm import build_normalization
 
@@ -49,6 +49,8 @@ class TransformerBlock(nn.Module):
         initializer_range: float = 0.02,
         attention_pattern: str = "dense",
         attention_window: int | None = None,
+        linear_attention_eps: float = 1e-6,
+        linear_attention_chunk_size: int = 128,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -60,7 +62,16 @@ class TransformerBlock(nn.Module):
 
         self.pre_norm = bool(pre_norm)
         self.residual_scale = float(residual_scale)
-        self.attn = MultiHeadAttention(
+        pattern = str(attention_pattern).lower()
+        attention_class = CausalLinearAttention if pattern == "linear" else MultiHeadAttention
+        attention_options = ({
+            "eps": linear_attention_eps,
+            "chunk_size": linear_attention_chunk_size,
+        } if pattern == "linear" else {
+            "attention_pattern": pattern,
+            "attention_window": attention_window,
+        })
+        self.attn = attention_class(
             dim,
             heads,
             kv_heads=kv_heads,
@@ -70,10 +81,9 @@ class TransformerBlock(nn.Module):
             qk_norm=qk_norm,
             qk_norm_eps=qk_norm_eps,
             initializer_range=initializer_range,
-            attention_pattern=attention_pattern,
-            attention_window=attention_window,
             device=device,
             dtype=dtype,
+            **attention_options,
         )
         if ffn_type not in {"dense", "moe"}:
             raise ValueError("ffn_type must be 'dense' or 'moe'")
@@ -207,6 +217,13 @@ class TransformerBlock(nn.Module):
             router_bias=bool(config.get("router_bias", False)),
             router_jitter=float(config.get("router_jitter", 0.0)),
             initializer_range=float(config.get("initializer_range", 0.02)),
+            attention_pattern=str(config.get("attention_pattern", "dense")),
+            attention_window=(
+                int(config["attention_window"])
+                if config.get("attention_window") is not None else None
+            ),
+            linear_attention_eps=float(config.get("linear_attention_eps", 1e-6)),
+            linear_attention_chunk_size=int(config.get("linear_attention_chunk_size", 128)),
             device=device,
             dtype=dtype,
         )

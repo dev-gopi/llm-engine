@@ -40,6 +40,7 @@ from .schemas import FinishReason, GenerateRequest
 from schema.structured_outputs import make_spec, validate_structured_output, StructuredOutputError
 from runtime.reasoning import resolve_reasoning_budget
 from .orchestration import ReloadableBackend, ReplicaPoolBackend
+from .external_backend import OpenAICompatibleBackend
 
 logger = get_logger(__name__)
 
@@ -1020,6 +1021,20 @@ def _load_mcp_config() -> dict:
 
 
 def _reload_candidate():
+    backend_kind = os.getenv("GOPI_BACKEND", "native").strip().lower()
+    if backend_kind in {"llama_cpp", "external", "openai_compatible"}:
+        backend = OpenAICompatibleBackend(
+            base_url=os.getenv("GOPI_EXTERNAL_BASE_URL", "http://127.0.0.1:8080"),
+            model=os.getenv("GOPI_EXTERNAL_MODEL", "local-model"),
+            api_key=os.getenv("GOPI_EXTERNAL_API_KEY"),
+            timeout_seconds=float(os.getenv("GOPI_EXTERNAL_TIMEOUT_SECONDS", "120")),
+            context_length=int(os.getenv("GOPI_EXTERNAL_CONTEXT_LENGTH", "0")),
+            parameter_count=int(os.getenv("GOPI_EXTERNAL_PARAMETER_COUNT", "0")) or None,
+        )
+        version = f"external:{backend.base_url}:{backend.model}"
+        return backend, version
+    if backend_kind != "native":
+        raise ValueError("GOPI_BACKEND must be native, llama_cpp, or openai_compatible")
     devices = [value.strip() for value in os.getenv("GOPI_REPLICA_DEVICES", "").split(",") if value.strip()]
     replicas = [_configured_from_environment(device=device) for device in devices] or [_configured_from_environment()]
     backend = replicas[0] if len(replicas) == 1 else ReplicaPoolBackend(replicas)

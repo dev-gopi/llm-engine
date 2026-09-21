@@ -27,6 +27,7 @@ from utils.config import load_yaml
 from utils.logger import get_logger
 from runtime.cancellation import CancellationRegistry
 from runtime.capabilities import discover_capabilities, load_model_config, load_capability_evidence
+from runtime.resource_planner import estimate_inference_memory, deployment_matrix
 from model.lifecycle import ModelLifecycleManager
 
 from .runtime import (
@@ -330,10 +331,14 @@ def create_app(
     cancellation_registry = CancellationRegistry()
     embedding_service = EmbeddingService()
     lifecycle = ModelLifecycleManager(runtime.backend)
+    def application_model_config() -> dict:
+        candidate = getattr(runtime.backend, "backend", runtime.backend)
+        path = getattr(candidate, "model_config", None)
+        return load_model_config(path) if path is not None else {}
+
     application_capabilities = lambda: discover_capabilities(
         runtime.backend,
-        model_config=load_model_config(getattr(runtime.backend, "backend", runtime.backend).model_config)
-        if hasattr(getattr(runtime.backend, "backend", runtime.backend), "model_config") else {},
+        model_config=application_model_config(),
         validation_evidence=load_capability_evidence(os.getenv("GOPI_CAPABILITY_EVIDENCE", "reports/capability_evidence.json")),
     )
 
@@ -592,6 +597,41 @@ def create_app(
             "id": model_id,
             "object": "model.capabilities",
             "capabilities": application_capabilities().as_dict(),
+        }
+
+    @application.get(
+        "/v1/models/{model_id}/resources",
+        tags=["openai-compatible"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def model_resources(
+        model_id: str, request: Request, context_length: int | None = None,
+        batch_size: int = 1, weight_precision: str = "bf16",
+        kv_precision: str = "bf16", memory_gib: float | None = None,
+    ):
+        if model_id != settings.model_name:
+            return _error_response(request, "model_not_found", "unknown model", 404)
+        config = application_model_config()
+        if not config:
+            return _error_response(request, "resource_plan_unavailable", "model configuration is unavailable", 503)
+        try:
+            budget = None if memory_gib is None else int(float(memory_gib) * 1024 ** 3)
+            estimate = estimate_inference_memory(
+                config, context_length=context_length, batch_size=batch_size,
+                weight_precision=weight_precision, kv_precision=kv_precision,
+                memory_budget_bytes=budget,
+            )
+            matrix = deployment_matrix(
+                config, context_length=estimate.context_length, batch_size=batch_size,
+                memory_budget_bytes=budget,
+            )
+        except (TypeError, ValueError) as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+        return {
+            "id": model_id,
+            "object": "model.resources",
+            "estimate": estimate.as_dict(),
+            "alternatives": matrix,
         }
 
     @application.post(

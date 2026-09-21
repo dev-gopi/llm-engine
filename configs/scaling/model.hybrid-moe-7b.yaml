@@ -1,0 +1,30 @@
+# Modern 7B-class planning profile inspired by current efficient open-model
+# patterns: hybrid linear/full attention, GQA, sparse top-2 MoE, RoPE and QK
+# normalization. It is intentionally planning-only: no trained checkpoint is
+# bundled and no quality claim follows from architecture alone.
+extends: ../model.gpu.yaml
+planning_only: true
+vocab_size: 50000
+hidden_size: 2048
+layers: 24
+heads: 32
+kv_heads: 4
+max_position: 32768
+position_type: rotary
+rope_scaling_type: yarn
+rope_original_max_position: 8192
+attention_layer_pattern: [linear, linear, linear, dense]
+linear_attention_chunk_size: 128
+qk_norm: true
+ffn_type: moe
+ffn_hidden_size: 5504
+ffn_activation: swiglu
+num_experts: 8
+experts_per_token: 2
+router_bias: false
+router_jitter: 0.01
+attention_bias: false
+ffn_bias: false
+norm_bias: false
+tie_word_embeddings: true
+gradient_checkpointing: true

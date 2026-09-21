@@ -247,8 +247,12 @@ def test_browser_playground_is_served():
     assert 'src="app.js"' in response.text
     assert 'id="mcpTool"' in response.text
     assert 'id="attachments"' in response.text
+    assert 'id="reasoningEffort"' in response.text
+    assert 'id="modelSummary"' in response.text
     script = request(create_app(FakeBackend(), settings=settings()), "GET", "/ui/app.js")
     assert "mcp_server:" in script.text
+    assert "reasoning_effort:" in script.text
+    assert "/resources?context_length=" in script.text
 
 
 def test_swagger_redoc_and_openapi_schema_are_served():
@@ -770,3 +774,38 @@ def test_websocket_stream_with_session_id(tmp_path):
     assert websocket.accepted
     assert [message["type"] for message in websocket.sent] == ["start", "token", "done"], websocket.sent
     assert websocket.sent[1]["token"] == "Hi"
+
+
+def test_model_resource_planner_endpoint_uses_config_without_loading_weights():
+    backend = FakeBackend()
+    backend.model_config = "configs/model.hybrid.gpu.yaml"
+    app = create_app(backend, settings=settings())
+    response = request(
+        app, "GET",
+        "/v1/models/gopi-test/resources?context_length=4096&batch_size=2&weight_precision=q1_0&kv_precision=int8&memory_gib=4",
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["object"] == "model.resources"
+    assert payload["estimate"]["context_length"] == 4096
+    assert payload["estimate"]["weight_precision"] == "q1_0"
+    assert payload["estimate"]["kv_precision"] == "int8"
+    assert len(payload["alternatives"]) == 12
+
+
+def test_model_capabilities_expose_hybrid_and_moe_architecture_metadata():
+    from runtime.capabilities import discover_capabilities
+    config = {
+        "vocab_size": 64, "hidden_size": 32, "layers": 8, "heads": 4,
+        "kv_heads": 2, "max_position": 1024,
+        "attention_layer_pattern": ["linear", "linear", "linear", "dense"],
+        "ffn_type": "moe", "num_experts": 8, "experts_per_token": 2,
+        "mtp_num_predictions": 2, "qk_norm": True,
+    }
+    caps = discover_capabilities(FakeBackend(), model_config=config)
+    assert caps.attention_pattern == "hybrid"
+    assert caps.linear_attention_layers == 6
+    assert caps.full_attention_layers == 2
+    assert caps.ffn_type == "moe"
+    assert caps.num_experts == 8 and caps.experts_per_token == 2
+    assert caps.mtp_predictions == 2 and caps.qk_norm is True

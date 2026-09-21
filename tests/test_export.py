@@ -28,6 +28,15 @@ def test_int4_safetensors_export_is_self_describing(tmp_path) -> None:
         assert artifact.metadata()["format"] == "llm-engine.int4.v1"
 
 
+def test_q1_safetensors_export_is_self_describing(tmp_path) -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8).eval()
+    path = export_model(model, tmp_path / "model-q1.safetensors", "safetensors", weight_dtype="q1_0")
+    with safe_open(path, framework="pt") as artifact:
+        assert "head.weight.q1_packed" in artifact.keys()
+        assert artifact.metadata()["format"] == "llm-engine.q1_0.v1"
+        assert artifact.metadata()["effective_bits_per_weight"] == "1.125"
+
+
 def test_export_manifest_is_content_addressed_and_includes_tokenizer_compatibility(tmp_path) -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8).eval()
     artifact = export_model(model, tmp_path / "model.safetensors", "safetensors")

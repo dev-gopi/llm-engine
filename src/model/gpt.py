@@ -15,7 +15,7 @@ from utils.logger import get_logger
 
 from .attention import KeyValueCache
 from .kv_cache import StaticLayerKVCache
-from .config import normalize_model_config, validate_moe_config
+from .config import normalize_model_config, resolve_attention_layer_pattern, validate_moe_config
 from .embedding import TokenEmbedding
 from .layer_norm import build_normalization
 from .positional import PositionalEmbedding, RotaryPositionalEmbedding, SinusoidalPositionalEmbedding
@@ -75,7 +75,10 @@ class MiniGPT(nn.Module):
         logit_softcap: float | None = None,
         mtp_num_predictions: int = 0,
         attention_pattern: str = "dense",
+        attention_layer_pattern: list[str] | tuple[str, ...] | None = None,
         attention_window: int | None = None,
+        linear_attention_eps: float = 1e-6,
+        linear_attention_chunk_size: int = 128,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -93,6 +96,14 @@ class MiniGPT(nn.Module):
         if logit_softcap is not None and (not math.isfinite(logit_softcap) or logit_softcap <= 0):
             raise ValueError("logit_softcap must be finite and positive when provided")
         self.logit_softcap = float(logit_softcap) if logit_softcap is not None else None
+
+        attention_config = {
+            "layers": layers,
+            "attention_pattern": attention_pattern,
+            "attention_layer_pattern": attention_layer_pattern,
+            "attention_window": attention_window,
+        }
+        self.attention_layer_pattern = resolve_attention_layer_pattern(attention_config, layers)
 
         if self.position_type not in {"learned", "rotary", "sinusoidal", "none"}:
             raise ValueError(f"Unsupported position_type: {position_type!r}")
@@ -168,12 +179,14 @@ class MiniGPT(nn.Module):
                 router_bias=router_bias,
                 router_jitter=router_jitter,
                 initializer_range=initializer_range,
-                attention_pattern=attention_pattern,
+                attention_pattern=self.attention_layer_pattern[layer_index],
                 attention_window=attention_window,
+                linear_attention_eps=linear_attention_eps,
+                linear_attention_chunk_size=linear_attention_chunk_size,
                 device=device,
                 dtype=dtype,
             )
-            for _ in range(layers)
+            for layer_index in range(layers)
         )
         self.norm = build_normalization(
             norm_type, dim, eps=norm_eps, bias=norm_bias, device=device, dtype=dtype
@@ -199,6 +212,32 @@ class MiniGPT(nn.Module):
 
     def gradient_checkpointing_disable(self) -> None:
         self.gradient_checkpointing = False
+
+    def router_aux_loss(self) -> Tensor | None:
+        """Return the mean differentiable MoE load-balancing loss, if active."""
+        losses = [
+            block.ffn.last_router_aux_loss
+            for block in self.blocks
+            if hasattr(block.ffn, "last_router_aux_loss")
+            and block.ffn.last_router_aux_loss is not None
+        ]
+        if not losses:
+            return None
+        return torch.stack(losses).mean()
+
+    def router_metrics(self) -> dict[str, Any]:
+        """Return detached expert-routing diagnostics for reports/observability."""
+        layers = []
+        for index, block in enumerate(self.blocks):
+            ffn = block.ffn
+            if not hasattr(ffn, "last_expert_load") or not ffn.last_expert_load:
+                continue
+            layers.append({
+                "layer": index,
+                "entropy": ffn.last_router_entropy,
+                "expert_load": list(ffn.last_expert_load),
+            })
+        return {"layers": layers}
 
     def forward(
         self,
@@ -232,24 +271,20 @@ class MiniGPT(nn.Module):
         cached_length = 0
         if past_key_values:
             for cache in past_key_values:
-                if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False):
+                if (
+                    isinstance(cache, StaticLayerKVCache)
+                    or getattr(cache, "is_paged_kv_cache", False)
+                    or getattr(cache, "is_linear_attention_state", False)
+                ):
                     continue
                 if not isinstance(cache, tuple) or len(cache) != 2:
                     raise TypeError("each past_key_values entry must be a (key, value) tuple")
                 if any(not isinstance(tensor, Tensor) or tensor.ndim != 4 for tensor in cache):
                     raise ValueError("cached keys and values must have four dimensions")
-            cached_length = (
-                past_key_values[0].length
-                if isinstance(past_key_values[0], StaticLayerKVCache) or getattr(past_key_values[0], "is_paged_kv_cache", False)
-                else past_key_values[0][0].shape[2]
-            )
+            cached_length = self._cache_length(past_key_values[0])
             if any(
-                (cache.length if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False) else cache[0].shape[2])
-                != cached_length
-                or (
-                    not isinstance(cache, StaticLayerKVCache) and not getattr(cache, "is_paged_kv_cache", False)
-                    and cache[1].shape[2] != cached_length
-                )
+                self._cache_length(cache) != cached_length
+                or self._cache_value_length_mismatch(cache, cached_length)
                 for cache in past_key_values
             ):
                 raise ValueError("all cached keys and values must have the same sequence length")
@@ -512,7 +547,14 @@ class MiniGPT(nn.Module):
             ),
             mtp_num_predictions=int(config.get("mtp_num_predictions", 0)),
             attention_pattern=str(config.get("attention_pattern", "dense")),
+            attention_layer_pattern=(
+                list(config["attention_layer_pattern"])
+                if isinstance(config.get("attention_layer_pattern"), (list, tuple))
+                else ([str(config["attention_layer_pattern"])] if config.get("attention_layer_pattern") is not None else None)
+            ),
             attention_window=(int(config["attention_window"]) if config.get("attention_window") is not None else None),
+            linear_attention_eps=float(config.get("linear_attention_eps", 1e-6)),
+            linear_attention_chunk_size=int(config.get("linear_attention_chunk_size", 128)),
             device=device,
             dtype=dtype,
         )
@@ -548,6 +590,20 @@ class MiniGPT(nn.Module):
             raise TypeError("token_ids must use an integer dtype")
         if token_ids.shape[1] == 0:
             raise ValueError("token_ids sequence cannot be empty")
+
+    @staticmethod
+    def _cache_length(cache: KeyValueCache) -> int:
+        if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False) or getattr(cache, "is_linear_attention_state", False):
+            return int(cache.length)
+        if isinstance(cache, tuple) and len(cache) == 2:
+            return int(cache[0].shape[2])
+        raise TypeError("unsupported past_key_values cache entry")
+
+    @staticmethod
+    def _cache_value_length_mismatch(cache: KeyValueCache, expected: int) -> bool:
+        if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False) or getattr(cache, "is_linear_attention_state", False):
+            return False
+        return bool(isinstance(cache, tuple) and len(cache) == 2 and cache[1].shape[2] != expected)
 
     @staticmethod
     def _validate_attention_mask(

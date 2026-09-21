@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from torch import Tensor, nn
 
 
+Q1_0_GROUP_SIZE = 128
+Q1_0_EFFECTIVE_BITS = 1.0 + 16.0 / Q1_0_GROUP_SIZE
+
+
 def quantize_int4(tensor: Tensor) -> tuple[Tensor, Tensor, int]:
     """Symmetrically quantize a floating tensor and pack two signed INT4s/byte.
 
@@ -37,6 +41,67 @@ def dequantize_int4(
     if original_numel != int(torch.tensor(shape).prod()) or original_numel > nibbles.numel():
         raise ValueError("INT4 metadata does not match the packed tensor")
     return ((nibbles[:original_numel] - 8).to(torch.float32) * scale.to(torch.float32)).reshape(shape).to(dtype)
+
+
+def quantize_q1_0(
+    tensor: Tensor,
+    *,
+    group_size: int = Q1_0_GROUP_SIZE,
+) -> tuple[Tensor, Tensor, int]:
+    """Pack a floating tensor into a group-wise binary Q1_0 representation.
+
+    Every weight is represented by one sign bit and each group shares one FP16
+    scale. With the llama.cpp-compatible 128-value group size this is exactly
+    1.125 effective bits/weight before container metadata. The scale is the
+    mean absolute value, which minimizes squared error for a fixed binary sign
+    pattern. This helper is an engine-native research/export representation;
+    it does not claim GGUF binary compatibility by itself.
+    """
+    if not tensor.is_floating_point():
+        raise ValueError("Q1_0 quantization requires a floating-point tensor")
+    if not isinstance(group_size, int) or isinstance(group_size, bool) or group_size < 8 or group_size % 8:
+        raise ValueError("Q1_0 group_size must be a positive multiple of 8")
+    values = tensor.detach().to(torch.float32).reshape(-1)
+    original_numel = values.numel()
+    if original_numel == 0:
+        raise ValueError("Q1_0 quantization does not support empty tensors")
+    groups = (original_numel + group_size - 1) // group_size
+    padded_numel = groups * group_size
+    if padded_numel != original_numel:
+        values = torch.cat((values, torch.zeros(padded_numel - original_numel, device=values.device)))
+    values = values.view(groups, group_size)
+    scales = values.abs().mean(dim=1).clamp_min(torch.finfo(torch.float16).tiny).to(torch.float16)
+    signs = (values >= 0).to(torch.uint8).view(groups, group_size // 8, 8)
+    shifts = torch.arange(8, device=values.device, dtype=torch.int64)
+    packed = torch.sum(signs.to(torch.int64) << shifts, dim=-1).to(torch.uint8)
+    return packed.cpu().contiguous(), scales.cpu().contiguous(), original_numel
+
+
+def dequantize_q1_0(
+    packed: Tensor,
+    scales: Tensor,
+    *,
+    shape: torch.Size | tuple[int, ...],
+    original_numel: int,
+    group_size: int = Q1_0_GROUP_SIZE,
+    dtype: torch.dtype = torch.float32,
+) -> Tensor:
+    """Restore a tensor produced by :func:`quantize_q1_0`."""
+    if packed.dtype != torch.uint8 or scales.dtype not in {torch.float16, torch.float32, torch.bfloat16}:
+        raise ValueError("invalid Q1_0 packed tensor or scales")
+    if not isinstance(group_size, int) or group_size < 8 or group_size % 8:
+        raise ValueError("Q1_0 group_size must be a positive multiple of 8")
+    expected_numel = int(torch.tensor(shape).prod().item())
+    if original_numel != expected_numel:
+        raise ValueError("Q1_0 metadata does not match tensor shape")
+    groups = (original_numel + group_size - 1) // group_size
+    if tuple(packed.shape) != (groups, group_size // 8) or scales.numel() != groups:
+        raise ValueError("Q1_0 metadata does not match packed storage")
+    shifts = torch.arange(8, device=packed.device, dtype=torch.int64)
+    bits = ((packed.to(torch.int64).unsqueeze(-1) >> shifts) & 1).reshape(groups, group_size)
+    signs = bits.to(torch.float32).mul_(2.0).sub_(1.0)
+    restored = signs * scales.to(device=packed.device, dtype=torch.float32).reshape(-1, 1)
+    return restored.reshape(-1)[:original_numel].reshape(shape).to(dtype)
 
 
 def prepare_model_for_inference(

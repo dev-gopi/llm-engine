@@ -23,7 +23,7 @@ from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from training.peft import merge_and_unload
 from utils.config import load_yaml
-from inference.quantization import quantize_int4
+from inference.quantization import Q1_0_GROUP_SIZE, quantize_int4, quantize_q1_0
 
 
 def _sha256(path: Path) -> str:
@@ -81,20 +81,50 @@ def _export_int4_safetensors(model: MiniGPT, output: Path) -> None:
     )
 
 
+def _export_q1_safetensors(model: MiniGPT, output: Path) -> None:
+    tensors: dict[str, torch.Tensor] = {}
+    manifest: dict[str, dict[str, object]] = {}
+    for name, value in model.state_dict().items():
+        if value.is_floating_point():
+            packed, scales, original_numel = quantize_q1_0(value)
+            tensors[f"{name}.q1_packed"] = packed
+            tensors[f"{name}.q1_scale"] = scales
+            manifest[name] = {
+                "shape": list(value.shape),
+                "numel": original_numel,
+                "group_size": Q1_0_GROUP_SIZE,
+            }
+        else:
+            tensors[name] = value.detach().cpu().contiguous()
+    save_file(
+        tensors,
+        output,
+        metadata={
+            "format": "llm-engine.q1_0.v1",
+            "architecture": "MiniGPT",
+            "effective_bits_per_weight": "1.125",
+            "q1_manifest": json.dumps(manifest, separators=(",", ":")),
+        },
+    )
+
+
 def export_model(
     model: MiniGPT, output: Path, export_format: str, *, sequence_length: int = 16,
     weight_dtype: str = "float32",
 ) -> Path:
-    """Export float32/float16/bfloat16 weights, or portable packed INT4 safetensors."""
+    """Export float weights or self-describing packed low-bit safetensors."""
     output.parent.mkdir(parents=True, exist_ok=True)
     model = model.cpu().eval()
     dtypes = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
-    if weight_dtype not in {*dtypes, "int4"}:
-        raise ValueError("weight_dtype must be float32, float16, bfloat16, or int4")
-    if weight_dtype == "int4":
+    if weight_dtype not in {*dtypes, "int4", "q1_0"}:
+        raise ValueError("weight_dtype must be float32, float16, bfloat16, int4, or q1_0")
+    if weight_dtype in {"int4", "q1_0"}:
         if export_format != "safetensors":
-            raise ValueError("INT4 export is supported only for safetensors")
-        _export_int4_safetensors(model, output)
+            raise ValueError("packed low-bit export is supported only for safetensors")
+        if weight_dtype == "int4":
+            _export_int4_safetensors(model, output)
+        else:
+            _export_q1_safetensors(model, output)
         return output
     model.to(dtype=dtypes[weight_dtype])
     example = torch.zeros((1, sequence_length), dtype=torch.long)
@@ -123,8 +153,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sequence-length", type=int, default=16)
     parser.add_argument(
-        "--weight-dtype", choices=("float32", "float16", "bfloat16", "int4"), default="float32",
-        help="persist float weights at this dtype, or write a portable packed INT4 safetensors artifact",
+        "--weight-dtype", choices=("float32", "float16", "bfloat16", "int4", "q1_0"), default="float32",
+        help="persist float weights, packed INT4, or experimental group-wise binary Q1_0 safetensors",
     )
     parser.add_argument("--merge-lora", action="store_true", help="fold a loaded LoRA adapter into base weights")
     args = parser.parse_args()

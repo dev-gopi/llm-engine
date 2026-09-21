@@ -295,3 +295,23 @@ def test_trainer_opt_in_mtp_objective_updates_auxiliary_heads():
     loss = trainer.train_step(batch)
     assert math.isfinite(loss)
     assert not torch.equal(model.mtp_heads[0].weight, before)
+
+
+def test_trainer_opt_in_moe_load_balancing_objective_updates_router():
+    from model.gpt import MiniGPT
+    model = MiniGPT(
+        vocab_size=24, dim=8, layers=1, heads=2, max_pos=12,
+        ffn_type="moe", num_experts=4, experts_per_token=2,
+    )
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    trainer = Trainer(model, optimizer, moe_aux_loss_weight=0.01)
+    batch = {
+        "input_ids": torch.randint(0, 24, (2, 8)),
+        "labels": torch.randint(0, 24, (2, 8)),
+        "loss_mask": torch.ones(2, 8, dtype=torch.bool),
+    }
+    before = model.blocks[0].ffn.router.weight.detach().clone()
+    loss = trainer.train_step(batch)
+    assert math.isfinite(loss)
+    assert trainer.last_moe_aux_loss > 0
+    assert not torch.equal(model.blocks[0].ffn.router.weight, before)

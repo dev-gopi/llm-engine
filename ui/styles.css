@@ -138,3 +138,10 @@ button.secondary { color: var(--text); border: 1px solid var(--line); background
 .training-review label { display: block; margin-top: 10px; }
 .training-review textarea { display: block; width: 100%; box-sizing: border-box; }
 .training-review p { font-size: 0.85rem; }
+
+.model-summary {
+  margin: .45rem 0 .8rem; padding: .65rem .75rem; border: 1px solid var(--border, #2c3440);
+  border-radius: .7rem; font-size: .78rem; line-height: 1.45; opacity: .9;
+}
+.reasoning-control { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; }
+.reasoning-control select { width: auto; min-width: 6.5rem; }

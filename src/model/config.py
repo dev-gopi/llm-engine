@@ -46,6 +46,38 @@ class ModelSize:
     parameter_bytes_fp32: int
     parameter_bytes_bf16: int
     kv_cache_bytes_bf16_per_sequence: int
+    linear_state_bytes_bf16_per_sequence: int = 0
+    runtime_state_bytes_bf16_per_sequence: int = 0
+    full_attention_layers: int = 0
+    linear_attention_layers: int = 0
+
+
+def resolve_attention_layer_pattern(config: Mapping[str, Any], layers: int | None = None) -> tuple[str, ...]:
+    """Expand the configured attention pattern to one validated value per layer.
+
+    ``attention_layer_pattern`` is a compact repeating cycle, for example
+    ``[linear, linear, linear, dense]``.  This keeps legacy single-pattern
+    configs fully compatible while allowing Bonsai/Qwen-style hybrid research
+    profiles without duplicating dozens of layer entries.
+    """
+    total_layers = layers if layers is not None else _positive_int(config["layers"], "layers")
+    raw = config.get("attention_layer_pattern")
+    if raw is None:
+        raw = [str(config.get("attention_pattern", "dense")).lower()]
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ValueError("attention_layer_pattern must be a non-empty list or string")
+    cycle = tuple(str(item).lower() for item in raw)
+    supported = {"dense", "sliding_window", "linear"}
+    unsupported = sorted(set(cycle) - supported)
+    if unsupported:
+        raise ValueError(f"unsupported attention pattern(s): {', '.join(unsupported)}")
+    if "sliding_window" in cycle:
+        window = config.get("attention_window")
+        if not isinstance(window, int) or isinstance(window, bool) or window < 1:
+            raise ValueError("attention_window must be a positive integer when sliding_window is used")
+    return tuple(cycle[index % len(cycle)] for index in range(total_layers))
 
 
 def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
@@ -110,11 +142,28 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
     if bool(cfg.get("lm_head_bias", False)):
         parameters += vocab
 
-    kv_cache_elements = 2 * layers * kv_heads * context * head_dim
+    layer_patterns = resolve_attention_layer_pattern(cfg, layers)
+    linear_layers = sum(pattern == "linear" for pattern in layer_patterns)
+    full_layers = layers - linear_layers
+    kv_cache_elements = 2 * full_layers * kv_heads * context * head_dim
+    # The reference linear backend stores one recurrent K vector and one K⊗V
+    # matrix per query head. This state is context-length independent.
+    linear_state_elements = linear_layers * heads * (head_dim + head_dim * head_dim)
     # Embeddings, final norm, and head are active for every token.
     active_parameters = parameters - layers * (total_per_layer - active_per_layer)
-    return ModelSize(parameters, active_parameters, parameters * 4, parameters * 2,
-                     kv_cache_elements * 2)
+    kv_bytes = kv_cache_elements * 2
+    linear_bytes = linear_state_elements * 2
+    return ModelSize(
+        parameters,
+        active_parameters,
+        parameters * 4,
+        parameters * 2,
+        kv_bytes,
+        linear_bytes,
+        kv_bytes + linear_bytes,
+        full_layers,
+        linear_layers,
+    )
 
 
 def validate_moe_config(config: Mapping[str, Any]) -> None:
@@ -136,11 +185,24 @@ def validate_moe_config(config: Mapping[str, Any]) -> None:
 
 
 def _validate_attention_backend(config: Mapping[str, Any]) -> None:
-    pattern = str(config.get("attention_pattern", "dense")).lower()
-    if pattern not in {"dense", "sliding_window"}:
-        raise ValueError("attention_pattern must be dense or sliding_window")
-    if pattern == "sliding_window" and (not isinstance(config.get("attention_window"), int) or config["attention_window"] < 1):
-        raise ValueError("attention_window must be a positive integer for sliding_window attention")
+    if "layers" in config:
+        resolve_attention_layer_pattern(config, int(config["layers"]))
+    else:
+        pattern = str(config.get("attention_pattern", "dense")).lower()
+        if pattern not in {"dense", "sliding_window", "linear"}:
+            raise ValueError("attention_pattern must be dense, sliding_window, or linear")
+        if pattern == "sliding_window" and (
+            not isinstance(config.get("attention_window"), int)
+            or isinstance(config.get("attention_window"), bool)
+            or config["attention_window"] < 1
+        ):
+            raise ValueError("attention_window must be a positive integer for sliding_window attention")
+    eps = float(config.get("linear_attention_eps", 1e-6))
+    if not math.isfinite(eps) or eps <= 0:
+        raise ValueError("linear_attention_eps must be finite and positive")
+    chunk = config.get("linear_attention_chunk_size", 128)
+    if not isinstance(chunk, int) or isinstance(chunk, bool) or chunk < 1:
+        raise ValueError("linear_attention_chunk_size must be a positive integer")
     backend = str(config.get("attention_backend", "auto")).lower()
     if backend not in {"auto", "sdpa", "eager"}:
         raise ValueError("attention_backend must be auto, sdpa, or eager")
