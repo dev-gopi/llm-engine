@@ -1022,8 +1022,6 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Relevant files**: `src/mcp/orchestration.py`, `src/inference/local_tools.py`, `src/evaluation/benchmarks.py`, `tests/test_mcp_client.py`, `tests/test_local_tools.py`
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ## Sheet-Sync Additions — 2026-09-20
@@ -1042,8 +1040,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Independent train/eval contamination and near-duplicate audit
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### DATA-005: Dataset Quality Scoring
@@ -1057,8 +1053,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P0`
 
 - **Description**: Per-document quality scoring and source weighting
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1074,8 +1068,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Compare corpus mixtures against capability metrics
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### DATA-007: Token/Sequence Packing Efficiency
@@ -1089,8 +1081,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Measure useful-token vs padding/packing waste
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1112,8 +1102,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Acceptance criteria**: Versioned observations validate parameter/token/loss/capability values and deterministically report log-compute trend slopes. Real scaling conclusions require recorded experiments.
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### TRAIN-002: Compute and Token Budget Accounting
@@ -1133,8 +1121,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Validation**: `.venv/bin/pytest tests/test_training_accounting.py tests/test_training_system.py -q` (48 passed).
 
 - **Acceptance criteria**: Trainer counters produce a reproducible report for supervised tokens, optimizer steps, elapsed device-hours, tokens/second, and the explicit `6 × parameters × tokens` FLOP estimate. It does not represent a hardware FLOP measurement.
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1156,8 +1142,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Acceptance criteria**: Deterministic versioned manifests expand validated Cartesian trial grids. The CLI plans by default and only executes sequential training trials with `--execute`.
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### TRAIN-004: Training Stability Diagnostics
@@ -1178,8 +1162,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Acceptance criteria**: Persisted trainer and epoch-history diagnostics record loss, gradient norms, logit activation scale, parameter scale, and gradient-to-parameter update-scale proxy without retaining activation or parameter snapshots.
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### TRAIN-005: Checkpoint Selection and Model Promotion
@@ -1193,8 +1175,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Multi-axis checkpoint promotion instead of loss-only selection
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1210,8 +1190,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Quality filtering, balancing, verification and category coverage
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### ALIGN-001: Preference Dataset Pipeline
@@ -1225,8 +1203,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P0`
 
 - **Description**: Chosen/rejected pair quality, bias and provenance checks
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1242,8 +1218,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: SFT→DPO capability/regression comparison
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### ALIGN-003: Alignment Method Experiment Interface
@@ -1257,8 +1231,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P2`
 
 - **Description**: Controlled comparison of DPO/IPO/ORPO/KTO/etc.
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1274,8 +1246,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Programmatic/math/code verification of reasoning outputs
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### RSN-005: Reasoning Difficulty Curriculum
@@ -1289,8 +1259,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Difficulty-ordered reasoning training
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1306,8 +1274,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Versioned benchmark adapters with reproducible scoring controls
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### EVAL-004: Dynamic / Anti-Contamination Evaluation
@@ -1321,8 +1287,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Generated math/logic/instruction/tool tests
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1338,8 +1302,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Confidence-vs-correctness metrics
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### EVAL-006: Hallucination and Uncertainty Evaluation
@@ -1353,8 +1315,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Unknown/false-premise/citation/RAG hallucination tests
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1370,8 +1330,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Automatic protected-capability regression blocking
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### TOKEN-002: Tokenizer Quality Benchmark
@@ -1385,8 +1343,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Efficiency across languages/code/JSON/Unicode/numbers
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1402,8 +1358,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: ID/special-token/checkpoint compatibility across releases
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### CTX-003: Context Scaling Ablation
@@ -1417,8 +1371,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: 512→1K→2K→4K→8K quality/memory/throughput study
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1434,8 +1386,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: TTFT/ITL/TPS/throughput/memory across batch and precision
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### INF-004: Serving Load and Soak Testing
@@ -1449,8 +1399,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: 10m/1h/6h/24h sustained load and leak detection
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1466,8 +1414,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Disconnect/timeout/OOM/tool/server-restart cleanup tests
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### RAG-003: Retrieval Recall and Faithfulness Benchmark
@@ -1481,8 +1427,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Recall, reranking and answer/citation faithfulness
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1498,8 +1442,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Training→eval→safety→regression→manifest→RC
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### RELEASE-002: Model Card and Dataset Card
@@ -1514,8 +1456,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Description**: Release documentation, limitations, provenance and evaluation
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
-
 ---
 
 ### RELEASE-003: Reproducible Model Recreation
@@ -1529,8 +1469,6 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 - **Priority**: `P1`
 
 - **Description**: Recreate experiment from commit/config/data/tokenizer manifest
-
-- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
