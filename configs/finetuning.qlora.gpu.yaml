@@ -1,0 +1,15 @@
+stage: finetuning
+seed: 20260921
+batch_size: 1
+gradient_accumulation_steps: 32
+max_sequence_length: 1024
+mixed_precision: bf16
+gradient_checkpointing: true
+peft:
+  profile: qlora
+  quantization: int4
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, out_proj]
+  merge_export: true

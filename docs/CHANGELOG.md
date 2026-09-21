@@ -1,4 +1,22 @@
 
+## 2026-09-21 — EMB-001, AGT-004, MEM-002, SCALE-004, SCALE-005, VIS-003, AGT-005 implementation layer
+
+### Added
+- **EMB-001**: Dedicated embedding interface, deterministic embedding baseline, cosine recall@K, reranking hooks, and embedding-backed RAG search.
+- **AGT-004**: Bounded planning/execution state machine with allowlisted tools, explicit human approval, observations, failure recovery, and MCP approval gating.
+- **MEM-002**: Opt-in user-scoped semantic/episodic SQLite memory with retention expiry, relevance retrieval, and user deletion.
+- **SCALE-004**: QLoRA preparation contract and constrained-GPU fine-tuning profile with merge compatibility inherited from native LoRA.
+- **SCALE-005**: Tensor/pipeline/expert parallel topology and distributed-checkpoint contracts.
+- **VIS-003**: Explicit versioned audio/video modality contracts and research configuration; image projector reuse is not assumed.
+- **AGT-005**: Deterministic agent task result schema and benchmark metrics for success, tool selection, argument validity, recovery, safety, and execution steps.
+- **ATT-002**: Sliding-window attention research profile and dense-checkpoint-compatible fallback.
+- **QNT-002**: Quantized deployment provenance/architecture manifest validation and GPTQ/AWQ/GGUF interchange configuration.
+
+### Evidence gate
+- QNT-002 remains `TODO` until real third-party GPTQ/AWQ/GGUF artifacts are imported/exported and regression-measured.
+- ATT-002, SCALE-005, and VIS-003 remain `TODO` until hardware/multimodal benchmark evidence is recorded.
+- The implementation-layer tests for this batch pass; no external checkpoint, corpus, or third-party runtime result is represented as completed evidence.
+
 ## 2026-09-21 — DATA-004..DATA-007 data evaluation infrastructure
 
 - Added independent train/evaluation exact and near-duplicate contamination audit tooling (DATA-004).

@@ -6,6 +6,8 @@ import json
 import math
 import re
 import sqlite3
+
+import torch
 import unicodedata
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -432,3 +434,20 @@ __all__ = [
     "build_rag_prompt", "build_rag_prompt_with_budget", "chunk_text", "iter_chunks",
     "read_document", "rerank_results",
 ]
+
+# Dedicated embedding retrieval API (lexical BM25 remains the default fallback).
+def embedding_search(chunks: Iterable[DocumentChunk], query: str, embedding_model, *, top_k: int = 5, reranker=None) -> list[RetrievalResult]:
+    from evaluation.embeddings import EmbeddingModel
+    items = list(chunks)
+    if not items or not isinstance(query, str) or not query.strip():
+        return []
+    q = embedding_model.encode([query])
+    d = embedding_model.encode([item.text for item in items])
+    scores = torch.nn.functional.cosine_similarity(q, d, dim=-1).tolist()
+    order = sorted(range(len(items)), key=lambda i: scores[i], reverse=True)
+    if reranker is not None:
+        candidates = order[:max(top_k, top_k * 4)]
+        reranked = reranker(query, [items[i].text for i in candidates])
+        candidates = [candidates[i] for i in sorted(range(len(candidates)), key=lambda i: reranked[i], reverse=True)]
+        order = candidates + [i for i in order if i not in candidates]
+    return [RetrievalResult(items[i].title or Path(items[i].source).name, items[i].source, items[i].text, float(scores[i])) for i in order[:top_k]]

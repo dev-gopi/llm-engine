@@ -40,6 +40,8 @@ class MultiHeadAttention(nn.Module):
         qk_norm_eps: float = 1e-6,
         attention_backend: str = "auto",
         initializer_range: float = 0.02,
+        attention_pattern: str = "dense",
+        attention_window: int | None = None,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -59,6 +61,15 @@ class MultiHeadAttention(nn.Module):
         self.attention_backend = self._validate_attention_backend(attention_backend)
         self.last_attention_backend: str | None = None
         self.initializer_range = float(initializer_range)
+        self.attention_pattern = str(attention_pattern).lower()
+        if self.attention_pattern not in {"dense", "sliding_window"}:
+            raise ValueError("attention_pattern must be dense or sliding_window")
+        if self.attention_pattern == "sliding_window":
+            if attention_window is None or int(attention_window) < 1:
+                raise ValueError("sliding_window attention requires a positive attention_window")
+            self.attention_window = int(attention_window)
+        else:
+            self.attention_window = None
 
         factory_kwargs = {"device": device, "dtype": dtype}
         if self.kv_heads == self.heads:
@@ -274,9 +285,10 @@ class MultiHeadAttention(nn.Module):
             else:
                 query_positions = torch.arange(query_length, device=device) + past_length
                 key_positions = torch.arange(key_length, device=device)
-                causal_mask = (key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)).view(
-                    1, 1, query_length, key_length
-                )
+                causal_mask = (key_positions.unsqueeze(0) <= query_positions.unsqueeze(1))
+                if self.attention_pattern == "sliding_window":
+                    causal_mask = causal_mask & (key_positions.unsqueeze(0) >= query_positions.unsqueeze(1) - self.attention_window + 1)
+                causal_mask = causal_mask.view(1, 1, query_length, key_length)
                 if len(self._mask_cache) < 32:
                     self._mask_cache[cache_key] = causal_mask
 

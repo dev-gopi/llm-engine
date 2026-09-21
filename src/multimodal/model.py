@@ -175,3 +175,12 @@ def multimodal_sft_metrics(logits: Tensor, response_ids: Tensor, response_loss_m
     loss = torch.nn.functional.cross_entropy(selected.float(), labels, reduction="mean")
     accuracy = (selected.argmax(dim=-1) == labels).float().mean()
     return {"token_accuracy": float(accuracy), "perplexity": float(torch.exp(loss)), "tokens": float(labels.numel())}
+
+
+def validate_modality_contracts(contracts: list[object]) -> None:
+    """Require explicit, separately-versioned contracts for non-image modalities."""
+    for contract in contracts:
+        if not hasattr(contract, "validate"): raise ValueError("invalid modality contract")
+        contract.validate()
+    modalities=[getattr(c,"modality",None) for c in contracts]
+    if len(modalities) != len(set(modalities)): raise ValueError("duplicate modality contracts")

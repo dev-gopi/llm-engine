@@ -136,6 +136,11 @@ def validate_moe_config(config: Mapping[str, Any]) -> None:
 
 
 def _validate_attention_backend(config: Mapping[str, Any]) -> None:
+    pattern = str(config.get("attention_pattern", "dense")).lower()
+    if pattern not in {"dense", "sliding_window"}:
+        raise ValueError("attention_pattern must be dense or sliding_window")
+    if pattern == "sliding_window" and (not isinstance(config.get("attention_window"), int) or config["attention_window"] < 1):
+        raise ValueError("attention_window must be a positive integer for sliding_window attention")
     backend = str(config.get("attention_backend", "auto")).lower()
     if backend not in {"auto", "sdpa", "eager"}:
         raise ValueError("attention_backend must be auto, sdpa, or eager")

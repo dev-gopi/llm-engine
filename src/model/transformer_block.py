@@ -47,6 +47,8 @@ class TransformerBlock(nn.Module):
         router_bias: bool = False,
         router_jitter: float = 0.0,
         initializer_range: float = 0.02,
+        attention_pattern: str = "dense",
+        attention_window: int | None = None,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -68,6 +70,8 @@ class TransformerBlock(nn.Module):
             qk_norm=qk_norm,
             qk_norm_eps=qk_norm_eps,
             initializer_range=initializer_range,
+            attention_pattern=attention_pattern,
+            attention_window=attention_window,
             device=device,
             dtype=dtype,
         )

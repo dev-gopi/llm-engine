@@ -1,0 +1,11 @@
+formats:
+  - gptq
+  - awq
+  - gguf
+required_bits: [4, 8]
+calibration:
+  required: true
+  provenance: sha256
+regression:
+  quality_metrics: [perplexity, task_accuracy]
+  performance_metrics: [latency_ms, peak_memory_bytes, tokens_per_second]

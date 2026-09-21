@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import torch
+from dataclasses import dataclass
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
@@ -111,3 +112,21 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
     model.head = VocabParallelLinear(model.head, rank, size, group)
     model.tensor_parallel_size = size
     return model
+
+@dataclass(frozen=True)
+class ParallelTopologyContract:
+    tensor_parallel: int = 1
+    pipeline_parallel: int = 1
+    expert_parallel: int = 1
+
+    @property
+    def world_size(self) -> int:
+        return self.tensor_parallel * self.pipeline_parallel * self.expert_parallel
+
+    def validate(self, *, attention_heads: int, num_experts: int = 1) -> None:
+        if min(self.tensor_parallel, self.pipeline_parallel, self.expert_parallel) < 1:
+            raise ValueError("parallel degrees must be positive")
+        if attention_heads % self.tensor_parallel:
+            raise ValueError("attention heads must divide tensor parallel degree")
+        if num_experts % self.expert_parallel:
+            raise ValueError("experts must divide expert parallel degree")

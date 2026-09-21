@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
@@ -128,3 +129,14 @@ class VisionEncoder(nn.Module):
             strict_image_size=bool(config.get("strict_image_size", True)),
             pool_type=str(config.get("pool_type", "cls")),
         )
+
+@dataclass(frozen=True)
+class ModalityContract:
+    modality: str
+    encoder_id: str
+    feature_dim: int
+    safety_policy: str = "explicit_opt_in"
+
+    def validate(self) -> None:
+        if self.modality not in {"image", "audio", "video"}: raise ValueError("unsupported modality")
+        if self.feature_dim < 1 or not self.encoder_id.strip(): raise ValueError("invalid modality encoder contract")

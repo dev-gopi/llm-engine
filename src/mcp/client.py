@@ -290,3 +290,9 @@ class MCPClient:
         if self.stderr:
             detail += f": {self.stderr[-1]}"
         return prefix + detail
+
+async def call_tool_with_approval(client: MCPClient, name: str, arguments=None, *, approved: bool = False, input_schema=None):
+    """MCP execution gate used by bounded agent runtimes."""
+    if not approved:
+        raise PermissionError("human approval is required before MCP tool execution")
+    return await client.call_tool(name, arguments, input_schema=input_schema)

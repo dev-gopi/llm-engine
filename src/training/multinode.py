@@ -86,3 +86,12 @@ def validate_collectives(*, backend: str | None = None, timeout_seconds: int = 1
     dist.barrier()
     return {**topology.to_dict(), "backend": selected, "collective_sum": total.item(),
             "hosts": hosts, "observed_nodes": len(set(hosts))}
+
+
+def validate_3d_parallel_contract(topology: DistributedTopology, *, tensor_parallel: int = 1, pipeline_parallel: int = 1, expert_parallel: int = 1, attention_heads: int = 8, num_experts: int = 1) -> dict:
+    from inference.tensor_parallel import ParallelTopologyContract
+    contract=ParallelTopologyContract(tensor_parallel, pipeline_parallel, expert_parallel)
+    contract.validate(attention_heads=attention_heads, num_experts=num_experts)
+    if topology.world_size != contract.world_size:
+        raise ValueError(f"3D parallel world size {topology.world_size} does not match contract {contract.world_size}")
+    return {"world_size": topology.world_size, "tensor_parallel": tensor_parallel, "pipeline_parallel": pipeline_parallel, "expert_parallel": expert_parallel}

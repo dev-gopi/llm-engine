@@ -1,0 +1,13 @@
+profile: research
+version: vis-003-v1
+modalities:
+  audio:
+    encoder_id: external-audio-encoder-v1
+    feature_dim: 512
+    data_manifest: data/processed/audio/dataset-manifest.yaml
+  video:
+    encoder_id: external-video-encoder-v1
+    feature_dim: 768
+    data_manifest: data/processed/video/dataset-manifest.yaml
+safety_policy: explicit_opt_in
+image_projector_reuse: false

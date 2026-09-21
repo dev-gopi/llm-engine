@@ -1,0 +1,11 @@
+profiles:
+  dense_gqa:
+    attention_pattern: dense
+  sliding_window_512:
+    attention_pattern: sliding_window
+    attention_window: 512
+  sliding_window_1024:
+    attention_pattern: sliding_window
+    attention_window: 1024
+fallback_profile: dense_gqa
+checkpoint_compatibility: preserve_dense_checkpoint_layout

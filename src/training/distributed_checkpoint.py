@@ -201,3 +201,10 @@ def _restore_rng_state(state: dict[str, Any]) -> None:
         int(numpy_state["gaussian"]),
         float(numpy_state["cached"]),
     ))
+
+
+def build_parallel_checkpoint_manifest(*, topology: dict, model_fingerprint: str, shard_count: int) -> dict:
+    if shard_count < 1: raise ValueError("shard_count must be positive")
+    required=("tensor_parallel","pipeline_parallel","expert_parallel")
+    if any(int(topology.get(k,0)) < 1 for k in required): raise ValueError("invalid parallel topology")
+    return {"schema_version": 1, "model_fingerprint": model_fingerprint, "topology": {k:int(topology[k]) for k in required}, "world_size": int(topology["tensor_parallel"])*int(topology["pipeline_parallel"])*int(topology["expert_parallel"]), "shard_count": int(shard_count)}

@@ -166,3 +166,19 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def export_interoperable_quantized_manifest(output: Path, *, config: dict, fmt: str, calibration_file: Path, bits: int = 4, quality: dict | None = None, latency: dict | None = None, memory: dict | None = None) -> Path:
+    """Write a verified GPTQ/AWQ/GGUF interchange manifest beside an artifact.
+
+    Actual third-party conversion is intentionally delegated to the format's
+    runtime; this manifest is the engine-side compatibility and provenance gate.
+    """
+    from inference.quantization import build_quantized_manifest
+    digest=_sha256(calibration_file)
+    tokens=sum(len(line.split()) for line in calibration_file.read_text(encoding="utf-8").splitlines() if line.strip())
+    manifest=build_quantized_manifest(fmt=fmt, config=config, calibration_sha256=digest, calibration_tokens=tokens, bits=bits, quality=quality, latency=latency, memory=memory)
+    destination=output.with_suffix(output.suffix + ".manifest.json")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(manifest, indent=2, sort_keys=True)+"\n", encoding="utf-8")
+    return destination

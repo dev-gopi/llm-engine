@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import torch
+from dataclasses import dataclass
 from torch import Tensor, nn
 
 
@@ -70,3 +71,47 @@ def quantize_dynamic_cpu(model: nn.Module, *, dtype: torch.dtype = torch.qint8) 
     if dtype not in {torch.qint8, torch.float16}:
         raise ValueError("dynamic quantization dtype must be qint8 or float16")
     return torch.ao.quantization.quantize_dynamic(model.eval(), {nn.Linear}, dtype=dtype, inplace=False)
+
+@dataclass(frozen=True)
+class QuantizedDeploymentManifest:
+    """Interchange contract for GPTQ/AWQ/GGUF-compatible artifacts."""
+    schema_version: int
+    format: str
+    architecture: str
+    model_config_fingerprint: str
+    calibration_sha256: str
+    calibration_tokens: int
+    source_dtype: str
+    quantization_bits: int
+    quality: dict
+    latency: dict
+    memory: dict
+
+    def to_dict(self):
+        from dataclasses import asdict
+        return asdict(self)
+
+
+def architecture_fingerprint(config: dict) -> str:
+    import hashlib, json
+    keys=("architecture","vocab_size","hidden_size","layers","heads","kv_heads","ffn_hidden_size","position_type","max_position")
+    payload={k:config.get(k) for k in keys}
+    return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",", ":")).encode()).hexdigest()
+
+
+def validate_quantized_manifest(manifest: dict, *, config: dict) -> None:
+    required=("schema_version","format","architecture","model_config_fingerprint","calibration_sha256","calibration_tokens","quantization_bits")
+    missing=[k for k in required if k not in manifest]
+    if missing: raise ValueError(f"quantized manifest missing: {', '.join(missing)}")
+    if manifest["schema_version"] != 1: raise ValueError("unsupported quantized manifest schema")
+    if manifest["format"] not in {"gptq","awq","gguf"}: raise ValueError("unsupported quantized format")
+    if manifest["architecture"] != "MiniGPT": raise ValueError("architecture is not MiniGPT")
+    if manifest["model_config_fingerprint"] != architecture_fingerprint(config): raise ValueError("quantized artifact architecture is incompatible with model config")
+    if int(manifest["calibration_tokens"]) < 1 or len(str(manifest["calibration_sha256"])) != 64: raise ValueError("invalid calibration provenance")
+    if int(manifest["quantization_bits"]) not in {4,8}: raise ValueError("quantization bits must be 4 or 8")
+
+
+def build_quantized_manifest(*, fmt: str, config: dict, calibration_sha256: str, calibration_tokens: int, bits: int, quality: dict | None = None, latency: dict | None = None, memory: dict | None = None) -> dict:
+    manifest=QuantizedDeploymentManifest(1,fmt,"MiniGPT",architecture_fingerprint(config),calibration_sha256,int(calibration_tokens),"float32",int(bits),quality or {},latency or {},memory or {})
+    validate_quantized_manifest(manifest.to_dict(), config=config)
+    return manifest.to_dict()

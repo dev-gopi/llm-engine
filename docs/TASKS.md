@@ -546,7 +546,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `DATA-003`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
@@ -598,7 +598,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `CTX-002`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
@@ -654,7 +654,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `VIS-002`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P3`
 
@@ -670,7 +670,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `SPC-001`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P3`
 
@@ -878,7 +878,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `EMB-001`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -906,7 +906,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `AGT-004`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -920,7 +920,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `MEM-002`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P3`
 
@@ -948,7 +948,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `SCALE-004`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -1032,7 +1032,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Track**: `AGENT`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
@@ -1054,7 +1054,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `DATA`
 
-- **Status**: `COMPLETED`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 

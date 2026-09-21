@@ -193,3 +193,27 @@ def compare_reports(baseline: dict, candidate: dict) -> dict:
     return {"passed": not regressions, "regressions": regressions,
             "accuracy_delta": sum(after[key] - before[key] for key in before) / len(before),
             "domain_accuracy_deltas": delta}
+
+@dataclass(frozen=True)
+class AgentTaskResult:
+    task_id: str
+    success: bool
+    tool_selection_valid: bool
+    arguments_valid: bool
+    recovery: bool
+    safety_compliant: bool
+    steps: int
+
+
+def evaluate_agent_tasks(results: list[AgentTaskResult]) -> dict[str, float | int]:
+    if not results: raise ValueError("agent benchmark requires results")
+    n=len(results)
+    return {
+        "tasks": n,
+        "task_success_rate": sum(r.success for r in results)/n,
+        "tool_selection_accuracy": sum(r.tool_selection_valid for r in results)/n,
+        "argument_validity_rate": sum(r.arguments_valid for r in results)/n,
+        "recovery_rate": sum(r.recovery for r in results)/n,
+        "safety_compliance_rate": sum(r.safety_compliant for r in results)/n,
+        "mean_steps": sum(r.steps for r in results)/n,
+    }

@@ -174,3 +174,13 @@ def _find_expression(prompt: str) -> str:
     expressions = [candidate.strip().rstrip(".") for candidate in candidates]
     expressions = [value for value in expressions if re.search(r"[+\-*/%]", value)]
     return max(expressions, key=len, default="")
+
+@dataclass(frozen=True)
+class ToolApprovalPolicy:
+    allowed_tools: frozenset[str]
+    require_human_approval: bool = True
+    max_steps: int = 8
+
+    def check(self, name: str) -> None:
+        if name not in self.allowed_tools:
+            raise PermissionError(f"tool {name!r} is not approved for agent execution")

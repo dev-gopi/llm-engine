@@ -159,3 +159,20 @@ __all__ = [
     "DEFAULT_LORA_TARGETS", "LoRALinear", "apply_lora", "has_lora",
     "load_lora_adapter", "lora_adapter_state_dict", "merge_and_unload",
 ]
+
+
+def prepare_qlora(model: nn.Module, config: Mapping[str, Any]) -> dict[str, Any]:
+    """Prepare a low-bit-compatible frozen base followed by LoRA adapters.
+
+    The engine keeps the base weights in their already-loaded dtype; external
+    GPTQ/AWQ backends can supply the low-bit module. This function enforces the
+    QLoRA contract and records the quantization provenance used for the run.
+    """
+    quantization = str(config.get("quantization", "int4")).lower()
+    if quantization not in {"int4", "int8"}:
+        raise ValueError("QLoRA quantization must be int4 or int8")
+    details = apply_lora(model, config.get("lora", config))
+    details["profile"] = "qlora"
+    details["quantization"] = quantization
+    details["base_model_frozen"] = all(not p.requires_grad for name,p in model.named_parameters() if "lora_" not in name)
+    return details

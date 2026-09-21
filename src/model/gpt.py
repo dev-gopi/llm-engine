@@ -74,6 +74,8 @@ class MiniGPT(nn.Module):
         gradient_checkpointing: bool = False,
         logit_softcap: float | None = None,
         mtp_num_predictions: int = 0,
+        attention_pattern: str = "dense",
+        attention_window: int | None = None,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
@@ -166,6 +168,8 @@ class MiniGPT(nn.Module):
                 router_bias=router_bias,
                 router_jitter=router_jitter,
                 initializer_range=initializer_range,
+                attention_pattern=attention_pattern,
+                attention_window=attention_window,
                 device=device,
                 dtype=dtype,
             )
@@ -507,6 +511,8 @@ class MiniGPT(nn.Module):
                 if config.get("logit_softcap") is not None else None
             ),
             mtp_num_predictions=int(config.get("mtp_num_predictions", 0)),
+            attention_pattern=str(config.get("attention_pattern", "dense")),
+            attention_window=(int(config["attention_window"]) if config.get("attention_window") is not None else None),
             device=device,
             dtype=dtype,
         )
