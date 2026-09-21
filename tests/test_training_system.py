@@ -1,3 +1,4 @@
+from pathlib import Path
 import math
 from unittest.mock import patch
 
@@ -918,3 +919,38 @@ def test_evaluator_selects_ema_and_restores_training_weights():
     actual = Evaluator(model, ema=ema).evaluate(make_loader())["cross_entropy"]
     assert actual == pytest.approx(expected)
     torch.testing.assert_close(model.tok.weight, trained, rtol=0, atol=0)
+
+
+def test_reasoning_training_policy_requires_explicit_loss_mask() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model), reasoning_trace_policy="assistant_only")
+    with pytest.raises(ValueError, match="requires an explicit loss_mask"):
+        trainer.train_step({"input_ids": torch.tensor([[1, 2, 3]]), "labels": torch.tensor([[2, 3, 4]])})
+
+
+def test_reasoning_training_policy_accepts_masked_sft_batch() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3), reasoning_trace_policy="assistant_only")
+    batch = {
+        "input_ids": torch.tensor([[1, 2, 3, 4]]),
+        "labels": torch.tensor([[-100, -100, 3, 4]]),
+        "loss_mask": torch.tensor([[False, False, True, True]]),
+    }
+    assert math.isfinite(trainer.train_step(batch))
+
+
+def test_reasoning_sft_profile_is_reproducible_and_covers_required_domains() -> None:
+    import yaml
+    config = yaml.safe_load(Path("configs/finetuning.reasoning.gpu.yaml").read_text())
+    profile = config["reasoning_sft"]
+    assert profile["schema_version"] == 1
+    assert profile["trace_open"] == "<thinking>"
+    assert profile["trace_close"] == "</thinking>"
+    assert profile["allow_untraced_assistant_examples"] is False
+    assert set(profile["domains"]) == {"math", "code", "logic", "planning", "verification", "self_correction"}
+    assert math.isclose(sum(profile["weights"].values()), 1.0)
+    assert config["reasoning_trace_policy"] == "assistant_only"
+    assert config["seed"] == 20260921
+    for path in [*config["train_files"], *config["validation_files"]]:
+        assert Path(path).is_file()
+        assert (Path(path).parent / "dataset-manifest.yaml").is_file()

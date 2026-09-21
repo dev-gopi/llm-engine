@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from datasets.collator import Collator
-from inference.chat_session import ChatSession, build_chat_sft_example, format_chat_messages
+from inference.chat_session import ChatSession, build_chat_sft_example, format_chat_messages, validate_reasoning_trace
 from inference.generator import GenerationResult
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
@@ -140,3 +140,25 @@ def test_canonical_chat_template_preserves_and_masks_tool_turns() -> None:
     assert "I will use the calculator." in supervised
     assert "The answer is 4." in supervised
     assert "result" not in supervised
+
+
+def test_reasoning_trace_boundaries_are_validated_and_assistant_only() -> None:
+    b = backend()
+    messages = [
+        {"role": "user", "content": "Solve 2 + 2."},
+        {"role": "assistant", "content": "<thinking>2 + 2 = 4.</thinking>\n4"},
+    ]
+    assert validate_reasoning_trace(messages[-1]["content"])
+    example = build_chat_sft_example(b.tokenizer, messages)
+    supervised = b.tokenizer.decode(example["input_ids"][example["loss_mask"]].tolist())
+    assert "<thinking>" in supervised
+    assert "2 + 2 = 4." in supervised
+    assert "4" in supervised
+    assert not example["loss_mask"][: example["input_ids"].numel() // 3].all()
+
+
+def test_reasoning_trace_requires_final_answer() -> None:
+    with pytest.raises(ValueError, match="followed by a final answer"):
+        validate_reasoning_trace("<thinking>work</thinking>")
+    with pytest.raises(ValueError, match="exactly one"):
+        validate_reasoning_trace("<thinking>a</thinking><thinking>b</thinking>\nanswer")

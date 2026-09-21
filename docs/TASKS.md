@@ -578,7 +578,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `RSN-002`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 

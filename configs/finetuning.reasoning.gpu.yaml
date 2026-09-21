@@ -1,0 +1,118 @@
+base_profile: configs/finetuning.gpu.yaml
+batch_size: 2
+validation_batch_size: 2
+epochs: 2
+seed: 20260921
+require_cuda: false
+training_stage_id: reasoning-sft-v1
+require_init_from: true
+dataset_governance:
+  policy: error
+  stage: sft
+  commercial_use: false
+  require_provenance: true
+  require_quality: true
+  require_contamination: true
+  required_domains:
+  - reasoning
+reasoning_trace_policy: assistant_only
+reasoning_sft:
+  enabled: true
+  schema_version: 1
+  trace_open: <thinking>
+  trace_close: </thinking>
+  require_final_answer: true
+  allow_untraced_assistant_examples: false
+  domains:
+  - math
+  - code
+  - logic
+  - planning
+  - verification
+  - self_correction
+  weights: &id001
+    math: 0.24
+    code: 0.2
+    logic: 0.14
+    planning: 0.14
+    verification: 0.14
+    self_correction: 0.14
+  provenance: llm-engine-authored-reasoning-seed-v1
+max_sequence_length: 1024
+pad_to_multiple_of: 8
+num_workers: 2
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+validation_num_workers: 1
+validation_persistent_workers: false
+lazy_dataset: true
+distributed_strategy: ddp
+distributed_backend: null
+checkpoint_format: single_file
+samples_per_epoch: 100000
+dataset_weights:
+  reasoning_math: 0.24
+  reasoning_code: 0.2
+  reasoning_logic: 0.14
+  reasoning_planning: 0.14
+  reasoning_verification: 0.14
+  reasoning_self_correction: 0.14
+train_files:
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/math/train.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/code/train.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/logic/train.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/planning/train.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/verification/train.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/self_correction/train.jsonl
+validation_files:
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/math/validation.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/code/validation.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/logic/validation.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/planning/validation.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/verification/validation.jsonl
+- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/self_correction/validation.jsonl
+validation_domains:
+  math:
+  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/math/validation.jsonl
+  code:
+  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/code/validation.jsonl
+  logic:
+  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/logic/validation.jsonl
+  planning:
+  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/planning/validation.jsonl
+  verification:
+  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/verification/validation.jsonl
+  self_correction:
+  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/self_correction/validation.jsonl
+validation_weights: *id001
+validation_metric_name: reasoning_sft_v1_weighted_domains
+learning_rate: 5.0e-06
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 1.0e-08
+gradient_clip_norm: 1.0
+gradient_accumulation_steps: 16
+mixed_precision: bf16
+lr_schedule: cosine
+warmup_ratio: 0.05
+min_lr_ratio: 0.1
+ema_decay: 0.999
+log_every: 10
+checkpoint_every: 250
+evaluate_every: 250
+early_stopping_patience: 1
+early_stopping_min_delta: 0.005
+ignore_index: -100
+label_smoothing: 0.0
+z_loss_coefficient: 0.0001
+shift_labels: true
+loss_reduction: mean
+loss_chunk_size: 128
+runtime:
+  tokenizer: data/tokenizer-finetuning
+  output: checkpoints/reasoning-sft/latest.pt
+  best_output: checkpoints/reasoning-sft/best.pt
+  log_file: logs/reasoning-sft.log
+  report_json: reports/reasoning-sft.json

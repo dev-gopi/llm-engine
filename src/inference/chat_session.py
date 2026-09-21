@@ -13,6 +13,36 @@ from inference.context import SQLiteSessionStore
 
 
 _CHAT_ROLES = frozenset({"system", "user", "assistant", "tool"})
+_REASONING_OPEN = "<thinking>"
+_REASONING_CLOSE = "</thinking>"
+
+
+def validate_reasoning_trace(content: str) -> bool:
+    """Validate an optional explicit reasoning trace without flattening boundaries.
+
+    A trace is either absent, or exactly one non-empty ``<thinking>...</thinking>``
+    block followed by a non-empty final answer. Tags cannot be nested or repeated.
+    The validator is deliberately format-only: it does not claim that the trace is
+    mathematically or factually correct.
+    """
+    if not isinstance(content, str):
+        raise ValueError("assistant content must be text")
+    opens = content.count(_REASONING_OPEN)
+    closes = content.count(_REASONING_CLOSE)
+    if opens == 0 and closes == 0:
+        return False
+    if opens != 1 or closes != 1:
+        raise ValueError("reasoning trace must contain exactly one <thinking>...</thinking> block")
+    start = content.index(_REASONING_OPEN)
+    end = content.index(_REASONING_CLOSE)
+    if end <= start + len(_REASONING_OPEN):
+        raise ValueError("reasoning trace must contain non-empty thinking content")
+    answer = content[end + len(_REASONING_CLOSE):].strip()
+    if not answer:
+        raise ValueError("reasoning trace must be followed by a final answer")
+    if _REASONING_OPEN in answer or _REASONING_CLOSE in answer:
+        raise ValueError("reasoning trace tags may not appear in the final answer")
+    return True
 
 
 def format_chat_messages(messages, *, add_generation_prompt: bool = False) -> str:
@@ -51,6 +81,8 @@ def build_chat_sft_example(tokenizer, messages) -> dict[str, torch.Tensor]:
         token_ids.extend(content)
         token_ids.extend(end)
         supervise = role == "assistant"
+        if supervise:
+            validate_reasoning_trace(message["content"])
         loss_mask.extend([False] * len(header))
         loss_mask.extend([supervise] * len(content))
         loss_mask.extend([supervise] * len(end))
@@ -143,9 +175,13 @@ class ChatSession:
             if self._pending is None:
                 raise ValueError("no unreviewed response; generate a successful reply first")
             messages = [dict(item) for item in self._pending]
+            for item in messages:
+                if item.get("role") == "assistant":
+                    validate_reasoning_trace(item.get("content", ""))
             if corrected_response is not None:
                 if not isinstance(corrected_response, str) or not corrected_response.strip():
                     raise ValueError("corrected_response must be nonempty text")
+                validate_reasoning_trace(corrected_response)
                 messages[-1]["content"] = corrected_response
             payload = json.dumps(messages, ensure_ascii=False, sort_keys=True)
             with closing(sqlite3.connect(self.store.path)) as connection, connection:

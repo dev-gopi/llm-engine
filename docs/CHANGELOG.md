@@ -7,6 +7,7 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **RSN-002 Reasoning SFT Data and Training Profile**: Added governed repository-authored math, code, logic, planning, verification, and self-correction SFT seed corpora; a deterministic reasoning training profile; strict `<thinking>...</thinking>` boundary validation; and an assistant-only trainer policy that requires explicit loss masks.
 - **TRAIN-004 Training Stability Diagnostics**: Trainer histories and resume
   state now record loss, gradient and parameter scales, a gradient-to-parameter
   update-scale proxy, and bounded logit activation diagnostics without retaining

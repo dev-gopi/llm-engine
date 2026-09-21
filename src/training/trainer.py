@@ -37,6 +37,7 @@ class Trainer:
         mixed_precision: str = "none",
         grad_scaler_initial_scale: float = 65536.0,
         grad_scaler_growth_interval: int = 2000,
+        reasoning_trace_policy: str = "optional",
     ) -> None:
         self.model = model
         self.opt = optimizer
@@ -67,6 +68,9 @@ class Trainer:
         self.last_parameter_norm = float("nan")
         self.last_gradient_to_parameter_ratio = float("nan")
         self.curriculum_stage = 0
+        if reasoning_trace_policy not in {"optional", "assistant_only"}:
+            raise ValueError("reasoning_trace_policy must be optional or assistant_only")
+        self.reasoning_trace_policy = reasoning_trace_policy
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -115,6 +119,11 @@ class Trainer:
             targets = batch["labels"].to(self.device, non_blocking=non_blocking)
             attention_mask = batch.get("attention_mask")
             loss_mask = batch.get("loss_mask")
+            if self.reasoning_trace_policy == "assistant_only" and loss_mask is None:
+                raise ValueError(
+                    "reasoning_trace_policy='assistant_only' requires an explicit loss_mask "
+                    "so prompt/tool tokens cannot enter the SFT objective"
+                )
             if attention_mask is not None:
                 attention_mask = attention_mask.to(self.device, non_blocking=non_blocking)
             if loss_mask is not None:

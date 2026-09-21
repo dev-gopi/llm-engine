@@ -16,6 +16,15 @@ dataset_governance:
   policy: warn
   stage: sft
   commercial_use: false
+# RSN-002 schema. The dedicated reasoning profile below this base config enables
+# strict assistant-only supervision and activates the governed reasoning corpora.
+reasoning_trace_policy: optional
+reasoning_sft:
+  schema_version: 1
+  trace_open: <thinking>
+  trace_close: </thinking>
+  require_final_answer: true
+  allow_untraced_assistant_examples: true
 # This must not exceed model.gpu.yaml:max_position (1024).
 max_sequence_length: 1024
 pad_to_multiple_of: 8
