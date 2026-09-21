@@ -12,3 +12,10 @@ long_context:
   context_length: 2048
   retrieval_validation_required: true
   memory_measurement_required: true
+
+runtime:
+  tokenizer: data/tokenizer
+  output: checkpoints/pretraining-long-context-2k/latest.pt
+  best_output: checkpoints/pretraining-long-context-2k/best.pt
+  log_file: logs/pretraining-long-context-2k.log
+  report_json: reports/pretraining-long-context-2k.json

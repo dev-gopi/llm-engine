@@ -41,12 +41,12 @@ heavyweight external dependencies beyond PyTorch and Pillow.
 ## Vision Encoder
 
 Source files:
-[patch_embedding.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/patch_embedding.py) ·
-[encoder.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/encoder.py)
+[patch_embedding.py](../src/vision/patch_embedding.py) ·
+[encoder.py](../src/vision/encoder.py)
 
 ### Patch Embedding
 
-[`PatchEmbedding`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/patch_embedding.py)
+[`PatchEmbedding`](../src/vision/patch_embedding.py)
 converts a batch of images into a sequence of patch tokens using a single
 non-overlapping `Conv2d` projection.
 
@@ -81,7 +81,7 @@ to a `hidden_size`-dimensional vector. The output is reshaped to:
 
 ### Vision Transformer (VisionEncoder)
 
-[`VisionEncoder`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/encoder.py)
+[`VisionEncoder`](../src/vision/encoder.py)
 assembles a full Vision Transformer from the components above.
 
 ```
@@ -115,7 +115,7 @@ inference time.
 
 ### VisionBlock
 
-[`VisionBlock`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/encoder.py)
+[`VisionBlock`](../src/vision/encoder.py)
 implements a single ViT transformer layer with **pre-norm** residual
 connections:
 
@@ -131,9 +131,9 @@ Dropout is configurable and applied after both the attention and FFN stages.
 ## Image Classification
 
 Source file:
-[classifier.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/classifier.py)
+[classifier.py](../src/vision/classifier.py)
 
-[`VisionClassifier`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/classifier.py)
+[`VisionClassifier`](../src/vision/classifier.py)
 adds a lightweight classification head on top of `VisionEncoder`:
 
 ```
@@ -148,8 +148,8 @@ Image → VisionEncoder.pooled() → Dropout → Linear(hidden_size, num_classes
 ## Multimodal Vision-Language Model
 
 Source files:
-[projector.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/projector.py) ·
-[model.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/model.py)
+[projector.py](../src/multimodal/projector.py) ·
+[model.py](../src/multimodal/model.py)
 
 ### Architecture
 
@@ -171,7 +171,7 @@ flowchart LR
 
 ### VisionProjector
 
-[`VisionProjector`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/projector.py)
+[`VisionProjector`](../src/multimodal/projector.py)
 maps visual features into the LLM embedding space with a two-layer MLP:
 
 ```
@@ -182,7 +182,7 @@ Input: `[batch, tokens, vision_hidden]` → Output: `[batch, tokens, language_hi
 
 ### VisionLanguageModel
 
-[`VisionLanguageModel`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/model.py)
+[`VisionLanguageModel`](../src/multimodal/model.py)
 is a **non-invasive wrapper** that connects a `VisionEncoder` to a `MiniGPT`
 language model without modifying the text model's checkpoint layout.
 
@@ -218,14 +218,14 @@ language model without modifying the text model's checkpoint layout.
 ## Diffusion Models
 
 Source files:
-[scheduler.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/scheduler.py) ·
-[unet.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/unet.py) ·
-[pipeline.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/pipeline.py) ·
-[text_encoder.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/text_encoder.py)
+[scheduler.py](../src/diffusion/scheduler.py) ·
+[unet.py](../src/diffusion/unet.py) ·
+[pipeline.py](../src/diffusion/pipeline.py) ·
+[text_encoder.py](../src/diffusion/text_encoder.py)
 
 ### DiffusionScheduler — Forward & Reverse Process
 
-[`DiffusionScheduler`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/scheduler.py)
+[`DiffusionScheduler`](../src/diffusion/scheduler.py)
 implements the DDPM noise schedule (default: **1000 timesteps**, linear beta
 schedule; cosine schedule also supported).
 
@@ -251,10 +251,10 @@ high-quality generation with **far fewer inference steps** than the full 1000.
 
 ### SmallUNet — Noise Predictor
 
-[`SmallUNet`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/unet.py)
+[`SmallUNet`](../src/diffusion/unet.py)
 is a compact conditional U-Net that predicts the noise ε given `(x_t, t, cond)`.
 
-**Sub-modules in** [unet.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/unet.py):
+**Sub-modules in** [unet.py](../src/diffusion/unet.py):
 
 | Module | Role |
 |---|---|
@@ -294,7 +294,7 @@ Instantiable via `from_config(config)`.
 
 ### DiffusionTextEncoder
 
-[`DiffusionTextEncoder`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/text_encoder.py)
+[`DiffusionTextEncoder`](../src/diffusion/text_encoder.py)
 is a tokenizer-agnostic Transformer encoder that produces conditioning features
 for the U-Net.
 
@@ -307,7 +307,7 @@ Output shape: `[batch, seq_len, hidden_size]`.
 
 ### DiffusionPipeline — Training & Sampling
 
-[`DiffusionPipeline`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/pipeline.py)
+[`DiffusionPipeline`](../src/diffusion/pipeline.py)
 wraps `SmallUNet` + `DiffusionScheduler` into a training / inference interface.
 
 **Training:**
@@ -348,12 +348,12 @@ When `guidance_scale > 1`, two forward passes are performed per step
 ## Latent Diffusion
 
 Source files:
-[vae.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/vae.py) ·
-[latent_pipeline.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/latent_pipeline.py)
+[vae.py](../src/diffusion/vae.py) ·
+[latent_pipeline.py](../src/diffusion/latent_pipeline.py)
 
 ### AutoencoderKL
 
-[`AutoencoderKL`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/vae.py)
+[`AutoencoderKL`](../src/diffusion/vae.py)
 is a convolutional VAE that compresses images into a lower-dimensional latent
 space before the diffusion process operates.
 
@@ -382,7 +382,7 @@ Instantiable via `from_config(config)`.
 
 ### LatentDiffusionPipeline
 
-[`LatentDiffusionPipeline`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/latent_pipeline.py)
+[`LatentDiffusionPipeline`](../src/diffusion/latent_pipeline.py)
 combines the VAE with the U-Net, scheduler, and an optional text encoder to run
 diffusion entirely in latent space.
 
@@ -416,13 +416,13 @@ pixel space via the VAE decoder. Default `latent_scale = 0.18215`.
 ## Image Data Pipeline
 
 Source files:
-[processor.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/processor.py) ·
-[dataset.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/dataset.py) ·
-[audit.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/audit.py)
+[processor.py](../src/image_data/processor.py) ·
+[dataset.py](../src/image_data/dataset.py) ·
+[audit.py](../src/image_data/audit.py)
 
 ### ImageProcessor
 
-[`ImageProcessor`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/processor.py)
+[`ImageProcessor`](../src/image_data/processor.py)
 loads and transforms images using **Pillow only** (no torchvision dependency).
 
 **Resize modes:**
@@ -456,7 +456,7 @@ loads and transforms images using **Pillow only** (no torchvision dependency).
 
 ### ImageDataset
 
-[`ImageDataset`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/dataset.py)
+[`ImageDataset`](../src/image_data/dataset.py)
 is a PyTorch `Dataset` that recursively scans a directory for images with
 supported extensions: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`.
 
@@ -464,14 +464,14 @@ supported extensions: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`.
 
 ### ImageClassificationDataset
 
-[`ImageClassificationDataset`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/dataset.py)
+[`ImageClassificationDataset`](../src/image_data/dataset.py)
 reads the standard `root/class_name/image` folder structure. Class labels are
 assigned in **stable alphabetical order**. At least **2 class directories** are
 required.
 
 ### Dataset Audit
 
-[`audit_images(root)`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/audit.py)
+[`audit_images(root)`](../src/image_data/audit.py)
 performs a **non-destructive** integrity scan of an image directory and returns
 an `ImageAudit` dataclass containing:
 
@@ -484,27 +484,27 @@ an `ImageAudit` dataclass containing:
 
 ## Configuration Reference
 
-All YAML config files live under the [`configs/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/) directory.
+All YAML config files live under the [`configs/`](../configs) directory.
 
 ### Vision Configs
 
 | File | Purpose |
 |---|---|
-| [`configs/vision/model.small.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/model.small.yaml) | Small vision model architecture |
-| [`configs/vision/training.local.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/training.local.yaml) | Local training hyperparameters |
-| [`configs/vision/training.production.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/training.production.yaml) | Production training hyperparameters |
-| [`configs/vision/training.hf-sample.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/training.hf-sample.yaml) | HuggingFace sample training |
-| [`configs/vision/multimodal.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/multimodal.yaml) | Multimodal model configuration |
+| [`configs/vision/model.small.yaml`](../configs/vision/model.small.yaml) | Small vision model architecture |
+| [`configs/vision/training.local.yaml`](../configs/vision/training.local.yaml) | Local training hyperparameters |
+| [`configs/vision/training.production.yaml`](../configs/vision/training.production.yaml) | Production training hyperparameters |
+| [`configs/vision/training.hf-sample.yaml`](../configs/vision/training.hf-sample.yaml) | HuggingFace sample training |
+| [`configs/vision/multimodal.yaml`](../configs/vision/multimodal.yaml) | Multimodal model configuration |
 
 ### Diffusion Configs
 
 | File | Purpose |
 |---|---|
-| [`configs/diffusion/model.small.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/model.small.yaml) | Small diffusion model architecture |
-| [`configs/diffusion/training.local.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/training.local.yaml) | Local training hyperparameters |
-| [`configs/diffusion/training.production.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/training.production.yaml) | Production training hyperparameters |
-| [`configs/diffusion/training.hf-sample.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/training.hf-sample.yaml) | HuggingFace sample diffusion training |
-| [`configs/diffusion/latent.production.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/latent.production.yaml) | Latent diffusion production config |
+| [`configs/diffusion/model.small.yaml`](../configs/diffusion/model.small.yaml) | Small diffusion model architecture |
+| [`configs/diffusion/training.local.yaml`](../configs/diffusion/training.local.yaml) | Local training hyperparameters |
+| [`configs/diffusion/training.production.yaml`](../configs/diffusion/training.production.yaml) | Production training hyperparameters |
+| [`configs/diffusion/training.hf-sample.yaml`](../configs/diffusion/training.hf-sample.yaml) | HuggingFace sample diffusion training |
+| [`configs/diffusion/latent.production.yaml`](../configs/diffusion/latent.production.yaml) | Latent diffusion production config |
 
 ---
 
@@ -512,11 +512,11 @@ All YAML config files live under the [`configs/`](file:///home/user/Downloads/ll
 
 | Test file | Covers |
 |---|---|
-| [`tests/test_vision_models.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_vision_models.py) | `VisionEncoder`, `VisionClassifier`, `VisionLanguageModel` |
-| [`tests/test_diffusion.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_diffusion.py) | `DiffusionPipeline`, `SmallUNet`, `DiffusionScheduler`, `AutoencoderKL`, `LatentDiffusionPipeline` |
-| [`tests/test_image_data.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_image_data.py) | `ImageProcessor`, `ImageDataset`, `audit_images` |
-| [`tests/test_train_vision_resources.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_train_vision_resources.py) | Vision training resource validation |
-| [`tests/test_prepare_hf_image_dataset.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_prepare_hf_image_dataset.py) | HuggingFace image dataset preparation |
+| [`tests/test_vision_models.py`](../tests/test_vision_models.py) | `VisionEncoder`, `VisionClassifier`, `VisionLanguageModel` |
+| [`tests/test_diffusion.py`](../tests/test_diffusion.py) | `DiffusionPipeline`, `SmallUNet`, `DiffusionScheduler`, `AutoencoderKL`, `LatentDiffusionPipeline` |
+| [`tests/test_image_data.py`](../tests/test_image_data.py) | `ImageProcessor`, `ImageDataset`, `audit_images` |
+| [`tests/test_train_vision_resources.py`](../tests/test_train_vision_resources.py) | Vision training resource validation |
+| [`tests/test_prepare_hf_image_dataset.py`](../tests/test_prepare_hf_image_dataset.py) | HuggingFace image dataset preparation |
 
 Run all vision and image tests:
 

@@ -5,13 +5,13 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **Trainer Engine**: [`src/training/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/trainer.py) (`Trainer`)
-- **Optimizer**: [`src/optim/adamw.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/optim/adamw.py) (`AdamW`)
-- **Schedulers**: [`src/optim/scheduler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/optim/scheduler.py) (`CosineAnnealingWithWarmup`)
-- **EMA**: [`src/optim/ema.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/optim/ema.py) (`EMAModel`)
-- **Checkpointing**: [`src/training/checkpoint.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/checkpoint.py)
-- **Loss**: [`src/model/loss.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/loss.py) (`ChunkedCrossEntropyLoss`)
-- **Configs**: [`configs/pretraining.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/pretraining.gpu.yaml), [`configs/finetuning.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/finetuning.gpu.yaml)
+- **Trainer Engine**: [`src/training/trainer.py`](../../src/training/trainer.py) (`Trainer`)
+- **Optimizer**: [`src/optim/adamw.py`](../../src/optim/adamw.py) (`AdamW`)
+- **Schedulers**: [`src/optim/scheduler.py`](../../src/optim/scheduler.py) (`CosineAnnealingWithWarmup`)
+- **EMA**: [`src/optim/ema.py`](../../src/optim/ema.py) (`EMAModel`)
+- **Checkpointing**: [`src/training/checkpoint.py`](../../src/training/checkpoint.py)
+- **Loss**: [`src/model/loss.py`](../../src/model/loss.py) (`ChunkedCrossEntropyLoss`)
+- **Configs**: [`configs/pretraining.gpu.yaml`](../../configs/pretraining.gpu.yaml), [`configs/finetuning.gpu.yaml`](../../configs/finetuning.gpu.yaml)
 
 ---
 

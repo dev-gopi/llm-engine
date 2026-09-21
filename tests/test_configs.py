@@ -59,8 +59,12 @@ def test_future_models_match_the_from_scratch_tokenizer() -> None:
 
 
 def test_active_cpu_and_gpu_models_match_both_tokenizer_stages() -> None:
-    base = Tokenizer.load(ROOT / "data/tokenizer")
-    extended = Tokenizer.load(ROOT / "data/tokenizer-finetuning")
+    base_path = ROOT / "data/tokenizer" / "tokenizer.json"
+    extended_path = ROOT / "data/tokenizer-finetuning" / "tokenizer.json"
+    if not base_path.is_file() or not extended_path.is_file():
+        pytest.skip("generated tokenizer artifacts are intentionally gitignored")
+    base = Tokenizer.load(base_path.parent)
+    extended = Tokenizer.load(extended_path.parent)
 
     assert base.vocab_size == 40_000
     assert extended.base_vocab_size == base.vocab_size

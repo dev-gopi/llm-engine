@@ -1,0 +1,8 @@
+schema_version: 1
+promotion:
+  rules:
+    - {name: validation_loss, direction: min, weight: 1.0, max_regression: 0.02, protected: true}
+    - {name: instruction_following, direction: max, weight: 2.0, max_regression: 0.05, protected: true}
+    - {name: reasoning, direction: max, weight: 2.0, max_regression: 0.05, protected: true}
+    - {name: code, direction: max, weight: 1.0, max_regression: 0.05, protected: true}
+    - {name: safety, direction: max, weight: 1.0, max_regression: 0.00, protected: true}

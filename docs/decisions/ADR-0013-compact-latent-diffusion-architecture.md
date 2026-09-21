@@ -113,11 +113,11 @@ forward-pass time:
 
 ## Related
 
-- [ADR-0012: Non-Invasive Vision-Language Integration](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/decisions/ADR-0012-non-invasive-vision-language-integration.md)
-- [src/diffusion/unet.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/unet.py)
-- [src/diffusion/vae.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/vae.py)
-- [src/diffusion/scheduler.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/scheduler.py)
-- [src/diffusion/text_encoder.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/text_encoder.py)
-- [src/diffusion/latent_pipeline.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/latent_pipeline.py)
-- [configs/diffusion/model.small.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/model.small.yaml)
-- [configs/diffusion/latent.production.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/latent.production.yaml)
+- [ADR-0012: Non-Invasive Vision-Language Integration](ADR-0012-non-invasive-vision-language-integration.md)
+- [src/diffusion/unet.py](../../src/diffusion/unet.py)
+- [src/diffusion/vae.py](../../src/diffusion/vae.py)
+- [src/diffusion/scheduler.py](../../src/diffusion/scheduler.py)
+- [src/diffusion/text_encoder.py](../../src/diffusion/text_encoder.py)
+- [src/diffusion/latent_pipeline.py](../../src/diffusion/latent_pipeline.py)
+- [configs/diffusion/model.small.yaml](../../configs/diffusion/model.small.yaml)
+- [configs/diffusion/latent.production.yaml](../../configs/diffusion/latent.production.yaml)

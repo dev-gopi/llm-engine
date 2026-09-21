@@ -1,6 +1,6 @@
 # Context Management & Token Budgets (`docs/CONTEXT_MANAGEMENT.md`)
 
-*Authoritative Source: [`src/inference/context.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/context.py), [`src/inference/chat_session.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/chat_session.py)*
+*Authoritative Source: [`src/inference/context.py`](../src/inference/context.py), [`src/inference/chat_session.py`](../src/inference/chat_session.py)*
 
 ---
 
@@ -23,7 +23,7 @@ With an active context length of `max_position: 1024` tokens, allocating token c
 
 ## 2. Conversation Compaction Strategies
 
-When conversational turns approach the maximum context window, [`src/inference/context.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/context.py) applies progressive compaction:
+When conversational turns approach the maximum context window, [`src/inference/context.py`](../src/inference/context.py) applies progressive compaction:
 
 1. **System Prompt Protection**: System instructions, persona guidelines, and active tool schemas are pinned and never truncated.
 2. **Oldest Turn Pruning**: Intermediate user/assistant conversation pairs are evicted first (FIFO).
@@ -35,6 +35,6 @@ When conversational turns approach the maximum context window, [`src/inference/c
 ## 3. Prefix Caching for Long System Prompts
 
 In multi-agent and tool-calling setups, system prompts and JSON tool declarations remain static across requests:
-- By caching the Key and Value representations of the invariant system prefix in [`src/inference/paged_kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/paged_kv_cache.py), new requests skip prefilling the first ~250 tokens.
+- By caching the Key and Value representations of the invariant system prefix in [`src/inference/paged_kv_cache.py`](../src/inference/paged_kv_cache.py), new requests skip prefilling the first ~250 tokens.
 - This reduces Time-To-First-Token (TTFT) by up to 70% for multi-turn interactions.
 

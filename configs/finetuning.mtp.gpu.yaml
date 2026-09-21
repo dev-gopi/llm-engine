@@ -245,7 +245,7 @@ loss_chunk_size: 128
 extends: defaults/training-runtime.yaml
 runtime:
   tokenizer: data/tokenizer-finetuning
-  output: checkpoints/finetuning/latest.pt
-  best_output: checkpoints/finetuning/best.pt
-  log_file: logs/finetuning.log
-  report_json: reports/finetuning.json
+  output: checkpoints/finetuning-mtp/latest.pt
+  best_output: checkpoints/finetuning-mtp/best.pt
+  log_file: logs/finetuning-mtp.log
+  report_json: reports/finetuning-mtp.json

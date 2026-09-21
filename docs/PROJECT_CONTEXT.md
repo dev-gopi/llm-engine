@@ -19,12 +19,12 @@ Instead of relying on monolithic, opaque third-party libraries, `llm-engine` exp
 On consumer hardware (e.g. 4 GB VRAM), scaling model parameter count blindly produces Out-Of-Memory (OOM) failures or throttled throughput. Architectural efficiency—such as Grouped-Query Attention (GQA), Rotary Position Embeddings (RoPE), SwiGLU FFNs, chunked loss computation, and Paged KV caches—takes precedence over parameter size.
 
 ### Principle 2: Strict Progressive Context for AI Agents
-AI coding agents must not consume thousands of tokens scanning the entire repository. Every subsystem is self-documenting and referenced by [`docs/PROJECT_INDEX.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/PROJECT_INDEX.md) and compact context packs in [`docs/context/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/context/).
+AI coding agents must not consume thousands of tokens scanning the entire repository. Every subsystem is self-documenting and referenced by [`docs/PROJECT_INDEX.md`](PROJECT_INDEX.md) and compact context packs in [`docs/context/`](context).
 
 ### Principle 3: Single Source of Truth
 No values are duplicated across documentation and source code:
-- Model dimensions and architecture: [`src/model/config.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/config.py) & [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml).
-- Training defaults: [`configs/pretraining.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/pretraining.gpu.yaml).
+- Model dimensions and architecture: [`src/model/config.py`](../src/model/config.py) & [`configs/model.gpu.yaml`](../configs/model.gpu.yaml).
+- Training defaults: [`configs/pretraining.gpu.yaml`](../configs/pretraining.gpu.yaml).
 - Runtime behavior: authoritative Python modules in `src/`.
 
 ### Principle 4: Contract Integrity & Regression Gating

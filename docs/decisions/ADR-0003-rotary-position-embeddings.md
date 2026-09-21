@@ -18,7 +18,7 @@ We adopted **Rotary Position Embeddings (RoPE)** (`position_type: rotary`) acros
 - **Negative**: Attention head dimension must remain an even integer.
 
 ## Related Files
-- [`src/model/positional.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/positional.py)
-- [`src/model/attention.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/attention.py)
-- [`tests/test_positional.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_positional.py)
+- [`src/model/positional.py`](../../src/model/positional.py)
+- [`src/model/attention.py`](../../src/model/attention.py)
+- [`tests/test_positional.py`](../../tests/test_positional.py)
 

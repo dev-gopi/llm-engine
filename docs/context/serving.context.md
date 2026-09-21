@@ -5,12 +5,12 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **FastAPI Endpoints**: [`src/serving/api.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/api.py)
-- **WebSocket Streaming**: [`src/serving/websocket.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/websocket.py)
-- **Dynamic Batching**: [`src/serving/batching.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/batching.py) (`DynamicBatcher`)
-- **Rate Limiting**: [`src/serving/rate_limit.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/rate_limit.py)
-- **Schemas**: [`src/serving/schemas.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/schemas.py)
-- **Server Entry**: [`scripts/serve.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/scripts/serve.py)
+- **FastAPI Endpoints**: [`src/serving/api.py`](../../src/serving/api.py)
+- **WebSocket Streaming**: [`src/serving/websocket.py`](../../src/serving/websocket.py)
+- **Dynamic Batching**: [`src/serving/batching.py`](../../src/serving/batching.py) (`DynamicBatcher`)
+- **Rate Limiting**: [`src/serving/rate_limit.py`](../../src/serving/rate_limit.py)
+- **Schemas**: [`src/serving/schemas.py`](../../src/serving/schemas.py)
+- **Server Entry**: [`scripts/serve.py`](../../scripts/serve.py)
 
 ---
 

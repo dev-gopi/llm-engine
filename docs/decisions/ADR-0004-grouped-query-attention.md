@@ -18,7 +18,7 @@ We adopted **Grouped-Query Attention (GQA)** with $H_q = 8$ and $H_{kv} = 2$ (a 
 - **Negative**: Requires repeating or broadcasting Key and Value head tensors across query groups during the attention forward pass.
 
 ## Related Files
-- [`src/model/attention.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/attention.py)
-- [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)
-- [`tests/test_attention.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_attention.py)
+- [`src/model/attention.py`](../../src/model/attention.py)
+- [`configs/model.gpu.yaml`](../../configs/model.gpu.yaml)
+- [`tests/test_attention.py`](../../tests/test_attention.py)
 

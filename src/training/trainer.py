@@ -12,7 +12,12 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch import Tensor
 
-from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
+from model.loss import (
+    CausalLanguageModelLoss,
+    LanguageModelLossOutput,
+    MultiTokenPredictionLoss,
+    MultiTokenPredictionLossOutput,
+)
 from optim.ema import EMA
 from training.evaluator import aggregate_domain_metrics
 from training.accounting import TrainingAccounting
@@ -38,6 +43,7 @@ class Trainer:
         grad_scaler_initial_scale: float = 65536.0,
         grad_scaler_growth_interval: int = 2000,
         reasoning_trace_policy: str = "optional",
+        mtp_loss_weight: float = 0.0,
     ) -> None:
         self.model = model
         self.opt = optimizer
@@ -71,6 +77,17 @@ class Trainer:
         if reasoning_trace_policy not in {"optional", "assistant_only"}:
             raise ValueError("reasoning_trace_policy must be optional or assistant_only")
         self.reasoning_trace_policy = reasoning_trace_policy
+        if not isinstance(mtp_loss_weight, (int, float)) or isinstance(mtp_loss_weight, bool) or not math.isfinite(float(mtp_loss_weight)) or float(mtp_loss_weight) < 0:
+            raise ValueError("mtp_loss_weight must be a finite non-negative number")
+        mtp_predictions = int(getattr(model, "mtp_num_predictions", 0) or 0)
+        if mtp_loss_weight and mtp_predictions < 1:
+            raise ValueError("mtp_loss_weight requires a model with mtp_num_predictions > 0")
+        self.mtp_loss_weight = float(mtp_loss_weight)
+        self.mtp_loss_fn = (
+            MultiTokenPredictionLoss(mtp_predictions, weight=self.mtp_loss_weight)
+            if self.mtp_loss_weight > 0 else None
+        )
+        self.last_mtp_loss = 0.0
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
         if mixed_precision not in {"none", "fp16", "bf16"}:
@@ -134,9 +151,18 @@ class Trainer:
                 raise ValueError("targets are required when inputs is a tensor")
             targets = targets.to(self.device, non_blocking=non_blocking)
         with torch.autocast(device_type=self.device.type, dtype=self.autocast_dtype, enabled=self.mixed_precision != "none"):
-            logits = self.model(token_ids, attention_mask=attention_mask) if attention_mask is not None else self.model(token_ids)
-            if isinstance(logits, tuple):
-                logits = logits[0]
+            model_kwargs = {"return_mtp_logits": True} if self.mtp_loss_fn is not None else {}
+            if attention_mask is not None:
+                model_output = self.model(token_ids, attention_mask=attention_mask, **model_kwargs)
+            else:
+                model_output = self.model(token_ids, **model_kwargs)
+            mtp_logits = None
+            if self.mtp_loss_fn is not None:
+                if not isinstance(model_output, tuple) or len(model_output) != 2 or not isinstance(model_output[1], list):
+                    raise RuntimeError("MTP-enabled model did not return (logits, mtp_logits)")
+                logits, mtp_logits = model_output
+            else:
+                logits = model_output[0] if isinstance(model_output, tuple) else model_output
             self.last_logit_abs_mean = float(logits.detach().float().abs().mean())
             self.last_logit_abs_max = float(logits.detach().float().abs().max())
             loss_function = self.batch_loss_fn if is_batch else self.tensor_loss_fn
@@ -146,6 +172,15 @@ class Trainer:
                        if type(loss_function) is CausalLanguageModelLoss else None)
             loss = (details.loss if isinstance(details, LanguageModelLossOutput)
                     else loss_function(logits, targets, loss_mask=loss_mask))
+            if self.mtp_loss_fn is not None:
+                assert mtp_logits is not None
+                mtp_result = self.mtp_loss_fn(mtp_logits, targets, loss_mask=loss_mask)
+                if not isinstance(mtp_result, MultiTokenPredictionLossOutput):
+                    raise RuntimeError("MTP objective returned an invalid result")
+                self.last_mtp_loss = float(mtp_result.loss.detach())
+                loss = loss + mtp_result.loss
+            else:
+                self.last_mtp_loss = 0.0
         if not bool(torch.isfinite(loss.detach())):
             self.nonfinite_updates += 1
             self.opt.zero_grad(set_to_none=True)

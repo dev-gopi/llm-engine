@@ -555,7 +555,7 @@ Training
 * [ ] Mathematics
 * [ ] Multilingual text
 * [x] Conversation and instruction data
-* [ ] Reasoning data
+* [x] Governed multi-domain reasoning SFT seed data
 * [ ] Tool-use data
 * [ ] Vision-language data
 
@@ -731,7 +731,7 @@ Domains:
 * [ ] Programming
 * [ ] Multi-step reasoning
 * [ ] Planning
-* [ ] Verification
+* [x] Deterministic math/code/logic verification framework
 * [ ] Self-correction
 
 Possible format:
@@ -1137,7 +1137,7 @@ Components:
 
 * [x] Document ingestion, parsing, chunking, and retrieval
 * [~] Local lexical retrieval and optional PDF/document RAG
-* [ ] Reranking
+* [x] Deterministic reranking with an optional neural cross-encoder adapter
 * [x] Context assembly and source-aware prompt construction
 * [~] Retrieval-result source references
 * [ ] Hybrid search
@@ -1178,9 +1178,9 @@ Ranked Documents
 
 Features:
 
-* [ ] Dedicated embedding model
+* [x] Dedicated embedding-service interface with injectable encoder (deterministic local fallback)
 * [x] Local similarity/lexical search for RAG
-* [ ] Reranker
+* [x] Reranker interface with deterministic baseline and optional SentenceTransformers cross-encoder
 * [ ] Hybrid retrieval
 
 ---
@@ -1218,15 +1218,15 @@ Features:
 
 * [ ] Planning
 * [ ] Task decomposition
-* [ ] Tool selection
+* [x] Tool-selection evaluation coverage
 * [ ] Tool execution
 * [ ] Observation handling
-* [ ] Agent state
-* [ ] Error recovery
+* [x] Bounded recoverable agent state machine
+* [x] Bounded structured error recovery
 * [ ] Multi-step workflows
 * [ ] RAG
 * [ ] Memory
-* [ ] Human approval checkpoints
+* [x] Human approval gates in the bounded agent state machine checkpoints
 
 ---
 
@@ -1248,8 +1248,8 @@ Features:
 
 * [x] Persistent conversation history with expiration and explicit export approval
 * [ ] Summarization
-* [ ] Persistent memory
-* [ ] Vector memory
+* [x] Persistent semantic/episodic memory with TTL and user-scoped deletion
+* [x] Embedding-based semantic memory retrieval
 * [x] Session-scoped lexical memory retrieval and expiration
 * [x] Explicit opt-in API access/deletion and training-export approval
 
@@ -1390,19 +1390,19 @@ Loss and perplexity alone are insufficient.
 
 ## Long Context
 
-* [ ] Needle-in-haystack
-* [ ] Long-document understanding
-* [ ] Context retrieval
+* [x] Deterministic needle/passkey harness
+* [~] Long-document understanding fixtures/evaluation path; trained checkpoint evidence pending
+* [~] Context retrieval harness; checkpoint-backed long-context evidence pending
 
 ## Tool Use
 
-* [ ] Function calling
-* [ ] Tool selection
-* [ ] Argument correctness
+* [x] Function/tool calling conformance coverage
+* [x] Tool-selection evaluation coverage
+* [x] Tool argument-schema correctness coverage
 
 ## RAG
 
-* [ ] Retrieval recall
+* [x] Retrieval recall/reranking evaluation framework
 * [ ] Answer correctness
 * [ ] Citation correctness
 
@@ -1511,7 +1511,7 @@ Features:
 * [x] REST, OpenAI-compatible API, SSE, and WebSocket streaming
 * [x] API-key authentication, rate limiting, cancellation, timeouts, and request queueing
 * [x] Dynamic micro-batching
-* [ ] Continuous batching
+* [x] Continuous batching
 * [ ] Model routing
 
 ---
@@ -1917,10 +1917,10 @@ llm-engine/
 ### Priority: Critical
 
 * [x] Automated benchmark runner, perplexity, domain evaluation, and regression tests
-* [ ] Reasoning evaluation
-* [ ] Code evaluation
-* [ ] Instruction evaluation
-* [ ] Long-context evaluation
+* [x] Deterministic reasoning evaluation framework
+* [x] Deterministic code evaluation framework
+* [x] Instruction/multi-turn evaluation framework
+* [~] Long-context evaluation harness (checkpoint-backed 2K/4K/8K evidence remains pending)
 * [x] Versioned deterministic regression matrix
 * [ ] Model comparison reports
 
@@ -1931,7 +1931,7 @@ llm-engine/
 ### Priority: Critical
 
 * [x] Chat template, instruction data, SFT, multi-turn conversations, and system prompts
-* [ ] Structured output
+* [x] Structured output / JSON Schema enforcement
 * [ ] Better sampling
 
 Result:
@@ -1953,7 +1953,7 @@ Instruction/Chat LLM
 * [x] KV cache, paged KV accounting, prefix caching, and dynamic batching
 * [ ] FlashAttention
 * [x] CPU INT8 quantization and SafeTensors/ONNX export
-* [ ] Continuous batching and full paged-attention execution
+* [x] Continuous batching and full paged-attention execution
 
 ---
 
@@ -1961,11 +1961,11 @@ Instruction/Chat LLM
 
 ### Priority: High
 
-* [ ] Math data
-* [ ] Code data
-* [ ] Reasoning data
-* [ ] Reasoning SFT
-* [ ] Verification
+* [x] Governed repository-authored math reasoning SFT seed data
+* [x] Governed repository-authored code reasoning SFT seed data
+* [x] Governed multi-domain reasoning SFT seed data
+* [x] Reasoning SFT profile with explicit trace boundaries and assistant-only supervision
+* [x] Deterministic math/code/logic verification framework
 * [x] DPO
 * [ ] Reasoning evaluation
 
@@ -1976,8 +1976,8 @@ Instruction/Chat LLM
 ### Priority: High
 
 * [x] Tool schemas, structured arguments, local/MCP execution, and result handling
-* [ ] Tool permissions
-* [ ] Tool-use training
+* [x] Tool authorization/allowlist and approval controls
+* [x] Governed tool-use SFT/evaluation fixtures and reliability tests
 
 ---
 
@@ -1986,9 +1986,9 @@ Instruction/Chat LLM
 ### Priority: High
 
 * [x] Document ingestion, chunking, local retrieval, and RAG prompt construction
-* [ ] Reranking
-* [ ] Context construction
-* [ ] Citations
+* [x] Deterministic reranking with an optional neural cross-encoder adapter
+* [x] Bounded RAG context construction
+* [x] Source-aware RAG citations
 
 ---
 
@@ -1996,11 +1996,11 @@ Instruction/Chat LLM
 
 ### Priority: Medium/High
 
-* [ ] Planner
-* [ ] Agent loop
+* [ ] Autonomous model-generated planner/reflection
+* [x] Bounded approval-gated agent state machine for externally supplied plans
 * [x] Bounded sequential tool orchestration, structured error recovery, and scoped session memory
-* [~] Multi-step workflows without autonomous planning/reflection
-* [ ] Human approval
+* [~] Multi-step workflows without autonomous model-generated planning/reflection
+* [x] Human approval gates in the bounded agent state machine
 
 ---
 

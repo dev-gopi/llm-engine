@@ -36,8 +36,8 @@ nvidia-smi
 Always run `scripts/capabilities.py` before starting long runs to verify available VRAM.
 
 ### Related Files
-- [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)
-- [`src/model/loss.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/loss.py)
+- [`configs/model.gpu.yaml`](../configs/model.gpu.yaml)
+- [`src/model/loss.py`](../src/model/loss.py)
 
 ---
 
@@ -69,8 +69,8 @@ tail -n 50 logs/training.log
 Keep gradient clipping active and monitor z-loss regularization.
 
 ### Related Files
-- [`src/optim/adamw.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/optim/adamw.py)
-- [`src/training/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/trainer.py)
+- [`src/optim/adamw.py`](../src/optim/adamw.py)
+- [`src/training/trainer.py`](../src/training/trainer.py)
 
 ---
 
@@ -98,8 +98,8 @@ Verify tokenizer compatibility with:
 - Never retrain a base tokenizer from scratch for an existing model checkpoint.
 
 ### Related Files
-- [`src/model/vocabulary.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/vocabulary.py)
-- [`src/tokenizer/bpe.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/tokenizer/bpe.py)
+- [`src/model/vocabulary.py`](../src/model/vocabulary.py)
+- [`src/tokenizer/bpe.py`](../src/tokenizer/bpe.py)
 
 ---
 
@@ -131,8 +131,8 @@ Run test generation with repetition penalty:
 2. For conversational prompts, ensure the fine-tuned chat checkpoint (`checkpoints/finetuning/best.pt`) is loaded, not the raw pretraining checkpoint.
 
 ### Related Files
-- [`src/inference/sampler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/sampler.py)
-- [`src/inference/generator.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/generator.py)
+- [`src/inference/sampler.py`](../src/inference/sampler.py)
+- [`src/inference/generator.py`](../src/inference/generator.py)
 
 ---
 
@@ -153,5 +153,5 @@ Untracked `src/llm_engine.egg-info` appears after running editable pip install, 
 - Tests run directly using `.venv/bin/pytest` via `PYTHONPATH=src:.` without requiring egg-info metadata.
 
 ### Related Files
-- [`pyproject.toml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/pyproject.toml)
-- [`.gitignore`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/.gitignore)
+- [`pyproject.toml`](../pyproject.toml)
+- [`.gitignore`](../.gitignore)

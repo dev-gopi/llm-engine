@@ -5,11 +5,11 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **Agent Orchestrator**: [`src/serving/workspace.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/workspace.py)
-- **MCP Client**: [`src/mcp/client.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/mcp/client.py)
-- **Local Tools**: [`src/inference/local_tools.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/local_tools.py)
-- **RAG Engine**: [`src/inference/rag.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/rag.py)
-- **Tool Config**: [`configs/mcp.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/mcp.yaml)
+- **Agent Orchestrator**: [`src/serving/workspace.py`](../../src/serving/workspace.py)
+- **MCP Client**: [`src/mcp/client.py`](../../src/mcp/client.py)
+- **Local Tools**: [`src/inference/local_tools.py`](../../src/inference/local_tools.py)
+- **RAG Engine**: [`src/inference/rag.py`](../../src/inference/rag.py)
+- **Tool Config**: [`configs/mcp.yaml`](../../configs/mcp.yaml)
 
 ---
 

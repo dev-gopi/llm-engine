@@ -5,14 +5,14 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **Model Growth**: [`src/training/model_growth.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/model_growth.py) (`grow_model`)
-- **PEFT / LoRA**: [`src/training/peft.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/peft.py) (`LoRALinear`, `apply_lora`)
-- **Multi-Node Topology**: [`src/training/multinode.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/multinode.py) (`topology_from_environment`, `validate_collectives`)
-- **Elastic Training**: [`src/training/elastic.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/elastic.py)
-- **Sharded Checkpoints**: [`src/training/distributed_checkpoint.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/distributed_checkpoint.py)
-- **Tensor Parallel Inference**: [`src/inference/tensor_parallel.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/tensor_parallel.py)
-- **Scaling Configurations**: [`configs/scaling/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/scaling/), [`configs/text/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/text/)
-- **Full Architecture Guide**: [`docs/SCALING.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/SCALING.md)
+- **Model Growth**: [`src/training/model_growth.py`](../../src/training/model_growth.py) (`grow_model`)
+- **PEFT / LoRA**: [`src/training/peft.py`](../../src/training/peft.py) (`LoRALinear`, `apply_lora`)
+- **Multi-Node Topology**: [`src/training/multinode.py`](../../src/training/multinode.py) (`topology_from_environment`, `validate_collectives`)
+- **Elastic Training**: [`src/training/elastic.py`](../../src/training/elastic.py)
+- **Sharded Checkpoints**: [`src/training/distributed_checkpoint.py`](../../src/training/distributed_checkpoint.py)
+- **Tensor Parallel Inference**: [`src/inference/tensor_parallel.py`](../../src/inference/tensor_parallel.py)
+- **Scaling Configurations**: [`configs/scaling/`](../../configs/scaling), [`configs/text/`](../../configs/text)
+- **Full Architecture Guide**: [`docs/SCALING.md`](../SCALING.md)
 
 ---
 

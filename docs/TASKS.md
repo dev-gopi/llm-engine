@@ -1,6 +1,6 @@
 # Persistent Agent Task System (`docs/TASKS.md`)
 
-This task registry maintains stable task identifiers across sessions. When starting work on any task, update its status from `TODO` to `IN_PROGRESS`, and upon completion and test verification, mark it `COMPLETED` and update [`docs/CHANGELOG.md`]\(file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/CHANGELOG.md).
+This task registry maintains stable task identifiers across sessions. When starting work on any task, update its status from `TODO` to `IN_PROGRESS`, and upon completion and test verification, mark it `COMPLETED` and update [`docs/CHANGELOG.md`]\(CHANGELOG.md).
 
 ---
 
@@ -846,7 +846,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `FTL-001`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -856,6 +856,10 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Relevant files**: `src/training/checkpoint.py`, `src/training/distributed_checkpoint.py`, `tests/test_training_system.py`, `tests/test_multinode.py`
 
+
+- **Validation**: `.venv/bin/pytest tests/test_scaling_features.py tests/test_training_system.py -q`
+
+- **Acceptance criteria**: Corrupted distributed shards are rejected by checksum validation; model/optimizer/scheduler/scaler, RNG, and sampler/resume metadata are restored by the checkpoint paths covered by regression tests.
 ### CUR-001: Curriculum Scheduling and Gradient Diagnostics
 
 - **ID**: `CUR-001`
@@ -906,7 +910,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `AGT-004`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -916,11 +920,15 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Relevant files**: `src/inference/generator.py`, `src/inference/local_tools.py`, `src/mcp/client.py`, `tests/test_generation.py`, `tests/test_mcp_client.py`
 
+
+- **Validation**: `.venv/bin/pytest tests/test_agent_runtime.py -q`
+
+- **Acceptance criteria**: The bounded state machine enforces tool allowlists and maximum steps, supports explicit human approve/reject gates, records observations, stops on tool failure, and permits bounded recovery with a replacement plan.
 ### MEM-002: Long-Term Semantic and Episodic Memory
 
 - **ID**: `MEM-002`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P3`
 
@@ -930,6 +938,10 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Relevant files**: `src/inference/chat_session.py`, `src/inference/rag.py`, `src/serving/api.py`, `tests/test_chat_session.py`, `tests/test_rag.py`
 
+
+- **Validation**: `.venv/bin/pytest tests/test_long_term_memory.py -q`
+
+- **Acceptance criteria**: Opt-in user-scoped semantic/episodic records support embedding retrieval, TTL expiry, purge, and user deletion without cross-user retrieval.
 ### ATT-002: Advanced Long-Context Attention Research Profiles
 
 - **ID**: `ATT-002`
@@ -1212,11 +1224,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TRAINING`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Multi-axis checkpoint promotion instead of loss-only selection
+
+- **Relevant files**: `src/training/promotion.py`, `src/training/checkpoint.py`, `src/release/pipeline.py`, `scripts/select_checkpoint.py`, `configs/checkpoint.promotion.yaml`, `tests/test_training_promotion.py`, `tests/release/test_artifacts.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_training_promotion.py tests/release/test_artifacts.py -q`
+
+- **Acceptance criteria**: Checkpoint selection is deterministic and multi-axis; protected regressions and release-block evidence prevent promotion, and promotion metadata is validated before release.
 
 ---
 
@@ -1226,11 +1244,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `CHAT`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Quality filtering, balancing, verification and category coverage
+
+- **Relevant files**: `src/datasets/instruction_quality.py`, `configs/instruction_quality.yaml`, `tests/test_instruction_quality.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_instruction_quality.py -q`
+
+- **Acceptance criteria**: Instruction records receive deterministic quality/secret/duplication signals and can be threshold-filtered and category-balanced under a versioned configuration.
 
 ---
 
@@ -1254,11 +1278,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `ALIGNMENT`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: SFT→DPO capability/regression comparison
+
+- **Relevant files**: `src/post_training/dpo.py`, `scripts/train_dpo.py`, `configs/dpo.cpu.yaml`, `configs/dpo.gpu.yaml`, `tests/test_dpo_workflow.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_dpo_workflow.py -q`
+
+- **Acceptance criteria**: DPO training/evaluation reports pair-weighted reward metrics and exposes an SFT-to-DPO metric delta report without treating validation loss as the only regression signal.
 
 ---
 
@@ -1268,11 +1298,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `ALIGNMENT`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
 - **Description**: Controlled comparison of DPO/IPO/ORPO/KTO/etc.
+
+- **Relevant files**: `src/alignment/pipeline.py`, `configs/alignment.methods.yaml`, `tests/test_alignment_pipeline.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_alignment_pipeline.py -q`
+
+- **Acceptance criteria**: DPO/IPO/ORPO/KTO experiment results share a versioned metric contract and are compared as raw measurements/deltas against an explicit baseline without silently ranking methods.
 
 ---
 
@@ -1282,11 +1318,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `REASONING`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Programmatic/math/code verification of reasoning outputs
+
+- **Relevant files**: `src/reasoning/verification.py`, `tests/test_reasoning_verification.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_reasoning_verification.py -q`
+
+- **Acceptance criteria**: Deterministic math, code, and logic verification helpers return structured pass/fail evidence and are covered by regression tests.
 
 ---
 
@@ -1296,11 +1338,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `REASONING`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Difficulty-ordered reasoning training
+
+- **Relevant files**: `src/reasoning/curriculum.py`, `configs/reasoning.curriculum.yaml`, `tests/test_reasoning_verification.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_reasoning_verification.py -q`
+
+- **Acceptance criteria**: Reasoning examples are deterministically ordered and weighted by explicit or derived difficulty under a versioned curriculum configuration.
 
 ---
 
@@ -1310,11 +1358,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `EVALUATION`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Versioned benchmark adapters with reproducible scoring controls
+
+- **Relevant files**: `src/evaluation/external.py`, `src/evaluation/benchmarks.py`, `tests/test_external_benchmarks.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_external_benchmarks.py -q`
+
+- **Acceptance criteria**: External benchmark adapters bind name/version/dataset hash/metric into a stable fingerprint and retain deterministic scoring controls in result artifacts.
 
 ---
 
@@ -1324,11 +1378,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `EVALUATION`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Generated math/logic/instruction/tool tests
+
+- **Relevant files**: `src/evaluation/dynamic.py`, `configs/evaluation.dynamic.yaml`, `tests/test_dynamic_evaluation.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_dynamic_evaluation.py -q`
+
+- **Acceptance criteria**: Seeded generated math/logic fixtures are reproducible and expose an explicit anti-contamination collision check against training fingerprints.
 
 ---
 
@@ -1338,11 +1398,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `EVALUATION`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
 - **Description**: Confidence-vs-correctness metrics
+
+- **Relevant files**: `src/evaluation/calibration.py`, `configs/evaluation.calibration.yaml`, `tests/test_calibration.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_calibration.py -q`
+
+- **Acceptance criteria**: Confidence/correctness evaluation emits bounded expected-calibration-error, Brier score, and per-bin evidence under a versioned bin configuration.
 
 ---
 
@@ -1352,11 +1418,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `EVALUATION`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Unknown/false-premise/citation/RAG hallucination tests
+
+- **Relevant files**: `src/evaluation/hallucination.py`, `tests/test_hallucination.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_hallucination.py -q`
+
+- **Acceptance criteria**: Versioned probe primitives cover unknown and false-premise abstention plus citation/RAG support checks with deterministic scoring.
 
 ---
 
@@ -1366,11 +1438,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `EVALUATION`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Automatic protected-capability regression blocking
+
+- **Relevant files**: `src/evaluation/release_gate.py`, `src/release/pipeline.py`, `configs/evaluation.release_gate.yaml`, `tests/test_release_gate.py`, `tests/release/test_artifacts.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_release_gate.py tests/release/test_artifacts.py -q`
+
+- **Acceptance criteria**: Protected capability regressions or missing required metrics block release/promotion according to versioned per-capability tolerances.
 
 ---
 
@@ -1380,11 +1458,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TOKENIZER`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Efficiency across languages/code/JSON/Unicode/numbers
+
+- **Relevant files**: `src/evaluation/tokenizer_quality.py`, `tests/test_tokenizer_quality_compat.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_tokenizer_quality_compat.py -q`
+
+- **Acceptance criteria**: Tokenizer efficiency is measured deterministically for language, code, JSON, Unicode, and numeric sample groups using token-per-character evidence.
 
 ---
 
@@ -1394,11 +1478,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TOKENIZER`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: ID/special-token/checkpoint compatibility across releases
+
+- **Relevant files**: `src/evaluation/tokenizer_compat.py`, `src/tokenizer/encoder.py`, `tests/test_tokenizer_quality_compat.py`, `tests/test_vocabulary_compatibility.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_tokenizer_quality_compat.py tests/test_vocabulary_compatibility.py -q`
+
+- **Acceptance criteria**: Tokenizer fingerprints and append-only compatible base fingerprints gate checkpoint compatibility; incompatible tokenizer/checkpoint combinations are rejected.
 
 ---
 
@@ -1540,7 +1630,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Configurable Reasoning Budget
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -1622,7 +1712,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Why**: Improve the relevance of retrieved documents before sending context to Gopi LLM.
 
-* **Dependencies**: `RAG-003`, `API-010`
+* **Dependencies**: `RAG-003`, `EMB-001`
 
 * **Relevant files**:
 
@@ -1971,9 +2061,9 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 The document also identifies several capabilities that should become implementation tasks even where a separate task ID is not explicitly assigned in the recommended task table. The overall capability set includes chat completions, streaming, tool calling, structured outputs, reasoning controls, Responses API, MCP, sessions/context, embeddings, RAG, reranking, usage accounting, deterministic controls, cancellation, prefix caching, lifecycle management, evaluation, and release/regression gates. 
 
-### EMB-001: Embeddings API
+### EMB-002: Embeddings API
 
-* **ID**: `EMB-001`
+* **ID**: `EMB-002`
 
 * **Title**: Gopi Embeddings API
 
@@ -1985,7 +2075,7 @@ The document also identifies several capabilities that should become implementat
 
 * **Why**: Provides a standardized embedding service for the Gopi RAG platform.
 
-* **Dependencies**: `MODEL-EMB-001`
+* **Dependencies**: `EMB-001`
 
 * **Relevant files**:
 
@@ -2044,9 +2134,9 @@ The document also identifies several capabilities that should become implementat
 
 ---
 
-### OPS-001: Model Health & Readiness API
+### OPS-003: Model Health & Readiness API
 
-* **ID**: `OPS-001`
+* **ID**: `OPS-003`
 
 * **Title**: Model Health, Readiness & Metrics Endpoints
 
@@ -2191,7 +2281,7 @@ The document also identifies several capabilities that should become implementat
 
 ### Same-ID definition/status reconciliation
 
-- `AGT-004` remains **Stateful Agent Runtime and Human Approval** / `TODO`; the sheet's distinct **Agent Task Success Benchmark** is tracked as `AGT-005`.
+- `AGT-004` remains **Stateful Agent Runtime and Human Approval** and is **COMPLETED** locally; the sheet's distinct **Agent Task Success Benchmark** is tracked as `AGT-005`.
 - `CHAT-001` — task list: **Chat Template Standardization & Loss Masking** / `COMPLETED`; sheet: **Standardized Chat Templating with Prompt Loss Masking** / `COMPLETED`.
 - `CUR-001` is **COMPLETED** locally with targeted validation; the sheet's `TODO` status is stale.
 - `DATA-001` — task list: **MinHash Deduplication Pipeline** / `COMPLETED`; sheet: **Scalable MinHash LSH Corpus Deduplication** / `COMPLETED`.

@@ -1,6 +1,6 @@
 # Configuration Reference & Parameter Catalog (`docs/CONFIGURATION.md`)
 
-*Authoritative Source: [`src/utils/config.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/utils/config.py), [`src/model/config.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/config.py)*
+*Authoritative Source: [`src/utils/config.py`](../src/utils/config.py), [`src/model/config.py`](../src/model/config.py)*
 
 This document provides a reference for all configuration parameters across `configs/*.yaml` and environment variables.
 

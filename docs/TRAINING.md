@@ -1,12 +1,12 @@
 # Training Engine & Optimization (`docs/TRAINING.md`)
 
-*Authoritative Source: [`src/training/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/trainer.py), [`src/optim/adamw.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/optim/adamw.py), [`src/optim/scheduler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/optim/scheduler.py), [`src/model/loss.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/loss.py)*
+*Authoritative Source: [`src/training/trainer.py`](../src/training/trainer.py), [`src/optim/adamw.py`](../src/optim/adamw.py), [`src/optim/scheduler.py`](../src/optim/scheduler.py), [`src/model/loss.py`](../src/model/loss.py)*
 
 ---
 
 ## 1. Trainer Engine Architecture
 
-The `Trainer` class in [`src/training/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/trainer.py) manages the training step:
+The `Trainer` class in [`src/training/trainer.py`](../src/training/trainer.py) manages the training step:
 1. **Micro-Batch Forward Pass**: Passes batches of size `batch_size: 2` through the model.
 2. **Chunked Loss**: Uses `ChunkedCrossEntropyLoss` with sequence chunking (default chunk size 128) to compute cross-entropy without allocating full `[B, T, V]` logits in FP32.
 3. **Loss Normalization**: Divides loss by `gradient_accumulation_steps` (16 or 32).

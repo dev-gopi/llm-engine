@@ -18,7 +18,7 @@ We adopted the **Model Context Protocol (MCP)** standard for external tool orche
 - **Negative**: Adds async JSON-RPC message passing overhead.
 
 ## Related Files
-- [`src/mcp/client.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/mcp/client.py)
-- [`src/inference/local_tools.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/local_tools.py)
-- [`configs/mcp.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/mcp.yaml)
+- [`src/mcp/client.py`](../../src/mcp/client.py)
+- [`src/inference/local_tools.py`](../../src/inference/local_tools.py)
+- [`configs/mcp.yaml`](../../configs/mcp.yaml)
 

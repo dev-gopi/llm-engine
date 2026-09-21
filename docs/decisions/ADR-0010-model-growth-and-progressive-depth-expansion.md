@@ -7,7 +7,7 @@
 Pretraining large language models (e.g. 500M or 1B+ parameters) from scratch using randomly initialized Gaussian weights requires extensive GPU compute time and risks early optimization instability.
 
 ## Decision
-We implemented a **Progressive Model Growth Engine** ([`src/training/model_growth.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/model_growth.py)) supporting depth expansion and append-only vocabulary expansion:
+We implemented a **Progressive Model Growth Engine** ([`src/training/model_growth.py`](../../src/training/model_growth.py)) supporting depth expansion and append-only vocabulary expansion:
 1. Copies base transformer layers directly to target layers.
 2. Newly appended transformer layers are initialized as **identity residuals** by zeroing attention output projections ($W_{\text{out}} = 0$) and feed-forward down-projections ($W_{\text{ffn\_down}} = 0$).
 3. The initial grown model produces mathematically identical predictions to the smaller base model, allowing warm-started continuation of training.
@@ -21,7 +21,7 @@ We implemented a **Progressive Model Growth Engine** ([`src/training/model_growt
 - **Negative**: Requires strict validation of parameter shapes and initialization contracts.
 
 ## Related Files
-- [`src/training/model_growth.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/model_growth.py)
-- [`scripts/grow_checkpoint.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/scripts/grow_checkpoint.py)
-- [`tests/test_model_growth.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_model_growth.py)
+- [`src/training/model_growth.py`](../../src/training/model_growth.py)
+- [`scripts/grow_checkpoint.py`](../../scripts/grow_checkpoint.py)
+- [`tests/test_model_growth.py`](../../tests/test_model_growth.py)
 

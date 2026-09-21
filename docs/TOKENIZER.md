@@ -1,6 +1,6 @@
 # Tokenizer Specification (`docs/TOKENIZER.md`)
 
-*Authoritative Source: [`src/tokenizer/bpe.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/tokenizer/bpe.py), [`src/tokenizer/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/tokenizer/trainer.py), [`configs/tokenizer.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/tokenizer.yaml)*
+*Authoritative Source: [`src/tokenizer/bpe.py`](../src/tokenizer/bpe.py), [`src/tokenizer/trainer.py`](../src/tokenizer/trainer.py), [`configs/tokenizer.yaml`](../configs/tokenizer.yaml)*
 
 ---
 
@@ -67,4 +67,4 @@ This generates:
 
 1. **Deterministic Merges**: The order of merges in `merges.txt` must never be altered once a model checkpoint is trained.
 2. **Append-Only Additions**: New special tokens or domain tokens must be added to the end of the vocabulary (`new_id >= old_vocab_size`).
-3. **Validation**: Any vocabulary alteration must pass [`tests/test_vocabulary_compatibility.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_vocabulary_compatibility.py).
+3. **Validation**: Any vocabulary alteration must pass [`tests/test_vocabulary_compatibility.py`](../tests/test_vocabulary_compatibility.py).

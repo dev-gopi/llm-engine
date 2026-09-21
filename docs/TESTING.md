@@ -1,12 +1,12 @@
 # Testing Strategy & Regression Suites (`docs/TESTING.md`)
 
-*Authoritative Source: [`pyproject.toml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/pyproject.toml), [`tests/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/)*
+*Authoritative Source: [`pyproject.toml`](../pyproject.toml), [`tests/`](../tests)*
 
 ---
 
 ## 1. Testing Framework & Organization
 
-`llm-engine` maintains over 670 automated tests executed with `pytest`. The test suite validates tensor mathematical contracts, memory allocation bounds, tokenizer round-tripping, checkpoint persistence, and API endpoints.
+`llm-engine` maintains over 830 automated tests executed with `pytest`. The test suite validates tensor mathematical contracts, memory allocation bounds, tokenizer round-tripping, checkpoint persistence, and API endpoints.
 
 ```text
 tests/
@@ -59,11 +59,24 @@ tests/
 .venv/bin/pytest tests/test_serving.py tests/test_serving_orchestration.py -q
 ```
 
+### Validate the task registry
+```bash
+.venv/bin/python scripts/audit_task_registry.py
+```
+
+The audit rejects duplicate task IDs, heading/declared-ID mismatches, and
+undefined task dependencies.
+
+### Data-preparation dependency note
+The Hugging Face/Arrow preparation tests require the declared `pyarrow`
+dependency. If it is unavailable in an offline environment, report those tests
+as not executed; do not count them as passing.
+
 ---
 
 ## 3. Mandatory Testing Rules for AI Agents
 
 1. **Run Tests Before and After Modifying Code**: Always execute the relevant test module before editing to confirm baseline behavior, and re-run afterwards.
-2. **Zero Regression Tolerance**: All 670+ existing tests must pass. A change that breaks an existing test is unacceptable unless the contract itself was intentionally redesigned via an approved ADR.
+2. **Zero Regression Tolerance**: All executable repository tests must pass; source-only archives may intentionally skip generated-artifact checks, and dependency-gated tests must be reported explicitly rather than silently omitted. A change that breaks an existing test is unacceptable unless the contract itself was intentionally redesigned via an approved ADR.
 3. **No Mocking of Numerical Tensors**: Transformer numerical tests must use real PyTorch tensors (on CPU or CUDA) to catch shape and gradient errors.
 

@@ -21,7 +21,7 @@ We propose evolving the backbone into a **Hybrid Attention Architecture**:
 - **Negative**: Requires architectural retraining and custom layer routing.
 
 ## Related Files
-- [`docs/TARGET_STATE.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/TARGET_STATE.md)
-- [`docs/UPGRADE_ROADMAP.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/UPGRADE_ROADMAP.md)
-- [`src/model/attention.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/attention.py)
+- [`docs/TARGET_STATE.md`](../TARGET_STATE.md)
+- [`docs/UPGRADE_ROADMAP.md`](../UPGRADE_ROADMAP.md)
+- [`src/model/attention.py`](../../src/model/attention.py)
 

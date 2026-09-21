@@ -1,6 +1,6 @@
 # Memory Systems & Session State (`docs/MEMORY.md`)
 
-*Authoritative Source: [`src/inference/chat_session.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/chat_session.py), [`src/serving/api.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/api.py)*
+*Authoritative Source: [`src/inference/chat_session.py`](../src/inference/chat_session.py), [`src/serving/api.py`](../src/serving/api.py)*
 
 ---
 

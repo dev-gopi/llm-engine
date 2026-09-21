@@ -26,6 +26,7 @@ state remain in each `data/processed/<name>/dataset-manifest.yaml`.
 | `general_qa` | V1/V2/v2 English SFT | [databricks/databricks-dolly-15k](https://huggingface.co/datasets/databricks/databricks-dolly-15k) |
 | `safety_alignment` | V1/V2/v2 safety SFT | [fwnlp/self-instruct-safety-alignment](https://huggingface.co/datasets/fwnlp/self-instruct-safety-alignment) |
 | `writing_editing` | V1/V2/v2 writing SFT | [HuggingFaceH4/no_robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots) |
+| `multimodal_sft` | Optional vision-language projector/instruction tuning | [Local governed manifest](../data/processed/multimodal_sft/dataset-manifest.yaml) |
 | `multilingual_bn_hi` | V1/V2/v2 Bengali SFT | [rishiraj/bengalichat](https://huggingface.co/datasets/rishiraj/bengalichat) |
 | `multilingual_hi` | V1/V2/v2 Hindi SFT | [rishiraj/hindichat](https://huggingface.co/datasets/rishiraj/hindichat) |
 | `tool_calling` | V1/V2/v2 structured tool-use SFT | [narrative-io/narrative-function-calling-v1](https://huggingface.co/datasets/narrative-io/narrative-function-calling-v1) |

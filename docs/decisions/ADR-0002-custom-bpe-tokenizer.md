@@ -18,7 +18,7 @@ We implemented a **pure-Python Byte-Pair Encoding (BPE) tokenizer** with UTF-8 b
 - **Negative**: Training tokenizers from scratch in Python is slower than optimized Rust tokenizers on massive multi-gigabyte corpora.
 
 ## Related Files
-- [`src/tokenizer/bpe.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/tokenizer/bpe.py)
-- [`src/tokenizer/trainer.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/tokenizer/trainer.py)
-- [`tests/test_vocabulary_compatibility.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_vocabulary_compatibility.py)
+- [`src/tokenizer/bpe.py`](../../src/tokenizer/bpe.py)
+- [`src/tokenizer/trainer.py`](../../src/tokenizer/trainer.py)
+- [`tests/test_vocabulary_compatibility.py`](../../tests/test_vocabulary_compatibility.py)
 

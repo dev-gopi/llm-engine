@@ -1,6 +1,6 @@
 # Tool Calling & Execution Engine (`docs/TOOLS.md`)
 
-*Authoritative Source: [`src/inference/local_tools.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/local_tools.py), [`src/mcp/client.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/mcp/client.py), [`configs/mcp.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/mcp.yaml)*
+*Authoritative Source: [`src/inference/local_tools.py`](../src/inference/local_tools.py), [`src/mcp/client.py`](../src/mcp/client.py), [`configs/mcp.yaml`](../configs/mcp.yaml)*
 
 ---
 
@@ -30,7 +30,7 @@ Tools are defined using standard JSON Schema definitions compatible with OpenAI 
 
 ## 2. Built-in Local Tools
 
-Configured in [`src/inference/local_tools.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/local_tools.py):
+Configured in [`src/inference/local_tools.py`](../src/inference/local_tools.py):
 
 | Tool Name | Parameters | Safety Constraints |
 | :--- | :--- | :--- |

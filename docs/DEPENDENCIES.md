@@ -1,6 +1,6 @@
 # Dependencies & Environment Requirements (`docs/DEPENDENCIES.md`)
 
-*Authoritative Source: [`pyproject.toml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/pyproject.toml)*
+*Authoritative Source: [`pyproject.toml`](../pyproject.toml)*
 
 ---
 

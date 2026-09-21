@@ -1,6 +1,6 @@
 # Performance & Memory Optimization (`docs/PERFORMANCE.md`)
 
-*Authoritative Source: [`src/model/config.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/config.py), [`src/model/loss.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/loss.py), [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)*
+*Authoritative Source: [`src/model/config.py`](../src/model/config.py), [`src/model/loss.py`](../src/model/loss.py), [`configs/model.gpu.yaml`](../configs/model.gpu.yaml)*
 
 ---
 

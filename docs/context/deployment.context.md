@@ -5,12 +5,12 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **Dockerfile**: [`Dockerfile`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/Dockerfile)
-- **Docker Compose**: [`compose.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/compose.yaml), [`compose.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/compose.gpu.yaml)
-- **Nginx Config**: [`deploy/nginx.conf`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/deploy/nginx.conf)
-- **Cert Generator**: [`deploy/generate_dev_certs.sh`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/deploy/generate_dev_certs.sh)
-- **Model Exporter**: [`scripts/export.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/scripts/export.py)
-- **Full Guide**: [`docs/DEPLOYMENT.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/DEPLOYMENT.md)
+- **Dockerfile**: [`Dockerfile`](../../Dockerfile)
+- **Docker Compose**: [`compose.yaml`](../../compose.yaml), [`compose.gpu.yaml`](../../compose.gpu.yaml)
+- **Nginx Config**: [`deploy/nginx.conf`](../../deploy/nginx.conf)
+- **Cert Generator**: [`deploy/generate_dev_certs.sh`](../../deploy/generate_dev_certs.sh)
+- **Model Exporter**: [`scripts/export.py`](../../scripts/export.py)
+- **Full Guide**: [`docs/DEPLOYMENT.md`](../DEPLOYMENT.md)
 
 ---
 

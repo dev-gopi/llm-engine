@@ -93,8 +93,8 @@ features into the language model's embedding space.
 
 ## Related
 
-- [ADR-0013: Compact Latent Diffusion Architecture](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/decisions/ADR-0013-compact-latent-diffusion-architecture.md)
-- [src/multimodal/model.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/model.py)
-- [src/multimodal/projector.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/projector.py)
-- [src/vision/encoder.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/encoder.py)
-- [configs/vision/multimodal.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/multimodal.yaml)
+- [ADR-0013: Compact Latent Diffusion Architecture](ADR-0013-compact-latent-diffusion-architecture.md)
+- [src/multimodal/model.py](../../src/multimodal/model.py)
+- [src/multimodal/projector.py](../../src/multimodal/projector.py)
+- [src/vision/encoder.py](../../src/vision/encoder.py)
+- [configs/vision/multimodal.yaml](../../configs/vision/multimodal.yaml)

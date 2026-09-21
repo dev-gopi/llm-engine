@@ -21,7 +21,7 @@ We established a strict three-pillar memory architecture for all active GPU trai
 - **Negative**: Gradient checkpointing incurs ~20% higher wall-clock computation time per epoch.
 
 ## Related Files
-- [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)
-- [`configs/pretraining.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/pretraining.gpu.yaml)
-- [`src/model/loss.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/loss.py)
+- [`configs/model.gpu.yaml`](../../configs/model.gpu.yaml)
+- [`configs/pretraining.gpu.yaml`](../../configs/pretraining.gpu.yaml)
+- [`src/model/loss.py`](../../src/model/loss.py)
 

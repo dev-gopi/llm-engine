@@ -8,9 +8,9 @@ When AI coding agents collaborate on large repositories, standard workflows freq
 
 ## Decision
 We designed a **Hierarchical Progressive Context Documentation System**:
-1. Single root entry point: [`AGENTS.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/AGENTS.md).
-2. Machine-friendly lookup index: [`docs/PROJECT_INDEX.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/PROJECT_INDEX.md).
-3. Subsystem-specific compact context packs: [`docs/context/*.context.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/context/) (<200 lines each).
+1. Single root entry point: [`AGENTS.md`](../../AGENTS.md).
+2. Machine-friendly lookup index: [`docs/PROJECT_INDEX.md`](../PROJECT_INDEX.md).
+3. Subsystem-specific compact context packs: [`docs/context/*.context.md`](../context) (<200 lines each).
 4. Authoritative source of truth pointers rather than duplicated code snippets.
 
 ## Alternatives Considered
@@ -22,7 +22,7 @@ We designed a **Hierarchical Progressive Context Documentation System**:
 - **Negative**: Requires engineers and agents to update context packs when core contracts evolve.
 
 ## Related Files
-- [`AGENTS.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/AGENTS.md)
-- [`docs/PROJECT_INDEX.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/PROJECT_INDEX.md)
-- [`docs/context/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/context/)
+- [`AGENTS.md`](../../AGENTS.md)
+- [`docs/PROJECT_INDEX.md`](../PROJECT_INDEX.md)
+- [`docs/context/`](../context)
 

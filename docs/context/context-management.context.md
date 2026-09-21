@@ -5,9 +5,9 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **Context Compactor**: [`src/inference/context.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/context.py)
-- **Chat Session**: [`src/inference/chat_session.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/chat_session.py)
-- **Model Config**: [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml) (`max_position: 1024`)
+- **Context Compactor**: [`src/inference/context.py`](../../src/inference/context.py)
+- **Chat Session**: [`src/inference/chat_session.py`](../../src/inference/chat_session.py)
+- **Model Config**: [`configs/model.gpu.yaml`](../../configs/model.gpu.yaml) (`max_position: 1024`)
 
 ---
 

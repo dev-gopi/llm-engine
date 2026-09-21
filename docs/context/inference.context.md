@@ -5,12 +5,12 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **Generator**: [`src/inference/generator.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/generator.py) (`AutoregressiveGenerator`)
-- **Sampler**: [`src/inference/sampler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/sampler.py) (`Sampler`)
-- **Paged KV Cache**: [`src/inference/paged_kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/paged_kv_cache.py) (`PagedKVCache`)
-- **Quantization**: [`src/inference/quantization.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/quantization.py) (`quantize_dynamic_int8`)
-- **Chat Session**: [`src/inference/chat_session.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/chat_session.py) (`ChatSession`)
-- **Runtime Config**: [`configs/inference.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/inference.yaml)
+- **Generator**: [`src/inference/generator.py`](../../src/inference/generator.py) (`AutoregressiveGenerator`)
+- **Sampler**: [`src/inference/sampler.py`](../../src/inference/sampler.py) (`Sampler`)
+- **Paged KV Cache**: [`src/inference/paged_kv_cache.py`](../../src/inference/paged_kv_cache.py) (`PagedKVCache`)
+- **Quantization**: [`src/inference/quantization.py`](../../src/inference/quantization.py) (`quantize_dynamic_int8`)
+- **Chat Session**: [`src/inference/chat_session.py`](../../src/inference/chat_session.py) (`ChatSession`)
+- **Runtime Config**: [`configs/inference.yaml`](../../configs/inference.yaml)
 
 ---
 

@@ -5,13 +5,13 @@
 ---
 
 ## 1. Authoritative Sources of Truth
-- **Model Graph**: [`src/model/gpt.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/gpt.py) (`GPTModel`)
-- **Layer Block**: [`src/model/transformer_block.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/transformer_block.py) (`TransformerBlock`)
-- **Attention**: [`src/model/attention.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/attention.py) (`CausalSelfAttention`)
-- **Feed-Forward**: [`src/model/feed_forward.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/feed_forward.py) (`FeedForward`)
-- **Positions**: [`src/model/positional.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/positional.py) (`RotaryEmbedding`)
-- **Loss**: [`src/model/loss.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/loss.py) (`ChunkedCrossEntropyLoss`)
-- **Configuration**: [`src/model/config.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/config.py), [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)
+- **Model Graph**: [`src/model/gpt.py`](../../src/model/gpt.py) (`GPTModel`)
+- **Layer Block**: [`src/model/transformer_block.py`](../../src/model/transformer_block.py) (`TransformerBlock`)
+- **Attention**: [`src/model/attention.py`](../../src/model/attention.py) (`CausalSelfAttention`)
+- **Feed-Forward**: [`src/model/feed_forward.py`](../../src/model/feed_forward.py) (`FeedForward`)
+- **Positions**: [`src/model/positional.py`](../../src/model/positional.py) (`RotaryEmbedding`)
+- **Loss**: [`src/model/loss.py`](../../src/model/loss.py) (`ChunkedCrossEntropyLoss`)
+- **Configuration**: [`src/model/config.py`](../../src/model/config.py), [`configs/model.gpu.yaml`](../../configs/model.gpu.yaml)
 
 ---
 

@@ -349,6 +349,7 @@ def main() -> None:
         grad_scaler_initial_scale=float(config.get("grad_scaler_initial_scale", 65536.0)),
         grad_scaler_growth_interval=int(config.get("grad_scaler_growth_interval", 2000)),
         reasoning_trace_policy=str(config.get("reasoning_trace_policy", "optional")),
+        mtp_loss_weight=float(config.get("mtp_loss_weight", 0.0)),
     )
     preemption = PreemptionCoordinator()
     preemption.install()

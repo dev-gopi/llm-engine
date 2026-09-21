@@ -1,3 +1,13 @@
+## 2026-09-21 — Full task-registry and repository audit
+
+- Audited the unpacked repository against all 97 task-registry sections and reconciled stale local statuses against source/tests.
+- Fixed duplicate task IDs (`EMB-001` → `EMB-002` for the Embeddings API and the later `OPS-001` → `OPS-003` for health/readiness) and removed undefined dependency references.
+- Added an automated task-registry integrity audit with regression coverage.
+- Fixed pytest test-module collisions, MTP trainer wiring, reasoning/QLoRA/long-context profile issues, training-report CPU sampling, missing deterministic reasoning/long-context fixtures, and dataset-catalog coverage.
+- Converted machine-specific documentation links to portable repository-relative links and replaced the stale phase roadmap with an authoritative-registry-derived view.
+- Verified 833 tests pass with 1 intentional source-archive skip; five additional data-preparation modules require the declared but unavailable `pyarrow` dependency in this offline sandbox.
+- Registry after reconciliation: 97 unique IDs, 81 `COMPLETED`, 16 evidence-gated `TODO`. See `docs/AUDIT_2026-09-21.md`.
+
 ## 2026-09-21 — RAG/API contracts and protected lifecycle
 
 - Completed RAG-005 with a candidate-pool/reranker pipeline, optional neural SentenceTransformers cross-encoder adapter, metadata/citation preservation, and measurable recall/MRR/NDCG evaluation.

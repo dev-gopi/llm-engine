@@ -116,7 +116,12 @@ class SystemMonitor:
             if self.previous_cpu:
                 total_delta, idle_delta = total - self.previous_cpu[0], idle - self.previous_cpu[1]
                 if total_delta > 0:
-                    result["cpu_percent"] = (1.0 - idle_delta / total_delta) * 100.0
+                    result["cpu_percent"] = max(0.0, min(100.0, (1.0 - idle_delta / total_delta) * 100.0))
+                else:
+                    # Back-to-back samples can land in the same kernel tick.
+                    # Report a valid zero-utilization interval instead of an
+                    # ambiguous missing value so telemetry consumers remain stable.
+                    result["cpu_percent"] = 0.0
             self.previous_cpu = (total, idle)
             memory = {}
             for line in Path("/proc/meminfo").read_text().splitlines():

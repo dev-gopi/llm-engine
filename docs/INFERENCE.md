@@ -1,6 +1,6 @@
 # Inference Runtime & Memory Management (`docs/INFERENCE.md`)
 
-*Authoritative Source: [`src/inference/generator.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/generator.py), [`src/inference/paged_kv_cache.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/paged_kv_cache.py), [`src/inference/sampler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/sampler.py), [`src/inference/quantization.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/quantization.py)*
+*Authoritative Source: [`src/inference/generator.py`](../src/inference/generator.py), [`src/inference/paged_kv_cache.py`](../src/inference/paged_kv_cache.py), [`src/inference/sampler.py`](../src/inference/sampler.py), [`src/inference/quantization.py`](../src/inference/quantization.py)*
 
 ---
 
@@ -21,7 +21,7 @@ Inspired by operating system virtual memory paging:
 
 ## 2. Sampling Strategies & Logit Warpers
 
-The sampler in [`src/inference/sampler.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/sampler.py) applies the following pipeline to raw next-token logits:
+The sampler in [`src/inference/sampler.py`](../src/inference/sampler.py) applies the following pipeline to raw next-token logits:
 
 1. **Repetition Penalty**: Scales down logits of previously generated tokens:
    $$z_i \leftarrow \begin{cases} z_i / \theta & \text{if } z_i > 0 \\ z_i \cdot \theta & \text{if } z_i < 0 \end{cases}$$
@@ -35,7 +35,7 @@ The sampler in [`src/inference/sampler.py`](file:///home/user/Downloads/llm-engi
 
 ## 3. INT8 Quantization
 
-[`src/inference/quantization.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/quantization.py) provides dynamic INT8 quantization for linear projection layers:
+[`src/inference/quantization.py`](../src/inference/quantization.py) provides dynamic INT8 quantization for linear projection layers:
 - Scales weights: $W_{\text{int8}} = \text{round}(W_{\text{fp}} / s)$.
 - Dequantizes dynamically during matrix multiplication: $Y = (X W_{\text{int8}}^T) \cdot s$.
 - Yields a ~50% reduction in weight memory with negligible impact on generation perplexity.

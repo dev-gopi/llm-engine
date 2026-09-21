@@ -1,6 +1,6 @@
 # Model Architecture & Mathematical Formulation (`docs/MODEL.md`)
 
-*Authoritative Source: [`src/model/gpt.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/gpt.py), [`src/model/config.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/config.py), [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)*
+*Authoritative Source: [`src/model/gpt.py`](../src/model/gpt.py), [`src/model/config.py`](../src/model/config.py), [`configs/model.gpu.yaml`](../configs/model.gpu.yaml)*
 
 ---
 
@@ -77,7 +77,7 @@ When expanding the vocabulary from 40K to 42K:
 1. The new tokens MUST be appended strictly to the end of the embedding tensor (`new_indices >= 40000`).
 2. Existing token indices (0 to 39,999) must never change meaning or position.
 3. Checkpoint loading must detect append-only expansion and resize the weight tensor, copying existing weights and initializing the new rows with normal distribution ($\sigma = 0.02$).
-4. Verified by [`tests/test_vocabulary_compatibility.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_vocabulary_compatibility.py).
+4. Verified by [`tests/test_vocabulary_compatibility.py`](../tests/test_vocabulary_compatibility.py).
 
 ---
 

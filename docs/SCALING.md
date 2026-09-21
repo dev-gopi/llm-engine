@@ -1,6 +1,6 @@
 # Scaling Architecture: From 80M to 1T Parameters (`docs/SCALING.md`)
 
-*Authoritative Source: [`src/training/model_growth.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/model_growth.py), [`src/training/peft.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/peft.py), [`src/training/multinode.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/multinode.py), [`src/training/elastic.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/elastic.py), [`src/training/distributed_checkpoint.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/distributed_checkpoint.py), [`src/inference/tensor_parallel.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/tensor_parallel.py)*
+*Authoritative Source: [`src/training/model_growth.py`](../src/training/model_growth.py), [`src/training/peft.py`](../src/training/peft.py), [`src/training/multinode.py`](../src/training/multinode.py), [`src/training/elastic.py`](../src/training/elastic.py), [`src/training/distributed_checkpoint.py`](../src/training/distributed_checkpoint.py), [`src/inference/tensor_parallel.py`](../src/inference/tensor_parallel.py)*
 
 This document defines the configuration-driven scaling architecture of `llm-engine`, detailing the transition from single-GPU consumer hardware (81.3M parameters on 4 GB VRAM) up to multi-node cluster training (1B, 7B, 30B, 100B MoE, and 1T dense models).
 
@@ -33,7 +33,7 @@ The framework scales across 5 distinct hardware and model tiers:
 
 ## 2. Parameter Sizing & Memory Formulas
 
-Parameter count and memory calculations are performed with zero weight allocations via [`src/model/config.py:estimate_model_size`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/config.py):
+Parameter count and memory calculations are performed with zero weight allocations via [`src/model/config.py:estimate_model_size`](../src/model/config.py):
 
 | Model Spec | Config File | Layers | Hidden | Heads / KV | FFN Dim | Dense Params | Active Params | FP16 Weights | AdamW State | Target Hardware |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -52,13 +52,13 @@ Parameter count and memory calculations are performed with zero weight allocatio
 To scale beyond single-device memory limits, `llm-engine` incorporates five orthogonal parallelism axes:
 
 ### 3.1 Fully Sharded Data Parallelism (FSDP / ZeRO)
-Implemented via PyTorch FSDP in [`src/training/distributed.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/distributed.py):
+Implemented via PyTorch FSDP in [`src/training/distributed.py`](../src/training/distributed.py):
 - **ZeRO-1**: Shards optimizer states across data-parallel ranks (reduces memory by 4x).
 - **ZeRO-2**: Shards optimizer states and gradients across ranks.
 - **ZeRO-3 (Full Shard)**: Shards optimizer states, gradients, and model parameters. Tensors are all-gathered only on-demand during the forward/backward pass and immediately freed.
 
 ### 3.2 Tensor Parallelism (TP)
-Implemented in [`src/inference/tensor_parallel.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/tensor_parallel.py):
+Implemented in [`src/inference/tensor_parallel.py`](../src/inference/tensor_parallel.py):
 - Splits weight matrices within an individual Transformer layer across $K$ GPUs:
   - Attention Query/Key/Value: Column-parallel linear projection (splits heads across devices).
   - Attention Output: Row-parallel linear projection with all-reduce sum across devices.
@@ -70,14 +70,14 @@ Implemented in [`src/inference/tensor_parallel.py`](file:///home/user/Downloads/
 - Uses micro-batching (1F1B schedule) to minimize the pipeline bubble.
 
 ### 3.4 Expert Parallelism (EP) for MoE
-- In Mixture-of-Experts layers (`ffn_type: moe` in [`src/model/feed_forward.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/feed_forward.py)), routing is computed globally, while individual experts reside on distinct GPUs.
+- In Mixture-of-Experts layers (`ffn_type: moe` in [`src/model/feed_forward.py`](../src/model/feed_forward.py)), routing is computed globally, while individual experts reside on distinct GPUs.
 - Allows scaling total parameters to 100B+ while keeping active compute per token at ~14B.
 
 ---
 
 ## 4. Progressive Model Growth (Warm Starts Without Cold Training)
 
-Instead of training 1B or 7B models from random Gaussian noise (which wastes millions of compute hours), [`src/training/model_growth.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/model_growth.py) enables **Progressive Model Growth**:
+Instead of training 1B or 7B models from random Gaussian noise (which wastes millions of compute hours), [`src/training/model_growth.py`](../src/training/model_growth.py) enables **Progressive Model Growth**:
 
 ```text
 81.3M Base Model (16 layers, width 512)
@@ -96,7 +96,7 @@ Grown Stable Model
 
 ## 5. Parameter-Efficient Fine-Tuning (PEFT / LoRA)
 
-For fine-tuning 7B to 70B models without updating billions of base parameters, [`src/training/peft.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/peft.py) provides native **Low-Rank Adaptation (LoRA)**:
+For fine-tuning 7B to 70B models without updating billions of base parameters, [`src/training/peft.py`](../src/training/peft.py) provides native **Low-Rank Adaptation (LoRA)**:
 
 $$W = W_{\text{base}} + \frac{\alpha}{r} (A \cdot B)$$
 

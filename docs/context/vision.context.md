@@ -22,29 +22,29 @@
 
 ### Vision
 
-- [src/vision/encoder.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/encoder.py) — `VisionEncoder`, `VisionBlock`
-- [src/vision/classifier.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/classifier.py) — `VisionClassifier`
-- [src/vision/patch_embedding.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/vision/patch_embedding.py) — `PatchEmbedding`
+- [src/vision/encoder.py](../../src/vision/encoder.py) — `VisionEncoder`, `VisionBlock`
+- [src/vision/classifier.py](../../src/vision/classifier.py) — `VisionClassifier`
+- [src/vision/patch_embedding.py](../../src/vision/patch_embedding.py) — `PatchEmbedding`
 
 ### Multimodal
 
-- [src/multimodal/model.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/model.py) — `VisionLanguageModel`
-- [src/multimodal/projector.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/multimodal/projector.py) — `VisionProjector`
+- [src/multimodal/model.py](../../src/multimodal/model.py) — `VisionLanguageModel`
+- [src/multimodal/projector.py](../../src/multimodal/projector.py) — `VisionProjector`
 
 ### Diffusion
 
-- [src/diffusion/pipeline.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/pipeline.py) — `DiffusionPipeline`
-- [src/diffusion/latent_pipeline.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/latent_pipeline.py) — `LatentDiffusionPipeline`
-- [src/diffusion/unet.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/unet.py) — `SmallUNet`, `TimeEmbedding`, `ResidualBlock`, `SpatialAttention`, `SpatialCrossAttention`
-- [src/diffusion/vae.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/vae.py) — `AutoencoderKL`, `VAEOutput`
-- [src/diffusion/scheduler.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/scheduler.py) — `DiffusionScheduler`
-- [src/diffusion/text_encoder.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/diffusion/text_encoder.py) — `DiffusionTextEncoder`
+- [src/diffusion/pipeline.py](../../src/diffusion/pipeline.py) — `DiffusionPipeline`
+- [src/diffusion/latent_pipeline.py](../../src/diffusion/latent_pipeline.py) — `LatentDiffusionPipeline`
+- [src/diffusion/unet.py](../../src/diffusion/unet.py) — `SmallUNet`, `TimeEmbedding`, `ResidualBlock`, `SpatialAttention`, `SpatialCrossAttention`
+- [src/diffusion/vae.py](../../src/diffusion/vae.py) — `AutoencoderKL`, `VAEOutput`
+- [src/diffusion/scheduler.py](../../src/diffusion/scheduler.py) — `DiffusionScheduler`
+- [src/diffusion/text_encoder.py](../../src/diffusion/text_encoder.py) — `DiffusionTextEncoder`
 
 ### Image Data
 
-- [src/image_data/dataset.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/dataset.py) — `ImageDataset`, `ImageClassificationDataset`, `discover_images`
-- [src/image_data/processor.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/processor.py) — `ImageProcessor`, `load_image`, `tensor_to_image`
-- [src/image_data/audit.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/image_data/audit.py) — `audit_images`, `ImageAudit`
+- [src/image_data/dataset.py](../../src/image_data/dataset.py) — `ImageDataset`, `ImageClassificationDataset`, `discover_images`
+- [src/image_data/processor.py](../../src/image_data/processor.py) — `ImageProcessor`, `load_image`, `tensor_to_image`
+- [src/image_data/audit.py](../../src/image_data/audit.py) — `audit_images`, `ImageAudit`
 
 ---
 
@@ -52,25 +52,25 @@
 
 ### Vision & Multimodal
 
-- [configs/vision/model.small.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/model.small.yaml)
-- [configs/vision/multimodal.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/multimodal.yaml)
-- [configs/vision/training.local.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/training.local.yaml), [training.production.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/training.production.yaml), [training.hf-sample.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/vision/training.hf-sample.yaml)
+- [configs/vision/model.small.yaml](../../configs/vision/model.small.yaml)
+- [configs/vision/multimodal.yaml](../../configs/vision/multimodal.yaml)
+- [configs/vision/training.local.yaml](../../configs/vision/training.local.yaml), [training.production.yaml](../../configs/vision/training.production.yaml), [training.hf-sample.yaml](../../configs/vision/training.hf-sample.yaml)
 
 ### Diffusion
 
-- [configs/diffusion/model.small.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/model.small.yaml)
-- [configs/diffusion/training.local.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/training.local.yaml), [training.production.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/training.production.yaml), [training.hf-sample.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/training.hf-sample.yaml)
-- [configs/diffusion/latent.production.yaml](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/diffusion/latent.production.yaml)
+- [configs/diffusion/model.small.yaml](../../configs/diffusion/model.small.yaml)
+- [configs/diffusion/training.local.yaml](../../configs/diffusion/training.local.yaml), [training.production.yaml](../../configs/diffusion/training.production.yaml), [training.hf-sample.yaml](../../configs/diffusion/training.hf-sample.yaml)
+- [configs/diffusion/latent.production.yaml](../../configs/diffusion/latent.production.yaml)
 
 ---
 
 ## Tests
 
-- [tests/test_vision_models.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_vision_models.py)
-- [tests/test_diffusion.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_diffusion.py)
-- [tests/test_image_data.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_image_data.py)
-- [tests/test_train_vision_resources.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_train_vision_resources.py)
-- [tests/test_prepare_hf_image_dataset.py](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_prepare_hf_image_dataset.py)
+- [tests/test_vision_models.py](../../tests/test_vision_models.py)
+- [tests/test_diffusion.py](../../tests/test_diffusion.py)
+- [tests/test_image_data.py](../../tests/test_image_data.py)
+- [tests/test_train_vision_resources.py](../../tests/test_train_vision_resources.py)
+- [tests/test_prepare_hf_image_dataset.py](../../tests/test_prepare_hf_image_dataset.py)
 
 ---
 

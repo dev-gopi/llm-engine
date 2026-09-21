@@ -18,7 +18,7 @@ We selected the **decoder-only causal Transformer** architecture with pre-layer 
 - **Negative**: Unidirectional causal attention is slightly less efficient at pure bidirectional text embedding tasks than masked language models (BERT).
 
 ## Related Files
-- [`src/model/gpt.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/gpt.py)
-- [`src/model/transformer_block.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/transformer_block.py)
-- [`configs/model.gpu.yaml`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/configs/model.gpu.yaml)
+- [`src/model/gpt.py`](../../src/model/gpt.py)
+- [`src/model/transformer_block.py`](../../src/model/transformer_block.py)
+- [`configs/model.gpu.yaml`](../../configs/model.gpu.yaml)
 

@@ -1,6 +1,6 @@
 # Evaluation & Regression Testing (`docs/EVALUATION.md`)
 
-*Authoritative Source: [`src/training/evaluator.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/training/evaluator.py), [`src/evaluation/benchmarks.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/evaluation/benchmarks.py), [`scripts/evaluate.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/scripts/evaluate.py)*
+*Authoritative Source: [`src/training/evaluator.py`](../src/training/evaluator.py), [`src/evaluation/benchmarks.py`](../src/evaluation/benchmarks.py), [`scripts/evaluate.py`](../scripts/evaluate.py)*
 
 ---
 

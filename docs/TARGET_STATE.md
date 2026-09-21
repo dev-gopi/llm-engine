@@ -21,8 +21,8 @@ This document defines the intended upgraded production platform. It clearly deli
   - Configurable sparse feed-forward layers with Top-K routing and load-balancing auxiliary loss.
 
 ### MIGRATION
-1. Implement linear attention sublayer in [`src/model/attention.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/attention.py) alongside GQA.
-2. Add layer-wise attention type configuration in [`src/model/transformer_block.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/transformer_block.py).
+1. Implement linear attention sublayer in [`src/model/attention.py`](../src/model/attention.py) alongside GQA.
+2. Add layer-wise attention type configuration in [`src/model/transformer_block.py`](../src/model/transformer_block.py).
 3. Validate gradient flow and backward pass with tests in `tests/test_attention.py`.
 4. Train MTP prediction heads using auxiliary loss without modifying the base backbone weights.
 
@@ -43,7 +43,7 @@ This document defines the intended upgraded production platform. It clearly deli
 - Passkey retrieval and "Needle in a Haystack" benchmark validation.
 
 ### MIGRATION
-1. Add synthetic passkey/needle evaluation in [`src/evaluation/benchmarks.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/evaluation/benchmarks.py).
+1. Add synthetic passkey/needle evaluation in [`src/evaluation/benchmarks.py`](../src/evaluation/benchmarks.py).
 2. Incrementally fine-tune on packed multi-turn dialogues with extended sequence lengths.
 
 ---
@@ -69,8 +69,8 @@ This document defines the intended upgraded production platform. It clearly deli
 - Native Jinja2 chat templating engine conforming to standard conversational schemas.
 
 ### MIGRATION
-1. Expand vocabulary configuration in [`src/model/vocabulary.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/model/vocabulary.py) preserving append-only index order.
-2. Build verified chat formatter in [`src/inference/chat_session.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/inference/chat_session.py).
+1. Expand vocabulary configuration in [`src/model/vocabulary.py`](../src/model/vocabulary.py) preserving append-only index order.
+2. Build verified chat formatter in [`src/inference/chat_session.py`](../src/inference/chat_session.py).
 3. Verify backward compatibility with existing checkpoints via `tests/test_vocabulary_compatibility.py`.
 
 ---
@@ -110,9 +110,9 @@ This document defines the intended upgraded production platform. It clearly deli
   3. **Preference Optimization**: Stable Direct Preference Optimization (DPO) and Odds Ratio Preference Optimization (ORPO) for preference alignment and refusal of harmful requests.
 
 ### MIGRATION
-1. Standardize instruction data formats in [`data/processed/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/data/processed/).
+1. Standardize instruction data formats in [`data/processed/`](../data/processed).
 2. Run SFT training with EMA weight tracking and plateau-based learning rate decay.
-3. Validate zero-regression using retention test suite [`tests/test_retention_training.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/tests/test_retention_training.py).
+3. Validate zero-regression using retention test suite [`tests/test_retention_training.py`](../tests/test_retention_training.py).
 
 ---
 

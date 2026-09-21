@@ -50,14 +50,15 @@ lazy_dataset: true
 distributed_strategy: ddp
 distributed_backend: null
 checkpoint_format: single_file
+fused_optimizer: auto
 samples_per_epoch: 100000
 dataset_weights:
-  reasoning_math: 0.24
-  reasoning_code: 0.2
-  reasoning_logic: 0.14
-  reasoning_planning: 0.14
-  reasoning_verification: 0.14
-  reasoning_self_correction: 0.14
+  math: 0.24
+  code: 0.2
+  logic: 0.14
+  planning: 0.14
+  verification: 0.14
+  self_correction: 0.14
 train_files:
 - data/processed/reasoning_sft/math/train.jsonl
 - data/processed/reasoning_sft/code/train.jsonl

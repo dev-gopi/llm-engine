@@ -1,6 +1,6 @@
 # Production Serving & API Protocols (`docs/SERVING.md`)
 
-*Authoritative Source: [`src/serving/api.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/api.py), [`src/serving/websocket.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/websocket.py), [`src/serving/batching.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/batching.py), [`scripts/serve.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/scripts/serve.py)*
+*Authoritative Source: [`src/serving/api.py`](../src/serving/api.py), [`src/serving/websocket.py`](../src/serving/websocket.py), [`src/serving/batching.py`](../src/serving/batching.py), [`scripts/serve.py`](../scripts/serve.py)*
 
 ---
 
@@ -79,7 +79,7 @@ Full-duplex WebSocket connection for real-time token streaming.
 
 ## 3. Dynamic Batching & Concurrency
 
-The dynamic batcher in [`src/serving/batching.py`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/src/serving/batching.py) aggregates incoming requests up to `max_batch_size: 4` with a maximum wait timeout of `batch_timeout_ms: 10`. On 4 GB GPUs, this maximizes compute utilization while preventing memory exhaustion.
+The dynamic batcher in [`src/serving/batching.py`](../src/serving/batching.py) aggregates incoming requests up to `max_batch_size: 4` with a maximum wait timeout of `batch_timeout_ms: 10`. On 4 GB GPUs, this maximizes compute utilization while preventing memory exhaustion.
 
 ---
 
