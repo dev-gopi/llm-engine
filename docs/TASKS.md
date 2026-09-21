@@ -1046,11 +1046,15 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `DATA`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Independent train/eval contamination and near-duplicate audit
+
+- **Relevant files**: `src/datasets/contamination.py`, `scripts/audit_contamination.py`, `tests/test_dataset_contamination.py`
+
+- **Validation**: `PYTHONPATH=src python -m pytest tests/test_dataset_contamination.py -q` (2 passed). Production completion remains gated on running the audit against the actual governed train/evaluation corpora.
 
 ---
 
@@ -1060,11 +1064,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `DATA`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Per-document quality scoring and source weighting
+
+- **Relevant files**: `src/datasets/quality.py`, `scripts/score_dataset_quality.py`, `src/training/data.py`, `tests/test_dataset_quality.py`, `tests/test_training_data_quality_weights.py`
+
+- **Validation**: `PYTHONPATH=src python -m pytest tests/test_dataset_quality.py tests/test_training_data_quality_weights.py -q` (4 passed).
+
+- **Acceptance criteria**: Deterministic bounded per-document quality signals produce normalized source weights; optional quality weights are applied to configured mixture probabilities without changing the default active mixture.
 
 ---
 
@@ -1074,11 +1084,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `DATA`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Compare corpus mixtures against capability metrics
+
+- **Relevant files**: `src/datasets/mixture_ablation.py`, `scripts/run_mixture_ablation.py`, `tests/test_mixture_ablation.py`
+
+- **Validation**: `PYTHONPATH=src python -m pytest tests/test_mixture_ablation.py -q` (2 passed).
+
+- **Acceptance criteria**: Versioned recorded mixture observations are validated, compared against an explicit baseline, and produce deterministic capability-metric deltas without ranking or causal claims.
 
 ---
 
@@ -1088,11 +1104,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `DATA`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Measure useful-token vs padding/packing waste
+
+- **Relevant files**: `src/datasets/packing.py`, `scripts/audit_packing_efficiency.py`, `tests/test_packing_efficiency.py`
+
+- **Validation**: `PYTHONPATH=src python -m pytest tests/test_packing_efficiency.py -q` (2 passed).
+
+- **Acceptance criteria**: Reports useful tokens, allocated capacity, packing waste, dynamic batch padding, and utilization deterministically for packed sequence lengths.
 
 ---
 

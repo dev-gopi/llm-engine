@@ -1,3 +1,13 @@
+
+## 2026-09-21 — DATA-004..DATA-007 data evaluation infrastructure
+
+- Added independent train/evaluation exact and near-duplicate contamination audit tooling (DATA-004).
+- Added deterministic per-document quality scoring and optional quality-weighted mixture support (DATA-005).
+- Added recorded-mixture ablation comparison against capability metrics without ranking or causal claims (DATA-006).
+- Added packed-sequence and dynamic-padding efficiency accounting (DATA-007).
+- Added focused regression coverage for all four data-track additions.
+- DATA-004 remains TODO until the actual governed train/evaluation corpora are available for an independent run; no empty or synthetic audit is treated as production evidence.
+
 # Changelog (`docs/CHANGELOG.md`)
 
 Notable user-visible changes and architectural milestones are recorded here.

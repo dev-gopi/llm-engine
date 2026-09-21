@@ -173,3 +173,25 @@ long_context_profiles:
     training_config: configs/pretraining.long_context.8k.gpu.yaml
     max_position: 8192
     max_sequence_length: 8192
+
+# DATA-005/006/007 reproducibility controls. These are audit/reporting knobs;
+# the active train_files mixture remains unchanged until reviewed reports are accepted.
+dataset_quality_scoring:
+  enabled: true
+  protocol: deterministic-heuristic-v1
+  quality_weighted_mixture: false
+  report: reports/dataset_quality.json
+
+dataset_ablation:
+  enabled: false
+  protocol: recorded-checkpoint-capability-v1
+  baseline: base
+  observations_file: experiments/data_mixture_ablation/observations.json
+  report: reports/data_mixture_ablation.json
+
+packing_efficiency:
+  enabled: true
+  report: reports/packing_efficiency.json
+  sequence_capacity: 512
+  batch_size: 2
+  pad_to_multiple_of: null

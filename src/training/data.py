@@ -69,11 +69,21 @@ def _mixture_groups(paths: list[str | Path], dataset_sizes: list[int], config: M
             f"missing={sorted(missing)}, unused={sorted(unused)}. "
             "Use the dataset directory name or a distinct filename stem."
         )
+    quality_weights = config.get("dataset_quality_weights") or {}
+    if quality_weights and not isinstance(quality_weights, Mapping):
+        raise ValueError("dataset_quality_weights must be a mapping")
+    if quality_weights and set(quality_weights) != set(configured):
+        raise ValueError("dataset_quality_weights must match dataset_weights exactly")
     result: list[tuple[int, int, float]] = []
     start = 0
     for path, size in zip(paths, dataset_sizes, strict=True):
         name = _mixture_name(path, configured)
         weight = float(configured[name])
+        if quality_weights:
+            quality = float(quality_weights[name])
+            if not math.isfinite(quality) or quality < 0:
+                raise ValueError(f"dataset quality weight must be finite and non-negative: {name}")
+            weight *= quality
         if not math.isfinite(weight) or weight < 0:
             raise ValueError(f"dataset weight must be finite and non-negative: {name}")
         if size:
