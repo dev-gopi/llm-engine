@@ -546,7 +546,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `DATA-003`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 

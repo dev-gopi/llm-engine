@@ -151,3 +151,92 @@ def test_active_pretraining_profile_declares_all_target_mixture_domains() -> Non
     sources = load_mixture_sources(config)
     assert {source.domain for source in sources} == {"web", "code", "math", "reasoning"}
     assert all(source.license_identifier and source.quality_metrics for source in sources)
+
+
+def write_capability_manifest(tmp_path, *, domain="web", quality_status="passed", overlap_count=0):
+    manifest = {
+        "schema_version": 2,
+        "name": "Capability Example",
+        "source": "example/capability",
+        "version": "2026-09-21-v1",
+        "domain": domain,
+        "license": {"identifier": "MIT", "review_status": "reviewed", "commercial_use": "allowed"},
+        "allowed_stages": ["pretraining"],
+        "privacy_review": "reviewed",
+        "provenance": {
+            "upstream": "https://example.invalid/dataset",
+            "acquisition": "version-pinned local export",
+            "acquired_at": "2026-09-21T00:00:00Z",
+            "content_sha256": "0" * 64,
+        },
+        "quality": {
+            "status": quality_status,
+            "metrics": {"records": 100, "duplicate_rate": 0.0, "pii_redaction_rate": 0.01},
+        },
+        "contamination_audit": {
+            "status": "passed" if overlap_count == 0 else "failed",
+            "method": "exact normalized benchmark prompt hashes + held-out overlap scan",
+            "audited_at": "2026-09-21T00:00:00Z",
+            "overlap_count": overlap_count,
+        },
+    }
+    path = tmp_path / "capability" / "dataset-manifest.yaml"
+    path.parent.mkdir()
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_schema_v2_capability_manifest_passes_strict_audit(tmp_path) -> None:
+    manifest = write_capability_manifest(tmp_path)
+    from datasets.governance import audit_manifest_files
+
+    assert audit_manifest_files(
+        [manifest],
+        stage="pretraining",
+        required_domains=["web"],
+        expected_domains={manifest: "web"},
+    ) == []
+
+
+def test_schema_v2_capability_manifest_requires_provenance_quality_and_contamination(tmp_path) -> None:
+    manifest = write_capability_manifest(tmp_path, quality_status="pending", overlap_count=2)
+    payload = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    del payload["provenance"]
+    manifest.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    from datasets.governance import audit_manifest_files
+
+    codes = {item.code for item in audit_manifest_files(
+        [manifest], stage="pretraining", required_domains=["web"], expected_domains={manifest: "web"}
+    )}
+    assert "invalid_manifest" in codes
+
+
+def test_capability_manifest_audit_reports_missing_domains_and_review_gates(tmp_path) -> None:
+    manifest = write_capability_manifest(tmp_path, domain="code", quality_status="pending")
+    from datasets.governance import audit_manifest_files
+
+    codes = {item.code for item in audit_manifest_files(
+        [manifest],
+        stage="pretraining",
+        required_domains=["web", "code"],
+        expected_domains={manifest: "code"},
+    )}
+    assert "quality_audit_not_passed" in codes
+    assert "required_domain_missing" in codes
+    assert "web" in " ".join(
+        item.message for item in audit_manifest_files(
+            [manifest], stage="pretraining", required_domains=["web"], expected_domains={manifest: "code"}
+        )
+    )
+
+
+def test_data_003_config_declares_ten_capability_domains_but_does_not_activate_them() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = yaml.safe_load((root / "configs/pretraining.gpu.yaml").read_text(encoding="utf-8"))
+    catalog = config["capability_corpus"]
+    assert catalog["activation"] == "blocked_until_audit"
+    assert set(catalog["required_domains"]) == {
+        "web", "documentation", "code", "mathematics", "science",
+        "multilingual", "conversation", "instruction", "reasoning", "tool-use",
+    }
+    assert len(catalog["sources"]) == 10

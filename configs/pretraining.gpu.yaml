@@ -10,6 +10,20 @@ dataset_governance:
   policy: warn
   stage: pretraining
   commercial_use: false
+  # DATA-003 is an acquisition/audit gate. Keep this disabled until every
+  # capability source has a reviewed schema-v2 manifest and a passed audit.
+  capability_audit: true
+  required_domains:
+    - web
+    - documentation
+    - code
+    - mathematics
+    - science
+    - multilingual
+    - conversation
+    - instruction
+    - reasoning
+    - tool-use
 max_sequence_length: 512
 num_workers: 4
 pin_memory: true
@@ -37,6 +51,33 @@ curriculum:
 # Versioned candidate sources for the next governed mixture stage. They are
 # declared here for reproducibility and auditability; train_files above remain
 # the active laptop profile until each source has local, reviewed artifacts.
+# DATA-003 capability catalog. These are governance declarations only; they do
+# not enter train_files until their schema-v2 manifests pass the strict audit.
+capability_corpus:
+  activation: blocked_until_audit
+  required_domains:
+    - web
+    - documentation
+    - code
+    - mathematics
+    - science
+    - multilingual
+    - conversation
+    - instruction
+    - reasoning
+    - tool-use
+  sources:
+    - {name: fineweb_edu, domain: web, manifest: data/processed/fineweb_edu/dataset-manifest.yaml}
+    - {name: wikipedia_en, domain: documentation, manifest: data/rag/wikipedia/dataset-manifest.yaml}
+    - {name: code_pretraining, domain: code, manifest: data/processed/code_pretraining/dataset-manifest.yaml}
+    - {name: v2_math_instruct, domain: mathematics, manifest: data/processed/v2_math_instruct/dataset-manifest.yaml}
+    - {name: science_pending, domain: science, manifest: data/processed/science/dataset-manifest.yaml}
+    - {name: multilingual_bn_hi, domain: multilingual, manifest: data/processed/multilingual_bn_hi/dataset-manifest.yaml}
+    - {name: ultrachat_200k, domain: conversation, manifest: data/processed/ultrachat_200k/dataset-manifest.yaml}
+    - {name: bangla_qa, domain: instruction, manifest: data/processed/bangla_qa/dataset-manifest.yaml}
+    - {name: hindi_hinglish, domain: reasoning, manifest: data/processed/hindi_hinglish/dataset-manifest.yaml}
+    - {name: tool_calling, domain: tool-use, manifest: data/processed/tool_calling/dataset-manifest.yaml}
+
 dataset_mixture:
   - name: fineweb_edu
     domain: web
