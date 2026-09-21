@@ -1416,6 +1416,668 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 ---
 
+### API-002: Structured Output / JSON Schema Enforcement
+
+* **ID**: `API-002`
+
+* **Title**: Structured Output / JSON Schema Enforcement
+
+* **Status**: `TODO`
+
+* **Priority**: `P0`
+
+* **Description**: Implement strict JSON Schema-based structured outputs for Gopi LLM API responses.
+
+* **Why**: Applications and agents need predictable, schema-conforming responses instead of merely valid JSON.
+
+* **Dependencies**: `API-001`
+
+* **Relevant files**:
+
+  * `src/api/chat_completions.*`
+  * `src/runtime/generation.*`
+  * `src/schema/*`
+  * `tests/api/structured_outputs.*`
+
+* **Implementation notes**:
+
+  * Accept `response_format.type = json_schema`.
+  * Accept schema name and JSON Schema definition.
+  * Validate schema compatibility.
+  * Constrain or validate generated output.
+  * Support `strict: true`.
+  * Return refusal/incomplete states.
+  * Handle malformed schemas and incomplete generation.
+
+* **Validation**: Test valid schemas, invalid schemas, nested objects, arrays, required fields, additional properties, malformed generation, and incomplete generation.
+
+* **Acceptance criteria**: Every successful structured-output request returns data conforming to the supplied JSON Schema.
+
+---
+
+### API-003: Responses API
+
+* **ID**: `API-003`
+
+* **Title**: OpenAI-Compatible Responses API
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Implement `/v1/responses` as a richer agent/event API while maintaining `/v1/chat/completions` compatibility.
+
+* **Why**: Provides a unified API for model generation, tools, RAG, and future agent workflows.
+
+* **Dependencies**: `API-001`, `AGT-001`
+
+* **Relevant files**:
+
+  * `src/api/responses.*`
+  * `src/api/chat_completions.*`
+  * `src/runtime/agent.*`
+  * `tests/api/responses.*`
+
+* **Implementation notes**:
+
+  * Add `POST /v1/responses`.
+  * Convert requests into a unified internal request representation.
+  * Integrate model, tools, and RAG.
+  * Support response/event streaming.
+  * Preserve Chat Completions compatibility.
+
+* **Validation**: Compare equivalent Chat Completions and Responses requests and verify consistent model behavior.
+
+* **Acceptance criteria**: `/v1/responses` successfully handles normal generation, streaming, tool interactions, and RAG workflows.
+
+---
+
+### RSN-007: Configurable Reasoning Budget
+
+* **ID**: `RSN-007`
+
+* **Title**: Configurable Reasoning Budget
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Add configurable reasoning effort controls to the model runtime.
+
+* **Why**: Allows applications to trade off reasoning depth, latency, and compute usage.
+
+* **Dependencies**: `TRAIN-005`, `INF-001`
+
+* **Relevant files**:
+
+  * `src/runtime/reasoning.*`
+  * `src/inference/generation.*`
+  * `src/api/request_schema.*`
+  * `tests/reasoning/*`
+
+* **Implementation notes**:
+
+  * Support `none`, `low`, `medium`, and `high`.
+  * Map reasoning effort to an actual runtime budget.
+  * Track reasoning token usage.
+  * Do not expose the capability until runtime behavior is implemented and measured.
+
+* **Validation**: Run the same benchmark across reasoning levels and measure quality, latency, and token usage.
+
+* **Acceptance criteria**: Each supported reasoning level produces measurable and reproducible runtime behavior.
+
+---
+
+### AGT-006: Native MCP Tool Execution Contract
+
+* **ID**: `AGT-006`
+
+* **Title**: Native MCP Tool Execution Contract
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Implement MCP as a first-class tool execution mechanism.
+
+* **Why**: Allows Gopi LLM to interact with external MCP servers using the same security and execution policies as normal tools.
+
+* **Dependencies**: `AGT-001`, `SEC-*`
+
+* **Relevant files**:
+
+  * `src/agents/mcp.*`
+  * `src/tools/*`
+  * `src/security/authorization.*`
+  * `tests/mcp/*`
+
+* **Implementation notes**:
+
+  * Support MCP server configuration.
+  * Support `server_label`.
+  * Support `server_url`.
+  * Support approval policies.
+  * Apply authorization, timeout, cancellation, audit, and approval policies.
+  * Validate MCP tool results.
+
+* **Validation**: Test successful MCP calls, rejected calls, timeout, cancellation, invalid results, and approval-required flows.
+
+* **Acceptance criteria**: MCP tools execute through the same controlled tool lifecycle as native tools.
+
+---
+
+### RAG-005: Cross-Encoder / Reranker Interface
+
+* **ID**: `RAG-005`
+
+* **Title**: Cross-Encoder / Reranker Interface
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Add a reranking layer between retrieval and LLM generation.
+
+* **Why**: Improve the relevance of retrieved documents before sending context to Gopi LLM.
+
+* **Dependencies**: `RAG-003`, `API-010`
+
+* **Relevant files**:
+
+  * `src/rag/retriever.*`
+  * `src/rag/reranker.*`
+  * `src/rag/pipeline.*`
+  * `tests/rag/reranker.*`
+
+* **Implementation notes**:
+
+  * Retrieve an initial candidate set.
+  * Rerank candidates using a cross-encoder/reranker.
+  * Return top 5–10 documents.
+  * Preserve document metadata and citations.
+  * Measure retrieval recall and reranking quality.
+
+* **Validation**: Evaluate retrieval recall, reranking quality, answer faithfulness, and citation correctness.
+
+* **Acceptance criteria**: RAG pipeline produces measurable improvements or validated ranking quality before generation.
+
+---
+
+### API-004: Token Usage & Cache Accounting Contract
+
+* **ID**: `API-004`
+
+* **Title**: Token Usage & Cache Accounting Contract
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Implement standardized token and cache usage reporting for every completion.
+
+* **Why**: Required for billing, benchmarking, cache analysis, capacity planning, and inference reports.
+
+* **Dependencies**: `INF-001`
+
+* **Relevant files**:
+
+  * `src/api/usage.*`
+  * `src/inference/tokenizer.*`
+  * `src/cache/*`
+  * `tests/api/usage.*`
+
+* **Implementation notes**:
+
+  * Report `prompt_tokens`.
+  * Report `completion_tokens`.
+  * Report `total_tokens`.
+  * Track `cached_tokens`.
+  * Track `reasoning_tokens` when implemented.
+  * Track prefix-cache hits and misses.
+
+* **Validation**: Compare reported token counts against tokenizer-generated counts and cache events.
+
+* **Acceptance criteria**: API usage statistics are accurate, consistent, and available in every completion response.
+
+---
+
+### API-005: Generation Parameter Compatibility Suite
+
+* **ID**: `API-005`
+
+* **Title**: Generation Parameter Compatibility Suite
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Implement and test OpenAI-compatible generation controls supported by the actual sampler.
+
+* **Why**: Clients should only receive parameters that the Gopi LLM runtime genuinely supports.
+
+* **Dependencies**: `INF-002`
+
+* **Relevant files**:
+
+  * `src/inference/sampler.*`
+  * `src/api/request_schema.*`
+  * `tests/api/generation_parameters.*`
+
+* **Implementation notes**:
+
+  * Support `temperature`.
+  * Support `top_p`.
+  * Support `top_k`.
+  * Support `min_p`.
+  * Support `max_tokens`.
+  * Support `stop`.
+  * Support `seed`.
+  * Support repetition/presence/frequency penalties where implemented.
+  * Validate unsupported parameters.
+
+* **Validation**: Run deterministic generation tests with fixed seeds and parameter-specific sampler tests.
+
+* **Acceptance criteria**: Every exposed parameter changes runtime behavior according to its documented contract.
+
+---
+
+### API-006: Request Cancellation Contract
+
+* **ID**: `API-006`
+
+* **Title**: Request Cancellation Contract
+
+* **Status**: `TODO`
+
+* **Priority**: `P0`
+
+* **Description**: Implement cancellation of active generation when clients disconnect or explicitly cancel requests.
+
+* **Why**: Prevents wasted GPU computation and releases model/runtime resources promptly.
+
+* **Dependencies**: `INF-006`
+
+* **Relevant files**:
+
+  * `src/api/server.*`
+  * `src/inference/generation.*`
+  * `src/runtime/cancellation.*`
+  * `src/tools/executor.*`
+  * `tests/inference/cancellation.*`
+
+* **Implementation notes**:
+
+  * Detect client disconnect.
+  * Stop generation.
+  * Release KV-cache resources.
+  * Cancel active tools.
+  * Release GPU/runtime resources.
+  * Propagate cancellation through the complete request lifecycle.
+
+* **Validation**: Disconnect clients during short and long generations and verify that generation and tool execution stop.
+
+* **Acceptance criteria**: Cancelled requests stop consuming generation resources within the defined cancellation timeout.
+
+---
+
+### API-007: Model Capability Discovery Contract
+
+* **ID**: `API-007`
+
+* **Title**: Model Capability Discovery Contract
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Expose accurate model capabilities and architecture metadata through the model configuration/API.
+
+* **Why**: Clients need to know which capabilities are actually implemented and validated.
+
+* **Dependencies**: `EVAL-014`
+
+* **Relevant files**:
+
+  * `src/api/models.*`
+  * `src/config/model.*`
+  * `src/runtime/capabilities.*`
+  * `tests/api/models.*`
+
+* **Implementation notes**:
+
+  * Expose chat capability.
+  * Expose streaming.
+  * Expose tool calling.
+  * Expose structured outputs.
+  * Expose reasoning state.
+  * Expose vision/audio state.
+  * Expose RAG/MCP state.
+  * Expose context limits.
+  * Expose architecture metadata.
+  * Expose inference features such as KV cache and prefix caching.
+
+* **Validation**: Compare advertised capabilities against automated integration tests.
+
+* **Acceptance criteria**: A capability is advertised as `true` only after implementation and validation. 
+
+---
+
+### API-008: Protected Model Lifecycle API
+
+* **ID**: `API-008`
+
+* **Title**: Protected Model Lifecycle API
+
+* **Status**: `TODO`
+
+* **Priority**: `P2`
+
+* **Description**: Implement administrative APIs for loading, unloading, and reloading models.
+
+* **Why**: Enables controlled model lifecycle management in production serving environments.
+
+* **Dependencies**: `SEC-*`, `INF-*`
+
+* **Relevant files**:
+
+  * `src/api/admin/models.*`
+  * `src/model/loader.*`
+  * `src/model/lifecycle.*`
+  * `tests/api/model_lifecycle.*`
+
+* **Implementation notes**:
+
+  * Add `POST /admin/models/load`.
+  * Add `POST /admin/models/unload`.
+  * Add `POST /admin/models/reload`.
+  * Require strong authentication and authorization.
+  * Record lifecycle audit events.
+  * Never expose unrestricted lifecycle operations publicly.
+
+* **Validation**: Test load/unload/reload under normal and concurrent request conditions.
+
+* **Acceptance criteria**: Model lifecycle operations are functional and protected from unauthorized access. 
+
+---
+
+### EVAL-014: OpenAI-Compatible API Conformance Suite
+
+* **ID**: `EVAL-014`
+
+* **Title**: OpenAI-Compatible API Conformance Suite
+
+* **Status**: `TODO`
+
+* **Priority**: `P0`
+
+* **Description**: Build automated tests verifying that Gopi LLM follows the defined OpenAI-compatible API contract.
+
+* **Why**: API compatibility must be demonstrated through actual request/response behavior rather than metadata.
+
+* **Dependencies**: `API-001`, `API-002`, `API-003`, `API-004`, `API-005`, `API-006`
+
+* **Relevant files**:
+
+  * `tests/conformance/*`
+  * `tests/api/*`
+  * `scripts/run_api_conformance.*`
+
+* **Implementation notes**:
+
+  * Test request validation.
+  * Test response structure.
+  * Test streaming.
+  * Test usage reporting.
+  * Test errors.
+  * Test generation parameters.
+  * Test cancellation.
+  * Test authentication.
+  * Test model discovery.
+
+* **Validation**: Run the complete suite against every release candidate.
+
+* **Acceptance criteria**: No P0 compatibility regression is allowed before release.
+
+---
+
+### EVAL-015: Tool Calling Conformance Suite
+
+* **ID**: `EVAL-015`
+
+* **Title**: Tool Calling Conformance Suite
+
+* **Status**: `TODO`
+
+* **Priority**: `P0`
+
+* **Description**: Create a complete automated test suite for the tool-calling lifecycle.
+
+* **Why**: Tool calling requires more than exposing `toolCalling: true`; validation, authorization, execution, errors, and cancellation must all work correctly. 
+
+* **Dependencies**: `AGT-001`, `API-002`
+
+* **Relevant files**:
+
+  * `tests/tools/*`
+  * `tests/agents/*`
+  * `tests/conformance/tool_calling.*`
+
+* **Implementation notes**:
+
+  * Test `tool_choice=none`.
+  * Test `tool_choice=auto`.
+  * Test `tool_choice=required`.
+  * Test specific function selection.
+  * Test strict schemas.
+  * Test malformed arguments.
+  * Test authorization.
+  * Test timeout.
+  * Test cancellation.
+  * Test result-size limits.
+  * Test maximum tool iterations.
+  * Test audit events.
+  * Test approval flows.
+  * Test parallel tool calls where supported.
+
+* **Validation**: Execute the full lifecycle against mock and real tools.
+
+* **Acceptance criteria**: Tool calls cannot bypass schema validation, authorization, timeout, cancellation, or audit controls.
+
+---
+
+### EVAL-016: Structured Output Conformance Suite
+
+* **ID**: `EVAL-016`
+
+* **Title**: Structured Output Conformance Suite
+
+* **Status**: `TODO`
+
+* **Priority**: `P0`
+
+* **Description**: Build automated conformance tests for JSON Schema structured outputs.
+
+* **Why**: Structured Outputs are an API-level guarantee and must be validated independently from ordinary JSON generation.
+
+* **Dependencies**: `API-002`
+
+* **Relevant files**:
+
+  * `tests/structured_outputs/*`
+  * `tests/conformance/structured_outputs.*`
+
+* **Implementation notes**:
+
+  * Test primitive fields.
+  * Test nested objects.
+  * Test arrays.
+  * Test required properties.
+  * Test `additionalProperties=false`.
+  * Test strict mode.
+  * Test invalid schemas.
+  * Test incomplete generation.
+  * Test refusal states.
+  * Test streaming structured output.
+
+* **Validation**: Validate every successful response against the original JSON Schema.
+
+* **Acceptance criteria**: 100% of successful structured-output test cases conform to their supplied schemas.
+
+---
+
+## Additional platform tasks from the same plan
+
+The document also identifies several capabilities that should become implementation tasks even where a separate task ID is not explicitly assigned in the recommended task table. The overall capability set includes chat completions, streaming, tool calling, structured outputs, reasoning controls, Responses API, MCP, sessions/context, embeddings, RAG, reranking, usage accounting, deterministic controls, cancellation, prefix caching, lifecycle management, evaluation, and release/regression gates. 
+
+### EMB-001: Embeddings API
+
+* **ID**: `EMB-001`
+
+* **Title**: Gopi Embeddings API
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Implement `POST /v1/embeddings` using a dedicated embedding model.
+
+* **Why**: Provides a standardized embedding service for the Gopi RAG platform.
+
+* **Dependencies**: `MODEL-EMB-001`
+
+* **Relevant files**:
+
+  * `src/api/embeddings.*`
+  * `src/embeddings/*`
+  * `tests/api/embeddings.*`
+
+* **Implementation notes**:
+
+  * Support single and batch text inputs.
+  * Return embedding vectors.
+  * Return token usage.
+  * Expose embedding model metadata.
+  * Do not assume the generative Gopi model is automatically an optimal embedding model.
+
+* **Validation**: Test dimensions, deterministic behavior, batching, malformed input, and similarity quality.
+
+* **Acceptance criteria**: `/v1/embeddings` returns valid embeddings with documented dimensions and usage metadata. 
+
+---
+
+### INF-007: Prefix Cache Observability
+
+* **ID**: `INF-007`
+
+* **Title**: Prefix / Prompt Cache Observability
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Expose measurable prefix-cache behavior for repeated system prompts, tool definitions, and RAG context.
+
+* **Why**: Cached prefixes can reduce repeated prefill work and should be measurable.
+
+* **Dependencies**: `INF-003`
+
+* **Relevant files**:
+
+  * `src/cache/prefix.*`
+  * `src/inference/metrics.*`
+  * `src/api/usage.*`
+
+* **Implementation notes**:
+
+  * Track cache hits.
+  * Track cache misses.
+  * Track cached tokens.
+  * Track prefill saved.
+  * Track cache memory.
+  * Track cache evictions.
+
+* **Validation**: Run repeated requests with identical prefixes and verify cache-hit metrics.
+
+* **Acceptance criteria**: Cache behavior is visible through usage/metrics and can be evaluated quantitatively. 
+
+---
+
+### OPS-001: Model Health & Readiness API
+
+* **ID**: `OPS-001`
+
+* **Title**: Model Health, Readiness & Metrics Endpoints
+
+* **Status**: `TODO`
+
+* **Priority**: `P1`
+
+* **Description**: Provide operational endpoints for model health, readiness, discovery, and metrics.
+
+* **Why**: Production deployments require infrastructure-level health and observability.
+
+* **Dependencies**: `API-001`
+
+* **Relevant files**:
+
+  * `src/api/health.*`
+  * `src/api/models.*`
+  * `src/api/metrics.*`
+  * `tests/api/health.*`
+
+* **Implementation notes**:
+
+  * `GET /v1/models`
+  * `GET /health`
+  * `GET /ready`
+  * `GET /metrics`
+
+* **Validation**: Test healthy, loading, unavailable, degraded, and model-reloading states.
+
+* **Acceptance criteria**: Deployment infrastructure can reliably determine whether Gopi LLM is alive, ready, and serving. 
+
+---
+
+### EVAL-017: Evaluation & Release Regression Pipeline
+
+* **ID**: `EVAL-017`
+
+* **Title**: Evaluation, Regression & Checkpoint Promotion Pipeline
+
+* **Status**: `TODO`
+
+* **Priority**: `P0`
+
+* **Description**: Connect training checkpoints to evaluation, regression comparison, promotion, and release-candidate generation.
+
+* **Why**: Model capabilities should only become publicly advertised after passing implementation, quality, and performance validation.
+
+* **Dependencies**: `TRAIN-005`, `EVAL-007`, `RELEASE-001`
+
+* **Relevant files**:
+
+  * `scripts/eval.*`
+  * `src/evaluation/*`
+  * `src/release/*`
+  * `tests/evaluation/*`
+
+* **Implementation notes**:
+
+  * Evaluate every candidate checkpoint.
+  * Compare against previous checkpoint.
+  * Run API conformance.
+  * Run tool-calling conformance.
+  * Run structured-output conformance.
+  * Run quality benchmarks.
+  * Run performance benchmarks.
+  * Promote only passing checkpoints.
+
+* **Validation**: Execute the complete pipeline from checkpoint → evaluation → regression → promotion → release candidate.
+
+* **Acceptance criteria**: A model capability is not marked `true` in metadata until its required evaluation and performance gates pass. 
+
+---
+
 ### RAG-003: Retrieval Recall and Faithfulness Benchmark
 
 - **ID**: `RAG-003`
