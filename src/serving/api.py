@@ -21,7 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer
 from utils.config import load_yaml
 from utils.logger import get_logger
@@ -966,6 +966,17 @@ def create_app(
         return WorkspaceAgentResponse(results=results)
 
     ui_directory = Path(__file__).resolve().parents[2] / "ui"
+    favicon_path = ui_directory / "favicon.ico"
+
+    @application.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        return FileResponse(
+        favicon_path,
+        media_type="image/x-icon",
+        filename="favicon.ico",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
     if ui_directory.is_dir():
         ui_assets = {
             "index": (ui_directory / "index.html").read_text(encoding="utf-8"),

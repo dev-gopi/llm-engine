@@ -79,7 +79,9 @@ reports/*
 !reports/training_report.html
 !reports/training_report.sample.json
 !reports/notification-sw.js
-artifacts/
+artifacts/*
+!artifacts/logo.png
+!artifacts/icon.png
 outputs/
 
 # Model and tensor artifacts
