@@ -386,6 +386,13 @@ class Tokenizer:
             raise ValueError(f"unknown special tokens: {sorted(unknown)}")
         return result
 
+    def compatibility_report(self, expected_fingerprint: str | None) -> dict[str, object]:
+        """Report exact or append-only compatibility with a checkpoint tokenizer."""
+        compatible = (expected_fingerprint is None or expected_fingerprint == self.fingerprint
+                      or expected_fingerprint in self.compatible_base_fingerprints)
+        return {"expected": expected_fingerprint, "current": self.fingerprint,
+                "vocab_size": self.vocab_size, "compatible": compatible}
+
     def _required_special_id(self, token: str) -> int:
         try:
             return self.special_tokens[token]

@@ -16,6 +16,29 @@ from inference.memory import LongTermMemory
 _CHAT_ROLES = frozenset({"system", "user", "assistant", "tool"})
 
 
+
+def validate_reasoning_trace(content: str) -> bool:
+    """Validate exactly one explicit reasoning block followed by a final answer."""
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("reasoning trace must be nonempty text")
+    start = content.count("<thinking>")
+    end = content.count("</thinking>")
+    if start != 1 or end != 1:
+        raise ValueError("reasoning trace must contain exactly one thinking block")
+    open_at = content.find("<thinking>")
+    close_at = content.find("</thinking>")
+    if open_at > close_at:
+        raise ValueError("reasoning trace thinking tags are malformed")
+    reasoning = content[open_at + len("<thinking>"):close_at].strip()
+    final = content[close_at + len("</thinking>"):].strip()
+    if not reasoning:
+        raise ValueError("reasoning trace thinking block cannot be empty")
+    if not final:
+        raise ValueError("reasoning trace must be followed by a final answer")
+    if "<thinking>" in final or "</thinking>" in final:
+        raise ValueError("reasoning trace final answer cannot contain thinking tags")
+    return True
+
 def format_chat_messages(messages, *, add_generation_prompt: bool = False) -> str:
     """Render the canonical, unambiguous instruction-tuning chat format."""
     rendered: list[str] = []
@@ -190,3 +213,12 @@ class ChatSession:
                 with closing(sqlite3.connect(self.store.path)) as connection, connection:
                     connection.execute("DELETE FROM approved_chat_examples WHERE session_id = ?",
                                        (self.session_id,))
+
+
+def validate_instruction_example(record: dict) -> dict:
+    """Validate and score an instruction example before training export."""
+    from datasets.instruction_quality import score_instruction
+    result = score_instruction(record)
+    if result.flags:
+        raise ValueError("instruction example failed quality gate: " + ",".join(result.flags))
+    return {"quality_score": result.score, "category": result.category, "fingerprint": result.fingerprint}

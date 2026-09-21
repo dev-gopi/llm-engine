@@ -1,0 +1,8 @@
+schema_version: 1
+protected_capabilities:
+  knowledge: {direction: max, max_regression: 0.02}
+  math: {direction: max, max_regression: 0.02}
+  code: {direction: max, max_regression: 0.02}
+  reasoning: {direction: max, max_regression: 0.02}
+  instruction_following: {direction: max, max_regression: 0.02}
+  safety: {direction: max, max_regression: 0.00}

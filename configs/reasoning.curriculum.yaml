@@ -1,0 +1,5 @@
+schema_version: 1
+ordering: ascending_difficulty
+buckets: 5
+temperature: 1.0
+verification_required: true

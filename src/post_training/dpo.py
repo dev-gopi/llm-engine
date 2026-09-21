@@ -203,3 +203,9 @@ class DPOTrainer:
         output = model(ids, attention_mask=batch[f"{side}_attention_mask"])
         logits = output[0] if isinstance(output, tuple) else output
         return sequence_log_probabilities(logits, ids, batch[f"{side}_mask"])
+
+
+def compare_sft_to_dpo(sft_metrics: dict[str,float], dpo_metrics: dict[str,float]) -> dict[str,object]:
+    """Return capability/regression deltas; callers decide release policy."""
+    keys=sorted(set(sft_metrics).intersection(dpo_metrics))
+    return {"sft":dict(sft_metrics),"dpo":dict(dpo_metrics),"delta":{k:float(dpo_metrics[k])-float(sft_metrics[k]) for k in keys}}

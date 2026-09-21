@@ -59,32 +59,32 @@ dataset_weights:
   reasoning_verification: 0.14
   reasoning_self_correction: 0.14
 train_files:
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/math/train.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/code/train.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/logic/train.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/planning/train.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/verification/train.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/self_correction/train.jsonl
+- data/processed/reasoning_sft/math/train.jsonl
+- data/processed/reasoning_sft/code/train.jsonl
+- data/processed/reasoning_sft/logic/train.jsonl
+- data/processed/reasoning_sft/planning/train.jsonl
+- data/processed/reasoning_sft/verification/train.jsonl
+- data/processed/reasoning_sft/self_correction/train.jsonl
 validation_files:
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/math/validation.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/code/validation.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/logic/validation.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/planning/validation.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/verification/validation.jsonl
-- /tmp/llm/llm-engine-main/data/processed/reasoning_sft/self_correction/validation.jsonl
+- data/processed/reasoning_sft/math/validation.jsonl
+- data/processed/reasoning_sft/code/validation.jsonl
+- data/processed/reasoning_sft/logic/validation.jsonl
+- data/processed/reasoning_sft/planning/validation.jsonl
+- data/processed/reasoning_sft/verification/validation.jsonl
+- data/processed/reasoning_sft/self_correction/validation.jsonl
 validation_domains:
   math:
-  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/math/validation.jsonl
+  - data/processed/reasoning_sft/math/validation.jsonl
   code:
-  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/code/validation.jsonl
+  - data/processed/reasoning_sft/code/validation.jsonl
   logic:
-  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/logic/validation.jsonl
+  - data/processed/reasoning_sft/logic/validation.jsonl
   planning:
-  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/planning/validation.jsonl
+  - data/processed/reasoning_sft/planning/validation.jsonl
   verification:
-  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/verification/validation.jsonl
+  - data/processed/reasoning_sft/verification/validation.jsonl
   self_correction:
-  - /tmp/llm/llm-engine-main/data/processed/reasoning_sft/self_correction/validation.jsonl
+  - data/processed/reasoning_sft/self_correction/validation.jsonl
 validation_weights: *id001
 validation_metric_name: reasoning_sft_v1_weighted_domains
 learning_rate: 5.0e-06

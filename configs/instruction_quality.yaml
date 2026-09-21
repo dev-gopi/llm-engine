@@ -1,0 +1,4 @@
+schema_version: 1
+min_score: 0.65
+required_categories: [general, instruction, math, code, reasoning, multilingual, tool_use]
+secret_patterns: ["api[_ -]?key", "password", "secret"]

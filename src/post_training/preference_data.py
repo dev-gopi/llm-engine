@@ -104,3 +104,12 @@ def build_preference_loader(
     )
     loader.gopi_shuffle_seed = seed
     return loader
+
+
+def validate_preference_records(records):
+    """Run the alignment provenance/quality gate without changing pair semantics."""
+    from alignment.pipeline import audit_preference_set
+    result = audit_preference_set(records)
+    if result["valid"] != result["records"] or result["duplicates"]:
+        raise ValueError(f"preference dataset failed governance: {result}")
+    return result

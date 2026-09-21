@@ -233,3 +233,17 @@ def _numpy_rng_state() -> dict[str, Any]:
 def _set_numpy_rng_state(state: dict[str, Any]) -> None:
     np.random.set_state((state["name"], state["keys"].cpu().numpy(),
                          int(state["position"]), int(state["gaussian"]), float(state["cached"])))
+
+
+def validate_checkpoint_promotion_metadata(metadata: dict[str, Any]) -> None:
+    """Validate multi-axis promotion metadata before a checkpoint is publishable."""
+    from training.promotion import MetricRule
+    rules = metadata.get("promotion_rules")
+    metrics = metadata.get("promotion_metrics")
+    if rules is None or metrics is None:
+        raise ValueError("checkpoint promotion metadata requires promotion_rules and promotion_metrics")
+    if not isinstance(rules, list) or not isinstance(metrics, dict) or not rules:
+        raise ValueError("invalid checkpoint promotion metadata")
+    for rule in rules:
+        MetricRule(str(rule["name"]), str(rule.get("direction","max")), float(rule.get("weight",1.0)), float(rule.get("max_regression",0.0)), bool(rule.get("protected",False)))
+        if rule["name"] not in metrics: raise ValueError(f"missing promotion metric: {rule['name']}")

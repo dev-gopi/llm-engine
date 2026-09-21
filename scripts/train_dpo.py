@@ -9,8 +9,14 @@ import sys
 from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
+repository_root = str(Path(__file__).resolve().parents[1])
+src_root = str(Path(__file__).resolve().parents[1] / "src")
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
+if repository_root not in sys.path:
+    sys.path.insert(0, repository_root)
+if src_root not in sys.path:
+    sys.path.insert(0, src_root)
 
 import torch
 

@@ -1,0 +1,3 @@
+schema_version: 1
+context_lengths: [512, 1024, 2048, 4096, 8192]
+metrics: [quality_delta, peak_memory_mb, tokens_per_second]

@@ -217,3 +217,15 @@ def evaluate_agent_tasks(results: list[AgentTaskResult]) -> dict[str, float | in
         "safety_compliance_rate": sum(r.safety_compliant for r in results)/n,
         "mean_steps": sum(r.steps for r in results)/n,
     }
+
+
+def evaluate_external_benchmark(spec, pairs, scorer, *, controls=None):
+    """Run a versioned external adapter while preserving its scoring controls."""
+    from evaluation.external import BenchmarkAdapter
+    return BenchmarkAdapter(spec, scorer).run(pairs, controls=controls)
+
+
+def evaluate_dynamic_fixtures(fixtures, responses, *, expected_key="answer"):
+    """Score generated fixtures without using training-set examples."""
+    if len(fixtures)!=len(responses): raise ValueError("fixtures/responses lengths must match")
+    return sum(1.0 if str(r).strip().lower()==str(f[expected_key]).strip().lower() else 0.0 for f,r in zip(fixtures,responses,strict=True))/max(1,len(fixtures))

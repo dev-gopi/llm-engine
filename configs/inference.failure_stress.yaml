@@ -1,0 +1,3 @@
+schema_version: 1
+scenarios: [disconnect, timeout, oom, tool_failure, server_restart]
+require_zero_resource_leak: true

@@ -178,3 +178,15 @@ Notable user-visible changes and architectural milestones are recorded here.
 
 ## [0.1.0] — Initial Platform Release
 - Initial configuration-driven GPT model, tokenizer, training, evaluation, generation, export, and serving implementation.
+
+## 2026-09-21 — Training, Alignment, Evaluation, Tokenizer, Context, and Inference Gates
+
+Implemented TRAIN-005, CHAT-003, ALIGN-001..003, RSN-004..005, EVAL-003..007,
+TOKEN-002..003, CTX-003, INF-003, INF-004, and INF-006.
+
+The additions are evidence-oriented: selection and release gates operate on
+explicit versioned metrics, dynamic evaluation uses deterministic generated
+fixtures, preference/instruction data are quality-gated, tokenizer compatibility
+is fingerprint-based, and serving stress contracts require zero resource leaks.
+No real benchmark, GPU-memory, soak-duration, or external-corpus result is
+fabricated by the implementation.

@@ -150,3 +150,10 @@ def _positive_int(value: Any, name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"{name} must be a positive integer")
     return value
+
+
+def context_scaling_profile(config: Mapping[str, Any], lengths=(512,1024,2048,4096,8192)) -> list[dict[str,int|str]]:
+    """Return validated context variants without mutating the base model config."""
+    cfg=normalize_model_config(config); base=int(cfg["max_position"])
+    if any(int(x)<=0 for x in lengths): raise ValueError("context lengths must be positive")
+    return [{"base_context":base,"context_length":int(x),"position_type":str(cfg.get("position_type","learned")),"rope_scaling_type":str(cfg.get("rope_scaling_type","none"))} for x in lengths]

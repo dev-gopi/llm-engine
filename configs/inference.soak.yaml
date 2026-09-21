@@ -1,0 +1,4 @@
+schema_version: 1
+durations: [600, 3600, 21600, 86400]
+max_error_rate: 0.01
+max_memory_growth_mb: 128
