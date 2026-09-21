@@ -588,11 +588,17 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Relevant files**: `src/inference/chat_session.py`, `src/training/trainer.py`, `configs/finetuning.gpu.yaml`, `tests/test_chat_session.py`, `tests/test_training_system.py`
 
+- **Implementation notes**: Added six repository-authored reasoning SFT seed domains (math, code, logic, planning, verification, self-correction), a deterministic `configs/finetuning.reasoning.gpu.yaml` profile, strict `<thinking>...</thinking>` trace validation, and an `assistant_only` trainer policy requiring explicit loss masks for reasoning SFT.
+
+- **Validation**: `python -m pytest tests/test_chat_session.py tests/test_training_system.py -q` (55 passed). The full suite was attempted but collection is blocked in this environment because `pyarrow` is unavailable and the environment cannot reach PyPI to install it.
+
+- **Acceptance criteria**: Reasoning records have explicit trace/final-answer boundaries; prompt tokens are excluded from the reasoning SFT objective; the profile fixes seed, domain weights, stage ID, governance policy, and checkpoint paths; each reasoning domain has a manifest and train/validation split.
+
 ### CTX-002: Long-Context Training and Retrieval Validation
 
 - **ID**: `CTX-002`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
@@ -601,6 +607,12 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Dependencies**: `CTX-001`, `EVAL-001`, `DATA-003`
 
 - **Relevant files**: `configs/pretraining.gpu.yaml`, `src/model/positional.py`, `scripts/evaluate_benchmarks.py`, `tests/test_positional.py`, `tests/test_evaluation_regressions.py`
+
+- **Implementation notes**: Added paired 2K/4K/8K model and pretraining profiles, deterministic long-document retrieval fixtures with DATA-003-compatible manifests, checkpoint-backed long-context benchmark mode, and CUDA peak-memory measurement tooling. Wired `rope_scaling_type` and `rope_original_max_position` from model configuration into `MiniGPT`.
+
+- **Validation**: `python -m pytest tests/test_positional.py tests/test_evaluation_regressions.py -q` (30 passed); DATA-003 audit of all three long-context fixture manifests passes. Full checkpoint-backed retrieval and GPU memory evidence remain pending until a matching 2K/4K/8K checkpoint is supplied and executed on the target GPU.
+
+- **Acceptance criteria**: Profiles and governed fixtures are reproducible; benchmark and memory tools emit machine-readable evidence; long-context capability is not considered validated unless the requested checkpoint passes retrieval probes and memory measurements at the claimed context length.
 
 ### AGT-003: Tool-Use Training and Reliability Evaluation
 

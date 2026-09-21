@@ -154,3 +154,22 @@ runtime:
   best_output: checkpoints/pretraining/best.pt
   log_file: logs/pretraining.log
   report_json: reports/pretraining.json
+
+# CTX-002 paired long-context profiles. These are explicit opt-in profiles; the
+# active 512-token training mixture above remains unchanged.
+long_context_profiles:
+  "2k":
+    model_config: configs/model.long_context.2k.gpu.yaml
+    training_config: configs/pretraining.long_context.2k.gpu.yaml
+    max_position: 2048
+    max_sequence_length: 2048
+  "4k":
+    model_config: configs/model.long_context.4k.gpu.yaml
+    training_config: configs/pretraining.long_context.4k.gpu.yaml
+    max_position: 4096
+    max_sequence_length: 4096
+  "8k":
+    model_config: configs/model.long_context.8k.gpu.yaml
+    training_config: configs/pretraining.long_context.8k.gpu.yaml
+    max_position: 8192
+    max_sequence_length: 8192

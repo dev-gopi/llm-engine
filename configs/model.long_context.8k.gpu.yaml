@@ -1,0 +1,7 @@
+# CTX-002 checkpoint-backed long-context model profile. Pair this model config
+# with the matching pretraining.long_context.8k.gpu.yaml profile.
+extends: model.gpu.yaml
+max_position: 8192
+rope_scaling_type: yarn
+rope_scale: 8.0
+rope_original_max_position: 1024

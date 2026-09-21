@@ -132,3 +132,48 @@ def test_yarn_preserves_high_frequency_and_stretches_low_frequency_features():
     )
     assert yarn.inv_freq[0] == baseline.inv_freq[0]
     assert yarn.inv_freq[-1] < baseline.inv_freq[-1]
+
+
+def test_model_config_wires_rope_scaling_into_long_context_model():
+    from model.gpt import MiniGPT
+
+    model = MiniGPT.from_config({
+        "vocab_size": 32,
+        "hidden_size": 16,
+        "layers": 1,
+        "heads": 2,
+        "kv_heads": 1,
+        "max_position": 2048,
+        "position_type": "rotary",
+        "rope_base": 10000.0,
+        "rope_scale": 2.0,
+        "rope_scaling_type": "ntk",
+        "rope_original_max_position": 1024,
+        "ffn_hidden_size": 32,
+        "ffn_activation": "swiglu",
+        "ffn_multiple_of": 8,
+        "norm_type": "rms_norm",
+        "norm_bias": False,
+        "ffn_bias": False,
+        "attention_bias": False,
+    })
+    assert model.max_positions == 2048
+    assert model.rotary_emb is not None
+    assert model.rotary_emb.scaling_type == "ntk"
+    assert model.rotary_emb.scaling_factor == 2.0
+    assert model.rotary_emb.original_max_position_embeddings == 1024
+
+
+def test_ctx002_profile_configs_match_context_lengths():
+    from utils.config import load_yaml
+
+    expected = {"2k": 2048, "4k": 4096, "8k": 8192}
+    for name, length in expected.items():
+        model = load_yaml(f"configs/model.long_context.{name}.gpu.yaml")
+        train = load_yaml(f"configs/pretraining.long_context.{name}.gpu.yaml")
+        assert model["max_position"] == length
+        assert train["max_sequence_length"] == length
+        assert model["rope_original_max_position"] == 1024
+        assert model["rope_scaling_type"] in {"ntk", "yarn"}
+        assert train["long_context"]["retrieval_validation_required"] is True
+        assert train["long_context"]["memory_measurement_required"] is True

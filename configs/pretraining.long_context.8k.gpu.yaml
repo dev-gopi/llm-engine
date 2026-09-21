@@ -1,0 +1,14 @@
+# CTX-002 reproducible long-context training profile.
+# Run with: --model-config configs/model.long_context.8k.gpu.yaml
+extends: pretraining.gpu.yaml
+training_stage_id: ctx-002-long-context-8k-v1
+max_sequence_length: 8192
+batch_size: 1
+validation_batch_size: 1
+gradient_accumulation_steps: 64
+gradient_checkpointing: true
+long_context:
+  profile: 8k
+  context_length: 8192
+  retrieval_validation_required: true
+  memory_measurement_required: true

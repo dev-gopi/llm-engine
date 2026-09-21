@@ -128,3 +128,23 @@ def test_instruction_following_manifest_is_versioned_and_deterministically_score
         "4",
     ]
     assert [score_answer(answer, case) for answer, case in zip(answers, cases, strict=True)] == [1.0] * 5
+
+
+def test_ctx002_long_context_fixtures_cover_all_profiles_and_positions():
+    import json
+    from pathlib import Path
+
+    for name, length in (("2k", 2048), ("4k", 4096), ("8k", 8192)):
+        path = Path(f"data/processed/long_context/{name}/validation.jsonl")
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        assert [row["context_tokens"] for row in rows] == [length] * 3
+        assert [row["needle_position"] for row in rows] == [0.10, 0.50, 0.90]
+        assert len({row["passkey"] for row in rows}) == 3
+
+
+def test_ctx002_base_pretraining_profile_publishes_paired_profiles():
+    import yaml
+    config = yaml.safe_load(Path("configs/pretraining.gpu.yaml").read_text(encoding="utf-8"))
+    profiles = config["long_context_profiles"]
+    assert set(profiles) == {"2k", "4k", "8k"}
+    assert [profiles[name]["max_position"] for name in ("2k", "4k", "8k")] == [2048, 4096, 8192]

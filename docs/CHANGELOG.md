@@ -7,6 +7,7 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **CTX-002 Long-Context Validation Infrastructure**: Added paired 2K/4K/8K model and pretraining profiles, deterministic governed long-document retrieval fixtures, checkpoint-backed long-context evaluation mode, and peak-memory measurement tooling. Long-context capability remains evidence-gated until matching checkpoints pass retrieval and memory validation.
 - **RSN-002 Reasoning SFT Data and Training Profile**: Added governed repository-authored math, code, logic, planning, verification, and self-correction SFT seed corpora; a deterministic reasoning training profile; strict `<thinking>...</thinking>` boundary validation; and an assistant-only trainer policy that requires explicit loss masks.
 - **TRAIN-004 Training Stability Diagnostics**: Trainer histories and resume
   state now record loss, gradient and parameter scales, a gradient-to-parameter

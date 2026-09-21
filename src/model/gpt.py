@@ -41,6 +41,8 @@ class MiniGPT(nn.Module):
         position_initializer_range: float | None = None,
         rope_base: float = 10000.0,
         rope_scale: float = 1.0,
+        rope_scaling_type: str = "none",
+        rope_original_max_position: int | None = None,
         padding_idx: int | None = None,
         embedding_dropout: float = 0.0,
         scale_embeddings: bool = False,
@@ -117,6 +119,8 @@ class MiniGPT(nn.Module):
                 max_position_embeddings=max_pos,
                 base=rope_base,
                 scaling_factor=rope_scale,
+                scaling_type=rope_scaling_type,
+                original_max_position_embeddings=rope_original_max_position,
                 device=device,
                 dtype=dtype,
             )
@@ -428,6 +432,11 @@ class MiniGPT(nn.Module):
             position_type=pos_type,
             rope_base=float(config.get("rope_base", 10000.0)),
             rope_scale=float(config.get("rope_scale", 1.0)),
+            rope_scaling_type=str(config.get("rope_scaling_type", "none")).lower(),
+            rope_original_max_position=(
+                int(config["rope_original_max_position"])
+                if config.get("rope_original_max_position") is not None else None
+            ),
             initializer_range=float(config.get("initializer_range", 0.02)),
             position_initializer_range=float(
                 config.get("position_initializer_range", config.get("initializer_range", 0.02))

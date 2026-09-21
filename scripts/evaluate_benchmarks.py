@@ -18,7 +18,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import torch
 
-from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores, compare_reports
+from evaluation.benchmarks import BenchmarkCase, NeedleInHaystackCase, score_answer, summarize_scores, compare_reports
 from inference.context import format_system_prompt
 from inference.generator import Generator
 from model.gpt import MiniGPT
@@ -44,12 +44,22 @@ def main() -> None:
     parser.add_argument("--repetition-penalty", type=float)
     parser.add_argument("--no-repeat-ngram-size", type=int)
     parser.add_argument(
+        "--long-context-lengths",
+        help="comma-separated CTX-002 retrieval lengths; generates deterministic passkey probes instead of --cases",
+    )
+    parser.add_argument(
+        "--needle-positions", default="0.10,0.50,0.90",
+        help="comma-separated normalized needle positions for --long-context-lengths",
+    )
+    parser.add_argument(
         "--output", type=Path,
         help="also write the JSON result atomically (for example reports/generation_quality.json)",
     )
     args = parser.parse_args()
     if args.threads < 1 or args.max_tokens < 1:
         parser.error("threads and max-tokens must be positive")
+    if args.long_context_lengths and args.cases != Path("configs/evaluation.core.jsonl"):
+        parser.error("use either --cases or --long-context-lengths, not both")
     if args.output and args.output.exists():
         parser.error("output already exists; choose a new path to preserve evaluation evidence")
     torch.set_num_threads(args.threads)
@@ -70,15 +80,38 @@ def main() -> None:
                 message += "\nFor an external checkpoint, mount its drive and select its matching tokenizer."
             parser.error(message)
     cases = []
-    with args.cases.open(encoding="utf-8") as stream:
-        for line in stream:
-            item = json.loads(line)
-            if not isinstance(item, dict):
-                parser.error("each benchmark case must be a JSON object")
-            try:
-                cases.append(BenchmarkCase.from_mapping(item))
-            except ValueError as error:
-                parser.error(str(error))
+    long_context_lengths = []
+    needle_positions = []
+    if args.long_context_lengths:
+        try:
+            long_context_lengths = [int(value) for value in args.long_context_lengths.split(",") if value.strip()]
+            needle_positions = [float(value) for value in args.needle_positions.split(",") if value.strip()]
+        except ValueError as error:
+            parser.error(f"invalid long-context values: {error}")
+        if not long_context_lengths or not needle_positions:
+            parser.error("long-context lengths and needle positions must be non-empty")
+        if any(length < 128 for length in long_context_lengths):
+            parser.error("long-context lengths must be at least 128")
+        if any(position < 0.0 or position > 1.0 for position in needle_positions):
+            parser.error("needle positions must be between 0 and 1")
+        for length in long_context_lengths:
+            if length > int(model_config.get("max_position", 0)):
+                parser.error(
+                    f"long-context length {length} exceeds model max_position "
+                    f"{model_config.get('max_position')}; select a matching CTX-002 model config"
+                )
+            for position in needle_positions:
+                cases.append(NeedleInHaystackCase(length, f"ctx{length}-{position:g}", position).benchmark_case())
+    else:
+        with args.cases.open(encoding="utf-8") as stream:
+            for line in stream:
+                item = json.loads(line)
+                if not isinstance(item, dict):
+                    parser.error("each benchmark case must be a JSON object")
+                try:
+                    cases.append(BenchmarkCase.from_mapping(item))
+                except ValueError as error:
+                    parser.error(str(error))
     if not cases or len({(c.category, c.prompt) for c in cases}) != len(cases):
         parser.error("cases must be nonempty and unique")
     device = resolve_device(args.device)
@@ -120,7 +153,9 @@ def main() -> None:
 
     protocol = {
         "scorer_version": 2,
-        "cases_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
+        "cases_sha256": (hashlib.sha256(args.cases.read_bytes()).hexdigest() if not args.long_context_lengths else None),
+        "long_context_lengths": long_context_lengths,
+        "needle_positions": needle_positions,
         "system_prompt": system_prompt,
         "max_tokens": args.max_tokens,
         "temperature": 0.0, "top_k": 0,
@@ -168,7 +203,16 @@ def main() -> None:
         "weights_requested": args.weights, "ema_applied": checkpoint_info["ema_applied"],
         "model_config": model_config, "device": str(device), "torch_version": str(torch.__version__),
         "protocol": protocol, "summary": summarize_scores(scored), "results": details,
-        "note": "Small diagnostic suite, not standardized benchmark accuracy. Audit training overlap separately.",
+        "long_context": bool(args.long_context_lengths),
+        "retrieval_validation": (
+            {
+                "requested_lengths": long_context_lengths,
+                "requested_positions": needle_positions,
+                "all_cases_passed": bool(scored) and all(score == 1.0 for _, score in scored),
+                "claim_status": "validated" if scored and all(score == 1.0 for _, score in scored) else "not_validated",
+            } if args.long_context_lengths else None
+        ),
+        "note": "Deterministic checkpoint-backed diagnostic. Passing retrieval probes does not establish broad long-context quality; audit training overlap and memory measurements separately.",
     }
     if baseline is not None:
         report["comparison"] = compare_reports(baseline, report)

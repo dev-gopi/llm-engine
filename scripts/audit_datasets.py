@@ -10,8 +10,12 @@ import tempfile
 from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
+project_root = str(Path(__file__).resolve().parents[1])
+src_directory = str(Path(project_root) / "src")
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
+if src_directory not in sys.path:
+    sys.path.insert(0, src_directory)
 
 from datasets.governance import audit_dataset_files, audit_manifest_files, build_governance_report
 from utils.config import load_yaml
