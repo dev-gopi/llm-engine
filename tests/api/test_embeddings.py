@@ -1,5 +1,5 @@
 import pytest
-from fastapi.testclient import TestClient
+from tests.asgi_client import ASGIClient
 
 from serving.api import ServingSettings, create_app
 from tests.test_serving import FakeBackend
@@ -10,7 +10,7 @@ def settings():
 
 
 def test_embeddings_single_batch_and_metadata():
-    with TestClient(create_app(FakeBackend(), settings=settings())) as client:
+    with ASGIClient(create_app(FakeBackend(), settings=settings())) as client:
         headers={"Authorization":"Bearer secret"}
         one=client.post('/v1/embeddings',headers=headers,json={"model":"gopi-embedding-hash","input":"hello world"})
         batch=client.post('/v1/embeddings',headers=headers,json={"model":"gopi-embedding-hash","input":["hello","world"]})
@@ -23,7 +23,7 @@ def test_embeddings_single_batch_and_metadata():
 
 
 def test_embeddings_reject_unknown_model_empty_input_and_unsupported_dimensions():
-    with TestClient(create_app(FakeBackend(), settings=settings())) as client:
+    with ASGIClient(create_app(FakeBackend(), settings=settings())) as client:
         headers={"Authorization":"Bearer secret"}
         assert client.post('/v1/embeddings',headers=headers,json={"model":"wrong","input":"x"}).status_code == 422
         assert client.post('/v1/embeddings',headers=headers,json={"model":"gopi-embedding-hash","input":[]}).status_code == 422

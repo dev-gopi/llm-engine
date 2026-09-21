@@ -18,7 +18,7 @@ def test_usage_cache_counts_are_bounded_by_prompt_tokens():
     assert usage.as_dict()["cache"]["prefix_cache_miss"] is True
 
 def test_generate_response_includes_cache_and_reasoning_usage():
-    from fastapi.testclient import TestClient
+    from tests.asgi_client import ASGIClient
     from serving.api import ServingSettings, create_app
     from serving.runtime import BackendGeneration
     from serving.schemas import FinishReason
@@ -36,7 +36,7 @@ def test_generate_response_includes_cache_and_reasoning_usage():
         model_name="gopi-test", bot_name="Gopi",
         allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"),
     )
-    with TestClient(create_app(Backend(), settings=settings)) as client:
+    with ASGIClient(create_app(Backend(), settings=settings)) as client:
         payload = client.post("/v1/generate", json={"prompt": "hello"}).json()
         assert payload["usage"] == {
             "prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14,

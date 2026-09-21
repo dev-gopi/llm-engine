@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+from tests.asgi_client import ASGIClient
 
 from serving.api import ServingSettings, create_app
 from serving.runtime import BackendGeneration, BackendStreamEvent
@@ -18,7 +18,7 @@ class Backend:
 
 def make_client():
     settings = ServingSettings(model_name="gopi-test", bot_name="Gopi", api_key="secret", allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"))
-    return TestClient(create_app(Backend(), settings=settings))
+    return ASGIClient(create_app(Backend(), settings=settings))
 
 
 def test_openai_conformance_core_contract():

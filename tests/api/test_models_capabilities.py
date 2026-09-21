@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+from tests.asgi_client import ASGIClient
 
 from serving.api import ServingSettings, create_app
 from tests.test_serving import FakeBackend
@@ -10,7 +10,7 @@ def test_model_capabilities_are_advertised_conservatively():
         bot_name="Gopi",
         allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"),
     )
-    with TestClient(create_app(FakeBackend(), settings=settings)) as client:
+    with ASGIClient(create_app(FakeBackend(), settings=settings)) as client:
         response = client.get("/v1/models")
         assert response.status_code == 200
         model = response.json()["data"][0]
@@ -32,5 +32,5 @@ def test_unknown_model_capabilities_is_404():
         bot_name="Gopi",
         allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"),
     )
-    with TestClient(create_app(FakeBackend(), settings=settings)) as client:
+    with ASGIClient(create_app(FakeBackend(), settings=settings)) as client:
         assert client.get("/v1/models/nope/capabilities").status_code == 404

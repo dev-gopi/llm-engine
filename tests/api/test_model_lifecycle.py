@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from fastapi.testclient import TestClient
+from tests.asgi_client import ASGIClient
 
 from serving.api import ServingSettings, create_app
 from serving.orchestration import ReloadableBackend
@@ -48,7 +48,7 @@ def test_admin_lifecycle_requires_dedicated_admin_key():
         admin_api_key="admin-key",
         allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"),
     )
-    with TestClient(create_app(Backend(), settings=settings)) as client:
+    with ASGIClient(create_app(Backend(), settings=settings)) as client:
         assert client.post("/admin/models/unload", headers={"Authorization": "Bearer normal-key"}).status_code == 403
 
 
@@ -69,7 +69,7 @@ def test_admin_load_unload_reload_endpoints_are_functional_and_audited():
         admin_api_key="admin-key",
         allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"),
     )
-    with TestClient(create_app(wrapper, settings=settings)) as client:
+    with ASGIClient(create_app(wrapper, settings=settings)) as client:
         headers = {"Authorization": "Bearer admin-key"}
         assert client.post("/admin/models/unload", headers=headers).json()["status"] == "unloaded"
         assert client.post("/admin/models/load", headers=headers).json()["status"] == "loaded"

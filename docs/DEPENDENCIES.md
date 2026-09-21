@@ -11,7 +11,7 @@
 | `torch` | `>=2.4` | Core tensor compute, autograd, AMP, neural network layers | Entire codebase |
 | `numpy` | `>=1.26` | Array operations, binary memory mapping for token shards | `src/datasets/`, `src/model/` |
 | `pyyaml` | `>=6.0` | Hierarchical configuration file parsing and inheritance | `src/utils/config.py` |
-| `fastapi` | `>=0.115` | Production REST API endpoints and routing | `src/serving/api.py` |
+| `fastapi` | `>=0.115,<0.116` | Production REST API endpoints and routing | `src/serving/api.py` |
 | `uvicorn[standard]` | `>=0.30` | High-performance ASGI server for HTTP & WebSockets | `src/serving/` |
 | `safetensors` | `>=0.4` | Safe, zero-copy, non-pickling tensor serialization | `src/model/`, `scripts/export.py` |
 | `pyarrow` | `>=15` | High-throughput columnar dataset reading and sharding | `src/datasets/` |

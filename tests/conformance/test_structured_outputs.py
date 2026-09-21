@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+from tests.asgi_client import ASGIClient
 
 from serving.api import ServingSettings, create_app
 from serving.runtime import BackendGeneration, BackendStreamEvent
@@ -23,7 +23,7 @@ def spec():
 def test_structured_conformance_success_nested_array_required_and_closed():
     payload='{"user":{"id":1},"items":["a","b"]}'
     settings=ServingSettings(model_name="gopi-test",bot_name="Gopi",allowed_hosts=("testserver","test","localhost","127.0.0.1"))
-    with TestClient(create_app(StructuredBackend(payload),settings=settings)) as client:
+    with ASGIClient(create_app(StructuredBackend(payload),settings=settings)) as client:
         response=client.post('/v1/chat/completions',json={"model":"gopi-test","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":{"name":"result","strict":True,"schema":spec()}}})
         assert response.status_code == 200
         import json
@@ -33,7 +33,7 @@ def test_structured_conformance_success_nested_array_required_and_closed():
 
 def test_structured_conformance_invalid_schema_incomplete_and_streaming():
     settings=ServingSettings(model_name="gopi-test",bot_name="Gopi",allowed_hosts=("testserver","test","localhost","127.0.0.1"))
-    with TestClient(create_app(StructuredBackend('{"user":{"id":"bad"},"items":[]}'),settings=settings)) as client:
+    with ASGIClient(create_app(StructuredBackend('{"user":{"id":"bad"},"items":[]}'),settings=settings)) as client:
         base={"model":"gopi-test","messages":[{"role":"user","content":"x"}]}
         bad={**base,"response_format":{"type":"json_schema","json_schema":{"name":"result","strict":True,"schema":{"type":"wat"}}}}
         assert client.post('/v1/chat/completions',json=bad).status_code == 422
@@ -42,7 +42,7 @@ def test_structured_conformance_invalid_schema_incomplete_and_streaming():
         assert response.status_code == 200
         assert response.json()["incomplete_details"]["reason"] == "structured_output_validation_failed"
 
-    with TestClient(create_app(StructuredBackend('{"user":{"id":1},"items":["ok"]}'),settings=settings)) as client:
+    with ASGIClient(create_app(StructuredBackend('{"user":{"id":1},"items":["ok"]}'),settings=settings)) as client:
         streamed=client.post('/v1/chat/completions',json={**base,"stream":True,"response_format":{"type":"json_schema","json_schema":{"name":"result","strict":True,"schema":spec()}}})
         assert streamed.status_code == 200
         assert "data:" in streamed.text
