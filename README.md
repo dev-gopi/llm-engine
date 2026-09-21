@@ -406,4 +406,4 @@ work; the 100B profile therefore remains planning-only.
 .venv/bin/python scripts/audit_task_registry.py
 ```
 
-`pyarrow` is a declared core dependency used by the Arrow/Hugging Face data-preparation tests. In an offline/source-only environment where it is not installed, report those modules as not executed rather than treating them as passing. Generated tokenizer artifacts are intentionally gitignored, so the compatibility test skips when those artifacts are absent from a source archive.
+`pyarrow` is a declared core dependency used by the Arrow/Hugging Face data-preparation tests. In an offline/source-only environment where it is not installed, report those modules as not executed rather than treating them as passing. Generated tokenizer artifacts and generated long-context/reasoning-SFT fixtures are intentionally gitignored, so their artifact-dependent tests skip when absent from a source archive.
