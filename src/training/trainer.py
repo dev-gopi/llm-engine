@@ -15,6 +15,7 @@ from torch import Tensor
 from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
 from optim.ema import EMA
 from training.evaluator import aggregate_domain_metrics
+from training.accounting import TrainingAccounting
 from datasets.sampler import CurriculumSchedule
 from utils.logger import get_logger
 
@@ -248,6 +249,16 @@ class Trainer:
     @property
     def tokens_per_second(self) -> float:
         return self.tokens_processed / self.training_seconds if self.training_seconds > 0 else 0.0
+
+    def accounting_report(self, *, device_count: int = 1) -> dict[str, int | float]:
+        """Return reproducible accounting from counters persisted in trainer state."""
+        return TrainingAccounting(
+            parameters=sum(parameter.numel() for parameter in self.model.parameters()),
+            supervised_tokens=self.tokens_processed,
+            optimizer_steps=self.global_step,
+            elapsed_seconds=self.training_seconds,
+            device_count=device_count,
+        ).report()
 
     @property
     def peak_memory_mb(self) -> float:

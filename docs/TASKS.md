@@ -970,7 +970,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `DOC-001`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
@@ -981,6 +981,8 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Relevant files**: `README.md`, `required.md`, `docs/CURRENT_STATE.md`, `docs/TARGET_STATE.md`, `docs/TASKS.md`, `docs/CHANGELOG.md`
 
 - **Acceptance criteria**: Every state claim links to an authoritative implementation/test or a clearly scoped external-validation requirement; no two current-state documents assign conflicting statuses to the same capability.
+
+- **Validation**: Reconciled active context, tool-orchestration, memory, and release-gate claims against `src/serving/backend.py`, `src/inference/local_tools.py`, `src/inference/chat_session.py`, and their regression tests. Hardware, corpus, and trained-checkpoint claims remain explicitly external-validation requirements.
 
 ### API-001: Session Context-Window Inspection and Compaction
 
@@ -1098,11 +1100,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TRAINING`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Parameters/tokens/compute vs validation and capability scaling
+
+- **Relevant files**: `src/training/scaling_laws.py`, `tests/test_scaling_laws.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_scaling_laws.py tests/test_training_accounting.py -q` (7 passed).
+
+- **Acceptance criteria**: Versioned observations validate parameter/token/loss/capability values and deterministically report log-compute trend slopes. Real scaling conclusions require recorded experiments.
 
 - **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
@@ -1114,11 +1122,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TRAINING`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
 - **Description**: Reproducible tokens, FLOPs, GPU-hours and throughput accounting
+
+- **Relevant files**: `src/training/accounting.py`, `src/training/trainer.py`, `tests/test_training_accounting.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_training_accounting.py tests/test_training_system.py -q` (48 passed).
+
+- **Acceptance criteria**: Trainer counters produce a reproducible report for supervised tokens, optimizer steps, elapsed device-hours, tokens/second, and the explicit `6 × parameters × tokens` FLOP estimate. It does not represent a hardware FLOP measurement.
 
 - **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 

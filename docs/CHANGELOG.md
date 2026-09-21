@@ -7,6 +7,14 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **TRAIN-001 Scaling-Law Framework**: Added deterministic validation and
+  log-compute trend summaries for versioned experiment observations.
+- **TRAIN-002 Compute and Token Accounting**: Added deterministic trainer
+  reports for supervised tokens, FLOP estimates, device-hours, and throughput.
+- **DOC-001 Capability-State Reconciliation**: Corrected stale documentation
+  claims about active context lengths, bounded sequential tool orchestration,
+  session memory, and regression gates; unsupported autonomous/parallel and
+  trained-quality claims remain explicitly future or externally validated.
 - **EVAL-002 Release Capability Matrix**: Added a versioned mandatory gate
   covering knowledge, math, code, reasoning, instruction following, structured
   JSON, tools, RAG, long context, safety, hallucination, and refusal behavior.

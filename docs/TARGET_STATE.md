@@ -147,8 +147,10 @@ This document defines the intended upgraded production platform. It clearly deli
 
 ### CURRENT
 - MCP client (`src/mcp/client.py`) and basic local tool registry (`src/inference/local_tools.py`).
-- Strict `<tool_call>` JSON envelope and schema validation are available before
-  local or MCP execution; RAG and optional web search are integrated separately.
+- Strict `<tool_call>` JSON envelope/schema validation and bounded sequential
+  local/MCP execution are available; RAG and optional web search are integrated
+  separately. Autonomous planning/reflection and parallel execution are not
+  implemented.
 
 ### TARGET
 - Autonomous multi-step agent loop:

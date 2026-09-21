@@ -175,6 +175,9 @@ The current project already contains the foundation of a custom LLM engine.
 * [x] KV caching, prefix caching, paged KV accounting, dynamic batching, and CPU INT8 inference
 * [x] OpenAI-compatible API, SSE/WebSocket streaming, authentication, rate limiting, metrics, and health checks
 * [x] RAG, web search, MCP integration, sparse MoE, model growth, and vision-projector profile
+* [~] Bounded sequential tool orchestration and session-scoped lexical memory;
+  neither establishes autonomous planning/reflection, parallel tools, or
+  trained model reliability.
 
 Status markers in the following sections are evidence-based: `[x]` implemented,
 `[~]` partial/optional or requiring workload-specific validation, and `[ ]` future.
@@ -779,8 +782,8 @@ A practical initial target is DPO.
 Current context is approximately:
 
 ```text
-Training sequence: 1024
-Architecture max position: 512
+Training sequence: 512
+Architecture max position: 1024
 ```
 
 The architecture/configuration should eventually be made consistent.
@@ -813,7 +816,7 @@ Required:
 
 * [ ] Larger max position
 * [ ] Longer training sequences
-* [ ] RoPE scaling
+* [x] Opt-in RoPE scaling policies (linear, NTK-aware, YaRN); extended-context training is unverified
 * [ ] Long-context data
 * [ ] Long-context evaluation
 * [ ] Efficient attention
@@ -1092,13 +1095,12 @@ Example:
 Features:
 
 * [x] Function and tool schemas
-* [ ] Tool selection
-* [ ] Argument generation
+* [~] Model-directed selection and argument generation (strictly validated after generation)
 * [x] Local and MCP tool execution, result handling, and structured errors
 * [ ] Multiple tools
-* [ ] Sequential tool calls
+* [x] Bounded sequential tool calls with allowlists and structured errors
 * [ ] Parallel tool calls
-* [ ] Tool-use training
+* [~] Versioned tool-use contract/evaluation fixtures; trained tool-use quality is unverified
 
 ---
 
@@ -1248,9 +1250,8 @@ Features:
 * [ ] Summarization
 * [ ] Persistent memory
 * [ ] Vector memory
-* [ ] Memory retrieval
-* [ ] Memory expiration
-* [ ] Memory privacy controls
+* [x] Session-scoped lexical memory retrieval and expiration
+* [x] Explicit opt-in API access/deletion and training-export approval
 
 ---
 
@@ -1670,16 +1671,13 @@ Deployment status
 
 Production LLM infrastructure should include:
 
-* [ ] Authentication
-* [ ] Authorization
-* [ ] API keys
-* [ ] Rate limiting
+* [x] API-key authentication and rate limiting
+* [~] Allowlisted tool authorization; no general RBAC system
 * [ ] Request quotas
 * [ ] Input validation
 * [ ] Output validation
-* [ ] Prompt-injection protection
-* [ ] Tool permission system
-* [ ] Sandboxed tool execution
+* [x] Deterministic prompt-injection guardrail probes and tool allowlists
+* [x] Workspace path boundary and allowlisted test/git operations
 * [ ] Secret isolation
 * [ ] Audit logs
 
@@ -1923,7 +1921,7 @@ llm-engine/
 * [ ] Code evaluation
 * [ ] Instruction evaluation
 * [ ] Long-context evaluation
-* [ ] Regression tests
+* [x] Versioned deterministic regression matrix
 * [ ] Model comparison reports
 
 ---
@@ -2000,10 +1998,8 @@ Instruction/Chat LLM
 
 * [ ] Planner
 * [ ] Agent loop
-* [ ] Tool orchestration
-* [ ] Memory
-* [ ] Error recovery
-* [ ] Multi-step workflows
+* [x] Bounded sequential tool orchestration, structured error recovery, and scoped session memory
+* [~] Multi-step workflows without autonomous planning/reflection
 * [ ] Human approval
 
 ---
