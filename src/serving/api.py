@@ -226,6 +226,57 @@ class AuditLog:
         return [dict(event) for event in self._events]
 
 
+def _session_context_usage(store, session_id: str, *, reserve_tokens: int) -> dict:
+    """Return tokenizer-measured session capacity without exposing its content."""
+    if not isinstance(reserve_tokens, int) or isinstance(reserve_tokens, bool) or reserve_tokens < 0:
+        raise ValueError("reserve_tokens must be a non-negative integer")
+    if reserve_tokens >= store.max_tokens:
+        raise ValueError("reserve_tokens must be smaller than the context window")
+    memory = store.load(session_id)
+    messages = memory.snapshot()
+    tokenizer = store.tokenizer
+
+    def count(items) -> int:
+        if not items:
+            return 0
+        text = "".join(
+            f"<|{message.role}|>\n{message.content}\n<|end|>\n"
+            for message in items
+        )
+        return len(tokenizer.encode(text, add_bos=False, allowed_special="all"))
+
+    system = [message for message in messages if message.role == "system"]
+    conversation = [message for message in messages if message.role != "system"]
+    system_tokens = count(system)
+    message_tokens = count(conversation)
+    # These request-scoped inputs are deliberately not persisted with session
+    # history. Reporting zero is both accurate and avoids retaining sensitive
+    # file/tool payloads merely for telemetry.
+    categories = {
+        "system_instructions": system_tokens,
+        "tool_definitions": 0,
+        "messages": message_tokens,
+        "files": 0,
+        "tool_results": 0,
+    }
+    used_tokens = len(tokenizer.encode(
+        "".join(f"<|{message.role}|>\n{message.content}\n<|end|>\n" for message in messages)
+        + "<|assistant|>\n",
+        add_bos=True, allowed_special="all",
+    ))
+    available = max(0, store.max_tokens - used_tokens - reserve_tokens)
+    return {
+        "session_id": session_id,
+        "context_window_tokens": store.max_tokens,
+        "used_tokens": used_tokens,
+        "reserved_response_tokens": reserve_tokens,
+        "available_tokens": available,
+        "usage_percent": round(used_tokens / store.max_tokens * 100, 2),
+        "categories": categories,
+        "non_persisted_categories": ["tool_definitions", "files", "tool_results"],
+    }
+
+
 def create_app(
     backend: GenerationBackend | None = None,
     *,
@@ -564,6 +615,37 @@ def create_app(
             return store
         store.delete(session_id)
         return {"session_id": session_id, "deleted": True}
+
+    @application.get(
+        "/v1/sessions/{session_id}/context", tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def session_context_info(session_id: str, request: Request, reserve_tokens: int = 128):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        try:
+            return _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
+        except ValueError as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+
+    @application.post(
+        "/v1/sessions/{session_id}/context/compact", tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def compact_session_context(session_id: str, request: Request, reserve_tokens: int = 128):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        try:
+            before = _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
+            memory = store.load(session_id)
+            memory.render(add_generation_prompt=True, reserve_tokens=reserve_tokens)
+            store.save(session_id, memory)
+            after = _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
+        except ValueError as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+        return {"compacted": before["used_tokens"] != after["used_tokens"], "before": before, "after": after}
 
     @application.post(
         "/v1/workspace/actions",

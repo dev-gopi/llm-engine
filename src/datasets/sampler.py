@@ -173,5 +173,7 @@ class Sampler(TorchSampler[list[int]]):
         completed_examples = start_batch * saved_batch_size
         self.set_start_batch(completed_examples // self.batch_size)
         weights = state.get("sampling_group_weights")
-        if weights is not None:
+        # Ungrouped samplers serialize an empty list for backwards-compatible
+        # state shape. It is not a curriculum configuration to restore.
+        if weights:
             self.set_sampling_group_weights(weights)

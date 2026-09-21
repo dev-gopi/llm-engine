@@ -60,6 +60,15 @@ manifest for prompt-injection, high-confidence harmful-request, and benign
 control cases. It tests the pre-generation guardrail—not model alignment—and
 is covered by `tests/test_prompt_safety.py`.
 
+### Release Capability Matrix
+
+`configs/evaluation.release_matrix.yaml` is the versioned release gate for
+knowledge, math, code, reasoning, instruction following, structured JSON,
+tools, RAG, long context, safety, hallucination, and refusal behavior. Each
+entry names an in-repository artifact and its mandatory deterministic test
+command. Passing this gate validates regression contracts, not broad model
+capability or checkpoint quality.
+
 ---
 
 ## 3. Automated Regression Tests

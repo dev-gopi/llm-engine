@@ -12,7 +12,7 @@ import torch
 from inference.context import SQLiteSessionStore
 
 
-_CHAT_ROLES = frozenset({"system", "user", "assistant"})
+_CHAT_ROLES = frozenset({"system", "user", "assistant", "tool"})
 
 
 def format_chat_messages(messages, *, add_generation_prompt: bool = False) -> str:
@@ -24,7 +24,7 @@ def format_chat_messages(messages, *, add_generation_prompt: bool = False) -> st
         role = message.get("role")
         content = message.get("content")
         if role not in _CHAT_ROLES:
-            raise ValueError("message role must be system, user, or assistant")
+            raise ValueError("message role must be system, user, assistant, or tool")
         if not isinstance(content, str):
             raise ValueError("message content must be text")
         rendered.append(f"<|{role}|>\n{content}\n<|end|>\n")

@@ -1,0 +1,15 @@
+# Versioned release gate. All entries are mandatory and must pass before release.
+schema_version: 1
+required_categories:
+  knowledge: {artifact: configs/evaluation.domains.jsonl, command: ".venv/bin/pytest tests/test_evaluation_regressions.py -q"}
+  math: {artifact: configs/evaluation.reasoning_code.jsonl, command: ".venv/bin/pytest tests/test_evaluation_regressions.py -q"}
+  code: {artifact: configs/evaluation.reasoning_code.jsonl, command: ".venv/bin/pytest tests/test_evaluation_regressions.py -q"}
+  reasoning: {artifact: configs/evaluation.reasoning_code.jsonl, command: ".venv/bin/pytest tests/test_evaluation_regressions.py -q"}
+  instruction_following: {artifact: configs/evaluation.instruction_following.jsonl, command: ".venv/bin/pytest tests/test_evaluation_regressions.py -q"}
+  structured_json: {artifact: tests/test_serving.py, command: ".venv/bin/pytest tests/test_serving.py -q"}
+  tools: {artifact: configs/evaluation.tool_use.jsonl, command: ".venv/bin/pytest tests/test_tool_use_evaluation.py tests/test_local_tools.py -q"}
+  rag: {artifact: tests/test_rag.py, command: ".venv/bin/pytest tests/test_rag.py -q"}
+  long_context: {artifact: tests/test_evaluation_regressions.py, command: ".venv/bin/pytest tests/test_evaluation_regressions.py tests/test_positional.py -q"}
+  safety: {artifact: configs/evaluation.safety.jsonl, command: ".venv/bin/pytest tests/test_prompt_safety.py -q"}
+  hallucination: {artifact: tests/test_evaluation_regressions.py, command: ".venv/bin/pytest tests/test_evaluation_regressions.py -q"}
+  refusal: {artifact: configs/evaluation.safety.jsonl, command: ".venv/bin/pytest tests/test_prompt_safety.py -q"}

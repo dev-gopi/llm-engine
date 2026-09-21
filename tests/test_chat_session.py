@@ -122,3 +122,21 @@ def test_canonical_chat_template_masks_every_non_assistant_token() -> None:
     assert "Hello!" in supervised
     assert "Be concise." not in supervised
     assert "Say hello." not in supervised
+
+
+def test_canonical_chat_template_preserves_and_masks_tool_turns() -> None:
+    b = backend()
+    messages = [
+        {"role": "user", "content": "What is 2 + 2? Use the calculator."},
+        {"role": "assistant", "content": "I will use the calculator."},
+        {"role": "tool", "content": '{"result": 4}'},
+        {"role": "assistant", "content": "The answer is 4."},
+    ]
+
+    rendered = format_chat_messages(messages)
+    assert "<|tool|>\n{\"result\": 4}\n<|end|>" in rendered
+    example = build_chat_sft_example(b.tokenizer, messages)
+    supervised = b.tokenizer.decode(example["input_ids"][example["loss_mask"]].tolist())
+    assert "I will use the calculator." in supervised
+    assert "The answer is 4." in supervised
+    assert "result" not in supervised

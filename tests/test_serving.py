@@ -137,6 +137,36 @@ def test_session_memory_access_is_opt_in_authenticated_and_deletable(tmp_path):
     assert request(app, "GET", "/v1/sessions/alice/memory", headers=headers).json()["messages"] == []
 
 
+def test_session_context_api_reports_token_usage_and_compacts_history(tmp_path):
+    from inference.context import SQLiteSessionStore
+    from tokenizer.bpe import BYTE_ENCODER
+    from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
+
+    pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
+    vocab = {piece: index for index, piece in enumerate(pieces)}
+    tokenizer = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    backend = FakeBackend()
+    backend.sessions = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer, max_tokens=32, system_prompt="system")
+    memory = backend.sessions.load("alice")
+    memory.add("user", "first message with enough words to be compacted")
+    memory.add("assistant", "first response with enough words to be compacted")
+    memory.add("user", "latest question")
+    backend.sessions.save("alice", memory)
+    app = create_app(backend, settings=settings(api_key="secret", session_memory_enabled=True))
+    headers = {"Authorization": "Bearer secret"}
+
+    info = request(app, "GET", "/v1/sessions/alice/context?reserve_tokens=8", headers=headers)
+    assert info.status_code == 200
+    payload = info.json()
+    assert payload["context_window_tokens"] == 32
+    assert payload["categories"]["system_instructions"] > 0
+    assert payload["categories"]["tool_definitions"] == 0
+    assert payload["non_persisted_categories"] == ["tool_definitions", "files", "tool_results"]
+    compacted = request(app, "POST", "/v1/sessions/alice/context/compact?reserve_tokens=8", headers=headers)
+    assert compacted.status_code == 200
+    assert compacted.json()["after"]["used_tokens"] <= compacted.json()["before"]["used_tokens"]
+
+
 def test_runtime_selects_token_step_scheduler_for_capable_backend():
     class TokenBackend(FakeBackend):
         async def start_stream(self, request):

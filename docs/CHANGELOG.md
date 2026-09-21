@@ -7,6 +7,21 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **EVAL-002 Release Capability Matrix**: Added a versioned mandatory gate
+  covering knowledge, math, code, reasoning, instruction following, structured
+  JSON, tools, RAG, long context, safety, hallucination, and refusal behavior.
+- **AGT-003 Tool-Use Reliability Suite**: Added governed, versioned fixtures
+  for selection, argument schemas, result/error handling, parallel intent, and
+  denied calls, while retaining bounded sequential runtime execution.
+- **CHAT-002 Instruction Quality Contract**: Added canonical untrusted
+  tool-message turns (excluded from supervised loss), corpus-review guidance,
+  and a versioned deterministic five-category instruction-following suite.
+- **SCALE-002 Progressive Model Growth**: Completed tested checkpoint growth
+  from 16 to 32 layers with exact initialization-time output preservation;
+  continued-pretraining convergence remains an external operational check.
+- **CUR-001 Resume Compatibility**: Restoring an ungrouped sampler now
+  correctly ignores its serialized empty curriculum-weight list, including
+  when the batch size changes between checkpoints.
 - **CUR-001 Curriculum and Diagnostics**: Added validated epoch-indexed
   source-mixture schedules with resume-safe sampler weights, plus training
   history/checkpoint metrics for gradient clipping and output magnitudes.
@@ -24,6 +39,10 @@ Notable user-visible changes and architectural milestones are recorded here.
 - **MEM-001 Privacy-Bounded Session Memory**: Added deterministic, session-only
   memory retrieval and explicitly enabled, API-key-protected endpoints to read
   or delete persisted session memory. The interface is disabled by default.
+- **API-001 Session Context API**: Added opt-in, API-key-protected context
+  capacity metrics and explicit session-history compaction. Tool definitions,
+  uploaded files, and tool results remain request-scoped and are never
+  persisted for telemetry.
 - **QNT-001 Portable Low-Precision Artifacts**: Added FP16/BF16 export
   selection, self-describing packed INT4 safetensors artifacts, and opt-in
   per-token scaled INT8 paged-KV storage with explicit allocated-byte

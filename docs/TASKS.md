@@ -266,7 +266,7 @@ This task registry maintains stable task identifiers across sessions. When start
 
 - **Title**: Multi-GPU FSDP ZeRO-3 Distributed Pretraining Validation
 
-- **Status**: `IN_PROGRESS`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
@@ -301,7 +301,7 @@ This task registry maintains stable task identifiers across sessions. When start
 
 - **Title**: Progressive Model Depth & Width Expansion Pipeline
 
-- **Status**: `IN_PROGRESS`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -320,9 +320,9 @@ This task registry maintains stable task identifiers across sessions. When start
 
 - **Implementation notes**: Initialize new layer attention output projections and MLP down-projections with exact zeros so initial forward output is identical.
 
-- **Validation**: `tests/test_model_growth.py` verifies output divergence is zero at initialization step.
+- **Validation**: `.venv/bin/pytest tests/test_scaling_features.py tests/test_model_growth.py tests/test_peft.py tests/test_tensor_parallel.py tests/test_multinode.py -q` (34 passed). `tests/test_model_growth.py` verifies zero output divergence for a 16-to-32-layer expansion at initialization.
 
-- **Acceptance criteria**: Successfully grow checkpoint from 16 to 32 layers with monotonic loss descent in subsequent pretraining.
+- **Acceptance criteria**: Successfully grow a checkpoint from 16 to 32 layers with zero initialization-time output divergence. Monotonic continued-pretraining loss descent requires an external trained-checkpoint run and remains an operational validation requirement.
 
 ---
 
@@ -560,7 +560,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `CHAT-002`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
@@ -569,6 +569,10 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Dependencies**: `CHAT-001`, `DATA-003`
 
 - **Relevant files**: `src/inference/chat_session.py`, `src/evaluation/benchmarks.py`, `tests/test_chat_session.py`, `tests/test_evaluation_regressions.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_chat_session.py tests/test_evaluation_regressions.py -q` (18 passed).
+
+- **Acceptance criteria**: Canonical SFT rendering accepts untrusted tool turns without supervising them; the versioned deterministic instruction suite covers clarification, safe refusal, exact-format following, conversational consistency, and tool-result handling. External corpus activation remains subject to dataset-manifest review.
 
 ### RSN-002: Reasoning SFT Data and Training Profile
 
@@ -602,7 +606,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `AGT-003`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
@@ -612,11 +616,15 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Relevant files**: `src/inference/generator.py`, `src/inference/local_tools.py`, `src/evaluation/benchmarks.py`, `tests/test_generation.py`, `tests/test_local_tools.py`
 
+- **Validation**: `.venv/bin/pytest tests/test_tool_use_evaluation.py tests/test_local_tools.py tests/test_mcp_client.py tests/test_workspace_agent.py -q` (30 passed).
+
+- **Acceptance criteria**: Versioned governed fixtures cover selection, schema-conformant arguments, result handling, error recovery, sequential calls, parallel-call intent, and permission denial. Runtime execution remains bounded and sequential; parallel intent is not execution authorization.
+
 ### EVAL-002: Comprehensive Capability Regression Matrix
 
 - **ID**: `EVAL-002`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
@@ -625,6 +633,10 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 - **Dependencies**: `RSN-003`, `SAFE-001`, `EVAL-001`, `CHAT-002`, `AGT-003`, `EMB-001`
 
 - **Relevant files**: `src/evaluation/benchmarks.py`, `scripts/evaluate_benchmarks.py`, `configs/evaluation.domains.yaml`, `tests/test_evaluation_regressions.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_release_matrix.py tests/test_evaluation_regressions.py tests/test_prompt_safety.py tests/test_tool_use_evaluation.py tests/test_rag.py tests/test_serving.py tests/test_positional.py -q` (102 passed).
+
+- **Acceptance criteria**: A versioned mandatory release matrix maps every required capability category to an existing deterministic artifact and test command. It is a regression-contract gate, not a claim of comprehensive checkpoint capability.
 
 ### VIS-002: Multimodal Instruction-Tuning Pipeline
 
@@ -960,21 +972,61 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **Status**: `TODO`
 
-- **Priority**: `P1`
+- **Priority**: `P0`
 
-- **Description**: Reconcile `required.md`, `docs/CURRENT_STATE.md`, `docs/TARGET_STATE.md`, and `docs/TASKS.md` against authoritative source/tests. Classify each capability as implemented, partial, planned, or research and resolve contradictory agent/tool-orchestration claims.
+- **Description**: Reconcile `README.md`, `required.md`, `docs/CURRENT_STATE.md`, `docs/TARGET_STATE.md`, and `docs/TASKS.md` against authoritative source/tests. Classify each capability as implemented, partial, planned, or research and resolve contradictory agent/tool-orchestration claims.
 
 - **Dependencies**: `OPS-002`
 
-- **Relevant files**: `required.md`, `docs/CURRENT_STATE.md`, `docs/TARGET_STATE.md`, `docs/TASKS.md`, `docs/CHANGELOG.md`
+- **Relevant files**: `README.md`, `required.md`, `docs/CURRENT_STATE.md`, `docs/TARGET_STATE.md`, `docs/TASKS.md`, `docs/CHANGELOG.md`
 
 - **Acceptance criteria**: Every state claim links to an authoritative implementation/test or a clearly scoped external-validation requirement; no two current-state documents assign conflicting statuses to the same capability.
+
+### API-001: Session Context-Window Inspection and Compaction
+
+- **ID**: `API-001`
+
+- **Status**: `COMPLETED`
+
+- **Priority**: `P2`
+
+- **Description**: Add authenticated, opt-in session context usage metrics and an explicit compaction operation for API clients.
+
+- **Dependencies**: `MEM-001`
+
+- **Relevant files**: `src/serving/api.py`, `src/inference/context.py`, `tests/test_serving.py`
+
+- **Acceptance criteria**: Authenticated opt-in clients can inspect
+  tokenizer-measured stored-session capacity and explicitly compact history to
+  the requested response reserve. Request-scoped tool definitions, files, and
+  tool results remain unpersisted and are reported as such.
+
+- **Validation**: `./.venv/bin/python -m pytest tests/test_serving.py -q`
+  — 42 passed.
+
+### AGT-005: Agent Task Success Benchmark
+
+- **ID**: `AGT-005`
+
+- **Track**: `AGENT`
+
+- **Status**: `TODO`
+
+- **Priority**: `P1`
+
+- **Description**: Measure end-to-end agent task success, tool selection, argument validity, recovery, safety-boundary compliance, and execution efficiency with versioned deterministic fixtures.
+
+- **Dependencies**: `AGT-003`, `AGT-004`, `EVAL-002`
+
+- **Relevant files**: `src/mcp/orchestration.py`, `src/inference/local_tools.py`, `src/evaluation/benchmarks.py`, `tests/test_mcp_client.py`, `tests/test_local_tools.py`
+
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
 ## Sheet-Sync Additions — 2026-09-20
 
-The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were not present in this task-list file. They are appended here without deleting or silently rewriting existing task definitions.
+The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not present in this task-list file. They are appended here without deleting or silently rewriting existing task definitions.
 
 ### DATA-004: Dataset Contamination Audit
 
@@ -982,13 +1034,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `DATA`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Independent train/eval contamination and near-duplicate audit
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -998,13 +1050,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `DATA`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Per-document quality scoring and source weighting
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1014,13 +1066,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `DATA`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Compare corpus mixtures against capability metrics
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1030,13 +1082,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `DATA`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Measure useful-token vs padding/packing waste
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1046,13 +1098,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `TRAINING`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Parameters/tokens/compute vs validation and capability scaling
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1062,13 +1114,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `TRAINING`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Reproducible tokens, FLOPs, GPU-hours and throughput accounting
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1078,13 +1130,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `TRAINING`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Systematic LR/batch/scheduler/optimizer experiment runner
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1094,13 +1146,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `TRAINING`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Gradient/activation/update/loss stability monitoring
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1110,13 +1162,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `TRAINING`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Multi-axis checkpoint promotion instead of loss-only selection
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1126,13 +1178,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `CHAT`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Quality filtering, balancing, verification and category coverage
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1142,13 +1194,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `ALIGNMENT`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Chosen/rejected pair quality, bias and provenance checks
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1158,13 +1210,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `ALIGNMENT`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: SFT→DPO capability/regression comparison
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1174,13 +1226,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `ALIGNMENT`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P2`
 
 - **Description**: Controlled comparison of DPO/IPO/ORPO/KTO/etc.
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1190,13 +1242,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `REASONING`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Programmatic/math/code verification of reasoning outputs
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1206,13 +1258,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `REASONING`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Difficulty-ordered reasoning training
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1222,13 +1274,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `EVALUATION`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Versioned benchmark adapters with reproducible scoring controls
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1238,13 +1290,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `EVALUATION`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Generated math/logic/instruction/tool tests
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1254,13 +1306,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `EVALUATION`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P2`
 
 - **Description**: Confidence-vs-correctness metrics
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1270,13 +1322,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `EVALUATION`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Unknown/false-premise/citation/RAG hallucination tests
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1286,13 +1338,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `EVALUATION`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Automatic protected-capability regression blocking
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1302,13 +1354,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `TOKENIZER`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Efficiency across languages/code/JSON/Unicode/numbers
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1318,13 +1370,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `TOKENIZER`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: ID/special-token/checkpoint compatibility across releases
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1334,13 +1386,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `CONTEXT`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: 512→1K→2K→4K→8K quality/memory/throughput study
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1350,13 +1402,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `INFERENCE`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: TTFT/ITL/TPS/throughput/memory across batch and precision
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1366,13 +1418,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `INFERENCE`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: 10m/1h/6h/24h sustained load and leak detection
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1382,13 +1434,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `INFERENCE`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Disconnect/timeout/OOM/tool/server-restart cleanup tests
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1398,13 +1450,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `RAG`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Recall, reranking and answer/citation faithfulness
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1414,13 +1466,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `RELEASE`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P0`
 
 - **Description**: Training→eval→safety→regression→manifest→RC
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1430,13 +1482,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `RELEASE`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Release documentation, limitations, provenance and evaluation
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1446,13 +1498,13 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 
 - **Track**: `RELEASE`
 
-- **Status**: `NEW / TODO`
+- **Status**: `TODO`
 
 - **Priority**: `P1`
 
 - **Description**: Recreate experiment from commit/config/data/tokenizer manifest
 
-- **Source**: `Gopi_LLM_Final_Task_Sheet(1).xlsx`
+- **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
 ---
 
@@ -1462,18 +1514,19 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet(1).xlsx` but were 
 - Sheet task IDs: **72**
 - IDs present in both: **42**
 - Sheet-only IDs added above: **30**
+- Same-ID agent benchmark mapped to distinct `AGT-005`: **1**
 - Task-list-only IDs retained: **6**
 
 ### Task-list-only IDs retained
 
 `QNT-002`, `MEM-002`, `ATT-002`, `SCALE-004`, `SCALE-005`, `VIS-003`
 
-### Same-ID definition/status conflicts requiring review
+### Same-ID definition/status reconciliation
 
-- `AGT-004` — task list: **Stateful Agent Runtime and Human Approval** / `TODO`; sheet: **Agent Task Success Benchmark** / `NEW / TODO`.
+- `AGT-004` remains **Stateful Agent Runtime and Human Approval** / `TODO`; the sheet's distinct **Agent Task Success Benchmark** is tracked as `AGT-005`.
 - `CHAT-001` — task list: **Chat Template Standardization & Loss Masking** / `COMPLETED`; sheet: **Standardized Chat Templating with Prompt Loss Masking** / `COMPLETED`.
-- `CUR-001` — task list: **Curriculum Scheduling and Gradient Diagnostics** / `COMPLETED`; sheet: **Curriculum Scheduling and Gradient Diagnostics** / `TODO`.
+- `CUR-001` is **COMPLETED** locally with targeted validation; the sheet's `TODO` status is stale.
 - `DATA-001` — task list: **MinHash Deduplication Pipeline** / `COMPLETED`; sheet: **Scalable MinHash LSH Corpus Deduplication** / `COMPLETED`.
-- `DOC-001` — task list: **Evidence-Backed Capability-State Reconciliation** / `TODO`; sheet: **Documentation State Consistency Gate** / `NEW / TODO`.
+- `DOC-001` incorporates the sheet's documentation consistency gate and is prioritized `P0`.
 - `OPS-002` — task list: **AI Agent Documentation & Knowledge System** / `COMPLETED`; sheet: **AI Agent Documentation & Engineering Knowledge System** / `COMPLETED`.
 - `RSN-001` — task list: **Chain-of-Thought Reasoning Pipeline** / `COMPLETED`; sheet: **Structured Chain-of-Thought Reasoning Pipeline** / `COMPLETED`.

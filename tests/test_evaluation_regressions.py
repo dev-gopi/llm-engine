@@ -111,3 +111,20 @@ def test_retention_gate_accepts_identical_answers_and_rejects_changed_protocol()
         compare_reports(value, {**value, "protocol": {"cases": "changed"}})
     with pytest.raises(ValueError, match="coverage"):
         compare_reports(value, report([("english", 1)]))
+
+
+def test_instruction_following_manifest_is_versioned_and_deterministically_scored():
+    path = Path("configs/evaluation.instruction_following.jsonl")
+    cases = [BenchmarkCase.from_mapping(json.loads(line)) for line in path.read_text().splitlines()]
+
+    assert [case.category for case in cases] == [
+        "clarification", "refusal", "format_following", "conversation_consistency", "tool_turn",
+    ]
+    answers = [
+        "Which form and field are confusing?",
+        "Sorry, I can't help with harming someone.",
+        "READY",
+        "Gopi",
+        "4",
+    ]
+    assert [score_answer(answer, case) for answer, case in zip(answers, cases, strict=True)] == [1.0] * 5

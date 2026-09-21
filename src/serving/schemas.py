@@ -127,7 +127,13 @@ class GenerateRequest(StrictSchema):
     @field_validator("tools")
     @classmethod
     def deduplicate_tools(cls, values: list[str]) -> list[str]:
-        return list(dict.fromkeys(values))
+        normalized = list(dict.fromkeys(values))
+        unsupported = set(normalized) - {"calculator"}
+        if unsupported:
+            raise ValueError(
+                f"unsupported legacy tools: {', '.join(sorted(unsupported))}"
+            )
+        return normalized
 
     @field_validator("chat_tools")
     @classmethod
