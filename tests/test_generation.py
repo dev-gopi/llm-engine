@@ -415,6 +415,28 @@ def test_minigpt_generation_projects_only_last_token_and_skips_final_forward():
         hook.remove()
 
 
+@pytest.mark.parametrize("position_type", ["learned", "rotary"])
+def test_chunked_prefill_matches_one_pass_prefill_and_uses_static_kv_cache(position_type):
+    tokenizer = make_tokenizer()
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=16, layers=2, heads=2,
+        max_pos=64, position_type=position_type,
+    ).eval()
+    prompt_ids = tokenizer.encode("a longer prompt for chunked prefill", add_bos=True)
+    one_pass = Generator(model, tokenizer, device="cpu")
+    chunked = Generator(model, tokenizer, device="cpu", prefill_chunk_size=3)
+
+    with torch.inference_mode():
+        expected_logits, expected_cache = one_pass._prefill(prompt_ids)
+        actual_logits, actual_cache = chunked._prefill(prompt_ids)
+
+    torch.testing.assert_close(actual_logits, expected_logits)
+    for expected, actual in zip(expected_cache, actual_cache, strict=True):
+        assert isinstance(actual, StaticLayerKVCache)
+        torch.testing.assert_close(actual[0], expected[0])
+        torch.testing.assert_close(actual[1], expected[1])
+
+
 @pytest.mark.parametrize("streaming", [False, True])
 def test_generation_does_not_mutate_prefix_logits(streaming):
     tokenizer = make_tokenizer()

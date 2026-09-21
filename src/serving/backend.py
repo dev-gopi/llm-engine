@@ -79,6 +79,7 @@ class ConfiguredModelBackend:
         prefix_cache_capacity: int = 0,
         paged_kv_pages: int = 0,
         paged_kv_page_size: int = 16,
+        prefill_chunk_size: int = 0,
         tensor_parallel_size: int = 1,
         mcp: dict | None = None,
         allow_checkpoint_fallback: bool = False,
@@ -104,6 +105,7 @@ class ConfiguredModelBackend:
         self.prefix_cache_capacity = prefix_cache_capacity
         self.paged_kv_pages = paged_kv_pages
         self.paged_kv_page_size = paged_kv_page_size
+        self.prefill_chunk_size = prefill_chunk_size
         self.tensor_parallel_size = tensor_parallel_size
         self.mcp_config = mcp or {}
         self.allow_checkpoint_fallback = bool(allow_checkpoint_fallback)
@@ -265,6 +267,7 @@ class ConfiguredModelBackend:
             prefix_cache_capacity=self.prefix_cache_capacity,
             paged_kv_pages=self.paged_kv_pages,
             paged_kv_page_size=self.paged_kv_page_size,
+            prefill_chunk_size=self.prefill_chunk_size,
         )
         if self.session_store_path:
             self.sessions = SQLiteSessionStore(
@@ -993,6 +996,7 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         prefix_cache_capacity=int(serving.get("prefix_cache_capacity", 0)),
         paged_kv_pages=int(serving.get("paged_kv_pages", 0)),
         paged_kv_page_size=int(serving.get("paged_kv_page_size", 16)),
+        prefill_chunk_size=int(serving.get("prefill_chunk_size", 0)),
         tensor_parallel_size=int(serving.get("tensor_parallel_size", 1)),
         mcp=_load_mcp_config(),
         allow_checkpoint_fallback=bool(serving.get("allow_checkpoint_fallback", False)),

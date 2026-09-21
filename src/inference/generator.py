@@ -16,6 +16,8 @@ from tokenizer.encoder import Tokenizer
 from utils.device import resolve_device
 from utils.logger import get_logger
 
+from model.kv_cache import StaticLayerKVCache
+
 from .sampler import JSONSchemaConstraint, PrefixGrammarConstraint, TokenConstraint, TopKSampler
 from .context import ConversationMemory
 from .kv_cache import KVCache
@@ -74,7 +76,12 @@ class Generator:
         prefix_cache_capacity: int = 0,
         paged_kv_pages: int = 0,
         paged_kv_page_size: int = 16,
+        prefill_chunk_size: int = 0,
     ) -> None:
+        if not isinstance(prefill_chunk_size, int) or isinstance(prefill_chunk_size, bool):
+            raise TypeError("prefill_chunk_size must be an integer")
+        if prefill_chunk_size < 0:
+            raise ValueError("prefill_chunk_size must be non-negative")
         self.device = resolve_device(device)
         self.model = model.to(self.device).eval()
         self.tokenizer = tokenizer
@@ -96,6 +103,10 @@ class Generator:
         self.prefix_cache_misses = 0
         self.prefix_cache_tokens = 0
         self.prefix_prefill_tokens_saved = 0
+        # Zero keeps the existing one-pass prefill. A positive value bounds
+        # prefill activation memory for long prompts while retaining the full
+        # KV cache required by dense attention.
+        self.prefill_chunk_size = prefill_chunk_size
         self._base_lora_adapter = lora_adapter_state_dict(self.model)
         if paged_kv_pages:
             first_attention = getattr(model, "blocks", [None])[0].attn
@@ -802,10 +813,7 @@ class Generator:
                     logits, raw_cache = cached
                 return logits, raw_cache
             self.prefix_cache_misses += 1
-        output = self._forward_model(torch.tensor([prompt_ids], dtype=torch.long, device=self.device), use_cache=True)
-        if not isinstance(output, tuple):
-            raise RuntimeError("model did not return a requested KV cache")
-        logits, raw_cache = output
+        logits, raw_cache = self._prefill_uncached(prompt_ids)
         if self.prefix_cache is not None:
             if isinstance(self.prefix_cache, PagedPrefixCache):
                 self.prefix_cache.put(key, logits, raw_cache)
@@ -813,4 +821,43 @@ class Generator:
                 self.prefix_cache.put(key, (logits.detach().clone(), tuple(
                     (k.detach().clone(), v.detach().clone()) for k, v in raw_cache
                 )))
+        return logits, raw_cache
+
+    def _prefill_uncached(self, prompt_ids: list[int]):
+        """Run prefill in one pass or bounded chunks without changing its result."""
+        chunk_size = self.prefill_chunk_size
+        if not chunk_size or len(prompt_ids) <= chunk_size:
+            output = self._forward_model(
+                torch.tensor([prompt_ids], dtype=torch.long, device=self.device), use_cache=True
+            )
+            if not isinstance(output, tuple):
+                raise RuntimeError("model did not return a requested KV cache")
+            return output
+
+        raw_cache = None
+        logits = None
+        for start in range(0, len(prompt_ids), chunk_size):
+            token_ids = torch.tensor(
+                [prompt_ids[start : start + chunk_size]], dtype=torch.long, device=self.device
+            )
+            kwargs = {"use_cache": True}
+            if raw_cache is not None:
+                kwargs["past_key_values"] = raw_cache
+            output = self._forward_model(token_ids, **kwargs)
+            if not isinstance(output, tuple):
+                raise RuntimeError("model did not return a requested KV cache")
+            logits, raw_cache = output
+            # Tuple caches concatenate on every subsequent prefill chunk. Once
+            # the first MiniGPT chunk is available, switch to fixed-capacity
+            # layer caches so long prompt prefill stays allocation-efficient.
+            if (
+                start == 0
+                and isinstance(self.model, MiniGPT)
+                and all(isinstance(layer, tuple) and len(layer) == 2 for layer in raw_cache)
+            ):
+                raw_cache = tuple(
+                    StaticLayerKVCache(key, value, capacity=len(prompt_ids))
+                    for key, value in raw_cache
+                )
+        assert logits is not None and raw_cache is not None
         return logits, raw_cache
