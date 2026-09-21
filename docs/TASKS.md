@@ -1614,7 +1614,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Cross-Encoder / Reranker Interface
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -1768,7 +1768,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Model Capability Discovery Contract
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -1810,7 +1810,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Protected Model Lifecycle API
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P2`
 

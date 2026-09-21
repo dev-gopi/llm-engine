@@ -8,3 +8,13 @@ def test_supported_generation_parameters_are_retained():
 
 def test_invalid_response_format_is_rejected():
     with pytest.raises(ValueError): OpenAIChatCompletionRequest(model="g",messages=[{"role":"user","content":"x"}],response_format={"type":"xml"})
+
+def test_unsupported_penalties_are_rejected_instead_of_ignored():
+    with pytest.raises(ValueError, match="presence_penalty"):
+        OpenAIChatCompletionRequest(
+            model="g", messages=[{"role":"user", "content":"x"}], presence_penalty=0.0
+        )
+    with pytest.raises(ValueError, match="frequency_penalty"):
+        OpenAIChatCompletionRequest(
+            model="g", messages=[{"role":"user", "content":"x"}], frequency_penalty=0.2
+        )

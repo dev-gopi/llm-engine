@@ -326,6 +326,11 @@ class OpenAIChatCompletionRequest(BaseModel):
         le=2**63 - 1,
     )
     repetition_penalty: float = Field(default=1.1, ge=0.1, le=2.0)
+    # These OpenAI parameters are intentionally represented so clients receive
+    # a deterministic validation error instead of having them silently ignored.
+    # The current sampler does not implement presence/frequency penalties.
+    presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0)
+    frequency_penalty: float | None = Field(default=None, ge=-2.0, le=2.0)
     user: str | None = Field(
         default=None,
         max_length=128,
@@ -337,6 +342,19 @@ class OpenAIChatCompletionRequest(BaseModel):
     )
 
     tool_choice: OpenAIToolChoice = "auto"
+
+    @model_validator(mode="after")
+    def reject_unsupported_penalties(self):
+        unsupported = []
+        if self.presence_penalty is not None:
+            unsupported.append("presence_penalty")
+        if self.frequency_penalty is not None:
+            unsupported.append("frequency_penalty")
+        if unsupported:
+            raise ValueError(
+                "unsupported generation parameters: " + ", ".join(unsupported)
+            )
+        return self
 
     @field_validator("messages")
     @classmethod
@@ -640,6 +658,9 @@ class OpenAIModel(StrictSchema):
     object: Literal["model"] = "model"
     created: int
     owned_by: str = "gopi"
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    architecture: str | None = None
+    context_length: int | None = Field(default=None, ge=0)
 
 
 class OpenAIModelList(StrictSchema):

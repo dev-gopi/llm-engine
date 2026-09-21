@@ -1,0 +1,124 @@
+"""Runtime capability discovery for the serving API.
+
+Capabilities are derived from the running backend and model configuration rather
+than from a marketing/static model name.  A capability is only advertised when
+its implementation surface is present and the runtime can expose the required
+contract.
+"""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Mapping
+
+
+@dataclass(frozen=True)
+class ModelCapabilities:
+    chat: bool
+    streaming: bool
+    tool_calling: bool
+    structured_outputs: bool
+    reasoning: bool
+    vision: bool
+    audio: bool
+    rag: bool
+    mcp: bool
+    kv_cache: bool
+    prefix_caching: bool
+    context_length: int
+    architecture: str
+    parameter_count: int | None = None
+    vocabulary_size: int | None = None
+    layers: int | None = None
+    hidden_size: int | None = None
+    attention_heads: int | None = None
+    kv_heads: int | None = None
+    position_type: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _positive_or_none(value: Any) -> int | None:
+    try:
+        integer = int(value)
+    except (TypeError, ValueError):
+        return None
+    return integer if integer > 0 else None
+
+
+def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | None = None) -> ModelCapabilities:
+    """Build a conservative capability manifest from a live backend.
+
+    False is preferred over an optimistic claim when the implementation cannot
+    prove that a feature is available.  This keeps `/v1/models` useful for
+    clients that must avoid unsupported requests.
+    """
+    config = dict(model_config or {})
+    generator = getattr(backend, "generator", None)
+    rag_index = getattr(backend, "rag_index", None)
+    mcp_tools = getattr(backend, "mcp_tools", None)
+
+    # Reloadable/replica wrappers expose the actual model backend through a
+    # `backend` attribute.  Resolve it without requiring a particular class.
+    if generator is None and hasattr(backend, "backend"):
+        nested = getattr(backend, "backend")
+        return discover_capabilities(nested, model_config=config)
+
+    context_length = _positive_or_none(
+        getattr(generator, "max_positions", None) or config.get("max_position")
+    ) or 0
+    architecture = str(config.get("architecture", "decoder-only-transformer"))
+    parameter_count = _positive_or_none(getattr(getattr(generator, "model", None), "num_parameters", lambda: 0)())
+
+    # These flags map directly to implemented serving contracts.  Vision/audio
+    # are intentionally false: the multimodal modules are not wired into the
+    # text serving endpoint yet.
+    chat = callable(getattr(backend, "generate", None))
+    streaming = callable(getattr(backend, "stream", None))
+    structured_outputs = True  # JSON Schema validation is part of the API contract.
+    reasoning = True  # Runtime budget mapping is implemented by runtime.reasoning.
+    tool_calling = bool(
+        callable(getattr(backend, "generate", None))
+        and (hasattr(backend, "mcp_tools") or hasattr(backend, "_augment_with_mcp"))
+    )
+    rag = rag_index is not None
+    mcp = bool(mcp_tools)
+    kv_cache = bool(generator is not None and hasattr(generator, "_prefill"))
+    prefix_caching = bool(getattr(generator, "prefix_cache", None) is not None) if generator else False
+
+    return ModelCapabilities(
+        chat=chat,
+        streaming=streaming,
+        tool_calling=tool_calling,
+        structured_outputs=structured_outputs,
+        reasoning=reasoning,
+        vision=False,
+        audio=False,
+        rag=rag,
+        mcp=mcp,
+        kv_cache=kv_cache,
+        prefix_caching=prefix_caching,
+        context_length=context_length,
+        architecture=architecture,
+        parameter_count=parameter_count,
+        vocabulary_size=_positive_or_none(config.get("vocab_size")),
+        layers=_positive_or_none(config.get("layers")),
+        hidden_size=_positive_or_none(config.get("hidden_size")),
+        attention_heads=_positive_or_none(config.get("heads")),
+        kv_heads=_positive_or_none(config.get("kv_heads")),
+        position_type=str(config["position_type"]) if config.get("position_type") is not None else None,
+    )
+
+
+def load_model_config(path: str | Path) -> dict[str, Any]:
+    """Load a YAML model configuration without importing serving internals."""
+    import yaml
+
+    source = Path(path)
+    if not source.is_file():
+        return {}
+    value = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
+    if not isinstance(value, dict):
+        raise ValueError(f"model configuration must be a mapping: {source}")
+    return value

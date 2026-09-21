@@ -320,6 +320,31 @@ class ReloadableBackend:
         await self.reload(backend, version=version)
         return version
 
+    async def load_current(self) -> str | None:
+        """Load the configured model when currently unloaded."""
+        if self.ready:
+            return self.version
+        return await self.reload_current()
+
+    async def unload(self) -> None:
+        """Atomically replace the active backend with an unavailable backend."""
+        from .runtime import UnavailableBackend
+
+        replacement = UnavailableBackend()
+        async with self._condition:
+            previous = self.backend
+            self.backend = replacement
+            self.version = None
+            self._active.setdefault(id(replacement), 0)
+            while self._active.get(id(previous), 0):
+                await self._condition.wait()
+            self._active.pop(id(previous), None)
+        shutdown = getattr(previous, "shutdown", None)
+        if shutdown:
+            result = shutdown()
+            if asyncio.iscoroutine(result):
+                await result
+
     async def generate(self, request):
         backend = await self._acquire()
         try:

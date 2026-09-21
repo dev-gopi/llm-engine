@@ -26,6 +26,8 @@ from fastapi.security import HTTPBearer
 from utils.config import load_yaml
 from utils.logger import get_logger
 from runtime.cancellation import CancellationRegistry
+from runtime.capabilities import discover_capabilities, load_model_config
+from model.lifecycle import ModelLifecycleManager
 
 from .runtime import (
     BackendUnavailableError,
@@ -125,6 +127,7 @@ class ServingSettings:
     generation_timeout_seconds: float = 120.0
     cors_origins: tuple[str, ...] = ()
     api_key: str | None = None
+    admin_api_key: str | None = None
     requests_per_minute: int = 0
     rate_limit_store_path: str | None = None
     continuous_streams: int = 0
@@ -191,6 +194,7 @@ class ServingSettings:
             ),
             cors_origins=origins,
             api_key=os.getenv("GOPI_API_KEY") or None,
+            admin_api_key=os.getenv("GOPI_ADMIN_API_KEY") or None,
             requests_per_minute=int(os.getenv("GOPI_REQUESTS_PER_MINUTE", str(serving.get("requests_per_minute", 0)))),
             rate_limit_store_path=os.getenv("GOPI_RATE_LIMIT_STORE") or serving.get("rate_limit_store_path"),
             continuous_streams=int(os.getenv("GOPI_CONTINUOUS_STREAMS", str(serving.get("continuous_streams", 0)))),
@@ -320,6 +324,12 @@ def create_app(
         continuous_streams=settings.continuous_streams,
     )
     cancellation_registry = CancellationRegistry()
+    lifecycle = ModelLifecycleManager(runtime.backend)
+    application_capabilities = lambda: discover_capabilities(
+        runtime.backend,
+        model_config=load_model_config(getattr(runtime.backend, "backend", runtime.backend).model_config)
+        if hasattr(getattr(runtime.backend, "backend", runtime.backend), "model_config") else {},
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -434,6 +444,27 @@ def create_app(
             request, "internal_error", "internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
+    def _require_admin(request: Request):
+        """Require a dedicated admin secret; the normal API key is not enough."""
+        admin_key = settings.admin_api_key
+        supplied = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if not admin_key:
+            return _error_response(
+                request, "admin_auth_not_configured",
+                "configure GOPI_ADMIN_API_KEY before enabling model lifecycle operations", 503,
+            )
+        if not supplied or not secrets.compare_digest(supplied, admin_key):
+            return _error_response(request, "admin_unauthorized", "valid admin bearer token required", 403)
+        return None
+
+    def _record_admin_lifecycle(request: Request, status_code: int) -> None:
+        audit_log.record(
+            request_id=getattr(request.state, "request_id", "unknown"),
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+        )
+
     @application.get("/", response_model=HealthResponse, tags=["health"])
     @application.get("/health/live", response_model=HealthResponse, tags=["health"])
     async def liveness() -> HealthResponse:
@@ -483,6 +514,8 @@ def create_app(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=prompt_tokens + completion_tokens,
+                cached_tokens=result.cached_tokens,
+                reasoning_tokens=result.reasoning_tokens,
             ),
         )
 
@@ -493,10 +526,28 @@ def create_app(
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def list_openai_models() -> OpenAIModelList:
+        capabilities = application_capabilities()
         return OpenAIModelList(data=[OpenAIModel(
             id=settings.model_name,
             created=0,
+            capabilities=capabilities.as_dict(),
+            architecture=capabilities.architecture,
+            context_length=capabilities.context_length,
         )])
+
+    @application.get(
+        "/v1/models/{model_id}/capabilities",
+        tags=["openai-compatible"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def model_capabilities(model_id: str, request: Request):
+        if model_id != settings.model_name:
+            return _error_response(request, "model_not_found", "unknown model", 404)
+        return {
+            "id": model_id,
+            "object": "model.capabilities",
+            "capabilities": application_capabilities().as_dict(),
+        }
 
     @application.post(
         "/v1/chat/completions",
@@ -666,23 +717,52 @@ def create_app(
         cancelled = cancellation_registry.cancel(request_id)
         return {"request_id": request_id, "cancelled": cancelled}
 
-    @application.post(
-        "/v1/admin/reload",
-        tags=["operations"],
-        dependencies=[Security(OPENAPI_BEARER)],
-    )
-    async def reload_model(request: Request):
-        if not settings.api_key:
-            return _error_response(
-                request, "reload_disabled", "configure GOPI_API_KEY to enable model reload", 403
-            )
-        callback = getattr(runtime.backend, "reload_current", None)
-        if callback is None:
-            return _error_response(
-                request, "reload_unavailable", "backend does not support reload", 409
-            )
-        version = await callback()
-        return {"status": "reloaded", "version": version}
+    @application.get("/admin/models", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    async def admin_model_status(request: Request):
+        denied = _require_admin(request)
+        if denied is not None:
+            return denied
+        state = lifecycle.state
+        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
+
+    @application.post("/admin/models/load", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    async def admin_model_load(request: Request):
+        denied = _require_admin(request)
+        if denied is not None:
+            return denied
+        try:
+            state = await lifecycle.load()
+        except RuntimeError as error:
+            _record_admin_lifecycle(request, 409)
+            return _error_response(request, "model_load_failed", str(error), 409)
+        _record_admin_lifecycle(request, 200)
+        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
+
+    @application.post("/admin/models/unload", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    async def admin_model_unload(request: Request):
+        denied = _require_admin(request)
+        if denied is not None:
+            return denied
+        try:
+            state = await lifecycle.unload()
+        except RuntimeError as error:
+            _record_admin_lifecycle(request, 409)
+            return _error_response(request, "model_unload_failed", str(error), 409)
+        _record_admin_lifecycle(request, 200)
+        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
+
+    @application.post("/admin/models/reload", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    async def admin_model_reload(request: Request):
+        denied = _require_admin(request)
+        if denied is not None:
+            return denied
+        try:
+            state = await lifecycle.reload()
+        except RuntimeError as error:
+            _record_admin_lifecycle(request, 409)
+            return _error_response(request, "model_reload_failed", str(error), 409)
+        _record_admin_lifecycle(request, 200)
+        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
 
     @application.get(
         "/v1/audit/events",

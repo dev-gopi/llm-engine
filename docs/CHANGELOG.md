@@ -1,3 +1,11 @@
+## 2026-09-21 — RAG/API contracts and protected lifecycle
+
+- Completed RAG-005 with a candidate-pool/reranker pipeline, optional neural SentenceTransformers cross-encoder adapter, metadata/citation preservation, and measurable recall/MRR/NDCG evaluation.
+- Hardened API-004 usage reporting so the native `/v1/generate` response also reports cached and reasoning tokens.
+- Hardened API-005 so unsupported presence/frequency penalties are rejected instead of silently ignored.
+- Completed API-007 with runtime-derived capability discovery and architecture/context metadata at `/v1/models` and `/v1/models/{model_id}/capabilities`.
+- Completed API-008 with dedicated-admin-key protected `/admin/models/load`, `/admin/models/unload`, and `/admin/models/reload`, atomic backend lifecycle transitions, concurrent-drain behavior, and audit events.
+
 
 ## 2026-09-21 — API/runtime contracts
 

@@ -17,7 +17,7 @@ from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
 from inference.rag import RagIndex, SQLiteRagIndex, build_rag_prompt
-from rag.reranker import LexicalCrossEncoderBaseline
+from rag.reranker import LexicalCrossEncoderBaseline, SentenceTransformersCrossEncoder
 from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from inference.quantization import prepare_model_for_inference
@@ -99,7 +99,7 @@ class ConfiguredModelBackend:
         self.web_search = web_search or {}
         self.rag_config = rag or {}
         self.rag_index: RagIndex | None = None
-        self.reranker = LexicalCrossEncoderBaseline()
+        self.reranker = self._build_reranker(self.rag_config)
         self.prefix_cache_capacity = prefix_cache_capacity
         self.paged_kv_pages = paged_kv_pages
         self.paged_kv_page_size = paged_kv_page_size
@@ -120,6 +120,19 @@ class ConfiguredModelBackend:
         self.sessions: SQLiteSessionStore | None = None
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._session_lock_users: dict[str, int] = defaultdict(int)
+
+    @staticmethod
+    def _build_reranker(config: dict):
+        kind = str(config.get("reranker", "lexical")).strip().lower()
+        if kind in {"lexical", "baseline"}:
+            return LexicalCrossEncoderBaseline()
+        if kind in {"sentence_transformers", "sentence-transformers", "cross_encoder"}:
+            return SentenceTransformersCrossEncoder(
+                str(config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")),
+                batch_size=int(config.get("reranker_batch_size", 16)),
+                device=str(config["reranker_device"]) if config.get("reranker_device") else None,
+            )
+        raise ValueError(f"unsupported RAG reranker: {kind}")
 
     @property
     def ready(self) -> bool:

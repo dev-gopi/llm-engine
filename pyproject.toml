@@ -27,6 +27,7 @@ dev = ["pytest>=8"]
 data = ["datasets>=2.19", "datatrove>=0.3"]
 export = ["onnx>=1.16", "onnxruntime>=1.18"]
 rag = ["pypdf>=5"]
+rerank = ["sentence-transformers>=3.0"]
 images = ["pillow>=10"]
 full = [
     "datasets>=2.19",
