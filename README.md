@@ -16,7 +16,7 @@ foundation models.
 - [Model reference](docs/MODEL.md) and [configuration reference](docs/CONFIGURATION.md).
 - [Training guide](docs/TRAINING_GUIDE.md) and [model-growth guide](docs/DIRECT_TRAINING_GUIDE.md).
 - [Usage guide](docs/USAGE_GUIDE.md), [deployment guide](docs/DEPLOYMENT.md), and [dataset catalog](docs/DATASET_CATALOG.md).
-- [Capabilities and scaling](docs/CAPABILITIES_AND_SCALING.md), [vision and diffusion](docs/IMAGE_MODELS.md), and [modern runtime features](docs/MODERN_MODEL_FEATURES_2026.md).
+- [Capabilities and scaling](docs/CAPABILITIES_AND_SCALING.md) and [vision and diffusion](docs/IMAGE_MODELS.md).
 
 Documentation and active configuration filenames are unversioned.
 
@@ -407,26 +407,3 @@ work; the 100B profile therefore remains planning-only.
 ```
 
 `pyarrow` is a declared core dependency used by the Arrow/Hugging Face data-preparation tests. In an offline/source-only environment where it is not installed, report those modules as not executed rather than treating them as passing. Generated tokenizer artifacts are intentionally gitignored, so the compatibility test skips when those artifacts are absent from a source archive.
-
-## Modern optional model/runtime features (2026-09-21)
-
-The audited default 81.3M model remains unchanged. New opt-in research/runtime
-features include a 3-linear/1-dense hybrid attention profile, fixed-state causal
-linear decoding, sparse-MoE router balancing, MTP training support, Q1_0-style
-1.125-bit research export, model/KV memory planning, reasoning-effort controls,
-and delegation to optimized OpenAI-compatible runtimes for GGUF models.
-
-```bash
-# Plan the active hybrid profile without allocating model weights
-PYTHONPATH=src python scripts/plan_deployment.py \
-  --model-config configs/model.hybrid.gpu.yaml --context-length 8192 --memory-gib 4
-
-# Run a GGUF through llama.cpp, then put the Gopi API/UI in front of it
-python scripts/serve_gguf.py /path/to/model.gguf --context 8192 --gpu-layers 99
-GOPI_BACKEND=llama_cpp GOPI_EXTERNAL_BASE_URL=http://127.0.0.1:8080 \
-  GOPI_EXTERNAL_MODEL=local-model python scripts/serve.py
-```
-
-See [`docs/MODERN_MODEL_FEATURES_2026.md`](docs/MODERN_MODEL_FEATURES_2026.md)
-for the researched reference models, implementation mapping, and explicit
-capability limits.
