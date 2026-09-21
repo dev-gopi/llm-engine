@@ -31,26 +31,6 @@ class LifecycleBackend:
         yield
 
 
-@pytest.mark.asyncio
-async def test_reloadable_backend_unload_and_load():
-    created = []
-
-    def factory():
-        backend = LifecycleBackend(f"model-{len(created) + 1}")
-        created.append(backend)
-        return backend, backend.name
-
-    first = factory()
-    wrapper = ReloadableBackend(first[0], version=first[1], factory=factory)
-    await wrapper.startup()
-    assert wrapper.ready
-    await wrapper.unload()
-    assert not wrapper.ready
-    await wrapper.load_current()
-    assert wrapper.ready
-    assert wrapper.version == "model-2"
-
-
 def test_admin_lifecycle_requires_dedicated_admin_key():
     class Backend:
         ready = True
@@ -97,3 +77,23 @@ def test_admin_load_unload_reload_endpoints_are_functional_and_audited():
         assert reloaded.status_code == 200
         assert reloaded.json()["status"] == "loaded"
         assert reloaded.json()["version"] == "model-3"
+
+
+@pytest.mark.asyncio
+async def test_reloadable_backend_unload_and_load():
+    created = []
+
+    def factory():
+        backend = LifecycleBackend(f"model-{len(created) + 1}")
+        created.append(backend)
+        return backend, backend.name
+
+    first = factory()
+    wrapper = ReloadableBackend(first[0], version=first[1], factory=factory)
+    await wrapper.startup()
+    assert wrapper.ready
+    await wrapper.unload()
+    assert not wrapper.ready
+    await wrapper.load_current()
+    assert wrapper.ready
+    assert wrapper.version == "model-2"

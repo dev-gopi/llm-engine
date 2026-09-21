@@ -33,7 +33,7 @@ def command(args: argparse.Namespace) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("model", help="Path to the GGUF model (for example Bonsai-27B-Q1_0.gguf)")
+    parser.add_argument("model", help="Path to the GGUF model (for example model.gguf)")
     parser.add_argument("--llama-server", default="llama-server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)

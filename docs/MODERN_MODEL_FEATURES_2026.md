@@ -7,17 +7,6 @@ these reference models.
 
 ## Verified external references
 
-### PrismML Bonsai-27B Q1_0
-
-The published Bonsai-27B GGUF model card describes a roughly 27.3B-parameter
-Qwen-derived model with 64 blocks, approximately 75% linear attention and 25%
-full attention, a 262K context window, 4-bit KV-cache deployment, and a
-Q1_0_g128 language-weight representation using one sign bit plus one FP16 scale
-per 128 weights (1.125 effective bits/weight). The card also documents a
-speculative-decoding drafter and llama.cpp deployment.
-
-Source: <https://huggingface.co/prism-ml/Bonsai-27B-gguf>
-
 ### Qwen3.6-27B configuration
 
 The published Qwen3.6-27B configuration uses a repeating three-linear / one-full
@@ -55,7 +44,7 @@ Source: <https://huggingface.co/zai-org/GLM-5.3/blob/main/README.md>
 
 ## Deliberately not claimed
 
-The repository does not claim Bonsai-equivalent 1-bit quality retention,
+The repository does not claim 1-bit quality retention,
 Qwen3.6-compatible linear-convolution kernels, 262K trained-context quality,
 DSpark-equivalent speculative speedup, GLM-scale sparse attention, native
 GPTQ/AWQ/GGUF export, or frontier-model benchmark quality. Those require

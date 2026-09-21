@@ -57,7 +57,7 @@ def resolve_attention_layer_pattern(config: Mapping[str, Any], layers: int | Non
 
     ``attention_layer_pattern`` is a compact repeating cycle, for example
     ``[linear, linear, linear, dense]``.  This keeps legacy single-pattern
-    configs fully compatible while allowing Bonsai/Qwen-style hybrid research
+    configs fully compatible while allowing hybrid-attention research
     profiles without duplicating dozens of layer entries.
     """
     total_layers = layers if layers is not None else _positive_int(config["layers"], "layers")

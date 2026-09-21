@@ -75,7 +75,7 @@ For actual GGUF models and runtime-specific low-bit kernels, use the delegated
 backend. A local llama.cpp server can be started with:
 
 ```bash
-python scripts/serve_gguf.py /path/to/Bonsai-27B-Q1_0.gguf \
+python scripts/serve_gguf.py /path/to/model.gguf \
   --context 8192 --gpu-layers 99 --cache-type-k q8_0 --cache-type-v q8_0
 ```
 

@@ -12,7 +12,7 @@ def test_external_backend_maps_openai_response_and_sampler_controls():
 
     def handler(request: httpx.Request):
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": [{"id": "bonsai"}]})
+            return httpx.Response(200, json={"data": [{"id": "external-test"}]})
         captured.update(json.loads(request.content))
         return httpx.Response(200, json={
             "choices": [{"message": {"content": "hello"}, "finish_reason": "stop"}],
@@ -24,7 +24,7 @@ def test_external_backend_maps_openai_response_and_sampler_controls():
         })
 
     async def scenario():
-        backend = OpenAICompatibleBackend(base_url="http://local", model="bonsai", context_length=262144)
+        backend = OpenAICompatibleBackend(base_url="http://local", model="external-test", context_length=262144)
         backend._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://local")
         backend._ready = True
         result = await backend.generate(GenerateRequest(
@@ -38,15 +38,15 @@ def test_external_backend_maps_openai_response_and_sampler_controls():
     assert result.text == "hello"
     assert result.finish_reason is FinishReason.STOP
     assert result.cached_tokens == 3 and result.reasoning_tokens == 1
-    assert captured["model"] == "bonsai"
+    assert captured["model"] == "external-test"
     assert captured["top_k"] == 20 and captured["min_p"] == 0.05
     assert captured["reasoning_effort"] == "low"
 
 
 def test_external_backend_streams_sse_chunks():
     async def stream_bytes():
-        yield b'data: {"choices":[{"delta":{"content":"Bon"},"finish_reason":null}]}\n\n'
-        yield b'data: {"choices":[{"delta":{"content":"sai"},"finish_reason":"stop"}]}\n\n'
+        yield b'data: {"choices":[{"delta":{"content":"exter"},"finish_reason":null}]}\n\n'
+        yield b'data: {"choices":[{"delta":{"content":"nal"},"finish_reason":"stop"}]}\n\n'
         yield b'data: [DONE]\n\n'
 
     class Stream(httpx.AsyncByteStream):
@@ -58,7 +58,7 @@ def test_external_backend_streams_sse_chunks():
         return httpx.Response(200, stream=Stream())
 
     async def scenario():
-        backend = OpenAICompatibleBackend(base_url="http://local", model="bonsai")
+        backend = OpenAICompatibleBackend(base_url="http://local", model="external-test")
         backend._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://local")
         backend._ready = True
         events = [event async for event in backend.stream(GenerateRequest(prompt="hi"))]
@@ -66,6 +66,6 @@ def test_external_backend_streams_sse_chunks():
         return events
 
     events = asyncio.run(scenario())
-    assert "".join(event.token for event in events) == "Bonsai"
+    assert "".join(event.token for event in events) == "external"
     assert events[-1].finish_reason is FinishReason.STOP
     assert events[-1].completion_tokens == 2

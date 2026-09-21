@@ -24,7 +24,7 @@
 
 ### Development (`dev`)
 ```toml
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24,<1", "httpx>=0.27"]
 ```
 - `pytest`: Automated test runner for the 670+ test suites.
 - `httpx`: Asynchronous HTTP client used for testing FastAPI endpoints.
@@ -64,4 +64,3 @@ images = ["pillow>=10"]
 - **CUDA Toolkit**: CUDA 12.1+ / 12.4 supported by PyTorch 2.4+.
 - **Host RAM**: 16 GB minimum (32 GB recommended for large dataset sharding).
 - **Disk Storage**: SSD recommended for fast binary shard memory-mapping.
-

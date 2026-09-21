@@ -10,7 +10,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 def test_gguf_launcher_builds_explicit_resource_command(tmp_path):
-    model = tmp_path / "Bonsai-27B-Q1_0.gguf"
+    model = tmp_path / "model.gguf"
     model.write_bytes(b"GGUF")
     args = Namespace(
         llama_server="llama-server", model=str(model), host="127.0.0.1", port=8080,

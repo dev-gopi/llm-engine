@@ -28,7 +28,10 @@ def test_all_model_and_training_profiles_are_complete() -> None:
         config = load_yaml(path)
         if path.name.startswith("model."):
             assert estimate_model_size(config).parameters > 0
-        if path.name.startswith(("pretraining", "finetuning", "training.")):
+        # ``training.promotion.yaml`` is a checkpoint-promotion policy, not a
+        # trainer profile.  Only trainer profiles carry the runtime settings
+        # asserted below.
+        if path.name.startswith(("pretraining", "finetuning")):
             assert required_training <= config.keys(), path
             assert config["distributed_strategy"] in {"ddp", "fsdp", "fsdp_hybrid", "none"}
             assert config["checkpoint_format"] in {"single_file", "distributed"}

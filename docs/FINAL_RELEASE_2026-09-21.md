@@ -42,4 +42,4 @@ PYTHONPATH=src python -m pytest \
 
 ## Important validation boundary
 
-The repository implements the code paths and interfaces above, but tasks that explicitly require external corpora, trained large checkpoints, long-duration soak tests, or target-GPU measurements remain open until that evidence exists. GGUF models such as Bonsai-27B-Q1_0 are delegated to a compatible optimized runtime rather than falsely emulating architecture-specific low-bit kernels in the native Python model path.
+The repository implements the code paths and interfaces above, but tasks that explicitly require external corpora, trained large checkpoints, long-duration soak tests, or target-GPU measurements remain open until that evidence exists. GGUF models are delegated to a compatible optimized runtime rather than falsely emulating architecture-specific low-bit kernels in the native Python model path.

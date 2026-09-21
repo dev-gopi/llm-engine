@@ -438,7 +438,7 @@ PYTHONPATH=src python scripts/plan_deployment.py \
   --model-config configs/model.hybrid.gpu.yaml --context-length 8192 --memory-gib 4
 
 # Run a GGUF through llama.cpp, then put the Gopi API/UI in front of it
-python scripts/serve_gguf.py /path/to/Bonsai-27B-Q1_0.gguf --context 8192 --gpu-layers 99
+python scripts/serve_gguf.py /path/to/model.gguf --context 8192 --gpu-layers 99
 GOPI_BACKEND=llama_cpp GOPI_EXTERNAL_BASE_URL=http://127.0.0.1:8080 \
   GOPI_EXTERNAL_MODEL=local-model python scripts/serve.py
 ```
