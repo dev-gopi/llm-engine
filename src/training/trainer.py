@@ -63,6 +63,9 @@ class Trainer:
         self.last_clipped_gradient_norm = float("nan")
         self.last_logit_abs_mean = float("nan")
         self.last_logit_abs_max = float("nan")
+        self.last_loss = float("nan")
+        self.last_parameter_norm = float("nan")
+        self.last_gradient_to_parameter_ratio = float("nan")
         self.curriculum_stage = 0
         if gradient_accumulation_steps < 1:
             raise ValueError("gradient_accumulation_steps must be positive")
@@ -142,6 +145,7 @@ class Trainer:
             raise FloatingPointError(
                 f"non-finite training loss at optimizer step {self.global_step}"
             )
+        self.last_loss = float(loss.detach())
         # Mean-of-means overweights short answers. Accumulate token sums and
         # normalize once over the complete window, including a partial epoch.
         # The fixed scale keeps backward magnitudes near ordinary mean loss;
@@ -218,6 +222,11 @@ class Trainer:
             self.scheduler.step()
         if self.ema is not None:
             self.ema.update(self.model)
+        self.last_parameter_norm = float(self._parameter_norm())
+        self.last_gradient_to_parameter_ratio = (
+            self.last_gradient_norm / self.last_parameter_norm
+            if self.last_parameter_norm else float("inf")
+        )
         self.global_step += 1
         return True
 
@@ -227,6 +236,13 @@ class Trainer:
             for parameter in self.model.parameters()
             if parameter.grad is not None
         ]
+        if not norms:
+            return torch.tensor(0.0, device=self.device)
+        return torch.stack([norm.to(self.device) for norm in norms]).norm(2)
+
+    def _parameter_norm(self) -> Tensor:
+        """Return a scalar parameter-scale diagnostic without retaining snapshots."""
+        norms = [parameter.detach().float().norm(2) for parameter in self.model.parameters()]
         if not norms:
             return torch.tensor(0.0, device=self.device)
         return torch.stack([norm.to(self.device) for norm in norms]).norm(2)
@@ -739,8 +755,11 @@ class Trainer:
                 "learning_rate": self.learning_rate,
                 "gradient_norm": self.last_gradient_norm,
                 "clipped_gradient_norm": self.last_clipped_gradient_norm,
+                "loss": self.last_loss,
                 "logit_abs_mean": self.last_logit_abs_mean,
                 "logit_abs_max": self.last_logit_abs_max,
+                "parameter_norm": self.last_parameter_norm,
+                "gradient_to_parameter_ratio": self.last_gradient_to_parameter_ratio,
                 "curriculum_stage": self.curriculum_stage,
                 "tokens_processed": self.tokens_processed,
                 "tokens_per_second": self.tokens_per_second,
@@ -804,6 +823,9 @@ class Trainer:
             "last_clipped_gradient_norm": self.last_clipped_gradient_norm,
             "last_logit_abs_mean": self.last_logit_abs_mean,
             "last_logit_abs_max": self.last_logit_abs_max,
+            "last_loss": self.last_loss,
+            "last_parameter_norm": self.last_parameter_norm,
+            "last_gradient_to_parameter_ratio": self.last_gradient_to_parameter_ratio,
             "curriculum_stage": self.curriculum_stage,
         }
 
@@ -833,4 +855,9 @@ class Trainer:
         )
         self.last_logit_abs_mean = float(state.get("last_logit_abs_mean", float("nan")))
         self.last_logit_abs_max = float(state.get("last_logit_abs_max", float("nan")))
+        self.last_loss = float(state.get("last_loss", float("nan")))
+        self.last_parameter_norm = float(state.get("last_parameter_norm", float("nan")))
+        self.last_gradient_to_parameter_ratio = float(
+            state.get("last_gradient_to_parameter_ratio", float("nan"))
+        )
         self.curriculum_stage = int(state.get("curriculum_stage", 0))

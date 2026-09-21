@@ -49,6 +49,17 @@ def test_fit_evaluate_checkpoint_and_resume(tmp_path) -> None:
     assert restored(torch.tensor([[1, 2]])).shape == (1, 2, 16)
 
 
+def test_epoch_history_includes_bounded_stability_diagnostics() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    record = trainer.fit(make_loader(), epochs=1, log_every=0)[-1]
+    assert record["loss"] > 0
+    assert record["gradient_norm"] > 0
+    assert record["parameter_norm"] > 0
+    assert record["gradient_to_parameter_ratio"] > 0
+    assert record["logit_abs_max"] >= record["logit_abs_mean"]
+
+
 def test_single_process_distributed_helpers() -> None:
     context = DistributedTrainer.initialize()
     assert context.world_size == 1

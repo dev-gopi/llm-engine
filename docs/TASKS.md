@@ -1144,11 +1144,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TRAINING`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Systematic LR/batch/scheduler/optimizer experiment runner
+
+- **Relevant files**: `src/training/sweeps.py`, `scripts/run_sweep.py`, `tests/test_training_sweeps.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_training_sweeps.py tests/test_training_system.py tests/test_optim.py -q`
+
+- **Acceptance criteria**: Deterministic versioned manifests expand validated Cartesian trial grids. The CLI plans by default and only executes sequential training trials with `--execute`.
 
 - **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 
@@ -1160,11 +1166,17 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 - **Track**: `TRAINING`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
 - **Description**: Gradient/activation/update/loss stability monitoring
+
+- **Relevant files**: `src/training/trainer.py`, `tests/test_training_system.py`
+
+- **Validation**: `.venv/bin/pytest tests/test_training_system.py tests/test_optim.py tests/test_loss.py -q`
+
+- **Acceptance criteria**: Persisted trainer and epoch-history diagnostics record loss, gradient norms, logit activation scale, parameter scale, and gradient-to-parameter update-scale proxy without retaining activation or parameter snapshots.
 
 - **Source**: `Gopi_LLM_Final_Task_Sheet.xlsx`
 

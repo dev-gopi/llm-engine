@@ -7,6 +7,14 @@ Notable user-visible changes and architectural milestones are recorded here.
 ## [Unreleased] — 2026-09-19: AI Agent Optimization, Audit & Engineering Knowledge System
 
 ### Added
+- **TRAIN-004 Training Stability Diagnostics**: Trainer histories and resume
+  state now record loss, gradient and parameter scales, a gradient-to-parameter
+  update-scale proxy, and bounded logit activation diagnostics without retaining
+  tensor snapshots.
+- **TRAIN-003 Hyperparameter Sweep Framework**: Added deterministic,
+  config-driven Cartesian plans for LR, batch, scheduler, optimizer, and
+  related training axes. The sweep CLI is dry-run by default and requires an
+  explicit flag to execute sequential trials.
 - **TRAIN-001 Scaling-Law Framework**: Added deterministic validation and
   log-compute trend summaries for versioned experiment observations.
 - **TRAIN-002 Compute and Token Accounting**: Added deterministic trainer
