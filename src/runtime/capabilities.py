@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping
+import json
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,20 @@ def _positive_or_none(value: Any) -> int | None:
     return integer if integer > 0 else None
 
 
-def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | None = None) -> ModelCapabilities:
+def load_capability_evidence(path: str | Path = "reports/capability_evidence.json") -> dict[str, bool] | None:
+    source = Path(path)
+    if not source.is_file():
+        return None
+    try:
+        value = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    return {str(key): bool(item) for key, item in value.items() if isinstance(item, bool)}
+
+
+def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | None = None, validation_evidence: Mapping[str, bool] | None = None) -> ModelCapabilities:
     """Build a conservative capability manifest from a live backend.
 
     False is preferred over an optimistic claim when the implementation cannot
@@ -63,7 +77,7 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
     # `backend` attribute.  Resolve it without requiring a particular class.
     if generator is None and hasattr(backend, "backend"):
         nested = getattr(backend, "backend")
-        return discover_capabilities(nested, model_config=config)
+        return discover_capabilities(nested, model_config=config, validation_evidence=validation_evidence)
 
     context_length = _positive_or_none(
         getattr(generator, "max_positions", None) or config.get("max_position")
@@ -86,6 +100,20 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
     mcp = bool(mcp_tools)
     kv_cache = bool(generator is not None and hasattr(generator, "_prefill"))
     prefix_caching = bool(getattr(generator, "prefix_cache", None) is not None) if generator else False
+
+    if validation_evidence is not None:
+        # High-risk client-facing capabilities are only advertised after the
+        # release/evaluation gate has produced explicit evidence.
+        for name in ("chat", "streaming", "tool_calling", "structured_outputs", "reasoning", "rag", "mcp"):
+            if name in validation_evidence:
+                value = bool(validation_evidence[name])
+                if name == "chat": chat = chat and value
+                elif name == "streaming": streaming = streaming and value
+                elif name == "tool_calling": tool_calling = tool_calling and value
+                elif name == "structured_outputs": structured_outputs = structured_outputs and value
+                elif name == "reasoning": reasoning = reasoning and value
+                elif name == "rag": rag = rag and value
+                elif name == "mcp": mcp = mcp and value
 
     return ModelCapabilities(
         chat=chat,

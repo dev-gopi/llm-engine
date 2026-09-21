@@ -121,6 +121,18 @@ class PagedKVCache:
             raise ValueError("layer is outside the configured paged cache")
         return PagedLayerKVCache(self, tuple(request_ids), layer)
 
+    @property
+    def memory_bytes(self) -> int:
+        total = 0
+        for request_id, logits in self.entries.values():
+            total += int(logits.numel() * logits.element_size())
+            if request_id in self.allocator.tables:
+                total += sum(
+                    int(self.allocator.storage[page].numel() * self.allocator.storage.element_size())
+                    for page in self.allocator.tables[request_id]
+                )
+        return total
+
 
 class PagedLayerKVCache:
     """Read-only page-table view consumed directly by decode attention.
@@ -186,6 +198,7 @@ class PrefixCache:
             raise ValueError("capacity must be positive")
         self.capacity = capacity
         self._values: OrderedDict[tuple[int, ...], object] = OrderedDict()
+        self.evictions = 0
 
     def get(self, tokens: tuple[int, ...]) -> object | None:
         value = self._values.get(tokens)
@@ -198,6 +211,18 @@ class PrefixCache:
         self._values.move_to_end(tokens)
         while len(self._values) > self.capacity:
             self._values.popitem(last=False)
+            self.evictions += 1
+
+    @property
+    def memory_bytes(self) -> int:
+        total = 0
+        for value in self._values.values():
+            if isinstance(value, tuple) and len(value) == 2:
+                logits, cache = value
+                total += int(getattr(logits, "numel", lambda: 0)() * getattr(logits, "element_size", lambda: 0)())
+                for key, val in cache:
+                    total += int(key.numel() * key.element_size() + val.numel() * val.element_size())
+        return total
 
 
 class PagedPrefixCache:
@@ -210,6 +235,7 @@ class PagedPrefixCache:
         self.capacity = capacity
         self.entries: OrderedDict[tuple[int, ...], tuple[str, Tensor]] = OrderedDict()
         self.counter = 0
+        self.evictions = 0
 
     def get(self, tokens: tuple[int, ...]) -> tuple[Tensor, tuple[tuple[Tensor, Tensor], ...]] | None:
         entry = self.entries.get(tokens)
@@ -236,6 +262,7 @@ class PagedPrefixCache:
         while len(self.entries) >= self.capacity or required_pages > len(self.allocator.free_pages):
             _, (expired, _) = self.entries.popitem(last=False)
             self.allocator.release(expired)
+            self.evictions += 1
         self.counter += 1
         request_id = f"prefix-{self.counter}"
         self.allocator.reserve(request_id, len(tokens))

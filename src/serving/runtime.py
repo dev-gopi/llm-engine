@@ -219,6 +219,10 @@ class ServingRuntime:
             capacity = len(allocator.free_pages) + sum(len(table) for table in allocator.tables.values())
             metrics["paged_kv_pages_used"] = capacity - len(allocator.free_pages)
             metrics["paged_kv_page_utilization"] = (metrics["paged_kv_pages_used"] / capacity if capacity else 0.0)
+        generator = getattr(self.backend, "generator", None)
+        if generator is not None:
+            from evaluation.prefix_cache import collect_prefix_cache_metrics
+            metrics.update({f"prefix_cache_{key}": value for key, value in collect_prefix_cache_metrics(generator).to_dict().items()})
         return metrics
 
     async def _acquire(self) -> None:

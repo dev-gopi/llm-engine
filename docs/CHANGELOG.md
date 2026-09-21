@@ -179,3 +179,14 @@ Notable user-visible changes and architectural milestones are recorded here.
 
 ## [0.1.0] — Initial Platform Release
 - Initial configuration-driven GPT model, tokenizer, training, evaluation, generation, export, and serving implementation.
+
+## 2026-09-21 — Evaluation, embeddings, observability and release gates
+
+- Added OpenAI-compatible API conformance, tool lifecycle conformance, and structured-output conformance suites.
+- Added dedicated `/v1/embeddings` service with deterministic development encoder, batching, dimensions, usage, and metadata discovery.
+- Added prefix-cache hit/miss, cached-token, prefill-saved, memory, and eviction metrics.
+- Added `/health`, `/ready`, and enriched metrics coverage.
+- Added RAG recall/reranking/faithfulness/citation benchmark primitives and release benchmark script.
+- Added checkpoint evaluation/regression/promotion pipeline with release-candidate report generation.
+- Added model card, dataset card, and reproducibility manifest generation.
+- Added capability evidence gating so client-visible capability flags can be tied to explicit validation evidence.

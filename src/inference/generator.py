@@ -94,6 +94,8 @@ class Generator:
         self.prefix_cache_hits = 0
         self.last_speculative_stats = {"proposed_tokens": 0, "accepted_tokens": 0, "acceptance_rate": 0.0, "rounds": 0}
         self.prefix_cache_misses = 0
+        self.prefix_cache_tokens = 0
+        self.prefix_prefill_tokens_saved = 0
         self._base_lora_adapter = lora_adapter_state_dict(self.model)
         if paged_kv_pages:
             first_attention = getattr(model, "blocks", [None])[0].attn
@@ -793,6 +795,8 @@ class Generator:
             cached = self.prefix_cache.get(key)
             if cached is not None:
                 self.prefix_cache_hits += 1
+                self.prefix_cache_tokens += len(key)
+                self.prefix_prefill_tokens_saved += len(key)
                 logits, raw_cache = cached
                 if isinstance(self.prefix_cache, PrefixCache):
                     logits, raw_cache = cached

@@ -26,7 +26,7 @@ from fastapi.security import HTTPBearer
 from utils.config import load_yaml
 from utils.logger import get_logger
 from runtime.cancellation import CancellationRegistry
-from runtime.capabilities import discover_capabilities, load_model_config
+from runtime.capabilities import discover_capabilities, load_model_config, load_capability_evidence
 from model.lifecycle import ModelLifecycleManager
 
 from .runtime import (
@@ -57,6 +57,8 @@ from .schemas import (
 )
 from .workspace import WorkspaceService
 from api.responses import ResponsesRequest, ResponsesResponse, ResponsesOutput
+from api.embeddings import EmbeddingsRequest, EmbeddingsResponse, create_embeddings
+from embeddings import EmbeddingService
 from api.chat_completions import parse_response_format
 from .websocket import router as websocket_router
 from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
@@ -138,6 +140,7 @@ class ServingSettings:
     workspace_root: str = "."
     audit_log_capacity: int = 256
     session_memory_enabled: bool = False
+    embedding_model_name: str = "gopi-embedding-hash"
 
     def __post_init__(self) -> None:
         if self.max_concurrency < 1:
@@ -215,6 +218,7 @@ class ServingSettings:
                 "GOPI_SESSION_MEMORY_ENABLED",
                 bool(serving.get("session_memory_enabled", False)),
             ),
+            embedding_model_name=os.getenv("GOPI_EMBEDDING_MODEL_NAME", str(serving.get("embedding_model_name", "gopi-embedding-hash"))),
         )
 
 
@@ -324,11 +328,13 @@ def create_app(
         continuous_streams=settings.continuous_streams,
     )
     cancellation_registry = CancellationRegistry()
+    embedding_service = EmbeddingService()
     lifecycle = ModelLifecycleManager(runtime.backend)
     application_capabilities = lambda: discover_capabilities(
         runtime.backend,
         model_config=load_model_config(getattr(runtime.backend, "backend", runtime.backend).model_config)
         if hasattr(getattr(runtime.backend, "backend", runtime.backend), "model_config") else {},
+        validation_evidence=load_capability_evidence(os.getenv("GOPI_CAPABILITY_EVIDENCE", "reports/capability_evidence.json")),
     )
 
     @asynccontextmanager
@@ -470,6 +476,10 @@ def create_app(
     async def liveness() -> HealthResponse:
         return _health(settings, runtime, status_value="ok")
 
+    @application.get("/health", response_model=HealthResponse, tags=["health"])
+    async def health_alias() -> HealthResponse:
+        return _health(settings, runtime, status_value="ok")
+
     @application.get(
         "/health/ready",
         response_model=HealthResponse,
@@ -480,6 +490,13 @@ def create_app(
         payload = _health(
             settings, runtime, status_value="ready" if runtime.ready else "not_ready"
         )
+        if runtime.ready:
+            return payload
+        return JSONResponse(status_code=503, content=payload.model_dump(mode="json"))
+
+    @application.get("/ready", response_model=HealthResponse, responses={503: {"model": HealthResponse}}, tags=["health"])
+    async def readiness_alias():
+        payload = _health(settings, runtime, status_value="ready" if runtime.ready else "not_ready")
         if runtime.ready:
             return payload
         return JSONResponse(status_code=503, content=payload.model_dump(mode="json"))
@@ -534,6 +551,34 @@ def create_app(
             architecture=capabilities.architecture,
             context_length=capabilities.context_length,
         )])
+
+    @application.post(
+        "/v1/embeddings",
+        response_model=EmbeddingsResponse,
+        tags=["openai-compatible"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def embeddings(request: EmbeddingsRequest):
+        if request.model != settings.embedding_model_name:
+            raise InvalidGenerationRequestError("unknown embedding model")
+        try:
+            return create_embeddings(request, embedding_service)
+        except ValueError as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+
+    @application.get(
+        "/v1/embeddings/models",
+        tags=["openai-compatible"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def embedding_models():
+        return {"data": [{
+            "id": settings.embedding_model_name,
+            "object": "model",
+            "embedding_dimension": embedding_service.dimension,
+            "dedicated": True,
+            "backend": type(embedding_service.encoder).__name__,
+        }]}
 
     @application.get(
         "/v1/models/{model_id}/capabilities",

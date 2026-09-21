@@ -356,6 +356,15 @@ class OpenAIChatCompletionRequest(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_tool_choice_contract(self):
+        names = {tool.function.name for tool in (self.tools or [])}
+        if self.tool_choice == "required" and not names:
+            raise ValueError("tool_choice=required requires at least one tool")
+        if isinstance(self.tool_choice, OpenAIToolChoiceObject) and self.tool_choice.function.name not in names:
+            raise ValueError(f"tool_choice references unknown tool: {self.tool_choice.function.name}")
+        return self
+
     @field_validator("messages")
     @classmethod
     def validate_messages(
@@ -439,6 +448,14 @@ class OpenAIChatCompletionRequest(BaseModel):
         if self.model != expected_model:
             raise ValueError(f"unknown model: {self.model}")
 
+        tool_names = {tool.function.name for tool in (self.tools or [])}
+        if self.tool_choice == "required" and not tool_names:
+            raise ValueError("tool_choice=required requires at least one tool")
+        if isinstance(self.tool_choice, OpenAIToolChoiceObject):
+            selected = self.tool_choice.function.name
+            if selected not in tool_names:
+                raise ValueError(f"tool_choice references unknown tool: {selected}")
+
         maximum = (
             self.max_completion_tokens
             or self.max_tokens
@@ -489,7 +506,7 @@ class OpenAIChatCompletionRequest(BaseModel):
             stop=stops,
             chat_tools=self.tools or [],
             tool_choice=self.tool_choice,
-            response_format=(self.response_format.model_dump(mode="json") if self.response_format else None),
+            response_format=(self.response_format.model_dump(by_alias=True, mode="json") if self.response_format else None),
             reasoning_effort=self.reasoning_effort,
         )
 

@@ -878,7 +878,7 @@ The following tasks were added during the documentation audit on 2026-09-20. The
 
 - **ID**: `EMB-001`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P2`
 
@@ -1848,7 +1848,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: OpenAI-Compatible API Conformance Suite
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P0`
 
@@ -1888,7 +1888,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Tool Calling Conformance Suite
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P0`
 
@@ -1933,7 +1933,7 @@ The following tasks are present in `Gopi_LLM_Final_Task_Sheet.xlsx` but were not
 
 * **Title**: Structured Output Conformance Suite
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P0`
 
@@ -1977,7 +1977,7 @@ The document also identifies several capabilities that should become implementat
 
 * **Title**: Gopi Embeddings API
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -2013,7 +2013,7 @@ The document also identifies several capabilities that should become implementat
 
 * **Title**: Prefix / Prompt Cache Observability
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -2050,7 +2050,7 @@ The document also identifies several capabilities that should become implementat
 
 * **Title**: Model Health, Readiness & Metrics Endpoints
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P1`
 
@@ -2086,7 +2086,7 @@ The document also identifies several capabilities that should become implementat
 
 * **Title**: Evaluation, Regression & Checkpoint Promotion Pipeline
 
-* **Status**: `TODO`
+* **Status**: `COMPLETED`
 
 * **Priority**: `P0`
 
@@ -2126,7 +2126,7 @@ The document also identifies several capabilities that should become implementat
 
 - **Track**: `RAG`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
@@ -2140,7 +2140,7 @@ The document also identifies several capabilities that should become implementat
 
 - **Track**: `RELEASE`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P0`
 
@@ -2154,7 +2154,7 @@ The document also identifies several capabilities that should become implementat
 
 - **Track**: `RELEASE`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
@@ -2168,7 +2168,7 @@ The document also identifies several capabilities that should become implementat
 
 - **Track**: `RELEASE`
 
-- **Status**: `TODO`
+- **Status**: `COMPLETED`
 
 - **Priority**: `P1`
 
