@@ -53,7 +53,16 @@ export GOPI_TOKENIZER_PATH=data/tokenizer
 export GOPI_CHECKPOINT_PATH=checkpoints/dpo/best.pt
 export GOPI_MODEL_NAME=gopi
 export GOPI_API_KEY='replace-with-a-secret'
+export GOPI_ADMIN_API_KEY='replace-with-a-different-admin-secret'
 ```
+
+Server-backed conversation history, training review/deletion, and audit access require `GOPI_API_KEY`. Model lifecycle controls under `/admin/models/*` additionally require the separate `GOPI_ADMIN_API_KEY`.
+
+When the bundled UI reports that an API key is required, paste the value of
+`GOPI_API_KEY` into its **Connection settings → API key** field. The UI uses it
+for REST requests and native WebSocket streaming, but does not save either API
+key in browser storage. Enter `GOPI_ADMIN_API_KEY` separately only for the
+model lifecycle controls.
 
 Launch the API using the project serving entry point documented in
 [DEPLOYMENT.md](DEPLOYMENT.md), then use the browser UI or an OpenAI-compatible

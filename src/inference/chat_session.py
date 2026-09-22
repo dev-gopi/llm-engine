@@ -184,8 +184,10 @@ class ChatSession:
                 messages[-1]["content"] = corrected_response
             payload = json.dumps(messages, ensure_ascii=False, sort_keys=True)
             with closing(sqlite3.connect(self.store.path)) as connection, connection:
-                connection.execute("INSERT OR IGNORE INTO approved_chat_examples VALUES (?, ?)",
-                                   (self.session_id, payload))
+                connection.execute(
+                    "INSERT OR IGNORE INTO approved_chat_examples(session_id, messages) VALUES (?, ?)",
+                    (self.session_id, payload),
+                )
             self._pending = None
 
     def export_training(self, path):
@@ -207,7 +209,7 @@ class ChatSession:
     def forget(self, *, include_training_examples=False):
         """Delete stored history; optionally delete this session's approved data."""
         with self._lock:
-            self.store.delete(self.session_id)
+            self.store.delete(self.session_id, include_training_examples=include_training_examples)
             self._pending = None
             if include_training_examples:
                 with closing(sqlite3.connect(self.store.path)) as connection, connection:

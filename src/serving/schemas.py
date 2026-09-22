@@ -148,7 +148,7 @@ class GenerateRequest(StrictSchema):
     @classmethod
     def deduplicate_tools(cls, values: list[str]) -> list[str]:
         normalized = list(dict.fromkeys(values))
-        unsupported = set(normalized) - {"calculator"}
+        unsupported = set(normalized) - {"calculator", "datetime"}
         if unsupported:
             raise ValueError(
                 f"unsupported legacy tools: {', '.join(sorted(unsupported))}"
@@ -366,7 +366,7 @@ class OpenAIResponseFormat(BaseModel):
     json_schema: OpenAIJSONSchema | None = None
 
 class OpenAIChatCompletionRequest(BaseModel):
-    """OpenAI Chat Completions compatible request used by the serving API."""
+    """OpenAI-compatible chat request plus explicit Gopi serving extensions."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -379,6 +379,18 @@ class OpenAIChatCompletionRequest(BaseModel):
     stream: bool = False
     response_format: OpenAIResponseFormat | None = None
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
+
+    # Gopi serving extensions. They make the browser UI and OpenAI-compatible
+    # clients share one fully-featured contract without changing standard fields.
+    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
+    mode: Literal["balanced", "creative", "precise", "coding"] = "balanced"
+    web_search: bool = False
+    rag: bool = False
+    mcp: bool = False
+    mcp_server: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
+    attachments: list[TextAttachment] = Field(default_factory=list, max_length=8)
+    no_repeat_ngram_size: int = Field(default=3, ge=0, le=16)
+    min_tokens: int = Field(default=1, ge=0, le=1_000_000)
 
     max_tokens: int | None = Field(default=None, ge=1, le=1_000_000)
     max_completion_tokens: int | None = Field(
@@ -587,18 +599,27 @@ class OpenAIChatCompletionRequest(BaseModel):
 
         request = GenerateRequest(
             prompt=latest_user,
+            session_id=self.session_id,
+            mode=self.mode,
             max_tokens=maximum,
             temperature=self.temperature,
             top_k=self.top_k,
             top_p=self.top_p,
             min_p=self.min_p,
             repetition_penalty=self.repetition_penalty,
+            no_repeat_ngram_size=self.no_repeat_ngram_size,
+            min_tokens=self.min_tokens,
             seed=self.seed,
             stop=stops,
             chat_tools=self.tools or [],
             tool_choice=self.tool_choice,
             response_format=(self.response_format.model_dump(by_alias=True, mode="json") if self.response_format else None),
             reasoning_effort=self.reasoning_effort,
+            web_search=self.web_search,
+            rag=self.rag,
+            mcp=self.mcp,
+            mcp_server=self.mcp_server,
+            attachments=self.attachments,
         )
 
         request._chat_messages = [
@@ -717,12 +738,56 @@ class WorkspaceAgentResponse(StrictSchema):
     results: list[dict]
 
 
+class SessionSummary(StrictSchema):
+    session_id: str
+    updated: float
+    message_count: int = Field(ge=0)
+    title: str
+
+
+class SessionListResponse(StrictSchema):
+    sessions: list[SessionSummary]
+
+
+class SessionMemoryResponse(StrictSchema):
+    session_id: str
+    messages: list[dict[str, Any]]
+
+
+class SessionDeleteResponse(StrictSchema):
+    session_id: str
+    deleted: bool
+
+
+class TrainingReviewResponse(StrictSchema):
+    session_id: str
+    prompt: str
+    answer: str
+
+
+class TrainingApprovalRequest(StrictSchema):
+    approved: bool = True
+    corrected_response: str | None = Field(default=None, max_length=262_144)
+
+
+class TrainingApprovalResponse(StrictSchema):
+    session_id: str
+    approved: bool
+    example_count: int = Field(ge=0)
+
+
+class TrainingDeleteResponse(StrictSchema):
+    session_id: str
+    deleted_count: int = Field(ge=0)
+
+
 class HealthResponse(StrictSchema):
     status: Literal["ok", "ready", "not_ready"]
     service: str
     version: str
     model: str
     ready: bool
+    authentication_required: bool
 
 
 class ErrorDetail(StrictSchema):

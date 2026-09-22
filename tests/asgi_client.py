@@ -38,3 +38,6 @@ class ASGIClient:
 
     def post(self, url: str, **kwargs: Any) -> httpx.Response:
         return self.request("POST", url, **kwargs)
+
+    def options(self, url: str, **kwargs: Any) -> httpx.Response:
+        return self.request("OPTIONS", url, **kwargs)

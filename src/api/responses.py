@@ -1,7 +1,7 @@
 """OpenAI-compatible Responses API request/response contracts."""
 from __future__ import annotations
 from typing import Any, Literal
-from serving.schemas import OpenAITool
+from serving.schemas import OpenAITool, OpenAIResponseFormat, OpenAIToolChoice
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class ResponseInput(BaseModel):
@@ -17,14 +17,50 @@ class ResponsesRequest(BaseModel):
     max_output_tokens: int = Field(default=128, ge=1, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
     top_p: float = Field(default=0.9, gt=0, le=1)
-    top_k: int = Field(default=40, ge=0)
+    top_k: int = Field(default=40, ge=0, le=100_000)
     min_p: float = Field(default=0, ge=0, le=1)
-    seed: int | None = Field(default=None, ge=0)
+    seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     stop: str | list[str] | None = None
-    response_format: dict[str, Any] | None = None
+    response_format: OpenAIResponseFormat | None = None
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
-    tools: list[dict[str, Any]] = Field(default_factory=list)
-    tool_choice: Any = "auto"
+    tools: list[dict[str, Any]] = Field(default_factory=list, max_length=128)
+    tool_choice: OpenAIToolChoice = "auto"
+    session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
+    mode: Literal["balanced", "creative", "precise", "coding"] = "balanced"
+    repetition_penalty: float = Field(default=1.1, ge=0.1, le=2.0)
+    no_repeat_ngram_size: int = Field(default=3, ge=0, le=16)
+    min_tokens: int = Field(default=1, ge=0, le=1_000_000)
+    mcp: bool = False
+    mcp_server: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
+
+    @field_validator("input")
+    @classmethod
+    def validate_input(cls, value):
+        if isinstance(value, str):
+            if not value.strip():
+                raise ValueError("input cannot be empty")
+            if len(value) > 262_144:
+                raise ValueError("input cannot exceed 262144 characters")
+            return value
+        if not value:
+            raise ValueError("input must contain at least one message")
+        if len(value) > 256:
+            raise ValueError("input cannot contain more than 256 messages")
+        return value
+
+    @field_validator("stop")
+    @classmethod
+    def validate_stop(cls, value):
+        values = [value] if isinstance(value, str) else list(value or [])
+        normalized = []
+        for item in values:
+            if not item:
+                raise ValueError("stop sequences cannot be empty")
+            if len(item) > 1024:
+                raise ValueError("stop sequences cannot exceed 1024 characters")
+            if item not in normalized:
+                normalized.append(item)
+        return normalized[0] if isinstance(value, str) else normalized if value is not None else None
 
     @field_validator("tools")
     @classmethod

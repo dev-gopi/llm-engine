@@ -100,13 +100,14 @@ async def generate_stream(websocket: WebSocket) -> None:
         except WebSocketDisconnect:
             return
         except ValidationError as error:
+            details = error.errors(include_url=False)
+            first = details[0] if details else {"loc": ("request",), "msg": "invalid request"}
+            path = ".".join(str(part) for part in first.get("loc", ("request",)))
+            message = f"Invalid {path}: {first.get('msg', 'invalid value')}."
             await websocket.send_json(
                 StreamErrorEvent(
                     id=request_id,
-                    error=ErrorDetail(
-                        code="validation_error",
-                        message=error.errors(include_url=False)[0]["msg"],
-                    ),
+                    error=ErrorDetail(code="validation_error", message=message),
                 ).model_dump(mode="json")
             )
         except ServingError as error:

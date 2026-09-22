@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Local test interface for the Gopi language model">
+    <meta name="description" content="Local Gopi language model playground and backend control console">
     <title>Gopi Playground</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -14,103 +14,111 @@
         <div>
           <p class="eyebrow">LOCAL MODEL PLAYGROUND</p>
           <h1>Talk with <span>Gopi</span></h1>
-          <p class="subtitle">Your private, local, general-purpose AI assistant.</p>
+          <p class="subtitle">Chat, vision, tools, retrieval, model diagnostics, and server-backed conversation history.</p>
         </div>
-        <button id="healthButton" class="status" type="button" aria-label="Check server status">
-          <i></i><span id="healthText">Check server</span>
-        </button>
+        <div class="top-actions">
+          <button id="healthButton" class="status" type="button" aria-label="Check server status">
+            <i></i><span id="healthText">Check server</span>
+          </button>
+          <button id="newChatTop" class="secondary" type="button">＋ New chat</button>
+        </div>
       </header>
 
       <section class="workspace">
-        <aside class="controls" aria-label="Generation settings">
-          <h2>Connection</h2>
-          <label>API base URL
-            <input id="baseUrl" type="url" value="" placeholder="Same origin">
-          </label>
-          <label>API key <small>(optional)</small>
-            <input id="apiKey" type="password" autocomplete="off" placeholder="Bearer token">
-          </label>
-          <label class="switch-row">
-            <span>Stream response</span>
-            <input id="stream" type="checkbox" checked>
-          </label>
-          <div id="modelSummary" class="model-summary" aria-live="polite">
-            Model details appear after a health check.
-          </div>
+        <aside class="sidebar" aria-label="Conversations and controls">
+          <section class="history-section">
+            <div class="section-head">
+              <div>
+                <h2>Conversations</h2>
+                <small id="historyStatus">Local history is available.</small>
+              </div>
+              <button id="refreshHistory" class="icon-button" type="button" title="Refresh history" aria-label="Refresh history">↻</button>
+            </div>
+            <div id="conversationList" class="conversation-list" aria-live="polite"></div>
+          </section>
 
-          <label>Response format
-            <select id="responseFormat">
-              <option value="plain">Plain text</option>
-              <option value="markdown">Markdown</option>
-            </select>
-          </label>
-          <label class="switch-row">
-            <span>Web search</span>
-            <input id="webSearch" type="checkbox">
-          </label>
-
-          <h2>Sampling</h2>
-          <label>Maximum tokens <output id="maxTokensValue">128</output>
-            <input id="maxTokens" type="range" min="1" max="512" value="128">
-          </label>
-          <label>Temperature <output id="temperatureValue">0.7</output>
-            <input id="temperature" type="range" min="0" max="2" step="0.1" value="0.7">
-          </label>
-          <label>Top K
-            <input id="topK" type="number" min="0" max="100000" value="40">
-          </label>
-          <label>Top P
-            <input id="topP" type="number" min="0.01" max="1" step="0.01" value="0.9">
-          </label>
-          <label>Minimum tokens <small>(delays early EOS; not a quality guarantee)</small>
-            <input id="minTokens" type="number" min="0" max="512" value="1">
-          </label>
-          <label>Block repeated phrases <small>(token n-gram size; 0 disables)</small>
-            <input id="noRepeatNgram" type="number" min="0" max="16" value="3">
-          </label>
-          <small>High repetition restrictions can disrupt code and quotations. Lower temperature for more deterministic output.</small>
-          <label>Min P <small>(0 disables)</small>
-            <input id="minP" type="number" min="0" max="1" step="0.01" value="0">
-          </label>
-          <label>Stop strings <small>(one per line, up to 16)</small>
-            <textarea id="stopStrings" rows="2"></textarea>
-          </label>
-          <label><input id="useMemory" type="checkbox" checked> Use conversation memory</label>
-          <small>Server history uses this tab’s session. Turning memory off sends independent requests. New chat does not delete server records.</small>
-          <label>Repetition penalty
-            <input id="repetitionPenalty" type="number" min="0.1" max="2" step="0.1" value="1.2">
-          </label>
-          <label>Seed <small>(blank = random)</small>
-            <input id="seed" type="number" min="0" placeholder="123">
-          </label>
-          <button id="resetButton" class="secondary" type="button">Reset settings</button>
-        </aside>
-
-        <section class="chat" aria-label="Chat playground">
-          <div id="messages" class="messages" aria-live="polite"></div>
-
-          <details id="trainingReview" class="training-review">
-            <summary>Review a response for training</summary>
-            <p>Load the last completed reply, review both fields, then download a training example. Include any context needed to understand the answer. This does not train the model.</p>
-            <button id="reviewLast" class="secondary" type="button" disabled>Load last reply</button>
-            <label>Prompt<textarea id="reviewPrompt" rows="3"></textarea></label>
-            <label>Reviewed or corrected answer<textarea id="reviewAnswer" rows="5"></textarea></label>
-            <label><input id="approveExample" type="checkbox"> I reviewed this example and want to use it for training</label>
-            <button id="exportExample" class="secondary" type="button">Download approved JSONL</button>
-            <p id="reviewStatus" role="status"></p>
-          </details>
-          <div id="errorBox" class="error" role="alert" hidden></div>
-          <form id="promptForm" class="composer">
-            <div class="mode-bar">
-              <label for="chatMode">Mode</label>
-              <select id="chatMode" aria-describedby="modeDescription">
-                <option value="balanced">⚖ Balanced</option>
-                <option value="creative">✦ Creative</option>
-                <option value="precise">◎ Precise</option>
-                <option value="coding">&lt;/&gt; Coding</option>
+          <section class="controls" aria-label="Generation settings">
+            <h2>Connection</h2>
+            <label>API base URL
+              <input id="baseUrl" type="url" value="" placeholder="Same origin" inputmode="url">
+            </label>
+            <label>API key <small>(optional)</small>
+              <input id="apiKey" type="password" autocomplete="off" placeholder="Bearer token">
+            </label>
+            <label>Admin API key <small>(optional)</small>
+              <input id="adminApiKey" type="password" autocomplete="off" placeholder="X-Admin-API-Key">
+            </label>
+            <label>API mode
+              <select id="apiMode">
+                <option value="generate">Native Generate</option>
+                <option value="chat">Chat Completions</option>
+                <option value="responses">Responses API</option>
               </select>
-              <span id="modeDescription">Natural answers for everyday questions</span>
-              <label class="reasoning-control" for="reasoningEffort">Reasoning
+            </label>
+            <label class="switch-row">
+              <span>Stream response</span>
+              <input id="stream" type="checkbox" checked>
+            </label>
+            <label class="switch-row">
+              <span>Use server memory</span>
+              <input id="useMemory" type="checkbox" checked>
+            </label>
+            <div id="modelSummary" class="model-summary" aria-live="polite">Model details appear after a health check.</div>
+
+            <h2>Generation</h2>
+            <label>Response format
+              <select id="responseFormat">
+                <option value="plain">Plain text</option>
+                <option value="markdown">Markdown</option>
+                <option value="json_object">JSON object (Chat/Responses)</option>
+                <option value="json_schema">JSON schema (Chat/Responses)</option>
+              </select>
+            </label>
+            <label id="jsonSchemaWrap" hidden>JSON schema
+              <textarea id="jsonSchema" rows="6" spellcheck="false">{"name":"response","schema":{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false},"strict":true}</textarea>
+            </label>
+            <label>Maximum tokens <output id="maxTokensValue">128</output>
+              <input id="maxTokens" type="range" min="1" max="8192" value="128">
+            </label>
+            <label>Temperature <output id="temperatureValue">0.7</output>
+              <input id="temperature" type="range" min="0" max="2" step="0.1" value="0.7">
+            </label>
+            <label>Top K
+              <input id="topK" type="number" min="0" max="100000" value="40">
+            </label>
+            <label>Top P
+              <input id="topP" type="number" min="0.01" max="1" step="0.01" value="0.9">
+            </label>
+            <label>Minimum tokens
+              <input id="minTokens" type="number" min="0" max="1000000" value="1">
+            </label>
+            <label>Min P <small>(0 disables)</small>
+              <input id="minP" type="number" min="0" max="1" step="0.01" value="0">
+            </label>
+            <label>Repetition penalty
+              <input id="repetitionPenalty" type="number" min="0.1" max="2" step="0.05" value="1.1">
+            </label>
+            <label>Block repeated phrases <small>(n-gram size; 0 disables)</small>
+              <input id="noRepeatNgram" type="number" min="0" max="16" value="3">
+            </label>
+            <label>Seed <small>(blank = random)</small>
+              <input id="seed" type="number" min="0" placeholder="123">
+            </label>
+            <label>Stop strings <small>(one per line, up to 16)</small>
+              <textarea id="stopStrings" rows="2"></textarea>
+            </label>
+
+            <h2>Modes &amp; tools</h2>
+            <div class="mode-grid">
+              <label>Mode
+                <select id="chatMode">
+                  <option value="balanced">⚖ Balanced</option>
+                  <option value="creative">✦ Creative</option>
+                  <option value="precise">◎ Precise</option>
+                  <option value="coding">&lt;/&gt; Coding</option>
+                </select>
+              </label>
+              <label>Reasoning
                 <select id="reasoningEffort">
                   <option value="none">None</option>
                   <option value="low">Low</option>
@@ -118,25 +126,86 @@
                   <option value="high">High</option>
                 </select>
               </label>
-              <details class="tool-menu">
-                <summary>＋ Tools <b id="toolCount" hidden>0</b></summary>
-                <div class="tool-popover">
-                  <label><input id="calculatorTool" type="checkbox"> <span><strong>Calculator</strong><small>Accurate arithmetic</small></span></label>
-                  <label><input id="datetimeTool" type="checkbox"> <span><strong>Date &amp; time</strong><small>Current server time</small></span></label>
-                  <label><input id="searchTool" type="checkbox"> <span><strong>Web search</strong><small>Current information</small></span></label>
-                  <label><input id="ragTool" type="checkbox"> <span><strong>Local documents</strong><small>Combine with web for hybrid search</small></span></label>
-                  <label><input id="mcpTool" type="checkbox"> <span><strong>MCP tools</strong><small>Allowlisted external tools</small></span></label>
-                  <label>MCP server
-                    <input id="mcpServer" type="text" value="filesystem" pattern="[A-Za-z0-9._-]{1,128}" placeholder="filesystem">
-                  </label>
-                </div>
-              </details>
             </div>
-            <label for="prompt" class="sr-only">Message</label>
-            <textarea id="prompt" rows="3" maxlength="131072" required placeholder="Ask Gopi something…"></textarea>
-            <label>Attach text/code files <small>(up to 8 files, 256KB each)</small>
-              <input id="attachments" type="file" multiple accept="text/*,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.md,.csv">
+            <div class="tool-grid">
+              <label><input id="calculatorTool" type="checkbox"> Calculator</label>
+              <label><input id="datetimeTool" type="checkbox"> Date &amp; time</label>
+              <label><input id="searchTool" type="checkbox"> Web search</label>
+              <label><input id="ragTool" type="checkbox"> Local RAG</label>
+              <label><input id="mcpTool" type="checkbox"> MCP tools</label>
+            </div>
+            <label>MCP server
+              <input id="mcpServer" type="text" value="filesystem" pattern="[A-Za-z0-9._-]{1,128}" placeholder="filesystem">
             </label>
+
+            <details class="advanced-panel">
+              <summary>Developer console</summary>
+              <div class="advanced-content">
+                <div class="button-row">
+                  <button id="refreshModel" class="secondary" type="button">Model details</button>
+                  <button id="contextInfo" class="secondary" type="button">Context</button>
+                  <button id="compactContext" class="secondary" type="button">Compact</button>
+                  <button id="metricsButton" class="secondary" type="button">Metrics</button>
+                  <button id="auditButton" class="secondary" type="button">Audit</button>
+                </div>
+                <pre id="diagnosticOutput" class="diagnostic" aria-live="polite">Ready.</pre>
+
+                <h3>Embeddings</h3>
+                <textarea id="embeddingInput" rows="3" placeholder="Text to embed"></textarea>
+                <button id="embeddingButton" class="secondary" type="button">Create embedding</button>
+
+                <h3>Workspace action</h3>
+                <textarea id="workspaceAction" rows="8" spellcheck="false">{"actions":[{"type":"read","path":"README.md"}]}</textarea>
+                <button id="workspaceButton" class="secondary" type="button">Run workspace action</button>
+
+                <h3>Model lifecycle</h3>
+                <div class="button-row">
+                  <button id="lifecycleStatus" class="secondary" type="button">Status</button>
+                  <button id="lifecycleLoad" class="secondary" type="button">Load</button>
+                  <button id="lifecycleReload" class="secondary" type="button">Reload</button>
+                  <button id="lifecycleUnload" class="secondary" type="button">Unload</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="advanced-panel">
+              <summary>Training review</summary>
+              <div class="advanced-content">
+                <p>Review the last completed server-backed answer, optionally correct it, then explicitly approve before exporting.</p>
+                <button id="reviewLast" class="secondary" type="button" disabled>Load last reply</button>
+                <label>Prompt<textarea id="reviewPrompt" rows="3"></textarea></label>
+                <label>Reviewed answer<textarea id="reviewAnswer" rows="5"></textarea></label>
+                <label class="check-row"><input id="approveExample" type="checkbox"> I approve this example</label>
+                <div class="button-row">
+                  <button id="approveTraining" class="secondary" type="button">Approve</button>
+                  <button id="exportExample" class="secondary" type="button">Export</button>
+                  <button id="deleteTraining" class="danger-button" type="button">Delete training examples</button>
+                </div>
+                <p id="reviewStatus" role="status"></p>
+              </div>
+            </details>
+
+            <button id="resetButton" class="secondary" type="button">Reset settings</button>
+          </section>
+        </aside>
+
+        <section class="chat" aria-label="Chat playground">
+          <div class="chat-banner">
+            <div>
+              <strong id="conversationTitle">New conversation</strong>
+              <span id="modeDescription">Natural answers for everyday questions</span>
+            </div>
+            <span id="transportBadge" class="badge">Native</span>
+          </div>
+          <div id="messages" class="messages" aria-live="polite"></div>
+          <div id="errorBox" class="error" role="alert" hidden></div>
+          <form id="promptForm" class="composer">
+            <label for="prompt" class="sr-only">Message</label>
+            <textarea id="prompt" rows="3" maxlength="262144" required placeholder="Ask Gopi something…"></textarea>
+            <label class="attachments-label">Attach text/code or images <small>(up to 8 text files and 4 images; server limits still apply)</small>
+              <input id="attachments" type="file" multiple accept="text/*,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.md,.csv,image/png,image/jpeg,image/webp,image/gif">
+            </label>
+            <div id="attachmentPreview" class="attachment-preview" aria-live="polite"></div>
             <div class="composer-footer">
               <span id="usage">No generation yet</span>
               <div>

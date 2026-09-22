@@ -30,6 +30,7 @@ control:
 
 ```bash
 export GOPI_API_KEY='replace-with-a-long-random-value'
+export GOPI_ADMIN_API_KEY='replace-with-a-different-long-random-value'
 export GOPI_CHECKPOINT_PATH='checkpoints/dpo/best.pt'
 export GOPI_MODEL_CONFIG='configs/model.gpu.yaml'
 export GOPI_TOKENIZER_PATH='data/tokenizer'
@@ -52,7 +53,7 @@ For the container deployment, create the local production environment file:
 cp .env.production.example .env.production
 ```
 
-Replace `GOPI_API_KEY` with at least 32 random characters. `.env.production` is
+Replace `GOPI_API_KEY` and `GOPI_ADMIN_API_KEY` with two different secrets of at least 32 random characters. `.env.production` is
 ignored by Git; the example file is safe to commit because it contains no real
 secret. On Linux, set `GOPI_UID` and `GOPI_GID` to the output of `id -u` and
 `id -g`; this lets the non-root API process read host-mounted tokenizer and
@@ -60,6 +61,8 @@ checkpoint files without making those model artifacts world-readable.
 MCP is disabled by default in Compose because the minimal image does not ship
 Node/`npx` or external MCP servers. Build and review those dependencies before
 setting `GOPI_MCP_ENABLED=true`.
+
+For troubleshooting API/session/admin authentication behavior, see [RUNTIME_AUTH_TROUBLESHOOTING.md](../RUNTIME_AUTH_TROUBLESHOOTING.md).
 
 ## 4. Start and verify
 

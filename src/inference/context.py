@@ -192,9 +192,27 @@ class SQLiteSessionStore:
         self.ttl_seconds = ttl_seconds
         self._database_lock = RLock()
         with self._connect() as connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, messages TEXT NOT NULL, updated REAL NOT NULL)")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, messages TEXT NOT NULL, updated REAL NOT NULL)"
+            )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(updated)"
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS approved_chat_examples (
+                    session_id TEXT NOT NULL,
+                    messages TEXT NOT NULL,
+                    created REAL NOT NULL DEFAULT (strftime('%s','now')),
+                    PRIMARY KEY(session_id, messages)
+                )"""
+            )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(approved_chat_examples)").fetchall()}
+            if "created" not in columns:
+                connection.execute(
+                    "ALTER TABLE approved_chat_examples ADD COLUMN created REAL NOT NULL DEFAULT 0"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS approved_chat_examples_session ON approved_chat_examples(session_id, created)"
             )
 
     def load(self, session_id: str) -> ConversationMemory:
@@ -205,23 +223,136 @@ class SQLiteSessionStore:
         if row and row[1] >= cutoff:
             memory.restore(json.loads(row[0]))
         elif row:
-            self.delete(session_id)
+            self.delete(session_id, include_training_examples=True)
         return memory
 
     def save(self, session_id: str, memory: ConversationMemory) -> None:
         payload = json.dumps([{"role": message.role, "content": message.content} for message in memory.snapshot()])
         with self._database_lock, self._connect() as connection:
-            connection.execute(
-                "DELETE FROM sessions WHERE updated < ?", (time.time() - self.ttl_seconds,)
-            )
+            expired = [row[0] for row in connection.execute(
+                "SELECT id FROM sessions WHERE updated < ?", (time.time() - self.ttl_seconds,)
+            ).fetchall()]
+            if expired:
+                connection.executemany("DELETE FROM sessions WHERE id = ?", ((item,) for item in expired))
+                connection.executemany("DELETE FROM approved_chat_examples WHERE session_id = ?", ((item,) for item in expired))
             connection.execute(
                 "INSERT INTO sessions VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET messages=excluded.messages, updated=excluded.updated",
                 (session_id, payload, time.time()),
             )
 
-    def delete(self, session_id: str) -> None:
+    def delete(self, session_id: str, *, include_training_examples: bool = False) -> None:
         with self._database_lock, self._connect() as connection:
             connection.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            if include_training_examples:
+                connection.execute("DELETE FROM approved_chat_examples WHERE session_id = ?", (session_id,))
+
+    def list_sessions(self, *, limit: int = 100) -> list[dict]:
+        """Return bounded session metadata without exposing full conversation text."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
+            raise ValueError("session list limit must be between 1 and 500")
+        cutoff = time.time() - self.ttl_seconds
+        with self._database_lock, self._connect() as connection:
+            expired = [row[0] for row in connection.execute(
+                "SELECT id FROM sessions WHERE updated < ?", (cutoff,)
+            ).fetchall()]
+            if expired:
+                connection.executemany("DELETE FROM sessions WHERE id = ?", ((item,) for item in expired))
+                connection.executemany("DELETE FROM approved_chat_examples WHERE session_id = ?", ((item,) for item in expired))
+            rows = connection.execute(
+                "SELECT id, messages, updated FROM sessions ORDER BY updated DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        result: list[dict] = []
+        for session_id, payload, updated in rows:
+            try:
+                messages = json.loads(payload)
+            except (TypeError, ValueError):
+                messages = []
+            if not isinstance(messages, list):
+                messages = []
+            user_text = next(
+                (str(item.get("content", "")) for item in messages
+                 if isinstance(item, dict) and item.get("role") == "user" and item.get("content")),
+                "",
+            )
+            assistant_text = next(
+                (str(item.get("content", "")) for item in reversed(messages)
+                 if isinstance(item, dict) and item.get("role") == "assistant" and item.get("content")),
+                "",
+            )
+            title_source = user_text or assistant_text or "New conversation"
+            title = " ".join(title_source.split())[:96]
+            result.append({
+                "session_id": session_id,
+                "updated": float(updated),
+                "message_count": len(messages),
+                "title": title,
+            })
+        return result
+
+    def review_last(self, session_id: str) -> dict | None:
+        """Return the latest user/assistant pair for explicit training review."""
+        memory = self.load(session_id)
+        messages = [
+            {"role": item.role, "content": item.content}
+            for item in memory.snapshot()
+            if item.role != "system"
+        ]
+        for index in range(len(messages) - 1, 0, -1):
+            if messages[index]["role"] == "assistant" and messages[index - 1]["role"] == "user":
+                return {"prompt": messages[index - 1]["content"], "answer": messages[index]["content"]}
+        return None
+
+    def approve_last(self, session_id: str, *, corrected_response: str | None = None) -> int:
+        """Persist a bounded conversation snapshot only after explicit approval."""
+        memory = self.load(session_id)
+        messages = [{"role": item.role, "content": item.content} for item in memory.snapshot()]
+        if not messages:
+            raise ValueError("no conversation to approve")
+        if messages[-1].get("role") != "assistant" or not str(messages[-1].get("content", "")).strip():
+            raise ValueError("no completed assistant response to approve")
+        if corrected_response is not None:
+            if not isinstance(corrected_response, str) or not corrected_response.strip():
+                raise ValueError("corrected_response must be nonempty text")
+            messages[-1]["content"] = corrected_response.strip()
+        payload = json.dumps(messages, ensure_ascii=False, sort_keys=True)
+        with self._database_lock, self._connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO approved_chat_examples(session_id, messages) VALUES (?, ?)",
+                (session_id, payload),
+            )
+            count = connection.execute(
+                "SELECT COUNT(*) FROM approved_chat_examples WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()[0]
+        return int(count)
+
+    def export_training_jsonl(self, session_id: str) -> str:
+        """Serialize approved examples for one session into bounded JSONL text."""
+        with self._database_lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT messages FROM approved_chat_examples WHERE session_id = ? ORDER BY created, rowid",
+                (session_id,),
+            ).fetchall()
+        if not rows:
+            raise ValueError("no approved examples to export")
+        output = []
+        total_chars = 0
+        for (messages,) in rows:
+            record = json.dumps({"messages": json.loads(messages)}, ensure_ascii=False)
+            total_chars += len(record) + 1
+            if total_chars > 1_000_000:
+                raise ValueError("approved training export exceeds the 1MB limit")
+            output.append(record)
+        return "\n".join(output) + "\n"
+
+    def delete_training(self, session_id: str) -> int:
+        with self._database_lock, self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM approved_chat_examples WHERE session_id = ?",
+                (session_id,),
+            )
+            return int(cursor.rowcount)
 
     @contextmanager
     def _connect(self):

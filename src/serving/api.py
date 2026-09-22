@@ -55,6 +55,9 @@ from .schemas import (
     WorkspaceAgentRequest,
     WorkspaceAgentResponse,
     OpenAITool,
+    SessionListResponse, SessionMemoryResponse, SessionDeleteResponse,
+    TrainingReviewResponse, TrainingApprovalRequest, TrainingApprovalResponse,
+    TrainingDeleteResponse,
 )
 from .workspace import WorkspaceService
 from api.responses import ResponsesRequest, ResponsesResponse, ResponsesOutput
@@ -113,9 +116,9 @@ def _add_security_headers(response: Response, *, is_https: bool) -> None:
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; frame-ancestors 'none'; object-src 'none'; "
         "base-uri 'self'; img-src 'self' data:; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "connect-src 'self' ws: wss:"
+        "style-src 'self'; "
+        "script-src 'self'; "
+        "connect-src 'self' http: https: ws: wss:"
     )
     if is_https:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -293,6 +296,13 @@ def _session_context_usage(store, session_id: str, *, reserve_tokens: int) -> di
     }
 
 
+def _validate_session_id_value(session_id: str) -> None:
+    if not REQUEST_ID_PATTERN.fullmatch(session_id):
+        raise InvalidGenerationRequestError(
+            "session id must be 1-128 characters using only letters, numbers, dot, underscore, or hyphen"
+        )
+
+
 async def _generate_with_disconnect(runtime: ServingRuntime, request: Request, generation_request: GenerateRequest, *, request_id: str | None = None, registry: CancellationRegistry | None = None):
     task = asyncio.create_task(runtime.generate(generation_request))
     if request_id and registry:
@@ -321,6 +331,16 @@ def create_app(
     settings: ServingSettings | None = None,
 ) -> FastAPI:
     settings = settings or ServingSettings.from_environment()
+    if settings.session_memory_enabled and not settings.api_key:
+        logger.warning(
+            "Server session history/training features are enabled, but GOPI_API_KEY is not configured; "
+            "those endpoints will remain unavailable until authentication is configured."
+        )
+    if not settings.admin_api_key:
+        logger.warning(
+            "Model lifecycle API is unavailable because GOPI_ADMIN_API_KEY is not configured; "
+            "set a dedicated admin key before using /admin/models/*."
+        )
     runtime = ServingRuntime(
         backend if backend is not None else backend_from_environment(),
         max_concurrency=settings.max_concurrency,
@@ -393,8 +413,8 @@ def create_app(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
             allow_credentials=False,
-            allow_methods=["GET", "POST"],
-            allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+            allow_methods=["GET", "POST", "DELETE"],
+            allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Admin-API-Key"],
             expose_headers=["X-Request-ID"],
         )
 
@@ -403,8 +423,12 @@ def create_app(
         supplied = request.headers.get("X-Request-ID", "")
         request_id = supplied if REQUEST_ID_PATTERN.fullmatch(supplied) else uuid.uuid4().hex
         request.state.request_id = request_id
-        protected_path = request.url.path.startswith("/v1/") or (
-            settings.protect_metrics and request.url.path == "/metrics"
+        # CORS preflight requests must reach CORSMiddleware without bearer auth;
+        # the actual DELETE/POST/GET request remains protected normally.
+        protected_path = request.method != "OPTIONS" and (
+            request.url.path.startswith("/v1/") or (
+                settings.protect_metrics and request.url.path == "/metrics"
+            )
         )
         if protected_path:
             if settings.api_key:
@@ -435,8 +459,11 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, error: RequestValidationError):
-        message = error.errors()[0].get("msg", "invalid request")
-        return _error_response(request, "validation_error", message, 422)
+        first = error.errors()[0] if error.errors() else {}
+        location = first.get("loc", ())
+        field = ".".join(str(part) for part in location if part not in {"body", "query", "path", "header"}) or "request"
+        message = str(first.get("msg", "invalid request")).removeprefix("Value error, ")
+        return _error_response(request, "validation_error", f"Invalid {field}: {message}.", 422)
 
     @application.exception_handler(ServingError)
     async def serving_error_handler(request: Request, error: ServingError):
@@ -458,7 +485,7 @@ def create_app(
     def _require_admin(request: Request):
         """Require a dedicated admin secret; the normal API key is not enough."""
         admin_key = settings.admin_api_key
-        supplied = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        supplied = request.headers.get("X-Admin-API-Key") or request.headers.get("Authorization", "").removeprefix("Bearer ")
         if not admin_key:
             return _error_response(
                 request, "admin_auth_not_configured",
@@ -741,10 +768,16 @@ def create_app(
                     }],
                 }
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
-                cancellation_registry.unregister(completion_id)
                 yield "data: [DONE]\n\n"
 
-            return StreamingResponse(events(), media_type="text/event-stream")
+            async def safe_events():
+                try:
+                    async for event in events():
+                        yield event
+                finally:
+                    cancellation_registry.unregister(completion_id)
+
+            return StreamingResponse(safe_events(), media_type="text/event-stream")
 
         result = await _generate_with_disconnect(runtime, http_request, generation_request, request_id=completion_id, registry=cancellation_registry)
         structured_incomplete = result.structured_output_valid is False
@@ -835,8 +868,10 @@ def create_app(
             prompt=latest, max_tokens=request.max_output_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p, min_p=request.min_p, seed=request.seed,
             stop=([request.stop] if isinstance(request.stop, str) else list(request.stop or [])),
-            response_format=response_format, reasoning_effort=request.reasoning_effort,
-            rag=request.rag, web_search=request.web_search,
+            response_format=(request.response_format.model_dump(by_alias=True, mode="json") if request.response_format else None), reasoning_effort=request.reasoning_effort,
+            session_id=request.session_id, mode=request.mode, repetition_penalty=request.repetition_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
+            rag=request.rag, web_search=request.web_search, mcp=request.mcp, mcp_server=request.mcp_server,
             chat_tools=[OpenAITool.model_validate(tool) for tool in request.tools], tool_choice=request.tool_choice,
         )
         generation_request._chat_messages = messages
@@ -845,15 +880,25 @@ def create_app(
         if request.stream:
             async def events():
                 cancellation_registry.register(response_id, asyncio.current_task())
-                async for event in runtime.stream(generation_request):
-                    if await http_request.is_disconnected():
-                        raise asyncio.CancelledError("client disconnected")
-                    payload = {"type": "response.output_text.delta", "delta": event.token, "response_id": response_id}
-                    if event.finish_reason is not None:
-                        payload = {"type": "response.completed", "response_id": response_id, "finish_reason": event.finish_reason.value}
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                cancellation_registry.unregister(response_id)
-                yield "data: [DONE]\n\n"
+                try:
+                    async for event in runtime.stream(generation_request):
+                        if await http_request.is_disconnected():
+                            raise asyncio.CancelledError("client disconnected")
+                        payload = {"type": "response.output_text.delta", "delta": event.token, "response_id": response_id}
+                        if event.reasoning_token:
+                            payload = {"type": "response.reasoning.delta", "delta": event.reasoning_token, "response_id": response_id}
+                        if event.tool_calls:
+                            payload = {
+                                "type": "response.tool_calls.delta",
+                                "tool_calls": [call.model_dump(mode="json") for call in event.tool_calls],
+                                "response_id": response_id,
+                            }
+                        if event.finish_reason is not None:
+                            payload = {"type": "response.completed", "response_id": response_id, "finish_reason": event.finish_reason.value}
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                finally:
+                    cancellation_registry.unregister(response_id)
             return StreamingResponse(events(), media_type="text/event-stream")
         result = await _generate_with_disconnect(runtime, http_request, generation_request, request_id=response_id, registry=cancellation_registry)
         status_value = "completed" if result.structured_output_valid is not False else "incomplete"
@@ -943,8 +988,9 @@ def create_app(
             )
         if not settings.api_key:
             return _error_response(
-                request, "session_memory_auth_required",
-                "configure GOPI_API_KEY before enabling session memory access", 403,
+                request, "session_memory_auth_not_configured",
+                "server conversation history is unavailable because GOPI_API_KEY is not configured; "
+                "set GOPI_API_KEY and restart the server before using server-side history or training deletion.", 503,
             )
         store = getattr(runtime.backend, "sessions", None)
         if store is None:
@@ -954,31 +1000,6 @@ def create_app(
         return store
 
     @application.get(
-        "/v1/sessions/{session_id}/memory", tags=["operations"],
-        dependencies=[Security(OPENAPI_BEARER)],
-    )
-    async def retrieve_session_memory(session_id: str, request: Request):
-        store = session_store_or_error(request)
-        if isinstance(store, JSONResponse):
-            return store
-        messages = [
-            {"role": message.role, "content": message.content}
-            for message in store.load(session_id).snapshot()
-        ]
-        return {"session_id": session_id, "messages": messages}
-
-    @application.delete(
-        "/v1/sessions/{session_id}/memory", tags=["operations"],
-        dependencies=[Security(OPENAPI_BEARER)],
-    )
-    async def delete_session_memory(session_id: str, request: Request):
-        store = session_store_or_error(request)
-        if isinstance(store, JSONResponse):
-            return store
-        store.delete(session_id)
-        return {"session_id": session_id, "deleted": True}
-
-    @application.get(
         "/v1/sessions/{session_id}/context", tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
@@ -986,6 +1007,7 @@ def create_app(
         store = session_store_or_error(request)
         if isinstance(store, JSONResponse):
             return store
+        _validate_session_id_value(session_id)
         try:
             return _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
         except ValueError as error:
@@ -999,6 +1021,7 @@ def create_app(
         store = session_store_or_error(request)
         if isinstance(store, JSONResponse):
             return store
+        _validate_session_id_value(session_id)
         try:
             before = _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
             memory = store.load(session_id)
@@ -1008,6 +1031,106 @@ def create_app(
         except ValueError as error:
             raise InvalidGenerationRequestError(str(error)) from error
         return {"compacted": before["used_tokens"] != after["used_tokens"], "before": before, "after": after}
+
+    @application.get(
+        "/v1/sessions", response_model=SessionListResponse, tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def list_sessions(request: Request, limit: int = 100):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        try:
+            return {"sessions": store.list_sessions(limit=limit)}
+        except ValueError as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+
+    @application.get(
+        "/v1/sessions/{session_id}/memory", response_model=SessionMemoryResponse, tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def retrieve_session_memory(session_id: str, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        _validate_session_id_value(session_id)
+        messages = [
+            {"role": message.role, "content": message.content}
+            for message in store.load(session_id).snapshot()
+        ]
+        return {"session_id": session_id, "messages": messages}
+
+    @application.delete(
+        "/v1/sessions/{session_id}/memory", response_model=SessionDeleteResponse, tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def delete_session_memory(session_id: str, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        _validate_session_id_value(session_id)
+        store.delete(session_id, include_training_examples=True)
+        return {"session_id": session_id, "deleted": True}
+
+    @application.get(
+        "/v1/sessions/{session_id}/training/review", response_model=TrainingReviewResponse, tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def review_session_training(session_id: str, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        _validate_session_id_value(session_id)
+        review = store.review_last(session_id)
+        if review is None:
+            raise InvalidGenerationRequestError("no completed assistant response is available for review")
+        return {"session_id": session_id, **review}
+
+    @application.post(
+        "/v1/sessions/{session_id}/training/approve", response_model=TrainingApprovalResponse, tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def approve_session_training(session_id: str, payload: TrainingApprovalRequest, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        _validate_session_id_value(session_id)
+        if not payload.approved:
+            return {"session_id": session_id, "approved": False, "example_count": 0}
+        try:
+            count = store.approve_last(session_id, corrected_response=payload.corrected_response)
+        except ValueError as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+        return {"session_id": session_id, "approved": True, "example_count": count}
+
+    @application.get(
+        "/v1/sessions/{session_id}/training/export", tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def export_session_training(session_id: str, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        _validate_session_id_value(session_id)
+        try:
+            content = store.export_training_jsonl(session_id)
+        except ValueError as error:
+            raise InvalidGenerationRequestError(str(error)) from error
+        return Response(
+            content=content, media_type="application/x-ndjson",
+            headers={"Content-Disposition": f'attachment; filename="reviewed-chat-{session_id}.jsonl"'},
+        )
+
+    @application.delete(
+        "/v1/sessions/{session_id}/training", response_model=TrainingDeleteResponse, tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
+    async def delete_session_training(session_id: str, request: Request):
+        store = session_store_or_error(request)
+        if isinstance(store, JSONResponse):
+            return store
+        _validate_session_id_value(session_id)
+        return {"session_id": session_id, "deleted_count": store.delete_training(session_id)}
 
     @application.post(
         "/v1/workspace/actions",
@@ -1086,6 +1209,7 @@ def _health(
         version=SERVICE_VERSION,
         model=settings.model_name,
         ready=runtime.ready,
+        authentication_required=bool(settings.api_key),
     )
 
 

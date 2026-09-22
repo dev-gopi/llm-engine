@@ -255,6 +255,13 @@ def test_browser_playground_is_served():
     assert "/resources?context_length=" in script.text
 
 
+def test_health_reports_whether_the_browser_must_supply_an_api_key():
+    open_app = create_app(FakeBackend(), settings=settings())
+    protected_app = create_app(FakeBackend(), settings=settings(api_key="secret"))
+    assert request(open_app, "GET", "/health/ready").json()["authentication_required"] is False
+    assert request(protected_app, "GET", "/health/ready").json()["authentication_required"] is True
+
+
 def test_swagger_redoc_and_openapi_schema_are_served():
     app = create_app(FakeBackend(), settings=settings())
     swagger = request(app, "GET", "/docs")
