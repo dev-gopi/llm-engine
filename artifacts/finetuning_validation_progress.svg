@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+  <rect width="1200" height="700" fill="#ffffff"/>
+  <style>
+    text { font-family: Inter, Arial, sans-serif; fill: #172033; }
+    .grid { stroke: #dce3ec; stroke-width: 1; }
+    .axis { stroke: #64748b; stroke-width: 1.5; }
+    .series { fill: none; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+    .point { stroke: #fff; stroke-width: 2; }
+    .label { font-size: 14px; }
+  </style>
+
+  <text x="600" y="35" text-anchor="middle" font-size="24" font-weight="700">V2 Fine-Tuning Validation Progress</text>
+  <text x="600" y="59" text-anchor="middle" font-size="14" fill="#64748b">Steps 4,000–10,000 · lower loss is better</text>
+
+  <!-- Horizontal grid and labels -->
+  <g>
+    <line class="grid" x1="90" y1="590" x2="1120" y2="590"/><text x="76" y="595" text-anchor="end" class="label">1.5</text>
+    <line class="grid" x1="90" y1="479" x2="1120" y2="479"/><text x="76" y="484" text-anchor="end" class="label">2.0</text>
+    <line class="grid" x1="90" y1="368" x2="1120" y2="368"/><text x="76" y="373" text-anchor="end" class="label">2.5</text>
+    <line class="grid" x1="90" y1="257" x2="1120" y2="257"/><text x="76" y="262" text-anchor="end" class="label">3.0</text>
+    <line class="grid" x1="90" y1="146" x2="1120" y2="146"/><text x="76" y="151" text-anchor="end" class="label">3.5</text>
+    <line class="grid" x1="90" y1="35" x2="1120" y2="35"/><text x="76" y="40" text-anchor="end" class="label">4.0</text>
+  </g>
+
+  <!-- Axes -->
+  <line class="axis" x1="90" y1="75" x2="90" y2="590"/>
+  <line class="axis" x1="90" y1="590" x2="1120" y2="590"/>
+  <text x="25" y="330" text-anchor="middle" transform="rotate(-90 25 330)" font-size="15">Validation loss</text>
+  <text x="605" y="650" text-anchor="middle" font-size="15">Training step</text>
+
+  <!-- X ticks -->
+  <g class="label">
+    <line class="grid" x1="100" y1="75" x2="100" y2="590"/><text x="100" y="616" text-anchor="middle">4,000</text>
+    <line class="grid" x1="440" y1="75" x2="440" y2="590"/><text x="440" y="616" text-anchor="middle">6,000</text>
+    <line class="grid" x1="780" y1="75" x2="780" y2="590"/><text x="780" y="616" text-anchor="middle">8,000</text>
+    <line class="grid" x1="1120" y1="75" x2="1120" y2="590"/><text x="1120" y="616" text-anchor="middle">10,000</text>
+  </g>
+
+  <!-- Domain series -->
+  <polyline class="series" stroke="#2563eb" points="100,248 440,263 780,270 1120,276"/>
+  <polyline class="series" stroke="#dc2626" points="100,99 440,137 780,183 1120,201"/>
+  <polyline class="series" stroke="#ea580c" points="100,205 440,251 780,280 1120,300"/>
+  <polyline class="series" stroke="#7c3aed" points="100,403 440,442 780,465 1120,480"/>
+  <polyline class="series" stroke="#059669" points="100,533 440,552 780,558 1120,559"/>
+  <polyline class="series" stroke="#0891b2" points="100,181 440,197 780,206 1120,214"/>
+  <polyline class="series" stroke="#111827" stroke-width="5" points="100,249 440,273 780,289 1120,299"/>
+
+  <!-- Points -->
+  <g>
+    <g fill="#2563eb"><circle class="point" cx="100" cy="248" r="5"/><circle class="point" cx="440" cy="263" r="5"/><circle class="point" cx="780" cy="270" r="5"/><circle class="point" cx="1120" cy="276" r="5"/></g>
+    <g fill="#dc2626"><circle class="point" cx="100" cy="99" r="5"/><circle class="point" cx="440" cy="137" r="5"/><circle class="point" cx="780" cy="183" r="5"/><circle class="point" cx="1120" cy="201" r="5"/></g>
+    <g fill="#ea580c"><circle class="point" cx="100" cy="205" r="5"/><circle class="point" cx="440" cy="251" r="5"/><circle class="point" cx="780" cy="280" r="5"/><circle class="point" cx="1120" cy="300" r="5"/></g>
+    <g fill="#7c3aed"><circle class="point" cx="100" cy="403" r="5"/><circle class="point" cx="440" cy="442" r="5"/><circle class="point" cx="780" cy="465" r="5"/><circle class="point" cx="1120" cy="480" r="5"/></g>
+    <g fill="#059669"><circle class="point" cx="100" cy="533" r="5"/><circle class="point" cx="440" cy="552" r="5"/><circle class="point" cx="780" cy="558" r="5"/><circle class="point" cx="1120" cy="559" r="5"/></g>
+    <g fill="#0891b2"><circle class="point" cx="100" cy="181" r="5"/><circle class="point" cx="440" cy="197" r="5"/><circle class="point" cx="780" cy="206" r="5"/><circle class="point" cx="1120" cy="214" r="5"/></g>
+    <g fill="#111827"><circle class="point" cx="100" cy="249" r="6"/><circle class="point" cx="440" cy="273" r="6"/><circle class="point" cx="780" cy="289" r="6"/><circle class="point" cx="1120" cy="299" r="6"/></g>
+  </g>
+
+  <!-- Legend -->
+  <g font-size="13">
+    <rect x="235" y="82" width="730" height="39" rx="8" fill="#f8fafc" stroke="#dce3ec"/>
+    <g transform="translate(255 102)"><line x2="25" stroke="#111827" stroke-width="5"/><text x="32" y="5" font-weight="700">Overall</text></g>
+    <g transform="translate(355 102)"><line x2="25" stroke="#2563eb" stroke-width="3"/><text x="32" y="5">English</text></g>
+    <g transform="translate(455 102)"><line x2="25" stroke="#dc2626" stroke-width="3"/><text x="32" y="5">Bengali</text></g>
+    <g transform="translate(555 102)"><line x2="25" stroke="#ea580c" stroke-width="3"/><text x="32" y="5">Hindi</text></g>
+    <g transform="translate(640 102)"><line x2="25" stroke="#7c3aed" stroke-width="3"/><text x="32" y="5">Coding</text></g>
+    <g transform="translate(735 102)"><line x2="25" stroke="#059669" stroke-width="3"/><text x="32" y="5">GSM8K</text></g>
+    <g transform="translate(835 102)"><line x2="25" stroke="#0891b2" stroke-width="3"/><text x="32" y="5">Chat</text></g>
+  </g>
+
+  <!-- Overall labels and result -->
+  <text x="100" y="273" text-anchor="middle" font-size="12" font-weight="700">3.0374</text>
+  <text x="1120" y="324" text-anchor="middle" font-size="12" font-weight="700">2.8116</text>
+  <rect x="890" y="365" width="218" height="55" rx="10" fill="#dcfce7" stroke="#86efac"/>
+  <text x="999" y="388" text-anchor="middle" font-size="14" font-weight="700" fill="#166534">Overall loss improved 7.43%</text>
+  <text x="999" y="407" text-anchor="middle" font-size="12" fill="#166534">All six domains improved</text>
+</svg>
