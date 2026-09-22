@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-script_directory = str(Path(__file__).resolve().parent)
-if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
-    sys.path.pop(0)
+# Configure repository and ``src`` imports before Uvicorn imports the app.
+# This also ensures the project-local ``datasets`` package is selected over
+# the optional Hugging Face package with the same top-level name.
+import _bootstrap  # noqa: F401
 
 import argparse
 import os
