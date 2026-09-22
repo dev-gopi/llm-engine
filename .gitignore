@@ -82,6 +82,7 @@ reports/*
 artifacts/*
 !artifacts/logo.png
 !artifacts/icon.png
+!artifacts/llm-engine-functional-10m-training-bundle.zip
 outputs/
 
 # Model and tensor artifacts
