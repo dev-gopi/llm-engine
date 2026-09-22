@@ -1,10 +1,10 @@
 """Independent train/evaluation contamination and near-duplicate auditing."""
 from __future__ import annotations
 
-from collections.abc import Iterable
 import hashlib
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from .loader import iter_records

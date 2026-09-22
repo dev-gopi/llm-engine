@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 try:
-    from scripts._bootstrap import PROJECT_ROOT  # noqa: F401
+    from scripts._bootstrap import PROJECT_ROOT
 except ModuleNotFoundError:
     from _bootstrap import PROJECT_ROOT  # noqa: F401
 
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:

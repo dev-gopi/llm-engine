@@ -1,4 +1,5 @@
-from training.promotion import CheckpointPromoter, CheckpointCandidate, MetricRule
+from training.promotion import CheckpointCandidate, CheckpointPromoter, MetricRule
+
 
 def test_promotion_is_multi_axis_and_protects_regressions():
     rules=[MetricRule('loss','min',1,0.02,True),MetricRule('instruction','max',2,0.05,True),MetricRule('math','max',1,0.10,True)]

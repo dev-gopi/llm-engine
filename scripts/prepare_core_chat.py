@@ -6,7 +6,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 SYSTEM_PROMPT = "You are Gopi, a helpful assistant. Answer clearly and briefly."
 
 

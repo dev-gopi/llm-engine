@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 try:
-    from scripts._bootstrap import PROJECT_ROOT  # noqa: F401
+    from scripts._bootstrap import PROJECT_ROOT
 except ModuleNotFoundError:
     from _bootstrap import PROJECT_ROOT  # noqa: F401
 
@@ -22,20 +22,19 @@ sys.path[:] = [
 
 import argparse
 import asyncio
-from datetime import datetime, timezone
 import json
 import math
-from pathlib import Path
 import re
 import subprocess
 import tempfile
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from utils.config import load_yaml
 from model.config import estimate_model_size, resolve_attention_layer_pattern
 from runtime.resource_planner import deployment_matrix
-
+from utils.config import load_yaml
 
 KEY_VALUE = re.compile(r"([a-zA-Z_]+)=([^\s]+)")
 
@@ -455,7 +454,7 @@ def checkpoint_details(path: str | Path, validation: list[dict[str, Any]], *, be
     return details
 
 
-def _change(first: float | int | None, latest: float | int | None) -> dict[str, Any]:
+def _change(first: float | None, latest: float | None) -> dict[str, Any]:
     if first is None or latest is None:
         return {"first": first, "latest": latest, "absolute_improvement": None, "percent_improvement": None}
     improvement = float(first) - float(latest)

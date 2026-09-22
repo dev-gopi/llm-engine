@@ -7,7 +7,6 @@ from typing import Any
 
 from tokenizer.encoder import Tokenizer
 
-
 THINKING_TOKENS = ("<thinking>", "</thinking>")
 AGENT_PROTOCOL_TOKENS = (
     "<|system|>", "<|user|>", "<|assistant|>", "<|tool|>",
@@ -57,10 +56,10 @@ def checkpoint_tokenizer_options(tokenizer: Tokenizer, *, allow_extension: bool 
 
 
 __all__ = [
-    "THINKING_TOKENS",
     "AGENT_PROTOCOL_TOKENS",
+    "THINKING_TOKENS",
     "adapt_config_to_tokenizer",
     "checkpoint_tokenizer_options",
-    "extend_tokenizer_for_reasoning",
     "extend_tokenizer_for_agent_protocol",
+    "extend_tokenizer_for_reasoning",
 ]

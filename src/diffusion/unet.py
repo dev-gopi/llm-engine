@@ -7,8 +7,8 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
-from torch import Tensor, nn
 import torch.nn.functional as F
+from torch import Tensor, nn
 
 
 class TimeEmbedding(nn.Module):
@@ -186,7 +186,7 @@ class SmallUNet(nn.Module):
         return self.output(F.silu(self.output_norm(hidden)))
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "SmallUNet":
+    def from_config(cls, config: Mapping[str, Any]) -> SmallUNet:
         return cls(
             image_channels=int(config.get("image_channels", 3)),
             base_channels=int(config.get("base_channels", 64)),

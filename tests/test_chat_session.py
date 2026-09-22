@@ -5,7 +5,12 @@ import pytest
 import torch
 
 from datasets.collator import Collator
-from inference.chat_session import ChatSession, build_chat_sft_example, format_chat_messages, validate_reasoning_trace
+from inference.chat_session import (
+    ChatSession,
+    build_chat_sft_example,
+    format_chat_messages,
+    validate_reasoning_trace,
+)
 from inference.generator import GenerationResult
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer

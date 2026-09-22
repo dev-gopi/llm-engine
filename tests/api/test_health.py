@@ -1,6 +1,6 @@
-from tests.test_serving import FakeBackend, settings, request
 from serving.api import create_app
 from serving.runtime import UnavailableBackend
+from tests.test_serving import FakeBackend, request, settings
 
 
 def test_health_ready_and_metrics_aliases():

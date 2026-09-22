@@ -4,14 +4,23 @@ from pathlib import Path
 
 import pytest
 
-from mcp.client import LEGACY_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, MCPClient
-from mcp.client import MCPTool
-from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, relevant_tools, tool_result_context, tool_selection_prompt
+from mcp.client import (
+    LEGACY_PROTOCOL_VERSION,
+    MODERN_PROTOCOL_VERSION,
+    MCPClient,
+    MCPTool,
+)
+from mcp.orchestration import (
+    parse_explicit_tool_call,
+    parse_tool_call,
+    relevant_tools,
+    tool_result_context,
+    tool_selection_prompt,
+)
 from scripts.mcp_client import parse_args
 from serving.backend import ConfiguredModelBackend
 from serving.schemas import GenerateRequest
 from utils.config import load_yaml
-
 
 SERVER = Path(__file__).parent / "fixtures" / "fake_mcp_server.py"
 

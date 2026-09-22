@@ -1,16 +1,18 @@
 """Run the release-candidate gate: conformance -> quality/performance/safety -> regression -> promotion."""
 from __future__ import annotations
+
 import argparse
 import json
 import subprocess
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from evaluation.release_gate import GateRule
-from training.promotion import CheckpointCandidate, MetricRule
-from release.pipeline import EvaluationReleasePipeline
 from release.artifacts import write_json
+from release.pipeline import EvaluationReleasePipeline
+from training.promotion import CheckpointCandidate, MetricRule
 
 
 def main() -> int:

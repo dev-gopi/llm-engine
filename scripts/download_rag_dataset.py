@@ -17,7 +17,6 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import pyarrow.parquet as pq
 
-
 DATASET = "wikimedia/wikipedia"
 SNAPSHOT = "20231101"
 DEFAULT_LANGUAGES = ("simple", "bn", "hi")

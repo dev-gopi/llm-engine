@@ -14,10 +14,11 @@ import time
 from datetime import datetime, timezone
 
 import torch
+
 from datasets.loader import iter_records
 from datasets.preprocessor import format_messages
-from inference.generator import Generator
 from inference.context import format_system_prompt
+from inference.generator import Generator
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer

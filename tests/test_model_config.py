@@ -79,8 +79,8 @@ def test_rope_requires_even_head_dimension() -> None:
 
 
 def test_trillion_profile_can_be_planned_without_allocating_weights():
-    from utils.config import load_yaml
     from training.planner import plan_training
+    from utils.config import load_yaml
     model = load_yaml("configs/scaling/model.1t.yaml")
     training = load_yaml("configs/scaling/training.1t.yaml")
     size = estimate_model_size(model)

@@ -1,11 +1,13 @@
 """Dedicated embedding and retrieval evaluation primitives."""
 from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
-import math
-from typing import Protocol, Sequence
+from typing import Protocol
 
 import torch
 from torch import Tensor
+
 
 class EmbeddingModel(Protocol):
     dimension: int

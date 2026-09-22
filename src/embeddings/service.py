@@ -6,8 +6,9 @@ hash encoder remains useful for local development and contract tests.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 import torch
 

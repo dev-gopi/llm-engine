@@ -4,7 +4,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from datasets.loader import TextDataset, LazyJSONLDataset
+
+from datasets.loader import LazyJSONLDataset, TextDataset
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 

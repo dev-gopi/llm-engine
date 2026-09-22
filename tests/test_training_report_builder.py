@@ -1,13 +1,12 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "build_training_report.py"
 SPEC = importlib.util.spec_from_file_location("build_training_report", SCRIPT)

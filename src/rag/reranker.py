@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, Sequence
+from typing import Protocol
 
 
 @dataclass(frozen=True)

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import os
+import asyncio
 import json
+import os
 import re
+import secrets
 import subprocess
 import time
 import uuid
-import secrets
-import asyncio
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -19,20 +19,37 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Security, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.security import HTTPBearer
+from starlette.concurrency import run_in_threadpool
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from api.chat_completions import parse_response_format
+from api.embeddings import EmbeddingsRequest, EmbeddingsResponse, create_embeddings
+from api.responses import ResponsesOutput, ResponsesRequest, ResponsesResponse
+from embeddings import EmbeddingService
+from model.lifecycle import ModelLifecycleManager
+from runtime.cancellation import CancellationRegistry
+from runtime.capabilities import (
+    discover_capabilities,
+    load_capability_evidence,
+    load_model_config,
+)
+from runtime.resource_planner import deployment_matrix, estimate_inference_memory
 from utils.config import load_yaml
 from utils.logger import get_logger
-from runtime.cancellation import CancellationRegistry
-from runtime.capabilities import discover_capabilities, load_model_config, load_capability_evidence
-from runtime.resource_planner import estimate_inference_memory, deployment_matrix
-from model.lifecycle import ModelLifecycleManager
 
+from .backend import backend_from_environment
+from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
 from .runtime import (
-    BackendUnavailableError,
     BackendGeneration,
+    BackendUnavailableError,
     FinishReason,
     GenerationBackend,
     GenerationTimeoutError,
@@ -41,7 +58,6 @@ from .runtime import (
     ServingError,
     ServingRuntime,
 )
-from .backend import backend_from_environment
 from .schemas import (
     ErrorDetail,
     ErrorResponse,
@@ -51,22 +67,20 @@ from .schemas import (
     OpenAIChatCompletionRequest,
     OpenAIModel,
     OpenAIModelList,
+    OpenAITool,
+    SessionDeleteResponse,
+    SessionListResponse,
+    SessionMemoryResponse,
     TokenUsage,
+    TrainingApprovalRequest,
+    TrainingApprovalResponse,
+    TrainingDeleteResponse,
+    TrainingReviewResponse,
     WorkspaceAgentRequest,
     WorkspaceAgentResponse,
-    OpenAITool,
-    SessionListResponse, SessionMemoryResponse, SessionDeleteResponse,
-    TrainingReviewResponse, TrainingApprovalRequest, TrainingApprovalResponse,
-    TrainingDeleteResponse,
 )
-from .workspace import WorkspaceService
-from api.responses import ResponsesRequest, ResponsesResponse, ResponsesOutput
-from api.embeddings import EmbeddingsRequest, EmbeddingsResponse, create_embeddings
-from embeddings import EmbeddingService
-from api.chat_completions import parse_response_format
 from .websocket import router as websocket_router
-from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
-
+from .workspace import WorkspaceService
 
 SERVICE_NAME = "gopi-llm"
 SERVICE_VERSION = "0.1.0"
@@ -161,7 +175,7 @@ class ServingSettings:
             raise ValueError("allowed_hosts must contain non-empty host names")
 
     @classmethod
-    def from_environment(cls) -> "ServingSettings":
+    def from_environment(cls) -> ServingSettings:
         config_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.yaml"))
         config = {}
         if config_path.is_file():
@@ -747,7 +761,11 @@ def create_app(
                     if event.finish_reason is not None:
                         finish_reason = event.finish_reason.value
                 if is_structured:
-                    from schema.structured_outputs import make_spec, validate_structured_output, StructuredOutputError
+                    from schema.structured_outputs import (
+                        StructuredOutputError,
+                        make_spec,
+                        validate_structured_output,
+                    )
                     payload = generation_request.response_format["json_schema"]
                     try:
                         spec = make_spec(name=str(payload.get("name", "response")), schema=payload["schema"], strict=bool(payload.get("strict", False)))
@@ -784,7 +802,10 @@ def create_app(
         if not structured_incomplete:
             spec = parse_response_format(request.response_format)
             if spec is not None:
-                from schema.structured_outputs import validate_structured_output, StructuredOutputError
+                from schema.structured_outputs import (
+                    StructuredOutputError,
+                    validate_structured_output,
+                )
                 try:
                     validate_structured_output(result.text, spec)
                 except StructuredOutputError as exc:

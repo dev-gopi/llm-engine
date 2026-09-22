@@ -1,12 +1,13 @@
 """Opt-in semantic and episodic memory with explicit retention/deletion controls."""
 from __future__ import annotations
-from dataclasses import dataclass
+
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from evaluation.embeddings import HashEmbeddingModel
+
 
 @dataclass(frozen=True)
 class MemoryRecord:
@@ -37,7 +38,9 @@ class LongTermMemory:
 
     def retrieve(self, user_id: str, query: str, *, limit: int = 5) -> list[MemoryRecord]:
         if not user_id or not query.strip() or limit < 1: raise ValueError("invalid memory query")
-        import json, torch
+        import json
+
+        import torch
         q=self.embedding_model.encode([query])[0]
         now=time.time(); rows=[]
         with sqlite3.connect(self.path) as db:

@@ -2,28 +2,31 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import itertools
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 from model.gpt import MiniGPT
+from model.kv_cache import StaticLayerKVCache
 from tokenizer.encoder import Tokenizer
+from training.peft import load_lora_adapter, lora_adapter_state_dict
 from utils.device import resolve_device
 from utils.logger import get_logger
 
-from model.kv_cache import StaticLayerKVCache
-
-from .sampler import JSONSchemaConstraint, PrefixGrammarConstraint, TokenConstraint, TopKSampler
 from .context import ConversationMemory
 from .kv_cache import KVCache
-from .paged_kv_cache import PagedKVCache, PagedPrefixCache, PrefixCache
 from .local_tools import ToolCall, parse_tool_call
-from training.peft import load_lora_adapter, lora_adapter_state_dict
+from .paged_kv_cache import PagedKVCache, PagedPrefixCache, PrefixCache
+from .sampler import (
+    JSONSchemaConstraint,
+    TokenConstraint,
+    TopKSampler,
+)
 
 logger = get_logger(__name__)
 

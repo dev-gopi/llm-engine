@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 import tempfile
-import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +18,13 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import torch
 
-from evaluation.benchmarks import BenchmarkCase, NeedleInHaystackCase, score_answer, summarize_scores, compare_reports
+from evaluation.benchmarks import (
+    BenchmarkCase,
+    NeedleInHaystackCase,
+    compare_reports,
+    score_answer,
+    summarize_scores,
+)
 from inference.context import format_system_prompt
 from inference.generator import Generator
 from model.gpt import MiniGPT

@@ -17,8 +17,7 @@ from diffusion.pipeline import DiffusionPipeline
 from diffusion.scheduler import DiffusionScheduler
 from diffusion.unet import SmallUNet
 from image_data.dataset import ImageClassificationDataset, ImageDataset
-from image_data.processor import tensor_to_image
-from image_data.processor import ImageProcessor
+from image_data.processor import ImageProcessor, tensor_to_image
 from optim.ema import EMA
 from optim.scheduler import Scheduler
 from training.checkpoint import load_checkpoint, save_checkpoint

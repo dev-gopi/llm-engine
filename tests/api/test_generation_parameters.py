@@ -1,5 +1,7 @@
 import pytest
+
 from serving.schemas import OpenAIChatCompletionRequest
+
 
 def test_supported_generation_parameters_are_retained():
     r=OpenAIChatCompletionRequest(model="g",messages=[{"role":"user","content":"x"}],temperature=0.2,top_p=0.8,top_k=7,min_p=0.1,max_tokens=11,seed=4,stop=["END"],response_format={"type":"text"})

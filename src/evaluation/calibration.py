@@ -1,6 +1,6 @@
 """Calibration metrics for confidence versus correctness."""
 from __future__ import annotations
-import math
+
 
 def calibration_metrics(confidences, correct, bins=10):
     if len(confidences)!=len(correct) or not confidences: raise ValueError("confidence/correctness lengths must match and be non-empty")

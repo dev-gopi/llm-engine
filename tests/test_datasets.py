@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-import datasets
 import pytest
 import torch
 
+import datasets
 from datasets.collator import Collator
 from datasets.loader import LazyJSONLDataset, TextDataset, iter_records
 from datasets.preprocessor import clean, format_messages

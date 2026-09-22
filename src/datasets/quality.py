@@ -1,11 +1,10 @@
 """Deterministic per-document quality scoring and source weighting."""
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass
 import math
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Mapping
 
 from .loader import iter_records

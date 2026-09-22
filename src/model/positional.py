@@ -365,7 +365,7 @@ class PositionalEmbedding(nn.Module):
         logger.info("Resized positional embeddings from %d to %d (interpolate=%s)", previous, new_max_positions, interpolate)
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any], **kwargs: Any) -> "PositionalEmbedding":
+    def from_config(cls, config: Mapping[str, Any], **kwargs: Any) -> PositionalEmbedding:
         return cls(
             max_pos=int(config["max_position"]),
             dim=int(config["hidden_size"]),

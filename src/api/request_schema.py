@@ -1,8 +1,12 @@
 """API request contracts shared by Chat Completions and Responses."""
 from __future__ import annotations
+
 from typing import Any, Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from schema.structured_outputs import make_spec, StructuredSchemaError
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from schema.structured_outputs import StructuredSchemaError, make_spec
+
 
 class JSONSchemaResponseFormat(BaseModel):
     model_config = ConfigDict(extra="forbid")

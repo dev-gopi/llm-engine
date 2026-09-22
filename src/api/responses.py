@@ -1,8 +1,12 @@
 """OpenAI-compatible Responses API request/response contracts."""
 from __future__ import annotations
+
 from typing import Any, Literal
-from serving.schemas import OpenAITool, OpenAIResponseFormat, OpenAIToolChoice
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from serving.schemas import OpenAIResponseFormat, OpenAITool, OpenAIToolChoice
+
 
 class ResponseInput(BaseModel):
     model_config = ConfigDict(extra="forbid")

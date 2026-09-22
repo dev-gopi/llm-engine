@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 try:
-    from scripts._bootstrap import PROJECT_ROOT  # noqa: F401
+    from scripts._bootstrap import PROJECT_ROOT
 except ModuleNotFoundError:
     from _bootstrap import PROJECT_ROOT  # noqa: F401
 
@@ -20,8 +20,9 @@ import hashlib
 import json
 import statistics
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import asdict
-from typing import Any, Iterator
+from typing import Any
 
 from datasets.filters import CorpusFilter
 from datasets.loader import iter_records

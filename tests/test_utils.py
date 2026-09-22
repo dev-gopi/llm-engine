@@ -95,6 +95,7 @@ def test_yaml_inheritance_rejects_cycles_and_invalid_parent(tmp_path):
 def test_cli_overrides_config_and_preserves_explicit_zero():
     from argparse import Namespace
     from pathlib import Path
+
     from utils.config import apply_cli_defaults
     args = Namespace(count=0, output=None, device=None)
     apply_cli_defaults(args, {"count": 5, "output": "custom.pt"},

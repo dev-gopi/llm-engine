@@ -1,6 +1,8 @@
 """Deterministic end-to-end inference benchmark metrics."""
 from __future__ import annotations
+
 import statistics
+
 
 def summarize_latency(samples):
     if not samples: raise ValueError("samples cannot be empty")

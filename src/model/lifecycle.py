@@ -6,7 +6,7 @@ it never accepts arbitrary filesystem paths from an HTTP request.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass(frozen=True)

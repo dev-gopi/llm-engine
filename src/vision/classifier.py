@@ -23,7 +23,7 @@ class VisionClassifier(nn.Module):
         return self.head(self.encoder.pooled(images))
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "VisionClassifier":
+    def from_config(cls, config: Mapping[str, Any]) -> VisionClassifier:
         return cls(
             VisionEncoder.from_config(config),
             num_classes=int(config["num_classes"]),

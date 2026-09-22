@@ -7,9 +7,9 @@ from pathlib import Path
 
 import torch
 
+from model.gpt import MiniGPT
 from multimodal.model import VisionLanguageModel, collate_image_text_sft
 from multimodal.sft import ImageTextSFTDataset, evaluate_projector_batch
-from model.gpt import MiniGPT
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml

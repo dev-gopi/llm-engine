@@ -6,9 +6,9 @@ import argparse
 import io
 import json
 import shutil
+import sys
 import tempfile
 import urllib.request
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,6 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
 import pyarrow.parquet as pq
-
 
 MNIST_LABELS = tuple(str(index) for index in range(10))
 

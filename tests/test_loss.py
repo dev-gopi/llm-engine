@@ -2,8 +2,8 @@ import math
 
 import pytest
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
 from training.metrics import perplexity

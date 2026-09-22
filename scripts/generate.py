@@ -18,7 +18,12 @@ from pathlib import Path
 from inference.context import format_system_prompt
 from inference.generator import Generator
 from inference.quantization import prepare_model_for_inference
-from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
+from inference.web_search import (
+    build_search_prompt,
+    format_sources,
+    search_brave,
+    search_searxng,
+)
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from serving.backend import ConfiguredModelBackend
@@ -189,7 +194,7 @@ def main() -> None:
                 add_generation_prompt=True,
             )
 
-    print(f"Rendered Prompt: {repr(rendered_prompt)}")
+    print(f"Rendered Prompt: {rendered_prompt!r}")
     prompt_token_ids = tokenizer.encode(rendered_prompt, add_bos=True, allowed_special="all")
     print(f"Prompt Token IDs (first 30): {prompt_token_ids[:30]}")
 

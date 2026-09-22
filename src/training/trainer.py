@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Mapping
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 import torch
 import torch.distributed as dist
-import torch.nn as nn
-from torch import Tensor
+from torch import Tensor, nn
 
+from datasets.sampler import CurriculumSchedule
 from model.loss import (
     CausalLanguageModelLoss,
     LanguageModelLossOutput,
@@ -19,9 +18,8 @@ from model.loss import (
     MultiTokenPredictionLossOutput,
 )
 from optim.ema import EMA
-from training.evaluator import aggregate_domain_metrics
 from training.accounting import TrainingAccounting
-from datasets.sampler import CurriculumSchedule
+from training.evaluator import aggregate_domain_metrics
 from utils.logger import get_logger
 
 logger = get_logger(__name__)

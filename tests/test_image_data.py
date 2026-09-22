@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-import torch
 from PIL import Image
 
 from image_data.audit import audit_images

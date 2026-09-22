@@ -1,6 +1,6 @@
 """Preserve inference weights selected by a fixed generation evaluation."""
-from pathlib import Path
 import math
+from pathlib import Path
 
 import torch
 

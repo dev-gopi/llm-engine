@@ -143,9 +143,7 @@ class JSONSchemaConstraint(TokenConstraint):
                 in_string = True
             elif char in "{[":
                 stack.append(char)
-            elif char == "}" and (not stack or stack.pop() != "{"):
-                return False
-            elif char == "]" and (not stack or stack.pop() != "["):
+            elif char == "}" and (not stack or stack.pop() != "{") or char == "]" and (not stack or stack.pop() != "["):
                 return False
         if escaped or in_string:
             return not escaped

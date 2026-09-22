@@ -1,5 +1,7 @@
 import pytest
+
 from api.usage import account_usage
+
 
 def test_usage_accounting_is_consistent():
     usage=account_usage(100,40,cached_tokens=25,reasoning_tokens=10,prefix_cache_hit=True)
@@ -18,10 +20,10 @@ def test_usage_cache_counts_are_bounded_by_prompt_tokens():
     assert usage.as_dict()["cache"]["prefix_cache_miss"] is True
 
 def test_generate_response_includes_cache_and_reasoning_usage():
-    from tests.asgi_client import ASGIClient
     from serving.api import ServingSettings, create_app
     from serving.runtime import BackendGeneration
     from serving.schemas import FinishReason
+    from tests.asgi_client import ASGIClient
 
     class Backend:
         ready = True

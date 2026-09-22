@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import socket
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 
 import torch

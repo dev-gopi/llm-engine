@@ -1,6 +1,8 @@
 """Deterministic difficulty curriculum for reasoning SFT."""
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class CurriculumItem:

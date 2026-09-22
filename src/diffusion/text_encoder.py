@@ -45,7 +45,7 @@ class DiffusionTextEncoder(nn.Module):
         return self.norm(hidden)
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any], *, vocab_size: int) -> "DiffusionTextEncoder":
+    def from_config(cls, config: Mapping[str, Any], *, vocab_size: int) -> DiffusionTextEncoder:
         return cls(
             vocab_size, hidden_size=int(config.get("text_hidden_size", config.get("condition_size", 256))),
             layers=int(config.get("text_layers", 4)), heads=int(config.get("text_heads", 8)),

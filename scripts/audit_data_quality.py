@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import hashlib
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unicodedata
+from collections import Counter
+from pathlib import Path
 from typing import Any
 
 script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
-from tokenizer.encoder import Tokenizer
-from utils.config import load_yaml
 from datasets.loader import TextDataset
 from datasets.preprocessor import record_to_text
+from tokenizer.encoder import Tokenizer
+from utils.config import load_yaml
 
 
 def record_text(value: Any) -> str:

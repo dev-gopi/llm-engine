@@ -8,9 +8,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 
 
@@ -138,7 +137,7 @@ class CausalLanguageModelLoss(nn.Module):
         return ce, z
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "CausalLanguageModelLoss":
+    def from_config(cls, config: Mapping[str, Any]) -> CausalLanguageModelLoss:
         return cls(
             ignore_index=int(config.get("ignore_index", -100)),
             label_smoothing=float(config.get("label_smoothing", 0.0)),

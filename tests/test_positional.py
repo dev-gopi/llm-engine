@@ -93,7 +93,7 @@ def test_sinusoidal_token_ids_preserve_fractional_embeddings():
     actual = module(tokens, position_offset=2)
     assert actual.is_floating_point()
     torch.testing.assert_close(actual, module.weight[2:5].unsqueeze(0))
-    assert ((actual != actual.round())).any()
+    assert (actual != actual.round()).any()
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])

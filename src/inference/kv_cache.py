@@ -37,7 +37,7 @@ class KVCache:
             raise ValueError("max_length must be non-negative")
         self.values = tuple((key[:, :, -max_length:], value[:, :, -max_length:]) for key, value in self.values) if max_length else ()
 
-    def to(self, device: str | torch.device) -> "KVCache":
+    def to(self, device: str | torch.device) -> KVCache:
         return KVCache(tuple((key.to(device), value.to(device)) for key, value in self.values))
 
     def _validate(self) -> None:

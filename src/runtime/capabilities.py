@@ -7,12 +7,13 @@ contract.
 """
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from model.config import resolve_attention_layer_pattern
-import json
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,7 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
     # Reloadable/replica wrappers expose the actual model backend through a
     # `backend` attribute.  Resolve it without requiring a particular class.
     if generator is None and hasattr(backend, "backend"):
-        nested = getattr(backend, "backend")
+        nested = backend.backend
         return discover_capabilities(nested, model_config=config, validation_evidence=validation_evidence)
 
     context_length = _positive_or_none(

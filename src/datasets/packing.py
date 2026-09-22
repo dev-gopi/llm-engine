@@ -1,8 +1,8 @@
 """Sequence packing and dynamic-padding efficiency calculations."""
 from __future__ import annotations
 
-from collections.abc import Iterable
 import math
+from collections.abc import Iterable
 
 
 def packing_efficiency(lengths: Iterable[int], capacity: int) -> dict[str, float | int]:

@@ -1,5 +1,7 @@
 import pytest
-from agents.mcp import MCPServerConfig, MCPExecutionContract
+
+from agents.mcp import MCPExecutionContract, MCPServerConfig
+
 
 def test_mcp_contract_requires_transport():
     with pytest.raises(ValueError): MCPExecutionContract(MCPServerConfig(server_label="x"))

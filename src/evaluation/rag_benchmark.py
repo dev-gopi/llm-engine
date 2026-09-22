@@ -1,8 +1,8 @@
 """Retrieval, reranking, faithfulness and citation benchmark primitives."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from rag.reranker import Reranker
 

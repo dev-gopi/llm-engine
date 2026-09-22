@@ -1,4 +1,5 @@
-from evaluation.release_gate import ReleaseGate, GateRule
+from evaluation.release_gate import GateRule, ReleaseGate
+
 
 def test_release_gate_blocks_protected_regression():
     g=ReleaseGate([GateRule('accuracy','max',.01),GateRule('loss','min',.02)])

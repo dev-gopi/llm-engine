@@ -12,8 +12,8 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
 from model.gpt import MiniGPT
-from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from model.loss import CausalLanguageModelLoss
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from training.data import build_loader

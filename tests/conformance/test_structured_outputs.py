@@ -1,8 +1,7 @@
-from tests.asgi_client import ASGIClient
-
 from serving.api import ServingSettings, create_app
 from serving.runtime import BackendGeneration, BackendStreamEvent
 from serving.schemas import FinishReason
+from tests.asgi_client import ASGIClient
 
 
 class StructuredBackend:

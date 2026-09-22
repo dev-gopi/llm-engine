@@ -1,8 +1,9 @@
-import pytest
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
+
+import pytest
 
 from training.sweeps import build_sweep, sweep_manifest
 

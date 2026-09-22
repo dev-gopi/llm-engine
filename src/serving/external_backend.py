@@ -14,7 +14,12 @@ from typing import Any
 
 import httpx
 
-from .runtime import BackendGeneration, BackendStreamEvent, BackendUnavailableError, InvalidGenerationRequestError
+from .runtime import (
+    BackendGeneration,
+    BackendStreamEvent,
+    BackendUnavailableError,
+    InvalidGenerationRequestError,
+)
 from .schemas import FinishReason, GenerateRequest, OpenAIToolCall
 from .vision_runtime import has_image_input
 

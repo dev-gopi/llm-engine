@@ -7,7 +7,6 @@ import pytest
 
 from training.planner import optimizer_steps_for_epochs, plan_training
 
-
 MODEL = {
     "vocab_size": 1000,
     "hidden_size": 64,

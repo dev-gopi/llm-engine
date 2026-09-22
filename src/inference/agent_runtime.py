@@ -1,8 +1,11 @@
 """Bounded, approval-gated agent state machine."""
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
+
 
 class AgentState(str, Enum):
     PLANNING="planning"; WAITING_APPROVAL="waiting_approval"; EXECUTING="executing"; OBSERVING="observing"; COMPLETED="completed"; FAILED="failed"

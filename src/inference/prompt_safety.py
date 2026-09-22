@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
-import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
-
 
 PROMPT_INJECTION_REFUSAL = "I can't follow instructions that try to override or reveal my safety rules."
 UNSAFE_REQUEST_REFUSAL = "I can't help with a request that could cause serious harm or violate someone's safety."

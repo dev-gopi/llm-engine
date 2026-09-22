@@ -1,4 +1,5 @@
-from alignment.pipeline import audit_preference, audit_preference_set, compare_alignment_methods
+from alignment.pipeline import audit_preference, compare_alignment_methods
+
 
 def test_preference_audit():
     a=audit_preference({'prompt':'p','chosen':'good answer here','rejected':'bad answer here'})

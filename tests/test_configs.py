@@ -5,9 +5,8 @@ import pytest
 from model.config import estimate_model_size
 from model.vocabulary import adapt_config_to_tokenizer
 from tokenizer.encoder import Tokenizer
-from utils.config import load_yaml
 from training.data import _mixture_groups
-
+from utils.config import load_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIGS = ROOT / "configs"

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -14,7 +14,6 @@ from typing import Any
 import regex
 
 from .bpe import BPE, BYTE_DECODER, BYTE_ENCODER
-
 
 TOKENIZER_VERSION = 1
 TOKENIZER_TYPES = frozenset({"byte_level_bpe", "bpe", "character", "word_level"})
@@ -123,7 +122,7 @@ class Tokenizer:
             return ()
         return tuple(values)
 
-    def extend(self, tokens: Iterable[str]) -> "Tokenizer":
+    def extend(self, tokens: Iterable[str]) -> Tokenizer:
         """Return an append-only BPE extension while preserving every existing ID.
 
         Added tokens are matched explicitly before ordinary regex/BPE encoding.
@@ -167,7 +166,7 @@ class Tokenizer:
             tokenizer_type=self.tokenizer_type,
         )
 
-    def extend_special_tokens(self, tokens: Iterable[str]) -> "Tokenizer":
+    def extend_special_tokens(self, tokens: Iterable[str]) -> Tokenizer:
         """Append reserved tokens without changing any existing vocabulary ID.
 
         This is deliberately separate from training-time ``special_tokens``:
@@ -347,7 +346,7 @@ class Tokenizer:
         return artifact
 
     @classmethod
-    def load(cls, path: str | Path) -> "Tokenizer":
+    def load(cls, path: str | Path) -> Tokenizer:
         artifact = Path(path)
         if artifact.is_dir():
             artifact = artifact / "tokenizer.json"

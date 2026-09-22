@@ -1,8 +1,11 @@
 import pytest
 
 from model.vocabulary import (
-    AGENT_PROTOCOL_TOKENS, THINKING_TOKENS, adapt_config_to_tokenizer,
-    checkpoint_tokenizer_options, extend_tokenizer_for_agent_protocol,
+    AGENT_PROTOCOL_TOKENS,
+    THINKING_TOKENS,
+    adapt_config_to_tokenizer,
+    checkpoint_tokenizer_options,
+    extend_tokenizer_for_agent_protocol,
     extend_tokenizer_for_reasoning,
 )
 from tokenizer.bpe import BYTE_ENCODER

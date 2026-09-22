@@ -9,7 +9,6 @@ from torch.utils.data import Dataset
 
 from .processor import ImageProcessor
 
-
 IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp"})
 
 

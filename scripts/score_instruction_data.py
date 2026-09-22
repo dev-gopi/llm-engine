@@ -1,7 +1,11 @@
 from __future__ import annotations
-import argparse,json
+
+import argparse
+import json
 from pathlib import Path
+
 from datasets.instruction_quality import filter_and_balance
+
 
 def main():
  p=argparse.ArgumentParser(); p.add_argument('input'); p.add_argument('--output',required=True); p.add_argument('--min-score',type=float,default=.65); a=p.parse_args()

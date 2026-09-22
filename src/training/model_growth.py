@@ -8,7 +8,6 @@ import torch
 
 from model.gpt import MiniGPT
 
-
 _VOCABULARY_PARAMETERS = frozenset({
     "tok.embedding.weight", "head.weight", "head.bias",
 })

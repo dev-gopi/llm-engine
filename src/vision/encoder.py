@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
 
 import torch
-from torch import Tensor, nn
 import torch.nn.functional as F
+from torch import Tensor, nn
 
 from .patch_embedding import PatchEmbedding
 
@@ -115,7 +115,7 @@ class VisionEncoder(nn.Module):
         return torch.cat((cls_position, patch_position.flatten(2).transpose(1, 2)), dim=1)
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "VisionEncoder":
+    def from_config(cls, config: Mapping[str, Any]) -> VisionEncoder:
         return cls(
             image_size=int(config.get("image_size", 128)),
             patch_size=int(config.get("patch_size", 16)),

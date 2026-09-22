@@ -1,6 +1,7 @@
-import torch
-import pytest
 import copy
+
+import pytest
+import torch
 
 from datasets.collator import Collator
 from model.gpt import MiniGPT
@@ -166,7 +167,7 @@ def test_nonfinite_loss_resets_discarded_accumulation_window():
 
 
 def test_checkpoint_resume_matches_uninterrupted_updates(tmp_path):
-    from training.checkpoint import save_checkpoint, load_checkpoint
+    from training.checkpoint import load_checkpoint, save_checkpoint
     torch.manual_seed(123)
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)

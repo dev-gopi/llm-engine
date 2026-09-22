@@ -1,8 +1,12 @@
 """Score every scanned document and derive reproducible source weights."""
 from __future__ import annotations
-import argparse, json
+
+import argparse
+import json
 from pathlib import Path
+
 from datasets.quality import quality_source_weights, score_records
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)

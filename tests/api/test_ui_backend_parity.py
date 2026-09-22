@@ -2,7 +2,6 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -11,7 +10,6 @@ from serving.api import ResponsesRequest
 from serving.schemas import GenerateRequest, OpenAIChatCompletionRequest
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -116,7 +114,6 @@ def test_session_store_review_approve_export_delete_lifecycle(tmp_path):
 
 
 def test_session_history_http_contract_and_training_controls(tmp_path):
-    import asyncio
     from tests.test_serving import FakeBackend, request, settings
     backend = FakeBackend()
     backend.sessions = SQLiteSessionStore(tmp_path / "sessions.sqlite", _tokenizer(), max_tokens=128, system_prompt="")
@@ -152,8 +149,8 @@ def test_session_history_http_contract_and_training_controls(tmp_path):
 
 
 def test_admin_key_can_be_separate_from_normal_api_key():
-    from tests.test_serving import FakeBackend, request, settings
     from serving.api import create_app
+    from tests.test_serving import FakeBackend, request, settings
     app = create_app(
         FakeBackend(), settings=settings(api_key="normal-key", admin_api_key="admin-key")
     )
@@ -172,8 +169,8 @@ def test_admin_key_can_be_separate_from_normal_api_key():
 
 
 def test_invalid_http_generation_request_returns_human_readable_field_error():
-    from tests.test_serving import FakeBackend, request, settings
     from serving.api import create_app
+    from tests.test_serving import FakeBackend, request, settings
     response = request(
         create_app(FakeBackend(), settings=settings()), "POST", "/v1/generate",
         json={"prompt": "hello", "top_p": 2},
@@ -185,8 +182,8 @@ def test_invalid_http_generation_request_returns_human_readable_field_error():
 
 
 def test_session_memory_without_api_key_is_configuration_error_not_forbidden():
-    from tests.test_serving import FakeBackend, request, settings
     from serving.api import create_app
+    from tests.test_serving import FakeBackend, request, settings
     app = create_app(FakeBackend(), settings=settings(api_key=None, session_memory_enabled=True))
     response = request(app, "DELETE", "/v1/sessions/chat-test/training")
     assert response.status_code == 503
@@ -195,8 +192,8 @@ def test_session_memory_without_api_key_is_configuration_error_not_forbidden():
 
 
 def test_cors_allows_ui_delete_operations():
-    from tests.test_serving import FakeBackend, settings
     from serving.api import create_app
+    from tests.test_serving import FakeBackend, settings
     app = create_app(
         FakeBackend(),
         settings=settings(

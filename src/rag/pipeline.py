@@ -1,3 +1,4 @@
-from .retriever import RetrieverPipeline, RetrievalEvaluation
-from .reranker import Reranker, LexicalCrossEncoderBaseline, RerankedDocument
-__all__ = ["RetrieverPipeline", "RetrievalEvaluation", "Reranker", "LexicalCrossEncoderBaseline", "RerankedDocument"]
+from .reranker import LexicalCrossEncoderBaseline, RerankedDocument, Reranker
+from .retriever import RetrievalEvaluation, RetrieverPipeline
+
+__all__ = ["LexicalCrossEncoderBaseline", "RerankedDocument", "Reranker", "RetrievalEvaluation", "RetrieverPipeline"]

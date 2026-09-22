@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import torch
 from dataclasses import dataclass
-from torch import Tensor, nn
 
+import torch
+from torch import Tensor, nn
 
 Q1_0_GROUP_SIZE = 128
 Q1_0_EFFECTIVE_BITS = 1.0 + 16.0 / Q1_0_GROUP_SIZE
@@ -158,7 +158,8 @@ class QuantizedDeploymentManifest:
 
 
 def architecture_fingerprint(config: dict) -> str:
-    import hashlib, json
+    import hashlib
+    import json
     keys=("architecture","vocab_size","hidden_size","layers","heads","kv_heads","ffn_hidden_size","position_type","max_position")
     payload={k:config.get(k) for k in keys}
     return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",", ":")).encode()).hexdigest()

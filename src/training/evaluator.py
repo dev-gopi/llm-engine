@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 import time
-from contextlib import nullcontext
 from collections.abc import Iterable, Mapping
+from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
@@ -13,7 +13,6 @@ from torch import Tensor, nn
 
 from model.loss import CausalLanguageModelLoss, LanguageModelLossOutput
 from utils.logger import get_logger
-
 
 logger = get_logger(__name__)
 

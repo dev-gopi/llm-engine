@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 MODERN_PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-06-18"
 
@@ -36,7 +35,7 @@ class MCPTool:
     title: str | None = None
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, Any]) -> "MCPTool":
+    def from_payload(cls, payload: Mapping[str, Any]) -> MCPTool:
         name = payload.get("name")
         schema = payload.get("inputSchema", {})
         if not isinstance(name, str) or not name or not isinstance(schema, dict):
@@ -90,7 +89,7 @@ class MCPClient:
         self._stderr_task: asyncio.Task | None = None
         self.stderr: list[str] = []
 
-    async def __aenter__(self) -> "MCPClient":
+    async def __aenter__(self) -> MCPClient:
         await self.start()
         return self
 

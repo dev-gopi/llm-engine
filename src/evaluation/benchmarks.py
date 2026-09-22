@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Mapping
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 import regex
-from decimal import Decimal, InvalidOperation
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class BenchmarkCase:
             raise ValueError("benchmark max_answer_tokens must be positive")
 
     @classmethod
-    def from_mapping(cls, value: Mapping[str, object]) -> "BenchmarkCase":
+    def from_mapping(cls, value: Mapping[str, object]) -> BenchmarkCase:
         """Load a versioned JSONL manifest record without dropping controls."""
         try:
             expected = value["expected"]

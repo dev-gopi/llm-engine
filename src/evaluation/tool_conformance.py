@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any
 
 from inference.agent_runtime import AgentStep, BoundedAgentRuntime
 from security.authorization import ToolAuthorization

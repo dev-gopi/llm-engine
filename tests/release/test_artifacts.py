@@ -1,6 +1,6 @@
+from evaluation.release_gate import GateRule
 from release.artifacts import DatasetCard, ModelCard, build_reproducibility_manifest
 from release.pipeline import EvaluationReleasePipeline
-from evaluation.release_gate import GateRule
 from training.promotion import CheckpointCandidate, MetricRule
 
 

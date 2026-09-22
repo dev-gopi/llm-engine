@@ -7,9 +7,9 @@ import hashlib
 import os
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
-
+from typing import Any
 
 IGNORED_DIRECTORIES = {".git", ".venv", "__pycache__", "checkpoints", "data", "exports"}
 TEXT_SUFFIXES = {

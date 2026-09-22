@@ -1,7 +1,9 @@
 """Request-wide cancellation token."""
 from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass, field
+
 
 @dataclass
 class CancellationToken:

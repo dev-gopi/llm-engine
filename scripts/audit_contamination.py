@@ -1,7 +1,11 @@
 """Audit train/evaluation exact and near-duplicate contamination independently."""
 from __future__ import annotations
-import argparse, json, sys
+
+import argparse
+import json
+import sys
 from pathlib import Path
+
 script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory: sys.path.pop(0)
 from datasets.contamination import audit_contamination, load_documents

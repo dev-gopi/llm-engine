@@ -1,6 +1,8 @@
 """Unknown, false-premise, citation, and RAG hallucination probes."""
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class HallucinationCase:

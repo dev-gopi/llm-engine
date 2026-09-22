@@ -1,8 +1,12 @@
 """Compare recorded corpus-mixture experiments against capability metrics."""
 from __future__ import annotations
-import argparse, json
+
+import argparse
+import json
 from pathlib import Path
+
 from datasets.mixture_ablation import MixtureObservation, compare_mixtures
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)

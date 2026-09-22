@@ -1,6 +1,9 @@
 """Generated/dynamic evaluation with deterministic anti-contamination controls."""
 from __future__ import annotations
-import hashlib, random
+
+import hashlib
+import random
+
 
 def fixture_seed(version: str, prompt: str) -> int:
     return int(hashlib.sha256((version+"\0"+prompt).encode()).hexdigest()[:16],16)

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from collections.abc import Mapping
 
 import numpy as np
 import torch
@@ -32,7 +32,7 @@ class ImageProcessor:
     color_jitter: float = 0.0
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any], *, training: bool = False) -> "ImageProcessor":
+    def from_config(cls, config: Mapping[str, Any], *, training: bool = False) -> ImageProcessor:
         flip_probability = float(config.get("horizontal_flip_probability", 0.5))
         if not bool(config.get("horizontal_flip", True)):
             flip_probability = 0.0

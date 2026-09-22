@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
 from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -240,7 +240,7 @@ class TextDataset(Dataset[dict[str, torch.Tensor]]):
     @classmethod
     def from_files(
         cls, paths: Iterable[str | Path], tokenizer: Tokenizer, **kwargs: Any
-    ) -> "TextDataset":
+    ) -> TextDataset:
         records = (record for path in paths for record in iter_records(path))
         return cls(records, tokenizer, **kwargs)
 

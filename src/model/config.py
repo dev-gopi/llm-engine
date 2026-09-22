@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-
 _ALIASES = {
     "hidden_size": ("dim", "model_dim"),
     "layers": ("num_layers", "num_hidden_layers"),

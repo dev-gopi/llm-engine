@@ -8,12 +8,11 @@ from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
+from torch import Tensor, nn
 
-from .positional import apply_rotary_pos_emb
 from .kv_cache import StaticLayerKVCache
+from .positional import apply_rotary_pos_emb
 
 
 @dataclass
@@ -429,7 +428,7 @@ class MultiHeadAttention(nn.Module):
         *,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
-    ) -> "MultiHeadAttention":
+    ) -> MultiHeadAttention:
         return cls(
             dim=int(config["hidden_size"]),
             heads=int(config["heads"]),

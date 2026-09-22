@@ -35,7 +35,7 @@ class CurriculumSchedule:
         self.stages = tuple(stages)
 
     @classmethod
-    def from_config(cls, config: Sequence[dict]) -> "CurriculumSchedule":
+    def from_config(cls, config: Sequence[dict]) -> CurriculumSchedule:
         stages = []
         for entry in config:
             if not isinstance(entry, dict):

@@ -15,6 +15,7 @@ from training.multinode import validate_collectives
 
 def tensor_parallel_smoke() -> float:
     import torch
+
     from inference.tensor_parallel import parallelize_minigpt
     from model.gpt import MiniGPT
     torch.manual_seed(17)

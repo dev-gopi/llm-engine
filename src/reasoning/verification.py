@@ -1,7 +1,10 @@
 """Programmatic verification adapters for reasoning outputs."""
 from __future__ import annotations
-import ast, math, re
+
+import math
+import re
 from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class VerificationResult:
@@ -11,7 +14,7 @@ class VerificationResult:
     observed: object | None
     error: str | None = None
 
-def verify_math(answer: str, expected: float | int, *, tolerance=1e-9):
+def verify_math(answer: str, expected: float, *, tolerance=1e-9):
     nums=re.findall(r"[-+]?\d+(?:\.\d+)?", answer.replace(",",""))
     observed=float(nums[-1]) if nums else None
     return VerificationResult(observed is not None and math.isclose(observed,float(expected),rel_tol=tolerance,abs_tol=tolerance),"math",expected,observed,None if observed is not None else "no numeric answer")

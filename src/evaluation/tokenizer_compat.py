@@ -1,6 +1,7 @@
 """Tokenizer/checkpoint compatibility contract."""
 from __future__ import annotations
 
+
 def compatibility_report(tokenizer, checkpoint_metadata):
     expected=checkpoint_metadata.get("tokenizer_fingerprint")
     current=tokenizer.fingerprint

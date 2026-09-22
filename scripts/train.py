@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 try:
-    from scripts._bootstrap import PROJECT_ROOT  # noqa: F401
+    from scripts._bootstrap import PROJECT_ROOT
 except ModuleNotFoundError:
     from _bootstrap import PROJECT_ROOT  # noqa: F401
 
 import argparse
 import atexit
-from collections.abc import Mapping
-from contextlib import nullcontext
-import json
 import hashlib
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
@@ -25,30 +25,32 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
 import torch
+from dotenv import load_dotenv
 
-from model.gpt import MiniGPT
 from datasets.governance import enforce_dataset_governance
+from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores
+from inference.context import format_system_prompt
+from inference.generator import Generator
+from model.gpt import MiniGPT
 from model.loss import CausalLanguageModelLoss
 from optim.adamw import adamw_from_config
 from optim.ema import EMA
 from optim.scheduler import Scheduler
 from tokenizer.encoder import Tokenizer
-from training.generation_checkpoint import retention_passes, save_best_generation
 from training.checkpoint import load_checkpoint, save_checkpoint
-from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
-from training.data import build_loader, interleave_loaders, _mixture_groups
+from training.data import _mixture_groups, build_loader, interleave_loaders
 from training.distributed import DistributedTrainer
-from training.evaluator import Evaluator
-from training.trainer import Trainer
-from training.planner import optimizer_steps_for_epochs
-from training.peft import LoRALinear, apply_lora, has_lora
+from training.distributed_checkpoint import (
+    load_distributed_checkpoint,
+    save_distributed_checkpoint,
+)
 from training.elastic import PreemptionCoordinator
+from training.evaluator import Evaluator
+from training.generation_checkpoint import retention_passes, save_best_generation
+from training.peft import LoRALinear, apply_lora, has_lora
+from training.planner import optimizer_steps_for_epochs
 from training.reporting import archive_previous_report_files
-from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores
-from inference.context import format_system_prompt
-from inference.generator import Generator
-from dotenv import load_dotenv
-
+from training.trainer import Trainer
 from utils.config import apply_cli_defaults, load_yaml
 from utils.device import verify_cuda_health
 from utils.logger import configure_logging, get_logger

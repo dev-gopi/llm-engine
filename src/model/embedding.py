@@ -7,8 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
-import torch.nn as nn
-from torch import Tensor
+from torch import Tensor, nn
 
 
 class TokenEmbedding(nn.Module):
@@ -156,11 +155,11 @@ class TokenEmbedding(nn.Module):
             )
         output_projection.weight = self.embedding.weight
 
-    def freeze(self) -> "TokenEmbedding":
+    def freeze(self) -> TokenEmbedding:
         self.embedding.weight.requires_grad_(False)
         return self
 
-    def unfreeze(self) -> "TokenEmbedding":
+    def unfreeze(self) -> TokenEmbedding:
         self.embedding.weight.requires_grad_(True)
         return self
 
@@ -171,7 +170,7 @@ class TokenEmbedding(nn.Module):
         *,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
-    ) -> "TokenEmbedding":
+    ) -> TokenEmbedding:
         """Construct from the model YAML mapping without coupling to YAML I/O."""
 
         return cls(

@@ -9,7 +9,6 @@ from pathlib import Path
 
 import yaml
 
-
 SYSTEM = "You are Gopi, a helpful assistant. Answer clearly and briefly."
 
 

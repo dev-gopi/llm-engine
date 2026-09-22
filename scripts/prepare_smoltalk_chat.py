@@ -20,8 +20,12 @@ if repository_root not in sys.path:
     sys.path.insert(0, repository_root)
 
 from datasets.loader import iter_records
-from scripts.prepare_recovery_sft import BAD_TEXT, SYSTEM_PROMPT, _repetition_ratio, clean_text
-
+from scripts.prepare_recovery_sft import (
+    BAD_TEXT,
+    SYSTEM_PROMPT,
+    _repetition_ratio,
+    clean_text,
+)
 
 ALLOWED_SUBSETS = {"everyday-conversations"}
 IDENTITY_LEAK = re.compile(r"\b(?:open\s*assistant|chatgpt|claude)\b", re.IGNORECASE)

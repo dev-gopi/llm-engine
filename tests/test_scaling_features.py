@@ -11,14 +11,22 @@ import torch
 
 from datasets.filters import CorpusFilter
 from datasets.token_shards import TokenShardDataset
-from evaluation.benchmarks import BenchmarkCase, normalize_answer, score_answer, summarize_scores
+from evaluation.benchmarks import (
+    BenchmarkCase,
+    normalize_answer,
+    score_answer,
+    summarize_scores,
+)
 from inference.paged_kv_cache import PagedKVCache, PrefixCache
 from model.gpt import MiniGPT
 from post_training.dpo import DPOLoss, sequence_log_probabilities
 from scripts.evaluate_domains import aggregate_domain_metrics
 from serving.batching import DynamicBatcher
 from training.distributed import DistributedContext, DistributedTrainer
-from training.distributed_checkpoint import load_distributed_checkpoint, save_distributed_checkpoint
+from training.distributed_checkpoint import (
+    load_distributed_checkpoint,
+    save_distributed_checkpoint,
+)
 
 
 def test_corpus_filter_deduplicates_and_redacts_pii() -> None:

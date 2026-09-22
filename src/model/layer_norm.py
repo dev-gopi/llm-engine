@@ -6,9 +6,8 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
+from torch import Tensor, nn
 
 
 class LayerNorm(nn.Module):

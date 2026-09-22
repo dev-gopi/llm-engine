@@ -3,8 +3,8 @@ import torch
 
 from model.gpt import MiniGPT
 from multimodal.model import VisionLanguageModel
-from vision.encoder import VisionEncoder
 from vision.classifier import VisionClassifier
+from vision.encoder import VisionEncoder
 from vision.patch_embedding import PatchEmbedding
 
 
@@ -106,7 +106,11 @@ def test_vision_classifier_returns_class_logits() -> None:
 
 
 def test_image_text_sft_collator_and_metrics() -> None:
-    from multimodal.model import ImageTextSFTExample, collate_image_text_sft, multimodal_sft_metrics
+    from multimodal.model import (
+        ImageTextSFTExample,
+        collate_image_text_sft,
+        multimodal_sft_metrics,
+    )
     examples = [
         ImageTextSFTExample(torch.zeros(3, 32, 32), torch.tensor([1, 2]), torch.tensor([3, 4]), "a"),
         ImageTextSFTExample(torch.ones(3, 32, 32), torch.tensor([1]), torch.tensor([5, 6, 7]), "b"),

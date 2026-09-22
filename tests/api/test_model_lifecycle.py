@@ -1,12 +1,11 @@
-import asyncio
 
 import pytest
-from tests.asgi_client import ASGIClient
 
 from serving.api import ServingSettings, create_app
 from serving.orchestration import ReloadableBackend
 from serving.runtime import BackendGeneration
 from serving.schemas import FinishReason
+from tests.asgi_client import ASGIClient
 
 
 class LifecycleBackend:

@@ -1,8 +1,11 @@
 """Preference-data governance and controlled alignment-method comparisons."""
 from __future__ import annotations
+
+import hashlib
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
-import hashlib, re
+
 
 @dataclass(frozen=True)
 class PreferenceAudit:
@@ -17,7 +20,7 @@ def audit_preference(record: Mapping[str,object]) -> PreferenceAudit:
     if not p or not c or not r: flags.append("missing_text")
     if c==r: flags.append("identical_pair")
     if len(c)<8 or len(r)<8: flags.append("short_response")
-    if re.search(r"(?:api[_ -]?key|password|secret)\s*[:=]", p+c+r, re.I): flags.append("possible_secret")
+    if re.search(r"(?:api[_ -]?key|password|secret)\s*[:=]", p+c+r, re.IGNORECASE): flags.append("possible_secret")
     # A pair is not accepted merely because chosen is longer. Length is reported, not rewarded.
     quality=1.0 if not flags else max(0.0,1.0-.25*len(flags))
     fp=hashlib.sha256((p+"\0"+c+"\0"+r).encode()).hexdigest()

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import random
+import tempfile
 from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
-import torch
 import numpy as np
+import torch
 from torch import nn
 
 

@@ -1,8 +1,11 @@
 """Governed instruction-data quality scoring and balancing."""
 from __future__ import annotations
-import hashlib, math, re
-from dataclasses import dataclass
+
+import hashlib
+import re
 from collections import Counter
+from dataclasses import dataclass
+
 
 @dataclass(frozen=True)
 class InstructionScore:
@@ -21,7 +24,7 @@ def score_instruction(record: dict) -> InstructionScore:
     if not answer: flags.append("empty_answer")
     if len(prompt)>16000: flags.append("prompt_too_long")
     if len(answer)>32000: flags.append("answer_too_long")
-    if re.search(r"(?:\b(?:password|secret|api[_ -]?key)\b)\s*[:=]\s*\S+", prompt+"\n"+answer, re.I): flags.append("possible_secret")
+    if re.search(r"(?:\b(?:password|secret|api[_ -]?key)\b)\s*[:=]\s*\S+", prompt+"\n"+answer, re.IGNORECASE): flags.append("possible_secret")
     repeated = 1.0
     words=answer.lower().split()
     if words:

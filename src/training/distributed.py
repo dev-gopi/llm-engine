@@ -87,6 +87,7 @@ class DistributedTrainer:
             if context.device.type != "cuda":
                 raise RuntimeError("FSDP training requires CUDA in this engine")
             from functools import partial
+
             from model.transformer_block import TransformerBlock
 
             dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(mixed_precision)

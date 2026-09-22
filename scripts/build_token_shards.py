@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 try:
-    from scripts._bootstrap import PROJECT_ROOT  # noqa: F401
+    from scripts._bootstrap import PROJECT_ROOT
 except ModuleNotFoundError:
     from _bootstrap import PROJECT_ROOT  # noqa: F401
 
@@ -20,8 +20,8 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 import argparse
 import json
 import multiprocessing as mp
-from dataclasses import asdict
 from collections.abc import Iterable
+from dataclasses import asdict
 
 import numpy as np
 
@@ -29,7 +29,6 @@ from datasets.filters import CorpusFilter
 from datasets.loader import TextDataset, iter_records
 from datasets.preprocessor import record_to_text
 from tokenizer.encoder import Tokenizer
-
 
 _WORKER_TOKENIZER: Tokenizer | None = None
 

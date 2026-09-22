@@ -1,12 +1,12 @@
 import pytest
 import torch
 
+from diffusion.latent_pipeline import LatentDiffusionPipeline
 from diffusion.pipeline import DiffusionPipeline
 from diffusion.scheduler import DiffusionScheduler
+from diffusion.text_encoder import DiffusionTextEncoder
 from diffusion.unet import SmallUNet
 from diffusion.vae import AutoencoderKL
-from diffusion.text_encoder import DiffusionTextEncoder
-from diffusion.latent_pipeline import LatentDiffusionPipeline
 
 
 def test_scheduler_add_noise_preserves_shape_and_known_endpoints() -> None:

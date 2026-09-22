@@ -1,6 +1,12 @@
 import pytest
-from jsonschema import ValidationError
-from schema.structured_outputs import make_spec, validate_structured_output, StructuredSchemaError, StructuredOutputValidationError
+
+from schema.structured_outputs import (
+    StructuredOutputValidationError,
+    StructuredSchemaError,
+    make_spec,
+    validate_structured_output,
+)
+
 
 def test_nested_arrays_and_required_fields_validate():
     spec=make_spec(name="order", schema={"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"],"additionalProperties":False}}},"required":["items"],"additionalProperties":False}, strict=True)
@@ -16,10 +22,11 @@ def test_malformed_schema_is_rejected():
 def test_malformed_generation_is_rejected():
     spec=make_spec(name="x",schema={"type":"object"})
     with pytest.raises(StructuredOutputValidationError): validate_structured_output('{bad',spec)
-from tests.asgi_client import ASGIClient
-from serving.api import create_app, ServingSettings
+from serving.api import ServingSettings, create_app
 from serving.runtime import BackendGeneration
 from serving.schemas import FinishReason
+from tests.asgi_client import ASGIClient
+
 
 class JsonBackend:
     ready=True

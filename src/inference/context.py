@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import dataclass
-from threading import RLock
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 
 from datasets.preprocessor import clean, format_messages
 from tokenizer.encoder import Tokenizer

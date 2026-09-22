@@ -3,7 +3,12 @@ import json
 import pytest
 import yaml
 
-from scripts.prepare_sft_stage import prepare, record_key, refresh_training_config, rejection_reason
+from scripts.prepare_sft_stage import (
+    prepare,
+    record_key,
+    refresh_training_config,
+    rejection_reason,
+)
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 

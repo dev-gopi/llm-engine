@@ -5,7 +5,13 @@ from model.gpt import MiniGPT
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
-from training.peft import LoRALinear, apply_lora, load_lora_adapter, lora_adapter_state_dict, merge_and_unload
+from training.peft import (
+    LoRALinear,
+    apply_lora,
+    load_lora_adapter,
+    lora_adapter_state_dict,
+    merge_and_unload,
+)
 
 
 def _model() -> MiniGPT:

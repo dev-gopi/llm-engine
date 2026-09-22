@@ -1,5 +1,6 @@
-from reasoning.verification import verify_math, verify_code, verify_logic
 from reasoning.curriculum import order_curriculum
+from reasoning.verification import verify_code, verify_logic, verify_math
+
 
 def test_math_and_code_verification():
     assert verify_math('steps... 42',42).passed

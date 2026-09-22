@@ -4,7 +4,7 @@ import json
 import httpx
 
 from serving.external_backend import OpenAICompatibleBackend
-from serving.schemas import GenerateRequest, FinishReason
+from serving.schemas import FinishReason, GenerateRequest
 
 
 def test_external_backend_maps_openai_response_and_sampler_controls():

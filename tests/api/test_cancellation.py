@@ -1,8 +1,11 @@
 import asyncio
+
 import pytest
+
 from serving.api import _generate_with_disconnect
-from serving.runtime import ServingRuntime, BackendGeneration
-from serving.schemas import GenerateRequest, FinishReason
+from serving.runtime import BackendGeneration, ServingRuntime
+from serving.schemas import FinishReason, GenerateRequest
+
 
 class SlowBackend:
     ready=True
@@ -40,7 +43,7 @@ def test_cancellation_registry_does_not_evict_active_tasks():
 
 
 def test_explicit_cancel_endpoint_returns_contract():
-    from serving.api import create_app, ServingSettings
+    from serving.api import ServingSettings, create_app
     from tests.test_serving import FakeBackend, request
     settings=ServingSettings(model_name="gopi-test",bot_name="Gopi",allowed_hosts=("testserver","test","localhost","127.0.0.1"))
     response = request(

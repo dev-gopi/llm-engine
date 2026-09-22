@@ -1,5 +1,7 @@
 import pytest
+
 from runtime.reasoning import resolve_reasoning_budget
+
 
 def test_reasoning_budgets_are_deterministic():
     assert resolve_reasoning_budget("none",max_tokens=100).max_tokens == 0

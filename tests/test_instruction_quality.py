@@ -1,4 +1,5 @@
-from datasets.instruction_quality import score_instruction, filter_and_balance
+from datasets.instruction_quality import filter_and_balance, score_instruction
+
 
 def test_instruction_quality_rejects_secret():
     s=score_instruction({'prompt':'give key','response':'api_key=abc'})

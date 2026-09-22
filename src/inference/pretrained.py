@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shutil
 import tempfile
+from pathlib import Path
 
-import torch
 from safetensors.torch import load_model, save_model
 
 from datasets.preprocessor import format_messages

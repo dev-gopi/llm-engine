@@ -6,16 +6,15 @@ import json
 import math
 import re
 import sqlite3
-
-import torch
 import unicodedata
 from collections import Counter
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Iterable, Iterator
 from urllib.parse import quote
 
+import torch
 
 INDEX_VERSION = 1
 SUPPORTED_SUFFIXES = {
@@ -253,7 +252,7 @@ class RagIndex:
         return destination
 
     @classmethod
-    def load(cls, path: str | Path) -> "RagIndex":
+    def load(cls, path: str | Path) -> RagIndex:
         source = Path(path)
         payload = json.loads(source.read_text(encoding="utf-8"))
         if payload.get("version") != INDEX_VERSION or not isinstance(payload.get("chunks"), list):
@@ -336,7 +335,7 @@ class SQLiteRagIndex:
         chunk_chars: int = 900,
         overlap_chars: int = 120,
         batch_size: int = 1000,
-    ) -> "SQLiteRagIndex":
+    ) -> SQLiteRagIndex:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
         target = Path(destination)
@@ -430,14 +429,21 @@ def build_rag_prompt_with_budget(
 
 
 __all__ = [
-    "DocumentChunk", "RagIndex", "SQLiteRagIndex", "RetrievalResult", "build_chunks",
-    "build_rag_prompt", "build_rag_prompt_with_budget", "chunk_text", "iter_chunks",
-    "read_document", "rerank_results",
+    "DocumentChunk",
+    "RagIndex",
+    "RetrievalResult",
+    "SQLiteRagIndex",
+    "build_chunks",
+    "build_rag_prompt",
+    "build_rag_prompt_with_budget",
+    "chunk_text",
+    "iter_chunks",
+    "read_document",
+    "rerank_results",
 ]
 
 # Dedicated embedding retrieval API (lexical BM25 remains the default fallback).
 def embedding_search(chunks: Iterable[DocumentChunk], query: str, embedding_model, *, top_k: int = 5, reranker=None) -> list[RetrievalResult]:
-    from evaluation.embeddings import EmbeddingModel
     items = list(chunks)
     if not items or not isinstance(query, str) or not query.strip():
         return []

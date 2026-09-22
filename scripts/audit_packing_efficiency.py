@@ -1,8 +1,12 @@
 """Measure packed-token and dynamic-padding efficiency from JSONL records."""
 from __future__ import annotations
-import argparse, json
+
+import argparse
+import json
 from pathlib import Path
-from datasets.packing import packing_efficiency, batch_padding_efficiency
+
+from datasets.packing import batch_padding_efficiency, packing_efficiency
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)

@@ -7,10 +7,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
-
+from torch import Tensor, nn
 
 DEFAULT_LORA_TARGETS = (
     "q_proj",

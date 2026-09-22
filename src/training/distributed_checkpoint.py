@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import random
 import shutil
@@ -17,8 +17,8 @@ import torch
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from torch import nn
-from torch.optim import Optimizer
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
+from torch.optim import Optimizer
 
 
 def save_distributed_checkpoint(

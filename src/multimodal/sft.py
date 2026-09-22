@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 
-from .model import ImageTextSFTExample, VisionLanguageModel, collate_image_text_sft, multimodal_sft_metrics
+from .model import (
+    ImageTextSFTExample,
+    VisionLanguageModel,
+    multimodal_sft_metrics,
+)
 
 
 class ImageTextSFTDataset(Dataset[ImageTextSFTExample]):

@@ -2,7 +2,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from inference.local_tools import ToolCallError, calculate, direct_tool_answer, parse_tool_call, tool_context
+from inference.local_tools import (
+    ToolCallError,
+    calculate,
+    direct_tool_answer,
+    parse_tool_call,
+    tool_context,
+)
 
 
 def test_calculator_evaluates_arithmetic() -> None:

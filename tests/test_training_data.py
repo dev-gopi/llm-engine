@@ -4,10 +4,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from datasets.sampler import CurriculumSchedule, CurriculumStage, Sampler
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
-from training.data import _mixture_groups, _mixture_name, build_loader, interleave_loaders
-from datasets.sampler import CurriculumSchedule, CurriculumStage, Sampler
+from training.data import (
+    _mixture_groups,
+    _mixture_name,
+    build_loader,
+    interleave_loaders,
+)
 
 
 def test_validation_sources_are_interleaved_before_batch_cap() -> None:

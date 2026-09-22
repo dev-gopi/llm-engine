@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
 import math
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +11,8 @@ from torch.utils.data import ConcatDataset, DataLoader
 
 from datasets.collator import Collator
 from datasets.loader import build_text_dataset
-from datasets.token_shards import TokenShardDataset
 from datasets.sampler import Sampler
+from datasets.token_shards import TokenShardDataset
 from tokenizer.encoder import Tokenizer
 
 

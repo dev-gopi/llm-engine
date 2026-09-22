@@ -113,7 +113,7 @@ class PagedKVCache:
         self.free_pages.extend(self.tables.pop(request_id))
         self.lengths.pop(request_id)
 
-    def layer_cache(self, request_ids: list[str], layer: int) -> "PagedLayerKVCache":
+    def layer_cache(self, request_ids: list[str], layer: int) -> PagedLayerKVCache:
         """Expose page tables for one transformer layer without materializing KV."""
         if not request_ids or any(request_id not in self.tables for request_id in request_ids):
             raise KeyError("all paged-cache request IDs must be reserved")

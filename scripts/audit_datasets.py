@@ -12,12 +12,21 @@ from pathlib import Path
 script_directory = str(Path(__file__).resolve().parent)
 project_root = str(Path(__file__).resolve().parents[1])
 src_directory = str(Path(project_root) / "src")
-if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
-    sys.path.pop(0)
-if src_directory not in sys.path:
-    sys.path.insert(0, src_directory)
+# ``datasets`` is also the name of the optional Hugging Face dependency.  A
+# path added by an editable install may already exist later in ``sys.path``;
+# move our source root ahead of site-packages rather than only adding it when
+# absent.
+sys.path[:] = [
+    entry for entry in sys.path
+    if str(Path(entry or ".").resolve()) not in {script_directory, src_directory}
+]
+sys.path.insert(0, src_directory)
 
-from datasets.governance import audit_dataset_files, audit_manifest_files, build_governance_report
+from datasets.governance import (
+    audit_dataset_files,
+    audit_manifest_files,
+    build_governance_report,
+)
 from utils.config import load_yaml
 
 

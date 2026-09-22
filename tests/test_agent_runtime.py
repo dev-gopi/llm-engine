@@ -1,5 +1,7 @@
 import pytest
-from inference.agent_runtime import AgentStep, BoundedAgentRuntime, AgentState
+
+from inference.agent_runtime import AgentState, AgentStep, BoundedAgentRuntime
+
 
 def test_agent_requires_approval_and_is_bounded():
     runtime=BoundedAgentRuntime({'add':lambda x:x+1},max_steps=2,require_approval=True)

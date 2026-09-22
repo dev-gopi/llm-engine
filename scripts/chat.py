@@ -16,15 +16,21 @@ from dotenv import load_dotenv
 
 from inference.context import ConversationMemory, format_system_prompt
 from inference.generator import Generator
-from inference.quantization import prepare_model_for_inference
 from inference.prompt_safety import blocked_prompt_message
-from inference.web_search import SearchResult, build_search_prompt, search_brave, search_searxng
+from inference.quantization import prepare_model_for_inference
+from inference.web_search import (
+    SearchResult,
+    build_search_prompt,
+    search_brave,
+    search_searxng,
+)
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import apply_cli_defaults, load_yaml
 from utils.device import resolve_device
+
 
 def main() -> None:
     load_dotenv()

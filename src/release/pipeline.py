@@ -1,12 +1,14 @@
 """Checkpoint -> evaluation -> regression -> promotion -> release-candidate pipeline."""
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
-from evaluation.release_gate import ReleaseGate, GateRule
+from evaluation.release_gate import GateRule, ReleaseGate
 from training.promotion import CheckpointCandidate, CheckpointPromoter, MetricRule
+
 from .artifacts import build_reproducibility_manifest, write_json
 
 

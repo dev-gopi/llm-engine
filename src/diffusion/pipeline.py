@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
+
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from torch import Tensor
 
 from .scheduler import DiffusionScheduler
 from .unet import SmallUNet

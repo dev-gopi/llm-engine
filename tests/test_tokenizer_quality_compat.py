@@ -1,6 +1,7 @@
+from evaluation.tokenizer_compat import assert_compatible
 from evaluation.tokenizer_quality import benchmark_tokenizer
-from evaluation.tokenizer_compat import compatibility_report, assert_compatible
 from tokenizer.encoder import Tokenizer
+
 
 def tok():
     vocab={'<|pad|>':0,'<|unk|>':1,'<|bos|>':2,'<|eos|>':3,'a':4,'b':5}

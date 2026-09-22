@@ -5,9 +5,10 @@ import hashlib
 import json
 import os
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 
 def sha256_file(path: str | Path) -> str:
@@ -96,6 +97,7 @@ def build_reproducibility_manifest(
     checkpoint_path: str | Path | None = None,
 ) -> ReproducibilityManifest:
     import sys
+
     import torch
     root = Path(root)
     config_hashes = {str(Path(path)): sha256_file(path) for path in config_paths if Path(path).is_file()}

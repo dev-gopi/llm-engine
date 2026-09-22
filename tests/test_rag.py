@@ -5,8 +5,15 @@ from types import SimpleNamespace
 import pytest
 
 from inference.rag import (
-    DocumentChunk, RagIndex, RetrievalResult, SQLiteRagIndex, build_chunks,
-    build_rag_prompt, build_rag_prompt_with_budget, chunk_text, rerank_results,
+    DocumentChunk,
+    RagIndex,
+    RetrievalResult,
+    SQLiteRagIndex,
+    build_chunks,
+    build_rag_prompt,
+    build_rag_prompt_with_budget,
+    chunk_text,
+    rerank_results,
 )
 from inference.web_search import SearchResult
 from serving.backend import ConfiguredModelBackend

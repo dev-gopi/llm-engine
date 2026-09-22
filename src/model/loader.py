@@ -1,8 +1,9 @@
 """Safe model loader abstractions used by protected lifecycle operations."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass(frozen=True)

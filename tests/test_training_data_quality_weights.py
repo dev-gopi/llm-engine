@@ -1,5 +1,7 @@
 import pytest
+
 from training.data import _mixture_groups
+
 
 def test_quality_weights_adjust_dataset_mixture_deterministically():
     config = {"dataset_weights": {"a": 0.5, "b": 0.5}, "dataset_quality_weights": {"a": 1.0, "b": 0.5}}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+
 import torch
 from torch import Tensor
 
@@ -35,7 +36,7 @@ class DiffusionScheduler:
         self.alphas = 1.0 - self.betas
         self.alpha_bars = torch.cumprod(self.alphas, dim=0)
 
-    def to(self, device: torch.device | str) -> "DiffusionScheduler":
+    def to(self, device: torch.device | str) -> DiffusionScheduler:
         self.betas = self.betas.to(device)
         self.alphas = self.alphas.to(device)
         self.alpha_bars = self.alpha_bars.to(device)

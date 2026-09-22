@@ -56,7 +56,7 @@ class Scheduler(LambdaLR):
         return previous, self.validation_scale
 
     @classmethod
-    def from_config(cls, optimizer: Optimizer, config: Mapping[str, Any], *, total_steps: int | None = None) -> "Scheduler":
+    def from_config(cls, optimizer: Optimizer, config: Mapping[str, Any], *, total_steps: int | None = None) -> Scheduler:
         resolved_total = total_steps or int(config["total_steps"])
         warmup = config.get("warmup_steps")
         if warmup is None:

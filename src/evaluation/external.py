@@ -1,8 +1,11 @@
 """Versioned external benchmark adapters with deterministic scoring."""
 from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Callable, Iterable
-import hashlib, json
+
 
 @dataclass(frozen=True)
 class BenchmarkSpec:

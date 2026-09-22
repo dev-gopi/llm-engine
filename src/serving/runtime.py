@@ -10,8 +10,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from .schemas import FinishReason, GenerateRequest, OpenAIToolCall
 from .orchestration import ContinuousStreamScheduler, TokenStepScheduler
+from .schemas import FinishReason, GenerateRequest, OpenAIToolCall
 
 
 class ServingError(RuntimeError):

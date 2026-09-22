@@ -1,11 +1,15 @@
 """First-class MCP execution contract using the existing secure MCP client."""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Mapping
-import asyncio
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
+
 import httpx
-from mcp.client import MCPClient, MCPTool, MCPProtocolError
+
+from mcp.client import MCPClient, MCPProtocolError, MCPTool
 from security.authorization import ToolAuthorization
+
 
 @dataclass(frozen=True)
 class MCPServerConfig:

@@ -1,7 +1,5 @@
-import pytest
-from tests.asgi_client import ASGIClient
-
 from serving.api import ServingSettings, create_app
+from tests.asgi_client import ASGIClient
 from tests.test_serving import FakeBackend
 
 

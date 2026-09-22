@@ -5,8 +5,11 @@ A checkpoint can only be promoted when required protected capabilities have no
 regression beyond configured tolerances and all evidence artifacts are present.
 """
 from __future__ import annotations
+
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping, Any
+from typing import Any
+
 
 @dataclass(frozen=True)
 class MetricRule:

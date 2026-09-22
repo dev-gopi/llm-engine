@@ -11,12 +11,14 @@ from pathlib import Path
 script_directory = str(Path(__file__).resolve().parent)
 repository_root = str(Path(__file__).resolve().parents[1])
 src_root = str(Path(__file__).resolve().parents[1] / "src")
-if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
-    sys.path.pop(0)
-if repository_root not in sys.path:
-    sys.path.insert(0, repository_root)
-if src_root not in sys.path:
-    sys.path.insert(0, src_root)
+# Keep the engine source root ahead of site-packages.  ``datasets`` otherwise
+# resolves to the optional Hugging Face distribution during direct script
+# launches, even if an editable installation has already listed ``src``.
+sys.path[:] = [
+    entry for entry in sys.path
+    if str(Path(entry or ".").resolve()) not in {script_directory, repository_root, src_root}
+]
+sys.path[:0] = [src_root, repository_root]
 
 import torch
 

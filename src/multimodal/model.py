@@ -9,6 +9,7 @@ from torch import Tensor, nn
 
 from model.gpt import MiniGPT
 from vision.encoder import VisionEncoder
+
 from .projector import VisionProjector
 
 
@@ -43,7 +44,7 @@ class VisionLanguageModel(nn.Module):
         if freeze_language:
             self.language_model.eval()
 
-    def train(self, mode: bool = True) -> "VisionLanguageModel":
+    def train(self, mode: bool = True) -> VisionLanguageModel:
         super().train(mode)
         # Frozen backbones must also keep dropout disabled while the projector
         # trains, otherwise identical images/prompts produce moving targets.
@@ -94,11 +95,7 @@ class VisionLanguageModel(nn.Module):
 
     def _language_forward_from_embeddings(self, hidden_states: Tensor) -> Tensor:
         """Use existing public submodules while leaving MiniGPT source untouched."""
-        if self.language_model.position_type == "learned" and self.language_model.pos is not None:
-            batch, length = hidden_states.shape[:2]
-            dummy_ids = torch.zeros((batch, length), dtype=torch.long, device=hidden_states.device)
-            hidden_states = hidden_states + self.language_model.pos(dummy_ids)
-        elif self.language_model.position_type == "sinusoidal" and self.language_model.pos is not None:
+        if self.language_model.position_type == "learned" and self.language_model.pos is not None or self.language_model.position_type == "sinusoidal" and self.language_model.pos is not None:
             batch, length = hidden_states.shape[:2]
             dummy_ids = torch.zeros((batch, length), dtype=torch.long, device=hidden_states.device)
             hidden_states = hidden_states + self.language_model.pos(dummy_ids)

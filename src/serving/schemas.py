@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
 import json
+from enum import Enum
 from typing import Annotated, Any, Literal
 
 from jsonschema import exceptions as jsonschema_exceptions
 from jsonschema.validators import validator_for
-
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -19,7 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-from schema.structured_outputs import make_spec, StructuredSchemaError
+from schema.structured_outputs import StructuredSchemaError, make_spec
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -112,11 +111,11 @@ class GenerateRequest(StrictSchema):
     stop: list[str] = Field(default_factory=list, max_length=16)
 
     # OpenAI-compatible function/tool definitions.
-    chat_tools: list["OpenAITool"] = Field(
+    chat_tools: list[OpenAITool] = Field(
         default_factory=list,
         max_length=128,
     )
-    tool_choice: "OpenAIToolChoice" = "auto"
+    tool_choice: OpenAIToolChoice = "auto"
 
     @field_validator("response_format")
     @classmethod
@@ -157,7 +156,7 @@ class GenerateRequest(StrictSchema):
 
     @field_validator("chat_tools")
     @classmethod
-    def validate_chat_tools(cls, values: list["OpenAITool"]) -> list["OpenAITool"]:
+    def validate_chat_tools(cls, values: list[OpenAITool]) -> list[OpenAITool]:
         names: set[str] = set()
 
         for tool in values:

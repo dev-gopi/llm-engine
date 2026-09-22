@@ -15,9 +15,11 @@ def test_hf_image_bytes_rejects_missing_encoded_data() -> None:
 
 def test_prepare_split_bounds_batches_and_output(tmp_path, monkeypatch) -> None:
     import io
+
     import pyarrow as pa
     import pyarrow.parquet as pq
     from PIL import Image
+
     from scripts import prepare_hf_image_dataset as module
 
     encoded = io.BytesIO()

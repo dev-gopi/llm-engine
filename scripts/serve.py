@@ -15,6 +15,7 @@ import os
 import uvicorn
 from dotenv import load_dotenv
 
+
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)

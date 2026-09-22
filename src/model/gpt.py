@@ -7,18 +7,25 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.utils.checkpoint
-from torch import Tensor
+from torch import Tensor, nn
 
 from utils.logger import get_logger
 
 from .attention import KeyValueCache
-from .kv_cache import StaticLayerKVCache
-from .config import normalize_model_config, resolve_attention_layer_pattern, validate_moe_config
+from .config import (
+    normalize_model_config,
+    resolve_attention_layer_pattern,
+    validate_moe_config,
+)
 from .embedding import TokenEmbedding
+from .kv_cache import StaticLayerKVCache
 from .layer_norm import build_normalization
-from .positional import PositionalEmbedding, RotaryPositionalEmbedding, SinusoidalPositionalEmbedding
+from .positional import (
+    PositionalEmbedding,
+    RotaryPositionalEmbedding,
+    SinusoidalPositionalEmbedding,
+)
 from .transformer_block import TransformerBlock
 
 logger = get_logger(__name__)
@@ -477,7 +484,7 @@ class MiniGPT(nn.Module):
         *,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
-    ) -> "MiniGPT":
+    ) -> MiniGPT:
         """Build a complete model from model configuration values."""
         if config.get("planning_only", False):
             raise ValueError("planning-only model: use scripts/inspect_model.py or scripts/plan_training.py; "

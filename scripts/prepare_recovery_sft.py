@@ -19,7 +19,6 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 from datasets.loader import iter_records
 from inference.context import format_system_prompt
 
-
 BASE_SYSTEM_PROMPT = "You are Gopi, a helpful assistant. Answer clearly and briefly."
 SYSTEM_PROMPT = format_system_prompt(
     BASE_SYSTEM_PROMPT, "plain", include_safety_instruction=False,

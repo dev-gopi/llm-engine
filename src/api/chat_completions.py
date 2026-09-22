@@ -1,7 +1,14 @@
 """Structured Chat Completions response helpers."""
 from __future__ import annotations
+
 from typing import Any
-from schema.structured_outputs import StructuredOutputSpec, make_spec, validate_structured_output
+
+from schema.structured_outputs import (
+    StructuredOutputSpec,
+    make_spec,
+    validate_structured_output,
+)
+
 
 def parse_response_format(response_format: Any) -> StructuredOutputSpec | None:
     if response_format is None or getattr(response_format, "type", None) != "json_schema": return None

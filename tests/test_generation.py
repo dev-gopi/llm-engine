@@ -1,17 +1,17 @@
 import asyncio
 
-import torch
 import pytest
+import torch
 from torch import nn
 
 from inference.generator import Generator
 from inference.sampler import TopKSampler
 from model.gpt import MiniGPT
+from model.kv_cache import StaticLayerKVCache
 from serving.backend import ConfiguredModelBackend
 from serving.schemas import GenerateRequest
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
-from model.kv_cache import StaticLayerKVCache
 from training.checkpoint import save_checkpoint
 
 
@@ -603,8 +603,9 @@ def test_min_p_reaches_all_generation_modes(monkeypatch):
 
 
 def test_min_p_api_validation_and_chat_conversion():
-    from serving.schemas import OpenAIChatCompletionRequest
     from pydantic import ValidationError
+
+    from serving.schemas import OpenAIChatCompletionRequest
     request = OpenAIChatCompletionRequest(
         model="gopi", messages=[{"role": "user", "content": "hello"}], min_p=0.2,
     )

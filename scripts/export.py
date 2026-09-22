@@ -17,13 +17,13 @@ import torch
 import yaml
 from safetensors.torch import save_file, save_model
 
+from inference.quantization import Q1_0_GROUP_SIZE, quantize_int4, quantize_q1_0
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from training.peft import merge_and_unload
 from utils.config import load_yaml
-from inference.quantization import Q1_0_GROUP_SIZE, quantize_int4, quantize_q1_0
 
 
 def _sha256(path: Path) -> str:

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
-import hashlib
-import json
 import yaml
-
 
 MANIFEST_NAME = "dataset-manifest.yaml"
 VALID_POLICIES = {"off", "warn", "error"}
@@ -109,12 +107,7 @@ def audit_dataset_files(
         domain = manifest.get("domain")
         if domain:
             seen_domains.add(str(domain))
-        elif required_domain_set:
-            findings.append(GovernanceFinding(
-                data_path, "domain_missing",
-                f"{manifest['name']} has no capability domain",
-            ))
-        elif require_provenance:
+        elif required_domain_set or require_provenance:
             findings.append(GovernanceFinding(
                 data_path, "domain_missing",
                 f"{manifest['name']} has no capability domain",

@@ -19,6 +19,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
 from dataclasses import asdict
+
 from datasets.filters import CorpusFilter
 from datasets.loader import iter_records
 from datasets.preprocessor import record_to_text

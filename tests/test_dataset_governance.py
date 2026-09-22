@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +96,18 @@ def test_dataset_audit_cli_returns_machine_readable_failure(tmp_path) -> None:
     payload = json.loads(completed.stdout)
     assert payload["status"] == "failed"
     assert payload["findings"][0]["code"] == "missing_manifest"
+
+
+def test_dataset_audit_cli_prioritizes_internal_datasets_package(tmp_path) -> None:
+    data_path = tmp_path / "unreviewed" / "train.jsonl"
+    root = Path(__file__).resolve().parents[1]
+    environment = {**os.environ, "PYTHONPATH": str(root / "src")}
+    completed = subprocess.run(
+        [sys.executable, "scripts/audit_datasets.py", str(data_path), "--stage", "pretraining"],
+        cwd=root, env=environment, text=True, capture_output=True, check=False,
+    )
+    assert completed.returncode == 1
+    assert json.loads(completed.stdout)["findings"][0]["code"] == "missing_manifest"
 
 
 def test_dataset_audit_cli_inherits_governance_stage_from_config(tmp_path) -> None:

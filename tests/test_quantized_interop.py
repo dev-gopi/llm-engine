@@ -1,5 +1,11 @@
 import hashlib
-from inference.quantization import build_quantized_manifest, validate_quantized_manifest, architecture_fingerprint
+
+from inference.quantization import (
+    architecture_fingerprint,
+    build_quantized_manifest,
+    validate_quantized_manifest,
+)
+
 
 def test_quantized_manifest_provenance_and_compatibility():
     config={'architecture':'MiniGPT','vocab_size':16,'hidden_size':8,'layers':1,'heads':2,'kv_heads':2,'ffn_hidden_size':16,'position_type':'rotary','max_position':32}

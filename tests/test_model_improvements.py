@@ -10,7 +10,6 @@ from model.positional import (
     PositionalEmbedding,
     RotaryPositionalEmbedding,
     SinusoidalPositionalEmbedding,
-    rotate_half,
     apply_rotary_pos_emb,
 )
 

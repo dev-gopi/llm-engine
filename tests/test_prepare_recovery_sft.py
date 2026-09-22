@@ -101,9 +101,9 @@ def test_builder_reserves_test_and_rejected_validation_prompts(tmp_path):
 
 
 def test_token_length_filter_keeps_complete_answers(tmp_path):
+    from scripts.prepare_recovery_sft import collect_records
     from tokenizer.bpe import BYTE_ENCODER
     from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
-    from scripts.prepare_recovery_sft import collect_records
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: i for i, piece in enumerate(pieces)}
     tok = Tokenizer(vocab, special_tokens={p: vocab[p] for p in DEFAULT_SPECIAL_TOKENS})

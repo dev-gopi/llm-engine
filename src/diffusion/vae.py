@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-from torch import Tensor, nn
 import torch.nn.functional as F
+from torch import Tensor, nn
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ class AutoencoderKL(nn.Module):
         return reconstruction + kl_weight * kl.float().mean()
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "AutoencoderKL":
+    def from_config(cls, config: Mapping[str, Any]) -> AutoencoderKL:
         return cls(
             image_channels=int(config.get("image_channels", 3)),
             latent_channels=int(config.get("latent_channels", 4)),

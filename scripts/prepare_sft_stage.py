@@ -8,20 +8,21 @@ No semantic correctness or near-duplicate certification is implied.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import hashlib
 import json
-from pathlib import Path
 import shutil
 import sqlite3
 import sys
 import unicodedata
+from collections import Counter
+from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
 import yaml
+
 from datasets.loader import TextDataset, iter_records
 from datasets.preprocessor import record_to_text
 from tokenizer.encoder import Tokenizer

@@ -1,6 +1,6 @@
-import torch
 from evaluation.embeddings import HashEmbeddingModel, evaluate_retrieval
 from inference.rag import DocumentChunk, embedding_search
+
 
 def test_embedding_recall_and_rerank():
     model=HashEmbeddingModel(64)

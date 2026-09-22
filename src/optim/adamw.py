@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import torch.nn as nn
+from torch import nn
 from torch.optim import AdamW
 
 

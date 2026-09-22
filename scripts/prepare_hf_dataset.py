@@ -10,8 +10,8 @@ import shutil
 import sys
 import tempfile
 import urllib.request
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 # Avoid resolving the standard-library ``tokenize`` module to scripts/tokenize.py
 script_directory = str(Path(__file__).resolve().parent)

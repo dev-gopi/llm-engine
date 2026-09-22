@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
 import json
 import math
 import operator
 import re
 from collections.abc import Mapping
-from typing import Any
+from dataclasses import dataclass
 from datetime import datetime
-
+from typing import Any
 
 _BINARY_OPERATORS = {
     ast.Add: operator.add,

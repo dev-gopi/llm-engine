@@ -1,5 +1,6 @@
 from rag.reranker import LexicalCrossEncoderBaseline
 
+
 def test_reranker_preserves_metadata_and_orders_relevance():
     class D:
         def __init__(self,url,text): self.url=url; self.text=text

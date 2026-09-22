@@ -6,13 +6,12 @@ from pathlib import Path
 
 import torch
 
-from scripts.prepare_helpsteer_preferences import quality
-
 from model.gpt import MiniGPT
 from optim.adamw import build_adamw
 from optim.scheduler import Scheduler
 from post_training.dpo import DPOTrainer
 from post_training.preference_data import build_preference_loader
+from scripts.prepare_helpsteer_preferences import quality
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint

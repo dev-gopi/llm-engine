@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import os
-import torch
 from dataclasses import dataclass
+
+import torch
 import torch.distributed as dist
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 def validate_tensor_parallel_size(size: int, *, attention_heads: int, kv_heads: int) -> None:

@@ -1,6 +1,10 @@
 import pytest
 
-from inference.context import ConversationMemory, SQLiteSessionStore, format_system_prompt
+from inference.context import (
+    ConversationMemory,
+    SQLiteSessionStore,
+    format_system_prompt,
+)
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
@@ -103,10 +107,9 @@ def test_session_store_closes_connections_and_rolls_back(tmp_path):
         connection.execute("SELECT 1")
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connection.execute("SELECT 1")
-    with pytest.raises(RuntimeError):
-        with store._connect() as failed:
-            failed.execute("INSERT INTO sessions VALUES (?, ?, ?)", ("rollback", "[]", 0))
-            raise RuntimeError("abort")
+    with pytest.raises(RuntimeError), store._connect() as failed:
+        failed.execute("INSERT INTO sessions VALUES (?, ?, ?)", ("rollback", "[]", 0))
+        raise RuntimeError("abort")
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         failed.execute("SELECT 1")
     with store._connect() as check:

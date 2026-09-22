@@ -1,7 +1,5 @@
 import json
 
-from tests.asgi_client import ASGIClient
-from tests.test_serving import FakeBackend
 from serving.api import ServingSettings, create_app
 from serving.runtime import BackendGeneration, BackendStreamEvent
 from serving.schemas import (
@@ -10,6 +8,8 @@ from serving.schemas import (
     OpenAIToolCall,
     OpenAIToolFunctionCall,
 )
+from tests.asgi_client import ASGIClient
+from tests.test_serving import FakeBackend
 
 
 def _settings():

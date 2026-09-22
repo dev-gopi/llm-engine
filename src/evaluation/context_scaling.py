@@ -1,6 +1,7 @@
 """Context length ablation report builder."""
 from __future__ import annotations
 
+
 def compare_context_runs(runs):
     required=(512,1024,2048,4096,8192)
     normalized={int(r["context_length"]):r for r in runs}

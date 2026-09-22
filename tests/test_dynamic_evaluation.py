@@ -1,4 +1,5 @@
-from evaluation.dynamic import generate_math_fixture, anti_contamination_check
+from evaluation.dynamic import anti_contamination_check, generate_math_fixture
+
 
 def test_dynamic_fixture_reproducible():
     assert generate_math_fixture('v1',3)==generate_math_fixture('v1',3)

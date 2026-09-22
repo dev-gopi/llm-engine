@@ -11,7 +11,6 @@ import binascii
 import io
 import ipaddress
 import socket
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 

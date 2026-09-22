@@ -7,12 +7,12 @@ without benchmark evidence for the concrete checkpoint.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import math
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from model.config import estimate_model_size, normalize_model_config
-
 
 WEIGHT_BITS: dict[str, float] = {
     "fp32": 32.0,

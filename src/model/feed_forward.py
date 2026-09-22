@@ -7,10 +7,8 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
-
+from torch import Tensor, nn
 
 STANDARD_ACTIVATIONS = frozenset({"gelu", "gelu_tanh", "relu", "silu"})
 GATED_ACTIVATIONS = frozenset({"swiglu", "geglu"})
@@ -112,7 +110,7 @@ class FeedForward(nn.Module):
         *,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
-    ) -> "FeedForward":
+    ) -> FeedForward:
         return cls(
             dim=int(config["hidden_size"]),
             hidden_dim=(

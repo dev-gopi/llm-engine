@@ -1,6 +1,6 @@
+import importlib.util
 from argparse import Namespace
 from pathlib import Path
-import importlib.util
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "serve_gguf.py"
 SPEC = importlib.util.spec_from_file_location("serve_gguf", SCRIPT)

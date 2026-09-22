@@ -18,7 +18,7 @@ class ASGIClient:
     def __init__(self, app: Any) -> None:
         self.app = app
 
-    def __enter__(self) -> "ASGIClient":
+    def __enter__(self) -> ASGIClient:
         return self
 
     def __exit__(self, *args: object) -> None:

@@ -1,6 +1,7 @@
 import json
-import pytest
+
 from datasets.contamination import audit_contamination, load_documents
+
 
 def write(path, rows):
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")

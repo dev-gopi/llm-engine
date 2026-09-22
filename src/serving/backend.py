@@ -2,46 +2,54 @@
 
 from __future__ import annotations
 
-import os
 import asyncio
-import httpx
-import torch
-from dataclasses import dataclass, field
-from collections import deque
-from contextlib import asynccontextmanager
-from collections import defaultdict
+import os
+from collections import defaultdict, deque
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from inference.generator import BatchedGenerationState, Generator
+import httpx
+import torch
+
+from datasets.preprocessor import format_messages
 from inference.context import SQLiteSessionStore, format_system_prompt
+from inference.generator import BatchedGenerationState, Generator
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
-from inference.rag import RagIndex, SQLiteRagIndex, build_rag_prompt
-from rag.reranker import LexicalCrossEncoderBaseline, SentenceTransformersCrossEncoder
-from inference.web_search import build_search_prompt, format_sources, search_brave, search_searxng
-from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from inference.quantization import prepare_model_for_inference
+from inference.rag import RagIndex, SQLiteRagIndex, build_rag_prompt
+from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
+from inference.web_search import (
+    build_search_prompt,
+    format_sources,
+    search_brave,
+    search_searxng,
+)
 from mcp.client import MCPClient, MCPTool
-from mcp.orchestration import parse_explicit_tool_call, parse_tool_call, relevant_tools, tool_result_context, tool_selection_prompt
-from datasets.preprocessor import format_messages
+from mcp.orchestration import (
+    parse_explicit_tool_call,
+    parse_tool_call,
+    relevant_tools,
+    tool_result_context,
+    tool_selection_prompt,
+)
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
+from rag.reranker import LexicalCrossEncoderBaseline, SentenceTransformersCrossEncoder
+from runtime.reasoning import resolve_reasoning_budget
+from schema.structured_outputs import (
+    StructuredOutputError,
+    make_spec,
+    validate_structured_output,
+)
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
 from utils.device import resolve_device
 from utils.logger import get_logger
 
-from .runtime import (
-    BackendGeneration, BackendStreamEvent, BackendUnavailableError,
-    InvalidGenerationRequestError,
-)
-from .schemas import FinishReason, GenerateRequest
-from schema.structured_outputs import make_spec, validate_structured_output, StructuredOutputError
-from runtime.reasoning import resolve_reasoning_budget
-from .orchestration import ReloadableBackend, ReplicaPoolBackend
-from .external_backend import OpenAICompatibleBackend
 from .chat_protocol import (
     build_reasoning_system_instruction,
     build_tool_system_instruction,
@@ -50,6 +58,15 @@ from .chat_protocol import (
     render_native_messages,
     split_reasoning_trace,
 )
+from .external_backend import OpenAICompatibleBackend
+from .orchestration import ReloadableBackend, ReplicaPoolBackend
+from .runtime import (
+    BackendGeneration,
+    BackendStreamEvent,
+    BackendUnavailableError,
+    InvalidGenerationRequestError,
+)
+from .schemas import FinishReason, GenerateRequest
 from .vision_runtime import (
     MultimodalGenerator,
     has_image_input,

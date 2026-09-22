@@ -2,7 +2,12 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from model.layer_norm import LayerNorm, RMSNorm, build_normalization, normalization_from_config
+from model.layer_norm import (
+    LayerNorm,
+    RMSNorm,
+    build_normalization,
+    normalization_from_config,
+)
 
 
 def test_layer_norm_matches_pytorch_reference():

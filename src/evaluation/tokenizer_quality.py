@@ -1,6 +1,7 @@
 """Tokenizer quality benchmark across multilingual, code, JSON, Unicode and numbers."""
 from __future__ import annotations
 
+
 def benchmark_tokenizer(tokenizer, samples:dict[str,list[str]]):
     out={}
     for category,texts in samples.items():

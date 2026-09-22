@@ -1,5 +1,6 @@
 from datasets.quality import quality_source_weights, score_text
 
+
 def test_quality_score_is_bounded_and_penalizes_repetition():
     good = score_text("This document contains several distinct words and useful information for a model.")
     bad = score_text("spam spam spam spam spam spam spam spam spam")

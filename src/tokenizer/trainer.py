@@ -12,7 +12,6 @@ import regex
 from .bpe import BYTE_ENCODER, merge_pair
 from .encoder import DEFAULT_PATTERN, DEFAULT_SPECIAL_TOKENS, Tokenizer
 
-
 Pair = tuple[str, str]
 ProgressCallback = Callable[[int, int, Pair, int], None]
 

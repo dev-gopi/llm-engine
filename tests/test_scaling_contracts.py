@@ -1,6 +1,6 @@
-import pytest
 from inference.tensor_parallel import ParallelTopologyContract
 from training.multinode import DistributedTopology, validate_3d_parallel_contract
+
 
 def test_parallel_contract():
     c=ParallelTopologyContract(2,2,1); c.validate(attention_heads=8,num_experts=1); assert c.world_size==4

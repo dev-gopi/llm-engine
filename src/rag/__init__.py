@@ -1,4 +1,3 @@
-from .retriever import RetrieverPipeline, RetrievalEvaluation
 from .reranker import (
     CallableCrossEncoderReranker,
     LexicalCrossEncoderBaseline,
@@ -8,9 +7,16 @@ from .reranker import (
     ndcg_at_k,
     reciprocal_rank,
 )
+from .retriever import RetrievalEvaluation, RetrieverPipeline
 
 __all__ = [
-    "RetrieverPipeline", "RetrievalEvaluation", "Reranker", "RerankedDocument",
-    "LexicalCrossEncoderBaseline", "CallableCrossEncoderReranker",
-    "SentenceTransformersCrossEncoder", "reciprocal_rank", "ndcg_at_k",
+    "CallableCrossEncoderReranker",
+    "LexicalCrossEncoderBaseline",
+    "RerankedDocument",
+    "Reranker",
+    "RetrievalEvaluation",
+    "RetrieverPipeline",
+    "SentenceTransformersCrossEncoder",
+    "ndcg_at_k",
+    "reciprocal_rank",
 ]

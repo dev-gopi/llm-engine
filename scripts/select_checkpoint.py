@@ -1,7 +1,11 @@
 from __future__ import annotations
-import argparse,json
+
+import argparse
+import json
 from pathlib import Path
-from training.promotion import CheckpointPromoter,CheckpointCandidate,MetricRule
+
+from training.promotion import CheckpointCandidate, CheckpointPromoter, MetricRule
+
 
 def main():
  p=argparse.ArgumentParser(); p.add_argument('manifest'); p.add_argument('--output',default='reports/checkpoint_promotion.json'); a=p.parse_args()

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import uuid
 import secrets
+import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from pydantic import ValidationError
+
 from utils.logger import get_logger
 
 from .runtime import ServingError
@@ -20,7 +21,6 @@ from .schemas import (
     StreamTokenEvent,
     TokenUsage,
 )
-
 
 logger = get_logger(__name__)
 router = APIRouter()

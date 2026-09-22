@@ -1,5 +1,7 @@
 import pytest
+
 from datasets.packing import batch_padding_efficiency, packing_efficiency
+
 
 def test_packing_efficiency_reports_useful_and_waste():
     result = packing_efficiency([8, 8, 4], 8)

@@ -5,18 +5,18 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from serving.api import ServingSettings, create_app
+from serving.backend import _load_mcp_config
 from serving.runtime import (
     BackendGeneration,
     BackendStreamEvent,
     GenerationTimeoutError,
+    InvalidGenerationRequestError,
     ServerBusyError,
     ServingRuntime,
     UnavailableBackend,
-    InvalidGenerationRequestError,
 )
 from serving.schemas import FinishReason, GenerateRequest
 from serving.websocket import generate_stream
-from serving.backend import _load_mcp_config
 
 
 class FakeBackend:

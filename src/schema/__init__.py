@@ -1,7 +1,11 @@
 from .structured_outputs import (
-    StructuredOutputError, StructuredOutputSpec, StructuredSchemaError,
-    StructuredOutputValidationError, make_spec, validate_structured_output,
+    StructuredOutputError,
+    StructuredOutputSpec,
+    StructuredOutputValidationError,
+    StructuredSchemaError,
+    make_spec,
     validate_schema_compatibility,
+    validate_structured_output,
 )
 
-__all__ = ["StructuredOutputError", "StructuredOutputSpec", "StructuredSchemaError", "StructuredOutputValidationError", "make_spec", "validate_structured_output", "validate_schema_compatibility"]
+__all__ = ["StructuredOutputError", "StructuredOutputSpec", "StructuredOutputValidationError", "StructuredSchemaError", "make_spec", "validate_schema_compatibility", "validate_structured_output"]

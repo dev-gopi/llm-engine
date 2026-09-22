@@ -3,8 +3,8 @@ import math
 import pytest
 import torch
 
-from model.attention import MultiHeadAttention
 from inference.paged_kv_cache import PagedKVCache
+from model.attention import MultiHeadAttention
 
 
 def manual_attention(module: MultiHeadAttention, hidden_states: torch.Tensor) -> torch.Tensor:

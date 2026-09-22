@@ -2,8 +2,8 @@ import pytest
 import torch
 
 from optim.ema import EMA
-from training.generation_checkpoint import retention_passes, save_best_generation
 from training.checkpoint import load_checkpoint
+from training.generation_checkpoint import retention_passes, save_best_generation
 
 
 def test_preserves_better_answers_across_restart_and_ties(tmp_path):

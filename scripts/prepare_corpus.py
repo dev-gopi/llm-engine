@@ -18,15 +18,15 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 import argparse
 import hashlib
 import html
+import importlib.metadata
+import importlib.util
 import json
 import re
 from collections import Counter
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from html.parser import HTMLParser
-from typing import Any, Iterable, Iterator
-
-import importlib.metadata
-import importlib.util
+from typing import Any
 
 from datasets.filters import CorpusFilter
 from utils.config import load_yaml

@@ -7,8 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
-import torch.nn as nn
-from torch import Tensor
+from torch import Tensor, nn
 
 from .attention import CausalLinearAttention, KeyValueCache, MultiHeadAttention
 from .feed_forward import FeedForward, SparseMoE
@@ -189,7 +188,7 @@ class TransformerBlock(nn.Module):
         *,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
-    ) -> "TransformerBlock":
+    ) -> TransformerBlock:
         return cls(
             dim=int(config["hidden_size"]),
             heads=int(config["heads"]),

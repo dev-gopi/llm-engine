@@ -6,7 +6,6 @@ from tokenizer.bpe import BYTE_ENCODER, merge_pair
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 from tokenizer.trainer import BPETokenizerTrainer, create_tokenizer_trainer
 
-
 CORPUS = [
     "Hello world! Hello tokenizer.\n",
     "A byte-level tokenizer preserves  spaces, tabs\tand newlines.\n",
