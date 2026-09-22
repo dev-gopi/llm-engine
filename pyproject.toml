@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.24,<1"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24,<1", "datasets>=2.19", "datatrove>=0.3"]
 data = ["datasets>=2.19", "datatrove>=0.3"]
 export = ["onnx>=1.16", "onnxruntime>=1.18"]
 rag = ["pypdf>=5"]

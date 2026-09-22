@@ -29,6 +29,20 @@ def test_workspace_read_search_and_path_boundary(tmp_path):
         workspace.read("../outside.txt")
 
 
+
+def test_workspace_search_does_not_follow_symlink_outside_root(tmp_path):
+    outside = tmp_path.parent / "workspace-secret.txt"
+    outside.write_text("secret-marker\n", encoding="utf-8")
+    link = tmp_path / "secret.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are unavailable")
+    workspace = WorkspaceService(tmp_path)
+    result = workspace.search("secret-marker")
+    assert result["matches"] == []
+
+
 def test_workspace_edit_requires_review_and_current_hash(tmp_path):
     source = tmp_path / "example.txt"
     source.write_text("old\n", encoding="utf-8")

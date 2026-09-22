@@ -21,9 +21,12 @@ class CancellationRegistry:
         self._tasks: dict[str, asyncio.Task] = {}
         self._capacity = capacity
     def register(self, request_id: str, task: asyncio.Task) -> None:
+        if not request_id:
+            raise ValueError("request_id cannot be empty")
+        if request_id in self._tasks:
+            raise ValueError(f"request_id is already registered: {request_id}")
         if len(self._tasks) >= self._capacity:
-            stale = next(iter(self._tasks))
-            self._tasks.pop(stale, None)
+            raise RuntimeError("cancellation registry capacity exhausted")
         self._tasks[request_id] = task
     def unregister(self, request_id: str) -> None: self._tasks.pop(request_id, None)
     def cancel(self, request_id: str) -> bool:

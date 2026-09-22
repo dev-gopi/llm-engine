@@ -185,16 +185,41 @@ class TokenStepScheduler:
             release = getattr(self.backend, "release_stream", None)
             for item in cancelled:
                 if release:
-                    result = release(item.state)
-                    if asyncio.iscoroutine(result):
-                        await result
+                    try:
+                        result = release(item.state)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except BaseException:
+                        # Cancellation cleanup is best-effort; never strand the
+                        # scheduler worker because one backend cleanup failed.
+                        pass
             live = [item for item in active if not item.cancelled]
             if not live:
                 active = []
                 continue
-            results = await self.backend.decode_stream_batch([item.state for item in live])
-            if len(results) != len(live):
-                raise RuntimeError("token-step backend returned the wrong result count")
+            try:
+                results = await self.backend.decode_stream_batch([item.state for item in live])
+                if len(results) != len(live):
+                    raise RuntimeError("token-step backend returned the wrong result count")
+            except BaseException as error:
+                # A failed batch decode must not strand KV pages/session locks or
+                # leave consumers waiting forever on their per-request queues.
+                for item in live:
+                    if release and item.state is not None:
+                        try:
+                            result = release(item.state)
+                            if asyncio.iscoroutine(result):
+                                await result
+                        except BaseException:
+                            pass
+                    try:
+                        await item.queue.put(_StreamEnd(error if isinstance(error, Exception) else RuntimeError("token decode cancelled")))
+                    except BaseException:
+                        pass
+                active = []
+                if isinstance(error, asyncio.CancelledError):
+                    raise
+                continue
             survivors = []
             for item, (event, done) in zip(live, results, strict=True):
                 if event is not None:
@@ -294,8 +319,19 @@ class ReloadableBackend:
 
     async def reload(self, backend: Any, *, version: str) -> None:
         callback = getattr(backend, "startup", None)
-        if callback:
-            await callback()
+        try:
+            if callback:
+                await callback()
+        except BaseException:
+            shutdown = getattr(backend, "shutdown", None)
+            if shutdown:
+                try:
+                    result = shutdown()
+                    if asyncio.iscoroutine(result):
+                        await result
+                except BaseException:
+                    pass
+            raise
         if not backend.ready:
             shutdown = getattr(backend, "shutdown", None)
             if shutdown:

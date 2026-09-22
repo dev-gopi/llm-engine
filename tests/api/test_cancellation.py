@@ -18,6 +18,27 @@ class DisconnectingRequest:
         self.calls += 1
         return self.calls >= 2
 
+
+def test_cancellation_registry_does_not_evict_active_tasks():
+    from runtime.cancellation import CancellationRegistry
+
+    async def scenario():
+        registry = CancellationRegistry(capacity=1)
+        first = asyncio.create_task(asyncio.sleep(60))
+        second = asyncio.create_task(asyncio.sleep(60))
+        registry.register("first", first)
+        try:
+            with pytest.raises(RuntimeError, match="capacity exhausted"):
+                registry.register("second", second)
+            assert registry.active("first")
+            assert not registry.active("second")
+        finally:
+            first.cancel(); second.cancel()
+            await asyncio.gather(first, second, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 def test_explicit_cancel_endpoint_returns_contract():
     from serving.api import create_app, ServingSettings
     from tests.test_serving import FakeBackend, request

@@ -86,6 +86,27 @@ def test_lora_adapter_state_can_be_swapped_without_changing_base_weights() -> No
     torch.testing.assert_close(actual_base, base)
 
 
+def test_generator_swap_releases_paged_prefix_cache_pages() -> None:
+    model = _model()
+    apply_lora(model, {"rank": 2, "alpha": 4, "target_modules": ["q_proj"]})
+    generator = Generator(
+        model, _tokenizer(), device="cpu", prefix_cache_capacity=1,
+        paged_kv_pages=4, paged_kv_page_size=2,
+    )
+    from inference.paged_kv_cache import PagedPrefixCache
+    assert isinstance(generator.prefix_cache, PagedPrefixCache)
+    cache = ((torch.zeros(1, 2, 2, 4), torch.zeros(1, 2, 2, 4)), (torch.zeros(1, 2, 2, 4), torch.zeros(1, 2, 2, 4)))
+    generator.prefix_cache.put((1, 2), torch.zeros(1, 2, 8), cache)
+    allocator = generator.paged_kv_allocator
+    assert allocator is not None and allocator.tables
+
+    generator.swap_lora_adapter(None)
+
+    assert generator.prefix_cache is None
+    assert allocator.tables == {} and allocator.lengths == {}
+    assert len(allocator.free_pages) == 4
+
+
 def test_generator_swaps_lora_adapter_and_invalidates_prefix_cache() -> None:
     model = _model()
     apply_lora(model, {"rank": 2, "alpha": 4, "target_modules": ["q_proj"]})

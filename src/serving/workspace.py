@@ -62,7 +62,18 @@ class WorkspaceService:
             names[:] = [name for name in names if name not in IGNORED_DIRECTORIES]
             for name in files:
                 path = Path(directory) / name
-                if path.suffix.lower() not in TEXT_SUFFIXES or path.stat().st_size > 2 * 1024 * 1024:
+                # Search is part of the workspace sandbox. Do not follow a
+                # symlinked file out of the configured root.
+                if path.is_symlink():
+                    continue
+                try:
+                    resolved = path.resolve()
+                    if resolved != self.root and self.root not in resolved.parents:
+                        continue
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                if path.suffix.lower() not in TEXT_SUFFIXES or size > 2 * 1024 * 1024:
                     continue
                 try:
                     with path.open(encoding="utf-8") as stream:

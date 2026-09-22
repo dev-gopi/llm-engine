@@ -250,6 +250,12 @@ class PagedPrefixCache:
         )
         return logits, cache
 
+    def clear(self) -> None:
+        """Release every allocator reservation owned by this prefix cache."""
+        for request_id, _ in tuple(self.entries.values()):
+            self.allocator.release(request_id)
+        self.entries.clear()
+
     def put(self, tokens: tuple[int, ...], logits: Tensor, cache) -> None:
         if tokens in self.entries:
             request_id, _ = self.entries.pop(tokens)
@@ -266,7 +272,13 @@ class PagedPrefixCache:
         self.counter += 1
         request_id = f"prefix-{self.counter}"
         self.allocator.reserve(request_id, len(tokens))
-        keys = torch.stack([layer[0].squeeze(0) for layer in cache])
-        values = torch.stack([layer[1].squeeze(0) for layer in cache])
-        self.allocator.append(request_id, keys, values)
-        self.entries[tokens] = (request_id, logits.detach().clone())
+        try:
+            keys = torch.stack([layer[0].squeeze(0) for layer in cache])
+            values = torch.stack([layer[1].squeeze(0) for layer in cache])
+            self.allocator.append(request_id, keys, values)
+            self.entries[tokens] = (request_id, logits.detach().clone())
+        except BaseException:
+            # Reserve/append is transactional from the cache's perspective:
+            # never leave pages owned by an entry that was not committed.
+            self.allocator.release(request_id)
+            raise

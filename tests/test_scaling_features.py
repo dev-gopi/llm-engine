@@ -162,6 +162,24 @@ def test_paged_cache_round_trip_and_prefix_lru() -> None:
     assert prefixes.get((1,)) is None and prefixes.get((2,)) == "second"
 
 
+def test_paged_prefix_cache_clear_releases_all_allocator_pages() -> None:
+    from inference.paged_kv_cache import PagedPrefixCache
+
+    allocator = PagedKVCache(
+        num_pages=4, page_size=2, layers=1, kv_heads=1, head_dim=2,
+        device="cpu", dtype=torch.float32,
+    )
+    prefixes = PagedPrefixCache(allocator, capacity=4)
+    cache = ((torch.zeros(1, 1, 2, 2), torch.zeros(1, 1, 2, 2)),)
+    prefixes.put((1, 2), torch.zeros(1, 2, 8), cache)
+    prefixes.put((3, 4), torch.zeros(1, 2, 8), cache)
+    assert len(allocator.free_pages) == 2
+    prefixes.clear()
+    assert not prefixes.entries
+    assert not allocator.tables and not allocator.lengths
+    assert len(allocator.free_pages) == 4
+
+
 def test_paged_prefix_cache_evicts_by_page_pressure() -> None:
     from inference.paged_kv_cache import PagedPrefixCache
 

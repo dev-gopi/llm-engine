@@ -114,6 +114,41 @@ def test_token_step_scheduler_batches_active_sequences_and_admits_work():
     assert sorted(backend.released) == ["a", "b", "c"]
 
 
+
+def test_token_step_scheduler_releases_states_after_decode_failure() -> None:
+    class FailingBackend:
+        def __init__(self):
+            self.released = []
+            self.calls = 0
+
+        async def start_stream(self, request):
+            return request
+
+        async def decode_stream_batch(self, states):
+            self.calls += 1
+            raise RuntimeError("decode failed")
+
+        def release_stream(self, state):
+            self.released.append(state)
+
+    async def scenario():
+        backend = FailingBackend()
+        scheduler = TokenStepScheduler(backend, max_active=2)
+        await scheduler.startup()
+        streams = [scheduler.stream("a"), scheduler.stream("b")]
+        tasks = [asyncio.create_task(collect(stream)) for stream in streams]
+        results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=1)
+        await scheduler.shutdown()
+        return backend, results
+
+    async def collect(stream):
+        return [value async for value in stream]
+
+    backend, results = asyncio.run(scenario())
+    assert backend.released == ["a", "b"]
+    assert all(isinstance(result, RuntimeError) for result in results)
+
+
 def test_replica_pool_routes_to_least_active_replica() -> None:
     async def scenario():
         first, second = Backend("one"), Backend("two")

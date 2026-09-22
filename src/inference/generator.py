@@ -352,12 +352,18 @@ class Generator:
         result = self.generate(prompt, allow_special_tokens=True, **options)
         return parse_tool_call(result.text, schema)
 
+    def _clear_prefix_cache(self) -> None:
+        """Drop cached prefixes and release any paged-KV reservations they own."""
+        cache = self.prefix_cache
+        if isinstance(cache, PagedPrefixCache):
+            cache.clear()
+        self.prefix_cache = None
+
     def swap_lora_adapter(self, state: Mapping[str, torch.Tensor] | None) -> None:
         """Activate an adapter-only state, or restore the initial adapter state."""
         load_lora_adapter(self.model, self._base_lora_adapter if state is None else state)
         # Prefix logits are adapter-dependent and cannot be reused across swaps.
-        if self.prefix_cache is not None:
-            self.prefix_cache = None
+        self._clear_prefix_cache()
 
     @staticmethod
     def _trim_repeated_text(text: str, *, phrase_words: int = 4) -> str:
