@@ -1,5 +1,7 @@
 import json
+from pathlib import Path
 
+import datasets
 import pytest
 import torch
 
@@ -9,6 +11,11 @@ from datasets.preprocessor import clean, format_messages
 from datasets.sampler import Sampler
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
+
+
+def test_internal_dataset_package_wins_over_optional_huggingface_dependency() -> None:
+    assert Path(datasets.__file__).resolve().parent.name == "datasets"
+    assert Path(datasets.__file__).resolve().parent.parent.name == "src"
 
 
 def tokenizer() -> Tokenizer:

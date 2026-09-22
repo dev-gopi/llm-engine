@@ -15,6 +15,10 @@ python -m pip install --editable '.[dev]'
 python scripts/capabilities.py
 ```
 
+The engine's data pipeline is imported as `datasets.*`. This is distinct from
+the optional Hugging Face `datasets` dependency; running tests through the
+project environment ensures the engine's `src/datasets` package is selected.
+
 GPU training profiles require CUDA. `configs/finetuning.gpu.yaml` and
 `configs/dpo.gpu.yaml` require BF16 and FP16 support respectively. Use the CPU
 profiles when CUDA is unavailable.
