@@ -52,14 +52,19 @@ button.secondary, .icon-button { color: var(--text); border: 1px solid var(--lin
 .section-head small { display: block; margin-top: 4px; color: var(--muted); font-size: .68rem; }
 .icon-button { width: 34px; height: 34px; padding: 0; font-size: 1.1rem; }
 .conversation-list { height: calc(100% - 52px); margin-top: 10px; overflow: auto; padding-right: 2px; }
-.conversation-item { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px; padding: 8px; margin-bottom: 6px; border: 1px solid transparent; border-radius: 10px; background: transparent; }
-.conversation-item:hover, .conversation-item.active { border-color: var(--line); background: var(--panel-soft); }
-.conversation-main { min-width: 0; cursor: pointer; }
-.conversation-title { color: var(--text); font-size: .78rem; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conversation-meta { margin-top: 3px; color: var(--muted); font-size: .63rem; }
-.conversation-delete { align-self: start; padding: 2px 5px; color: var(--muted); background: transparent; font-size: .72rem; }
-.conversation-delete:hover { color: var(--danger); }
-.history-empty { padding: 16px 7px; color: var(--muted); font-size: .76rem; }
+.conversation-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; width: 100%; padding: 7px; margin-bottom: 6px; border: 1px solid transparent; border-radius: 11px; background: transparent; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.conversation-item:hover { border-color: var(--line); background: rgba(255,255,255,.025); }
+.conversation-item.active { border-color: rgba(255,180,84,.38); background: rgba(255,180,84,.07); box-shadow: inset 3px 0 0 var(--accent); }
+.conversation-open { min-width: 0; width: 100%; padding: 7px 8px; border: 0; border-radius: 8px; text-align: left; color: var(--text); background: transparent; cursor: pointer; }
+.conversation-open:hover { filter: none; background: rgba(255,255,255,.035); }
+.conversation-open:focus-visible,
+.conversation-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.conversation-open strong { display: block; min-width: 0; color: var(--text); font-size: .79rem; line-height: 1.35; font-weight: 760; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversation-open small { display: block; min-width: 0; margin-top: 4px; color: var(--muted); font-size: .63rem; line-height: 1.35; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversation-delete { align-self: start; flex: 0 0 auto; padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; font-size: .68rem; font-weight: 700; line-height: 1; }
+.conversation-delete:hover { filter: none; color: #ffd4d4; border-color: rgba(255,123,123,.28); background: rgba(255,123,123,.08); }
+.empty-state,
+.history-empty {  margin: 0;  padding: 16px 7px;  color: var(--muted); font-size: .76rem;}
 .controls { min-height: 0; overflow: auto; padding: 14px; }
 .controls h2:not(:first-child) { margin-top: 18px; }
 label { display: block; margin: 0 0 11px; color: var(--muted); font-size: .74rem; }
@@ -143,6 +148,9 @@ output { float: right; color: var(--text); }
   .composer { margin: 0 12px 12px; }
 }
 @media (max-width: 520px) {
+  .conversation-item { gap: 5px; padding: 5px; }
+  .conversation-open { padding: 7px 6px; }
+  .conversation-delete { padding: 6px; }
   .topbar { align-items: flex-start; }
   .status span { display: none; }
   .top-actions { flex-wrap: wrap; justify-content: flex-end; }
