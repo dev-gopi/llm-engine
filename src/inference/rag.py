@@ -189,7 +189,6 @@ def build_chunks(
     paths: Iterable[str | Path], *, chunk_chars: int = 900, overlap_chars: int = 120
 ) -> list[DocumentChunk]:
     return list(iter_chunks(paths, chunk_chars=chunk_chars, overlap_chars=overlap_chars))
-    return chunks
 
 
 class RagIndex:
@@ -209,7 +208,11 @@ class RagIndex:
     def search(self, query: str, *, top_k: int = 3, min_score: float = 0.01) -> list[RetrievalResult]:
         if top_k < 1:
             raise ValueError("top_k must be positive")
-        query_terms = list(dict.fromkeys(_terms(query)))
+        if not math.isfinite(min_score) or min_score < 0:
+            raise ValueError("min_score must be finite and non-negative")
+        if not isinstance(query, str):
+            raise TypeError("query must be text")
+        query_terms = list(dict.fromkeys(_terms(query.strip())))
         if not query_terms:
             return []
         total = len(self.chunks)

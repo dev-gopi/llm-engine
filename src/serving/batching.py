@@ -15,8 +15,12 @@ class _WorkItem:
 
 class DynamicBatcher:
     def __init__(
-        self, backend: Any, *, max_batch_size: int = 8,
-        wait_milliseconds: float = 5.0, queue_size: int = 1024,
+        self,
+        backend: Any,
+        *,
+        max_batch_size: int = 8,
+        wait_milliseconds: float = 5.0,
+        queue_size: int = 1024,
     ) -> None:
         if max_batch_size < 1 or wait_milliseconds < 0 or queue_size < 1:
             raise ValueError("invalid dynamic batching limits")
@@ -27,23 +31,34 @@ class DynamicBatcher:
         self.wait_seconds = wait_milliseconds / 1000
         self.queue: asyncio.Queue[_WorkItem | None] = asyncio.Queue(maxsize=queue_size)
         self.worker: asyncio.Task | None = None
+        self._closing = False
+
+    @property
+    def pending(self) -> int:
+        return self.queue.qsize()
 
     async def startup(self) -> None:
         if self.worker is None:
+            self._closing = False
             self.worker = asyncio.create_task(self._run())
 
     async def shutdown(self) -> None:
         if self.worker is not None:
+            self._closing = True
             await self.queue.put(None)
             await self.worker
             self.worker = None
 
     async def generate(self, request: Any) -> Any:
-        if self.worker is None:
+        if self.worker is None or self._closing:
             raise RuntimeError("dynamic batcher is not started")
         future = asyncio.get_running_loop().create_future()
         await self.queue.put(_WorkItem(request, future))
-        return await future
+        try:
+            return await future
+        except asyncio.CancelledError:
+            future.cancel()
+            raise
 
     async def _run(self) -> None:
         while True:
@@ -62,14 +77,27 @@ class DynamicBatcher:
                     await self.queue.put(None)
                     break
                 batch.append(item)
+
+            # A caller may time out while waiting in the queue. Do not spend
+            # backend compute on work whose result can no longer be consumed.
+            active = [item for item in batch if not item.future.cancelled()]
+            if not active:
+                continue
             try:
-                results = await self.backend.batch_generate([item.request for item in batch])
-                if len(results) != len(batch):
+                results = await self.backend.batch_generate(
+                    [item.request for item in active]
+                )
+                if len(results) != len(active):
                     raise RuntimeError("batch backend returned the wrong result count")
-                for item, result in zip(batch, results, strict=True):
-                    if not item.future.cancelled():
+                for item, result in zip(active, results, strict=True):
+                    if not item.future.cancelled() and not item.future.done():
                         item.future.set_result(result)
+            except asyncio.CancelledError:
+                for item in active:
+                    if not item.future.done():
+                        item.future.cancel()
+                raise
             except Exception as error:
-                for item in batch:
-                    if not item.future.cancelled():
+                for item in active:
+                    if not item.future.cancelled() and not item.future.done():
                         item.future.set_exception(error)

@@ -60,8 +60,15 @@ class VisionLanguageModel(nn.Module):
             parameter.requires_grad = trainable
 
     def encode_images(self, images: Tensor) -> Tensor:
+        if not isinstance(images, Tensor) or images.ndim != 4:
+            raise ValueError("images must have shape [batch, channels, height, width]")
+        if not images.is_floating_point():
+            raise TypeError("images must use a floating-point dtype")
         features = self.vision_encoder(images)[:, 1 : self.visual_tokens + 1]
-        return self.projector(features)
+        projected = self.projector(features)
+        if not torch.isfinite(projected).all():
+            raise FloatingPointError("vision projector produced non-finite embeddings")
+        return projected
 
     def build_input_embeddings(
         self, images: Tensor, prompt_ids: Tensor, response_ids: Tensor | None = None
@@ -95,7 +102,10 @@ class VisionLanguageModel(nn.Module):
 
     def _language_forward_from_embeddings(self, hidden_states: Tensor) -> Tensor:
         """Use existing public submodules while leaving MiniGPT source untouched."""
-        if self.language_model.position_type == "learned" and self.language_model.pos is not None or self.language_model.position_type == "sinusoidal" and self.language_model.pos is not None:
+        if (
+            self.language_model.position_type in {"learned", "sinusoidal"}
+            and self.language_model.pos is not None
+        ):
             batch, length = hidden_states.shape[:2]
             dummy_ids = torch.zeros((batch, length), dtype=torch.long, device=hidden_states.device)
             hidden_states = hidden_states + self.language_model.pos(dummy_ids)

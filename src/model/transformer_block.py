@@ -45,6 +45,8 @@ class TransformerBlock(nn.Module):
         experts_per_token: int = 1,
         router_bias: bool = False,
         router_jitter: float = 0.0,
+        moe_capacity_factor: float | None = None,
+        moe_min_capacity: int = 0,
         initializer_range: float = 0.02,
         attention_pattern: str = "dense",
         attention_window: int | None = None,
@@ -92,6 +94,8 @@ class TransformerBlock(nn.Module):
             "experts_per_token": experts_per_token,
             "router_bias": router_bias,
             "router_jitter": router_jitter,
+            "capacity_factor": moe_capacity_factor,
+            "min_capacity": moe_min_capacity,
         } if ffn_type == "moe" else {})
         self.ffn = ffn_class(
             dim,
@@ -215,6 +219,8 @@ class TransformerBlock(nn.Module):
             experts_per_token=int(config.get("experts_per_token", 1)),
             router_bias=bool(config.get("router_bias", False)),
             router_jitter=float(config.get("router_jitter", 0.0)),
+            moe_capacity_factor=(float(config["moe_capacity_factor"]) if config.get("moe_capacity_factor") is not None else None),
+            moe_min_capacity=int(config.get("moe_min_capacity", 0)),
             initializer_range=float(config.get("initializer_range", 0.02)),
             attention_pattern=str(config.get("attention_pattern", "dense")),
             attention_window=(

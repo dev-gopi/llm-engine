@@ -78,6 +78,8 @@ class MiniGPT(nn.Module):
         experts_per_token: int = 1,
         router_bias: bool = False,
         router_jitter: float = 0.0,
+        moe_capacity_factor: float | None = None,
+        moe_min_capacity: int = 0,
         gradient_checkpointing: bool = False,
         logit_softcap: float | None = None,
         mtp_num_predictions: int = 0,
@@ -185,6 +187,8 @@ class MiniGPT(nn.Module):
                 experts_per_token=experts_per_token,
                 router_bias=router_bias,
                 router_jitter=router_jitter,
+                moe_capacity_factor=moe_capacity_factor,
+                moe_min_capacity=moe_min_capacity,
                 initializer_range=initializer_range,
                 attention_pattern=self.attention_layer_pattern[layer_index],
                 attention_window=attention_window,
@@ -547,6 +551,8 @@ class MiniGPT(nn.Module):
             experts_per_token=int(config.get("experts_per_token", 1)),
             router_bias=bool(config.get("router_bias", False)),
             router_jitter=float(config.get("router_jitter", 0.0)),
+            moe_capacity_factor=(float(config["moe_capacity_factor"]) if config.get("moe_capacity_factor") is not None else None),
+            moe_min_capacity=int(config.get("moe_min_capacity", 0)),
             gradient_checkpointing=bool(config.get("gradient_checkpointing", False)),
             logit_softcap=(
                 float(config["logit_softcap"])

@@ -29,13 +29,27 @@ class BoundedAgentRuntime:
     def plan(self, steps: list[AgentStep]) -> None:
         if self.state not in {AgentState.PLANNING, AgentState.FAILED}: raise RuntimeError("runtime is not accepting a plan")
         if not steps or len(steps)>self.max_steps: raise ValueError("plan exceeds bounded step limit")
+        if any(not isinstance(step, AgentStep) for step in steps): raise TypeError("plan entries must be AgentStep instances")
         if any(step.name not in self.allowed_tools for step in steps): raise ValueError("plan contains a tool outside the allowlist")
-        self.steps=list(steps); self.state=AgentState.WAITING_APPROVAL if self.require_approval else AgentState.EXECUTING
+        if any(not isinstance(step.arguments, dict) for step in steps): raise TypeError("tool arguments must be mappings")
+        self.steps=[AgentStep(step.name, dict(step.arguments), step.approved, step.result) for step in steps]
+        self.observations=[]
+        self.state=AgentState.WAITING_APPROVAL if self.require_approval else AgentState.EXECUTING
 
     def approve(self) -> None:
         if self.state != AgentState.WAITING_APPROVAL: raise RuntimeError("no plan is waiting for approval")
         for step in self.steps: step.approved=True
         self.state=AgentState.EXECUTING
+
+    def approve_step(self, index: int) -> None:
+        """Approve one planned action without mutating the rest of the plan."""
+        if self.state != AgentState.WAITING_APPROVAL:
+            raise RuntimeError("no plan is waiting for approval")
+        if not 0 <= index < len(self.steps):
+            raise IndexError("step index is out of range")
+        self.steps[index].approved = True
+        if all(step.approved for step in self.steps):
+            self.state = AgentState.EXECUTING
 
     def reject(self, reason: str = "human approval rejected") -> None:
         if self.state != AgentState.WAITING_APPROVAL: raise RuntimeError("no plan is waiting for approval")

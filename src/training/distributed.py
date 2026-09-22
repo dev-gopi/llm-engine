@@ -48,6 +48,8 @@ class DistributedTrainer:
 
     @staticmethod
     def initialize(backend: str | None = None) -> DistributedContext:
+        if backend is not None and backend not in {"nccl", "gloo", "mpi", "ucc"}:
+            raise ValueError("unsupported torch.distributed backend")
         world_size = int(os.getenv("WORLD_SIZE", "1"))
         rank = int(os.getenv("RANK", "0"))
         local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -57,6 +59,10 @@ class DistributedTrainer:
             resolved_backend = backend or ("nccl" if torch.cuda.is_available() else "gloo")
             dist.init_process_group(backend=resolved_backend, init_method="env://")
         if torch.cuda.is_available():
+            if local_rank >= torch.cuda.device_count():
+                raise ValueError(
+                    f"LOCAL_RANK {local_rank} exceeds visible CUDA device count {torch.cuda.device_count()}"
+                )
             torch.cuda.set_device(local_rank)
             device = torch.device("cuda", local_rank)
         else:
@@ -72,6 +78,9 @@ class DistributedTrainer:
         mixed_precision: str = "none",
     ) -> nn.Module:
         strategy = strategy.lower()
+        mixed_precision = mixed_precision.lower()
+        if mixed_precision not in {"none", "fp16", "bf16"}:
+            raise ValueError("mixed_precision must be none, fp16, or bf16")
         if strategy not in {"none", "ddp", "fsdp", "fsdp_hybrid"}:
             raise ValueError("distributed_strategy must be none, ddp, fsdp, or fsdp_hybrid")
         model = model.to(context.device)

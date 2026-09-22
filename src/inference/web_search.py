@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -13,6 +13,22 @@ class SearchResult:
     title: str
     url: str
     description: str
+
+
+def _validate_search_options(max_results: int, timeout: float, endpoint: str) -> None:
+    if max_results < 1:
+        raise ValueError("max_results must be positive")
+    if timeout <= 0:
+        raise ValueError("timeout must be positive")
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("search endpoint must be an absolute HTTP(S) URL")
+
+
+def _safe_result_url(value: object) -> str:
+    url = str(value or "").strip()
+    parsed = urlparse(url)
+    return url if parsed.scheme in {"http", "https"} and parsed.netloc else ""
 
 
 def search_brave(
@@ -29,8 +45,7 @@ def search_brave(
         raise ValueError("search query cannot be empty")
     if not api_key:
         raise ValueError("GOPI_SEARCH_API_KEY is not configured")
-    if max_results < 1:
-        raise ValueError("max_results must be positive")
+    _validate_search_options(max_results, timeout, endpoint)
 
     request = Request(
         f"{endpoint}?{urlencode({'q': query, 'count': max_results})}",
@@ -45,7 +60,7 @@ def search_brave(
 
     results = []
     for item in payload.get("web", {}).get("results", [])[:max_results]:
-        url = str(item.get("url", "")).strip()
+        url = _safe_result_url(item.get("url"))
         if not url:
             continue
         results.append(SearchResult(
@@ -67,8 +82,7 @@ def search_searxng(
     query = query.strip()
     if not query:
         raise ValueError("search query cannot be empty")
-    if max_results < 1:
-        raise ValueError("max_results must be positive")
+    _validate_search_options(max_results, timeout, endpoint)
 
     endpoint = endpoint.rstrip("/")
     if not endpoint.endswith("/search"):
@@ -82,7 +96,7 @@ def search_searxng(
 
     results = []
     for item in payload.get("results", [])[:max_results]:
-        url = str(item.get("url", "")).strip()
+        url = _safe_result_url(item.get("url"))
         if not url:
             continue
         results.append(SearchResult(

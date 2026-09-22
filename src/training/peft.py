@@ -140,6 +140,11 @@ def merge_and_unload(model: nn.Module) -> nn.Module:
             merged.weight.copy_(base.weight + (module.lora_b @ module.lora_a).to(base.weight) * module.scaling)
             if base.bias is not None:
                 merged.bias.copy_(base.bias)
+            # Preserve the frozen-base contract after adapter merge. Callers can
+            # explicitly unfreeze later if they intend to continue full tuning.
+            merged.weight.requires_grad_(base.weight.requires_grad)
+            if merged.bias is not None and base.bias is not None:
+                merged.bias.requires_grad_(base.bias.requires_grad)
             setattr(parent, child_name, merged)
     return model
 

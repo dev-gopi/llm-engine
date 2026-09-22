@@ -89,17 +89,35 @@ _HARMFUL_PATTERNS = (
 )
 
 
+_COMPILED_INJECTION_PATTERNS = tuple(re.compile(pattern, re.DOTALL) for pattern in _INJECTION_PATTERNS)
+_COMPILED_HARMFUL_PATTERNS = tuple(re.compile(pattern, re.DOTALL) for pattern in _HARMFUL_PATTERNS)
+
+
+def normalize_prompt_for_safety(prompt: str, *, max_detection_chars: int = 100_000) -> str:
+    """Normalize common obfuscation without mutating the user-visible prompt."""
+    if not isinstance(prompt, str):
+        raise TypeError("prompt must be a string")
+    if max_detection_chars < 1:
+        raise ValueError("max_detection_chars must be positive")
+    normalized = unicodedata.normalize("NFKC", prompt[:max_detection_chars]).casefold()
+    # Remove invisible formatting/bidi controls and convert remaining control
+    # characters to spaces so they cannot be used to splice keywords together.
+    pieces: list[str] = []
+    for char in normalized:
+        category = unicodedata.category(char)
+        if category == "Cf":
+            continue
+        pieces.append(" " if category.startswith("C") else char)
+    normalized = "".join(pieces).translate(_LEET_TRANSLATION)
+    return " ".join(normalized.split())
+
+
 def blocked_prompt_message(prompt: str) -> str | None:
     """Return a safe refusal for a high-confidence unsafe prompt, otherwise ``None``."""
-    # Ignore invisible format characters for detection only; preserve original
-    # user text for display and legitimate multilingual content.
-    normalized = unicodedata.normalize("NFKC", prompt).casefold()
-    normalized = "".join(char for char in normalized if unicodedata.category(char) != "Cf")
-    normalized = " ".join(normalized.split())
-    normalized = normalized.translate(_LEET_TRANSLATION)
-    if any(re.search(pattern, normalized, flags=re.DOTALL) for pattern in _INJECTION_PATTERNS):
+    normalized = normalize_prompt_for_safety(prompt)
+    if any(pattern.search(normalized) for pattern in _COMPILED_INJECTION_PATTERNS):
         return PROMPT_INJECTION_REFUSAL
-    if any(re.search(pattern, normalized, flags=re.DOTALL) for pattern in _HARMFUL_PATTERNS):
+    if any(pattern.search(normalized) for pattern in _COMPILED_HARMFUL_PATTERNS):
         return UNSAFE_REQUEST_REFUSAL
     compact = re.sub(r"[^a-z0-9]", "", normalized)
     if len(compact) <= 16 and re.fullmatch(r"sex(?:ual(?:ly|ity)?|ting|f|y)?", compact):

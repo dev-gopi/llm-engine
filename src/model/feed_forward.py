@@ -184,11 +184,12 @@ class FeedForward(nn.Module):
 
 
 class SparseMoE(nn.Module):
-    """Top-k sparse mixture of feed-forward experts.
+    """Top-k sparse mixture of feed-forward experts with capacity controls.
 
-    Every token is scored by a small router and evaluated by only
-    ``experts_per_token`` experts. All experts remain part of the checkpoint,
-    while the expensive FFN computation is sparse.
+    The default configuration preserves the historical unlimited-capacity
+    behaviour. ``capacity_factor`` can be enabled for production training to
+    bound per-expert work and expose overflow diagnostics without changing the
+    checkpoint layout.
     """
 
     def __init__(
@@ -205,6 +206,8 @@ class SparseMoE(nn.Module):
         bias: bool = True,
         router_bias: bool = False,
         router_jitter: float = 0.0,
+        capacity_factor: float | None = None,
+        min_capacity: int = 0,
         initializer_range: float = 0.02,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
@@ -212,33 +215,75 @@ class SparseMoE(nn.Module):
         super().__init__()
         if not isinstance(num_experts, int) or isinstance(num_experts, bool) or num_experts < 1:
             raise ValueError("num_experts must be a positive integer")
-        if (not isinstance(experts_per_token, int) or isinstance(experts_per_token, bool)
-                or not 1 <= experts_per_token <= num_experts):
+        if (
+            not isinstance(experts_per_token, int)
+            or isinstance(experts_per_token, bool)
+            or not 1 <= experts_per_token <= num_experts
+        ):
             raise ValueError("experts_per_token must be between 1 and num_experts")
         if not math.isfinite(router_jitter) or router_jitter < 0:
             raise ValueError("router_jitter must be finite and non-negative")
+        if capacity_factor is not None and (
+            not math.isfinite(capacity_factor) or capacity_factor <= 0
+        ):
+            raise ValueError("capacity_factor must be finite and positive, or None")
+        if not isinstance(min_capacity, int) or isinstance(min_capacity, bool) or min_capacity < 0:
+            raise ValueError("min_capacity must be a non-negative integer")
+
         self.dim = dim
         self.num_experts = num_experts
         self.experts_per_token = experts_per_token
         self.router_jitter = float(router_jitter)
+        self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
+        self.min_capacity = min_capacity
         self.router = nn.Linear(dim, num_experts, bias=router_bias, device=device, dtype=dtype)
         nn.init.normal_(self.router.weight, mean=0.0, std=initializer_range)
         if self.router.bias is not None:
             nn.init.zeros_(self.router.bias)
-        self.experts = nn.ModuleList(FeedForward(
-            dim, hidden_dim=hidden_dim, expansion_factor=expansion_factor,
-            multiple_of=multiple_of, activation=activation, dropout=dropout,
-            bias=bias, initializer_range=initializer_range, device=device, dtype=dtype,
-        ) for _ in range(num_experts))
+        self.experts = nn.ModuleList(
+            FeedForward(
+                dim,
+                hidden_dim=hidden_dim,
+                expansion_factor=expansion_factor,
+                multiple_of=multiple_of,
+                activation=activation,
+                dropout=dropout,
+                bias=bias,
+                initializer_range=initializer_range,
+                device=device,
+                dtype=dtype,
+            )
+            for _ in range(num_experts)
+        )
         self.hidden_dim = self.experts[0].hidden_dim
         self.last_router_aux_loss: Tensor | None = None
+        self.last_router_z_loss: Tensor | None = None
         self.last_router_entropy: float | None = None
         self.last_expert_load: tuple[float, ...] = ()
+        self.last_expert_capacity: int | None = None
+        self.last_dropped_route_fraction: float = 0.0
+
+    def _capacity(self, token_count: int) -> int | None:
+        if self.capacity_factor is None:
+            return None
+        expected = token_count * self.experts_per_token / self.num_experts
+        return max(self.min_capacity, int(math.ceil(self.capacity_factor * expected)))
 
     def forward(self, hidden_states: Tensor) -> Tensor:
         self.experts[0]._validate_hidden_states(hidden_states)
         original_shape = hidden_states.shape
         tokens = hidden_states.reshape(-1, self.dim)
+        token_count = tokens.shape[0]
+        if token_count == 0:
+            zero = self.router.weight.sum() * 0.0
+            self.last_router_aux_loss = zero
+            self.last_router_z_loss = zero
+            self.last_router_entropy = 0.0
+            self.last_expert_load = tuple(0.0 for _ in range(self.num_experts))
+            self.last_expert_capacity = self._capacity(0)
+            self.last_dropped_route_fraction = 0.0
+            return torch.zeros_like(hidden_states)
+
         router_inputs = tokens
         if self.training and self.router_jitter:
             noise = torch.empty_like(tokens).uniform_(
@@ -247,34 +292,83 @@ class SparseMoE(nn.Module):
             router_inputs = tokens * noise
         router_logits = self.router(router_inputs)
         router_probabilities = F.softmax(router_logits.float(), dim=-1)
-        top_weights, top_experts = torch.topk(
+        top_logits, top_experts = torch.topk(
             router_logits, self.experts_per_token, dim=-1
         )
-        top_weights = F.softmax(top_weights.float(), dim=-1).to(tokens.dtype)
-        # Switch-Transformer-style load-balancing signal. Keep this unweighted
-        # in the module so training policy can choose the coefficient without
-        # changing checkpoint structure or inference behavior.
+        top_weights = F.softmax(top_logits.float(), dim=-1).to(tokens.dtype)
+
+        # Switch-style load balancing plus the router z-loss used by modern MoE
+        # training recipes. The module exposes both unweighted signals so the
+        # training policy can choose coefficients without checkpoint changes.
         importance = router_probabilities.mean(dim=0)
         hard_routes = F.one_hot(top_experts, num_classes=self.num_experts).float()
         load = hard_routes.mean(dim=(0, 1))
         self.last_router_aux_loss = self.num_experts * torch.sum(importance * load)
-        with torch.no_grad():
-            entropy = -(router_probabilities * router_probabilities.clamp_min(1e-12).log()).sum(dim=-1).mean()
-            self.last_router_entropy = float(entropy)
-            self.last_expert_load = tuple(float(value) for value in load)
+        self.last_router_z_loss = torch.logsumexp(router_logits.float(), dim=-1).square().mean()
+
+        capacity = self._capacity(token_count)
+        self.last_expert_capacity = capacity
         output = torch.zeros_like(tokens)
-        # Dispatch only tokens selected for an expert; inactive experts are not run.
-        for expert_index, expert in enumerate(self.experts):
+        dropped_routes = 0
+        total_routes = token_count * self.experts_per_token
+
+        # Dispatch only selected tokens. With a capacity limit, retain the
+        # strongest routes for each expert deterministically and renormalize the
+        # kept weights per token so overflow does not silently shrink activations.
+        kept_by_expert: list[tuple[Tensor, Tensor, Tensor]] = []
+        kept_weight_sum = torch.zeros(token_count, device=tokens.device, dtype=tokens.dtype)
+        for expert_index in range(self.num_experts):
             token_index, route_index = torch.where(top_experts == expert_index)
             if token_index.numel() == 0:
+                kept_by_expert.append((token_index, route_index, top_weights.new_empty((0,))))
                 continue
+            weights = top_weights[token_index, route_index]
+            if capacity is not None and token_index.numel() > capacity:
+                keep_order = torch.argsort(weights, descending=True, stable=True)[:capacity]
+                dropped_routes += int(token_index.numel() - capacity)
+                token_index = token_index.index_select(0, keep_order)
+                route_index = route_index.index_select(0, keep_order)
+                weights = weights.index_select(0, keep_order)
+            kept_weight_sum.index_add_(0, token_index, weights)
+            kept_by_expert.append((token_index, route_index, weights))
+
+        for expert_index, expert in enumerate(self.experts):
+            token_index, _, weights = kept_by_expert[expert_index]
+            if token_index.numel() == 0:
+                continue
+            denom = kept_weight_sum.index_select(0, token_index).clamp_min(
+                torch.finfo(weights.dtype).eps
+            )
+            normalized_weights = (weights / denom).unsqueeze(-1)
             expert_output = expert(tokens.index_select(0, token_index))
-            weights = top_weights[token_index, route_index].unsqueeze(-1)
-            output.index_add_(0, token_index, expert_output * weights)
+            output.index_add_(0, token_index, expert_output * normalized_weights)
+
+        with torch.no_grad():
+            entropy = -(
+                router_probabilities
+                * router_probabilities.clamp_min(1e-12).log()
+            ).sum(dim=-1).mean()
+            self.last_router_entropy = float(entropy)
+            self.last_expert_load = tuple(float(value) for value in load)
+            self.last_dropped_route_fraction = dropped_routes / max(total_routes, 1)
         return output.reshape(original_shape)
+
+    def routing_metrics(self) -> dict[str, object]:
+        """Return detached routing diagnostics suitable for logs/telemetry."""
+        return {
+            "router_entropy": self.last_router_entropy,
+            "expert_load": self.last_expert_load,
+            "expert_capacity": self.last_expert_capacity,
+            "dropped_route_fraction": self.last_dropped_route_fraction,
+            "router_z_loss": (
+                float(self.last_router_z_loss.detach())
+                if self.last_router_z_loss is not None
+                else None
+            ),
+        }
 
     def extra_repr(self) -> str:
         return (
             f"dim={self.dim}, hidden_dim={self.hidden_dim}, num_experts={self.num_experts}, "
-            f"experts_per_token={self.experts_per_token}"
+            f"experts_per_token={self.experts_per_token}, capacity_factor={self.capacity_factor}"
         )

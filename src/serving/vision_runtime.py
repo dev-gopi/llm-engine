@@ -97,6 +97,9 @@ async def _download_remote_image(url: str, *, max_bytes: int, timeout_seconds: f
     async with httpx.AsyncClient(follow_redirects=False, timeout=timeout_seconds) as client:
         async with client.stream("GET", url, headers={"Accept": "image/*"}) as response:
             response.raise_for_status()
+            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if content_type and not content_type.startswith("image/"):
+                raise ValueError("remote vision URL did not return an image content type")
             declared = response.headers.get("content-length")
             if declared and int(declared) > max_bytes:
                 raise ValueError(f"image exceeds the {max_bytes}-byte serving limit")
@@ -139,6 +142,7 @@ def image_bytes_to_tensor(
     *,
     image_size: int,
     normalization: str = "zero_one",
+    max_source_pixels: int = 100_000_000,
 ) -> torch.Tensor:
     try:
         from PIL import Image, ImageOps
@@ -146,8 +150,12 @@ def image_bytes_to_tensor(
         raise RuntimeError("native vision requires: pip install -e '.[images]'") from exc
     if normalization not in {"zero_one", "minus_one_one", "imagenet"}:
         raise ValueError("vision normalization must be zero_one, minus_one_one, or imagenet")
+    if max_source_pixels < 1:
+        raise ValueError("max_source_pixels must be positive")
     try:
         with Image.open(io.BytesIO(payload)) as opened:
+            if opened.width * opened.height > max_source_pixels:
+                raise ValueError("decoded image exceeds the configured pixel limit")
             image = ImageOps.exif_transpose(opened).convert("RGB")
             # This intentionally matches ImageTextSFTDataset: fixed square
             # resize followed by float RGB conversion.

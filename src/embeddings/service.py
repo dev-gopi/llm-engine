@@ -35,7 +35,7 @@ class EmbeddingService:
             raise ValueError("embedding encoder must expose a positive dimension")
         self.dimension = dimension
 
-    def encode(self, texts: Sequence[str]) -> EmbeddingResult:
+    def encode(self, texts: Sequence[str], *, normalize: bool = False) -> EmbeddingResult:
         if not texts:
             raise ValueError("input must contain at least one text")
         normalized = []
@@ -50,8 +50,14 @@ class EmbeddingService:
             raise ValueError("embedding encoder returned an unexpected shape")
         if not torch.isfinite(vectors).all():
             raise ValueError("embedding encoder returned non-finite values")
+        vectors = vectors.detach().float()
+        if normalize:
+            norms = vectors.norm(dim=-1, keepdim=True)
+            if torch.any(norms == 0):
+                raise ValueError("cannot normalize a zero embedding vector")
+            vectors = vectors / norms
         # The dedicated API reports tokenizer-independent service accounting.
         # For an injected encoder, whitespace tokenization is a conservative
         # lower-cost proxy until a tokenizer-aware encoder is configured.
         tokens = sum(max(1, len(text.split())) for text in normalized)
-        return EmbeddingResult(vectors.detach().float().tolist(), tokens)
+        return EmbeddingResult(vectors.tolist(), tokens)

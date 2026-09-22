@@ -8,6 +8,8 @@ class VisionProjector(nn.Module):
         super().__init__()
         if vision_size <= 0 or language_size <= 0:
             raise ValueError("vision_size and language_size must be positive")
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout must satisfy 0 <= dropout < 1")
         self.network = nn.Sequential(
             nn.Linear(vision_size, language_size),
             nn.GELU(),

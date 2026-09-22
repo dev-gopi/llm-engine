@@ -56,6 +56,17 @@ class EMA:
         return {"decay": self.decay, "num_updates": self.num_updates, "shadow": self.shadow}
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        self.decay = float(state["decay"])
-        self.num_updates = int(state["num_updates"])
-        self.shadow = {name: value.detach().clone() for name, value in state["shadow"].items()}
+        decay = float(state["decay"])
+        updates = int(state["num_updates"])
+        shadow = state["shadow"]
+        if not 0 < decay < 1:
+            raise ValueError("EMA state decay must satisfy 0 < decay < 1")
+        if updates < 0:
+            raise ValueError("EMA state num_updates must be non-negative")
+        if not isinstance(shadow, dict) or not shadow:
+            raise ValueError("EMA state shadow must be a non-empty mapping")
+        if any(not isinstance(value, torch.Tensor) or not value.is_floating_point() for value in shadow.values()):
+            raise ValueError("EMA shadow values must be floating-point tensors")
+        self.decay = decay
+        self.num_updates = updates
+        self.shadow = {name: value.detach().clone() for name, value in shadow.items()}

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -61,7 +62,7 @@ class LexicalCrossEncoderBaseline:
             if not terms:
                 score = 0.0
             else:
-                counts = {term: terms.count(term) for term in q}
+                counts = Counter(terms)
                 overlap = sum(1 for term in q if counts[term]) / len(q)
                 phrase = 1.0 if query.casefold().strip() in text.casefold() else 0.0
                 density = sum(min(counts[term], 3) for term in q) / max(len(terms), 1)
@@ -139,6 +140,69 @@ class SentenceTransformersCrossEncoder:
         pairs = [(query, _document_text(doc)) for doc in documents]
         scores = self.model.predict(pairs, batch_size=self.batch_size, show_progress_bar=False)
         return CallableCrossEncoderReranker(lambda _: scores).rerank(query, documents, top_k=top_k)
+
+
+class HybridReranker:
+    """Blend a primary reranker with a deterministic lexical safety net.
+
+    Reciprocal-rank fusion makes scores from heterogeneous models comparable,
+    while preserving stable document ordering for ties. If the primary model
+    raises and ``fail_open`` is true, the lexical baseline is returned instead.
+    """
+
+    def __init__(
+        self,
+        primary: Reranker,
+        *,
+        fallback: Reranker | None = None,
+        primary_weight: float = 0.75,
+        rrf_k: int = 60,
+        fail_open: bool = True,
+    ) -> None:
+        if not 0.0 <= primary_weight <= 1.0:
+            raise ValueError("primary_weight must be between zero and one")
+        if rrf_k < 1:
+            raise ValueError("rrf_k must be positive")
+        self.primary = primary
+        self.fallback = fallback or LexicalCrossEncoderBaseline()
+        self.primary_weight = float(primary_weight)
+        self.rrf_k = int(rrf_k)
+        self.fail_open = bool(fail_open)
+
+    def rerank(self, query: str, documents: Sequence[object], *, top_k: int = 5) -> list[RerankedDocument]:
+        if top_k < 1:
+            raise ValueError("top_k must be positive")
+        if not documents:
+            return []
+        candidate_k = len(documents)
+        lexical = self.fallback.rerank(query, documents, top_k=candidate_k)
+        try:
+            primary = self.primary.rerank(query, documents, top_k=candidate_k)
+        except Exception:
+            if not self.fail_open:
+                raise
+            return [
+                RerankedDocument(item.document, item.score, rank)
+                for rank, item in enumerate(lexical[:top_k], 1)
+            ]
+
+        by_identity = {id(doc): (index, doc) for index, doc in enumerate(documents)}
+        scores: dict[int, float] = {id(doc): 0.0 for doc in documents}
+        for item in primary:
+            if id(item.document) in scores:
+                scores[id(item.document)] += self.primary_weight / (self.rrf_k + item.rank)
+        lexical_weight = 1.0 - self.primary_weight
+        for item in lexical:
+            if id(item.document) in scores:
+                scores[id(item.document)] += lexical_weight / (self.rrf_k + item.rank)
+        ordered = sorted(
+            documents,
+            key=lambda doc: (-scores[id(doc)], by_identity[id(doc)][0]),
+        )
+        return [
+            RerankedDocument(doc, float(scores[id(doc)]), rank)
+            for rank, doc in enumerate(ordered[:top_k], 1)
+        ]
 
 
 def reciprocal_rank(results: Sequence[RerankedDocument], relevant: set[str]) -> float:

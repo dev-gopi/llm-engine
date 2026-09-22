@@ -180,6 +180,12 @@ def validate_moe_config(config: Mapping[str, Any]) -> None:
     jitter = float(config.get("router_jitter", 0.0))
     if not math.isfinite(jitter) or jitter < 0:
         raise ValueError("router_jitter must be finite and non-negative")
+    capacity = config.get("moe_capacity_factor")
+    if capacity is not None and (not math.isfinite(float(capacity)) or float(capacity) <= 0):
+        raise ValueError("moe_capacity_factor must be finite and positive, or None")
+    min_capacity = config.get("moe_min_capacity", 0)
+    if not isinstance(min_capacity, int) or isinstance(min_capacity, bool) or min_capacity < 0:
+        raise ValueError("moe_min_capacity must be a non-negative integer")
     _validate_attention_backend(config)
 
 

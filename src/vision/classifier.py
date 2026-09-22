@@ -15,6 +15,8 @@ class VisionClassifier(nn.Module):
         super().__init__()
         if num_classes < 2:
             raise ValueError("num_classes must be at least two")
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout must satisfy 0 <= dropout < 1")
         self.encoder = encoder
         self.num_classes = num_classes
         self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(encoder.hidden_size, num_classes))

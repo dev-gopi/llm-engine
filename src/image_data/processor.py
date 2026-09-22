@@ -30,6 +30,7 @@ class ImageProcessor:
     augment: bool = False
     horizontal_flip_probability: float = 0.5
     color_jitter: float = 0.0
+    max_source_pixels: int | None = 100_000_000
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any], *, training: bool = False) -> ImageProcessor:
@@ -46,6 +47,9 @@ class ImageProcessor:
             augment=training,
             horizontal_flip_probability=flip_probability,
             color_jitter=float(config.get("color_jitter", 0.0)),
+            max_source_pixels=(
+                int(config["max_source_pixels"]) if config.get("max_source_pixels") is not None else None
+            ),
         )
 
     def __post_init__(self) -> None:
@@ -59,6 +63,8 @@ class ImageProcessor:
             raise ValueError("horizontal_flip_probability must be between zero and one")
         if not 0 <= self.color_jitter <= 1:
             raise ValueError("color_jitter must be between zero and one")
+        if self.max_source_pixels is not None and self.max_source_pixels < 1:
+            raise ValueError("max_source_pixels must be positive or None")
 
     def __call__(self, path: str | Path) -> Tensor:
         image_module, enhance_module, ops_module = _pillow_modules()
@@ -66,6 +72,10 @@ class ImageProcessor:
         if not source.is_file():
             raise FileNotFoundError(f"image not found: {source}")
         with image_module.open(source) as opened:
+            if self.max_source_pixels is not None and opened.width * opened.height > self.max_source_pixels:
+                raise ValueError(
+                    f"source image exceeds max_source_pixels={self.max_source_pixels}"
+                )
             image = ops_module.exif_transpose(opened).convert("RGB")
             image = self._resize(image, image_module)
             if self.augment and torch.rand(()) < self.horizontal_flip_probability:

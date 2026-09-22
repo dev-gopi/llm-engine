@@ -11,8 +11,11 @@ from torch import nn
 
 
 def validate_tensor_parallel_size(size: int, *, attention_heads: int, kv_heads: int) -> None:
-    if size < 1:
-        raise ValueError("tensor parallel size must be positive")
+    for name, value in (("size", size), ("attention_heads", attention_heads), ("kv_heads", kv_heads)):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ValueError(f"{name} must be a positive integer")
+    if kv_heads > attention_heads or attention_heads % kv_heads:
+        raise ValueError("attention head count must be divisible by KV head count")
     if attention_heads % size or kv_heads % size:
         raise ValueError("attention and KV head counts must be divisible by tensor parallel size")
     if size > 1 and int(os.getenv("WORLD_SIZE", "1")) != size:
@@ -26,6 +29,8 @@ class VocabParallelLinear(nn.Module):
     """Vocabulary-sharded projection that gathers ordinary full logits."""
     def __init__(self, source: nn.Linear, rank: int, size: int, group=None) -> None:
         super().__init__()
+        if size < 1 or not 0 <= rank < size:
+            raise ValueError("rank must be within the tensor-parallel world size")
         if source.out_features % size:
             raise ValueError("vocabulary size must be divisible by tensor parallel size")
         width = source.out_features // size
@@ -67,6 +72,10 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
     size, rank = dist.get_world_size(group), dist.get_rank(group)
     if size == 1:
         return model
+    if not getattr(model, "blocks", None):
+        raise ValueError("tensor parallelism requires at least one transformer block")
+    if not hasattr(model, "head"):
+        raise ValueError("tensor parallelism requires a language-model output head")
     first = model.blocks[0].attn
     validate_tensor_parallel_size(size, attention_heads=first.heads, kv_heads=first.kv_heads)
     if any(hasattr(block.ffn, "experts") for block in model.blocks):
@@ -124,10 +133,21 @@ class ParallelTopologyContract:
     def world_size(self) -> int:
         return self.tensor_parallel * self.pipeline_parallel * self.expert_parallel
 
-    def validate(self, *, attention_heads: int, num_experts: int = 1) -> None:
-        if min(self.tensor_parallel, self.pipeline_parallel, self.expert_parallel) < 1:
-            raise ValueError("parallel degrees must be positive")
+    def validate(
+        self, *, attention_heads: int, num_experts: int = 1, kv_heads: int | None = None
+    ) -> None:
+        degrees = (self.tensor_parallel, self.pipeline_parallel, self.expert_parallel)
+        if any(not isinstance(value, int) or isinstance(value, bool) or value < 1 for value in degrees):
+            raise ValueError("parallel degrees must be positive integers")
+        if not isinstance(attention_heads, int) or isinstance(attention_heads, bool) or attention_heads < 1:
+            raise ValueError("attention_heads must be a positive integer")
+        if not isinstance(num_experts, int) or isinstance(num_experts, bool) or num_experts < 1:
+            raise ValueError("num_experts must be a positive integer")
         if attention_heads % self.tensor_parallel:
             raise ValueError("attention heads must divide tensor parallel degree")
+        if kv_heads is not None:
+            validate_tensor_parallel_size(
+                self.tensor_parallel, attention_heads=attention_heads, kv_heads=kv_heads
+            )
         if num_experts % self.expert_parallel:
             raise ValueError("experts must divide expert parallel degree")
