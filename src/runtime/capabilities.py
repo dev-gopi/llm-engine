@@ -29,6 +29,8 @@ class ModelCapabilities:
     kv_cache: bool
     prefix_caching: bool
     context_length: int
+    max_input_tokens: int
+    max_output_tokens: int
     architecture: str
     parameter_count: int | None = None
     vocabulary_size: int | None = None
@@ -97,17 +99,15 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
     if parameter_count is None:
         parameter_count = _positive_or_none(getattr(backend, "parameter_count", None))
 
-    # These flags map directly to implemented serving contracts.  Vision/audio
-    # are intentionally false: the multimodal modules are not wired into the
-    # text serving endpoint yet.
+    # These flags map directly to implemented serving contracts. Backends set
+    # explicit support markers for features that require more than a generic
+    # generate()/stream() surface.
     chat = callable(getattr(backend, "generate", None))
     streaming = callable(getattr(backend, "stream", None))
     structured_outputs = True  # JSON Schema validation is part of the API contract.
-    reasoning = True  # Runtime budget mapping is implemented by runtime.reasoning.
-    tool_calling = bool(
-        callable(getattr(backend, "generate", None))
-        and (hasattr(backend, "mcp_tools") or hasattr(backend, "_augment_with_mcp"))
-    )
+    reasoning = bool(getattr(backend, "supports_reasoning", chat))
+    tool_calling = bool(getattr(backend, "supports_tool_calling", False))
+    vision = bool(getattr(backend, "supports_vision", False))
     rag = rag_index is not None
     mcp = bool(mcp_tools)
     kv_cache = bool(generator is not None and hasattr(generator, "_prefill"))
@@ -116,7 +116,7 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
     if validation_evidence is not None:
         # High-risk client-facing capabilities are only advertised after the
         # release/evaluation gate has produced explicit evidence.
-        for name in ("chat", "streaming", "tool_calling", "structured_outputs", "reasoning", "rag", "mcp"):
+        for name in ("chat", "streaming", "tool_calling", "structured_outputs", "reasoning", "vision", "rag", "mcp"):
             if name in validation_evidence:
                 value = bool(validation_evidence[name])
                 if name == "chat": chat = chat and value
@@ -124,6 +124,7 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
                 elif name == "tool_calling": tool_calling = tool_calling and value
                 elif name == "structured_outputs": structured_outputs = structured_outputs and value
                 elif name == "reasoning": reasoning = reasoning and value
+                elif name == "vision": vision = vision and value
                 elif name == "rag": rag = rag and value
                 elif name == "mcp": mcp = mcp and value
 
@@ -146,13 +147,15 @@ def discover_capabilities(backend: Any, *, model_config: Mapping[str, Any] | Non
         tool_calling=tool_calling,
         structured_outputs=structured_outputs,
         reasoning=reasoning,
-        vision=False,
+        vision=vision,
         audio=False,
         rag=rag,
         mcp=mcp,
         kv_cache=kv_cache,
         prefix_caching=prefix_caching,
         context_length=context_length,
+        max_input_tokens=max(0, context_length - 1),
+        max_output_tokens=max(0, context_length - 1),
         architecture=architecture,
         parameter_count=parameter_count,
         vocabulary_size=_positive_or_none(config.get("vocab_size")),

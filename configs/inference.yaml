@@ -72,6 +72,16 @@ serving:
   # CPU-only alternative: int8_dynamic. It reduces steady-state Linear weight
   # memory further but is not supported on CUDA.
   quantization: none
+  # Native vision is enabled only when a trained VisionLanguageModel artifact
+  # is supplied. Keep the checkpoint null for text-only deployments.
+  multimodal_config: configs/vision/multimodal.yaml
+  multimodal_checkpoint: null
+  # Optional fallback when the multimodal checkpoint contains projector weights
+  # but not vision_encoder.* weights (for example a VisionClassifier checkpoint).
+  vision_checkpoint: null
+  vision_allow_remote_images: false
+  vision_max_image_bytes: 10485760
+  vision_max_images: 4
   session_store_path: data/cache/sessions.sqlite
   workspace_agent_enabled: false
   workspace_root: .

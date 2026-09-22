@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import asyncio
+import httpx
 import torch
 from dataclasses import dataclass, field
 from collections import deque
@@ -41,6 +42,20 @@ from schema.structured_outputs import make_spec, validate_structured_output, Str
 from runtime.reasoning import resolve_reasoning_budget
 from .orchestration import ReloadableBackend, ReplicaPoolBackend
 from .external_backend import OpenAICompatibleBackend
+from .chat_protocol import (
+    build_reasoning_system_instruction,
+    build_tool_system_instruction,
+    forced_tool_json_schema,
+    parse_tool_calls,
+    render_native_messages,
+    split_reasoning_trace,
+)
+from .vision_runtime import (
+    MultimodalGenerator,
+    has_image_input,
+    load_image_tensors,
+    message_image_urls,
+)
 
 logger = get_logger(__name__)
 
@@ -87,12 +102,35 @@ class ConfiguredModelBackend:
         low_memory_loading: bool = False,
         weight_dtype: str = "float32",
         quantization: str = "none",
+        multimodal_config: str | Path | None = None,
+        multimodal_checkpoint: str | Path | None = None,
+        vision_checkpoint: str | Path | None = None,
+        vision_allow_remote_images: bool = False,
+        vision_max_image_bytes: int = 10 * 1024 * 1024,
+        vision_max_images: int = 4,
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
         self.checkpoint_path = Path(checkpoint_path)
         self.device = device
         self.generator: Generator | None = None
+        self.supports_tool_calling = True
+        self.supports_reasoning = True
+        # Set true only after a trained multimodal runtime is successfully
+        # loaded. Merely having vision source modules is not evidence that the
+        # active language checkpoint can consume images.
+        self.supports_vision = False
+        self.multimodal_config = Path(multimodal_config) if multimodal_config else None
+        self.multimodal_checkpoint = Path(multimodal_checkpoint) if multimodal_checkpoint else None
+        self.vision_checkpoint = Path(vision_checkpoint) if vision_checkpoint else None
+        self.vision_allow_remote_images = bool(vision_allow_remote_images)
+        self.vision_max_image_bytes = int(vision_max_image_bytes)
+        self.vision_max_images = int(vision_max_images)
+        if self.vision_max_image_bytes < 1 or self.vision_max_images < 1:
+            raise ValueError("vision image byte/image-count limits must be positive")
+        self.multimodal_generator: MultimodalGenerator | None = None
+        self.vision_image_size = 0
+        self.vision_normalization = "zero_one"
         self.session_store_path = Path(session_store_path) if session_store_path else None
         self.system_prompt = system_prompt
         self.embed_safety_instruction = embed_safety_instruction
@@ -177,6 +215,8 @@ class ConfiguredModelBackend:
         self.mcp_clients.clear()
         self.mcp_tools.clear()
         self.rag_index = None
+        self.multimodal_generator = None
+        self.supports_vision = False
         self.generator = None
 
     async def _startup_mcp(self) -> None:
@@ -269,6 +309,7 @@ class ConfiguredModelBackend:
             paged_kv_page_size=self.paged_kv_page_size,
             prefill_chunk_size=self.prefill_chunk_size,
         )
+        self._load_multimodal_runtime(device=device)
         if self.session_store_path:
             self.sessions = SQLiteSessionStore(
                 self.session_store_path, tokenizer,
@@ -291,6 +332,204 @@ class ConfiguredModelBackend:
                 logger.warning("RAG is enabled but index does not exist: %s", rag_path)
         logger.info("Successfully loaded model checkpoint %s using config %s on %s", self.checkpoint_path, self.model_config, device)
 
+    def _load_multimodal_runtime(self, *, device: torch.device) -> None:
+        """Load trained vision/projector weights without risking the text model.
+
+        A multimodal checkpoint saved from ``VisionLanguageModel`` normally
+        contains ``vision_encoder.*``, ``projector.*`` and ``language_model.*``
+        keys. Serving deliberately ignores the language-model copy and keeps
+        the already validated text checkpoint active. This prevents an
+        incompatible optional vision artifact from corrupting text serving.
+        """
+        self.multimodal_generator = None
+        self.supports_vision = False
+        if self.multimodal_config is None or self.multimodal_checkpoint is None:
+            return
+        if not self.multimodal_config.is_file() or not self.multimodal_checkpoint.is_file():
+            logger.warning(
+                "Native vision disabled; multimodal config/checkpoint is missing: %s, %s",
+                self.multimodal_config,
+                self.multimodal_checkpoint,
+            )
+            return
+        if self.generator is None:
+            return
+        try:
+            from multimodal.model import VisionLanguageModel
+            from vision.encoder import VisionEncoder
+
+            profile = load_yaml(self.multimodal_config)
+            if not isinstance(profile, dict):
+                raise ValueError("multimodal config must be a mapping")
+            vision_config_path = Path(profile.get("vision_config", "configs/vision/model.small.yaml"))
+            if not vision_config_path.is_file():
+                raise FileNotFoundError(f"vision config not found: {vision_config_path}")
+            vision_config = load_yaml(vision_config_path)
+            if not isinstance(vision_config, dict):
+                raise ValueError("vision config must be a mapping")
+            vision = VisionEncoder.from_config(vision_config)
+            visual_tokens = int(profile.get("visual_tokens", 16))
+            wrapper = VisionLanguageModel(
+                vision,
+                self.generator.model,
+                visual_tokens=visual_tokens,
+                projector_dropout=float(profile.get("projector_dropout", 0.0)),
+                freeze_vision=True,
+                freeze_language=True,
+            )
+
+            payload = torch.load(
+                self.multimodal_checkpoint,
+                map_location="cpu",
+                weights_only=True,
+            )
+            state = payload.get("model", payload) if isinstance(payload, dict) else payload
+            if not isinstance(state, dict):
+                raise ValueError("multimodal checkpoint does not contain a model state mapping")
+            vision_state = {
+                key.removeprefix("vision_encoder."): value
+                for key, value in state.items()
+                if isinstance(key, str) and key.startswith("vision_encoder.")
+            }
+            projector_state = {
+                key.removeprefix("projector."): value
+                for key, value in state.items()
+                if isinstance(key, str) and key.startswith("projector.")
+            }
+
+            if not vision_state and self.vision_checkpoint is not None:
+                if not self.vision_checkpoint.is_file():
+                    raise FileNotFoundError(f"vision checkpoint not found: {self.vision_checkpoint}")
+                vision_payload = torch.load(
+                    self.vision_checkpoint,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+                raw_vision_state = (
+                    vision_payload.get("model", vision_payload)
+                    if isinstance(vision_payload, dict)
+                    else vision_payload
+                )
+                if not isinstance(raw_vision_state, dict):
+                    raise ValueError("vision checkpoint does not contain a model state mapping")
+                vision_state = {
+                    key.removeprefix("encoder."): value
+                    for key, value in raw_vision_state.items()
+                    if isinstance(key, str) and key.startswith("encoder.")
+                }
+
+            if not vision_state:
+                raise ValueError(
+                    "multimodal checkpoint has no vision_encoder weights and no usable vision checkpoint was configured"
+                )
+            if not projector_state:
+                raise ValueError("multimodal checkpoint has no trained projector weights")
+            wrapper.vision_encoder.load_state_dict(vision_state, strict=True)
+            wrapper.projector.load_state_dict(projector_state, strict=True)
+            wrapper = wrapper.to(device).eval()
+            self.multimodal_generator = MultimodalGenerator(wrapper, self.generator)
+            self.vision_image_size = int(wrapper.vision_encoder.patch_embedding.image_size)
+            self.vision_normalization = str(profile.get("image_normalization", "zero_one"))
+            if self.vision_normalization not in {"zero_one", "minus_one_one", "imagenet"}:
+                raise ValueError("unsupported multimodal image_normalization")
+            self.supports_vision = True
+            logger.info(
+                "Native vision enabled with %s (%d visual tokens per image)",
+                self.multimodal_checkpoint,
+                visual_tokens,
+            )
+        except Exception:
+            # Vision is optional. A bad optional artifact must not take down a
+            # valid text checkpoint.
+            logger.exception("Native vision could not be loaded; continuing with text-only serving")
+            self.multimodal_generator = None
+            self.supports_vision = False
+
+    def _interpret_generated_text(
+        self,
+        request: GenerateRequest,
+        raw_text: str,
+        finish_reason: str | FinishReason,
+    ) -> tuple[
+        str,
+        str | None,
+        tuple,
+        str | None,
+        FinishReason,
+        bool | None,
+        str | None,
+        int,
+    ]:
+        """Apply reasoning/tool/structured-output contracts to one decode."""
+        if self.generator is None:
+            raise BackendUnavailableError("generation backend is not loaded")
+        text, reasoning_content = split_reasoning_trace(raw_text)
+        tool_result = parse_tool_calls(text, request.chat_tools, request.tool_choice)
+        text = tool_result.content
+        tool_calls = tool_result.tool_calls
+        tool_call_error = tool_result.error
+        if (
+            not tool_calls
+            and request.chat_tools
+            and (request.tool_choice == "required" or not isinstance(request.tool_choice, str))
+            and tool_call_error is None
+        ):
+            tool_call_error = "model did not produce the required tool call"
+
+        normalized_finish = (
+            finish_reason
+            if isinstance(finish_reason, FinishReason)
+            else FinishReason(finish_reason)
+        )
+        if tool_calls:
+            normalized_finish = FinishReason.TOOL_CALLS
+
+        structured_valid: bool | None = None
+        structured_error: str | None = None
+        if (
+            not tool_calls
+            and isinstance(request.response_format, dict)
+            and request.response_format.get("type") == "json_schema"
+        ):
+            payload = request.response_format.get("json_schema")
+            if not isinstance(payload, dict) or not isinstance(payload.get("schema"), dict):
+                raise InvalidGenerationRequestError("response_format.json_schema.schema is required")
+            spec = make_spec(
+                name=str(payload.get("name", "response")),
+                schema=payload["schema"],
+                strict=bool(payload.get("strict", False)),
+            )
+            try:
+                validate_structured_output(text, spec)
+                structured_valid = True
+            except StructuredOutputError as exc:
+                structured_error = str(exc)
+                structured_valid = False
+                normalized_finish = FinishReason.LENGTH
+
+        reasoning_budget = resolve_reasoning_budget(
+            request.reasoning_effort,
+            max_tokens=request.max_tokens,
+        )
+        reasoning_tokens = (
+            0
+            if request.reasoning_effort == "none" or not reasoning_content
+            else min(
+                len(self.generator.tokenizer.encode(reasoning_content)),
+                reasoning_budget.max_tokens,
+            )
+        )
+        return (
+            text,
+            reasoning_content,
+            tool_calls,
+            tool_call_error,
+            normalized_finish,
+            structured_valid,
+            structured_error,
+            reasoning_tokens,
+        )
+
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         if request.session_id:
             async with ConfiguredModelBackend._session_guard(self, request.session_id):
@@ -300,6 +539,8 @@ class ConfiguredModelBackend:
     async def _generate_unlocked(self, request: GenerateRequest) -> BackendGeneration:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
+        if has_image_input(request._chat_messages):
+            return await self._generate_multimodal_unlocked(request)
         safety_refusal = blocked_prompt_message(request.prompt)
         if safety_refusal is not None:
             prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
@@ -326,10 +567,9 @@ class ConfiguredModelBackend:
                 completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
             )
         user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
-        reasoning = resolve_reasoning_budget(request.reasoning_effort, max_tokens=request.max_tokens)
+        # Reasoning is part of the caller's completion budget; the budget helper
+        # is only used later for reasoning-token accounting.
         effective_max_tokens = request.max_tokens
-        if request.reasoning_effort != "none":
-            effective_max_tokens = max(1, min(request.max_tokens, reasoning.max_tokens))
         options = dict(
             max_tokens=effective_max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
@@ -337,9 +577,19 @@ class ConfiguredModelBackend:
             no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
             seed=request.seed, stop=request.stop, allow_special_tokens=True,
         )
+        forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
+        if forced_tool_schema is not None:
+            options["json_schema"] = forced_tool_schema
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
                                              include_safety_instruction=getattr(self, "embed_safety_instruction", True))
+        extra_system = [
+            build_tool_system_instruction(request.chat_tools, request.tool_choice),
+            build_reasoning_system_instruction(request.reasoning_effort),
+        ]
+        system_prompt = "\n".join(
+            part for part in (system_prompt, *extra_system) if part
+        )
         prompt = ConfiguredModelBackend._format_request_conversation(
             self, request, system_prompt, user_prompt
         )
@@ -365,28 +615,26 @@ class ConfiguredModelBackend:
                 pieces.append(event.token)
             if event.finish_reason is not None:
                 finish_reason = event.finish_reason
-        text = "".join(pieces).strip()
-        structured_valid = None
-        structured_error = None
-        if isinstance(request.response_format, dict) and request.response_format.get("type") == "json_schema":
-            payload = request.response_format.get("json_schema")
-            if not isinstance(payload, dict) or not isinstance(payload.get("schema"), dict):
-                raise InvalidGenerationRequestError("response_format.json_schema.schema is required")
-            spec = make_spec(name=str(payload.get("name", "response")), schema=payload["schema"], strict=bool(payload.get("strict", False)))
-            try:
-                validate_structured_output(text, spec)
-                structured_valid = True
-            except StructuredOutputError as exc:
-                structured_error = str(exc)
-                structured_valid = False
-                if request.max_tokens >= effective_max_tokens and request.max_tokens > effective_max_tokens:
-                    raise InvalidGenerationRequestError(structured_error)
-                # Never claim a malformed structured result as a successful completion.
-                finish_reason = "length"
-            text = DEFAULT_EMPTY_RESPONSE
-            generated_ids = list(self.generator.tokenizer.encode(text))
-        if memory:
-            memory.add("assistant", text)
+        raw_text = "".join(pieces).strip()
+        (
+            text,
+            reasoning_content,
+            tool_calls,
+            tool_call_error,
+            normalized_finish,
+            structured_valid,
+            structured_error,
+            reasoning_tokens,
+        ) = self._interpret_generated_text(request, raw_text, finish_reason)
+        memory_text = text
+        if tool_calls:
+            serialized = "\n".join(
+                f"<tool_call>{call.function.name} {call.function.arguments}</tool_call>"
+                for call in tool_calls
+            )
+            memory_text = "\n".join(part for part in (text, serialized) if part)
+        if memory and memory_text:
+            memory.add("assistant", memory_text)
         if memory and request.session_id:
             self.sessions.save(request.session_id, memory)
         visible_text = text
@@ -396,10 +644,149 @@ class ConfiguredModelBackend:
         cache_miss = getattr(self.generator, "prefix_cache_misses", 0) > cache_misses_before
         return BackendGeneration(
             text=visible_text, prompt_tokens=prompt_tokens,
-            completion_tokens=len(generated_ids), finish_reason=FinishReason(finish_reason),
+            completion_tokens=len(generated_ids), finish_reason=normalized_finish,
             cached_tokens=prompt_tokens if cache_hit else 0,
-            reasoning_tokens=0 if request.reasoning_effort == "none" else min(len(generated_ids), reasoning.max_tokens),
+            reasoning_tokens=reasoning_tokens,
             structured_output_valid=structured_valid, structured_output_error=structured_error,
+            reasoning_content=reasoning_content,
+            tool_calls=tool_calls,
+            tool_call_error=tool_call_error,
+        )
+
+    async def _generate_multimodal_unlocked(
+        self,
+        request: GenerateRequest,
+    ) -> BackendGeneration:
+        if self.generator is None:
+            raise BackendUnavailableError("generation backend is not loaded")
+        if not self.supports_vision or self.multimodal_generator is None:
+            raise InvalidGenerationRequestError(
+                "this native model is text-only: configure a trained multimodal checkpoint "
+                "with GOPI_MULTIMODAL_CONFIG and GOPI_MULTIMODAL_CHECKPOINT"
+            )
+        safety_refusal = blocked_prompt_message(request.prompt)
+        if safety_refusal is not None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(safety_refusal))
+            return BackendGeneration(
+                text=safety_refusal,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                finish_reason=FinishReason.STOP,
+            )
+
+        urls = message_image_urls(request._chat_messages)
+        try:
+            images = await load_image_tensors(
+                urls,
+                image_size=self.vision_image_size,
+                normalization=self.vision_normalization,
+                allow_remote=self.vision_allow_remote_images,
+                max_bytes=self.vision_max_image_bytes,
+                max_images=self.vision_max_images,
+            )
+        except (OSError, RuntimeError, ValueError, httpx.HTTPError) as exc:
+            raise InvalidGenerationRequestError(f"invalid vision input: {exc}") from exc
+
+        memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
+        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
+        if user_prompt is None:
+            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
+            return BackendGeneration(
+                text=DEFAULT_NO_RESULTS,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                finish_reason=FinishReason.STOP,
+            )
+        user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
+        response_format = request.response_format or getattr(self, "response_format", None)
+        system_prompt = format_system_prompt(
+            self.system_prompt,
+            response_format,
+            request.mode,
+            include_safety_instruction=getattr(self, "embed_safety_instruction", True),
+        )
+        system_prompt = "\n".join(part for part in (
+            system_prompt,
+            build_tool_system_instruction(request.chat_tools, request.tool_choice),
+            build_reasoning_system_instruction(request.reasoning_effort),
+        ) if part)
+        prompt = ConfiguredModelBackend._format_request_conversation(
+            self, request, system_prompt, user_prompt
+        )
+        if memory:
+            memory.set_system_prompt(system_prompt)
+            memory.add("user", user_prompt)
+            maximum = int(getattr(self.generator, "max_positions", request.max_tokens + 1))
+            reserve = min(request.max_tokens, max(1, maximum - 1))
+            prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
+        ConfiguredModelBackend._validate_prompt(self, prompt)
+
+        options = dict(
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            min_p=request.min_p,
+            repetition_penalty=request.repetition_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            min_tokens=request.min_tokens,
+            seed=request.seed,
+            stop=request.stop,
+            allow_special_tokens=True,
+        )
+        forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
+        if forced_tool_schema is not None:
+            options["json_schema"] = forced_tool_schema
+        try:
+            result = await asyncio.to_thread(
+                self.multimodal_generator.generate,
+                prompt,
+                images,
+                **options,
+            )
+        except ValueError as exc:
+            raise InvalidGenerationRequestError(str(exc)) from exc
+
+        (
+            text,
+            reasoning_content,
+            tool_calls,
+            tool_call_error,
+            normalized_finish,
+            structured_valid,
+            structured_error,
+            reasoning_tokens,
+        ) = self._interpret_generated_text(request, result.text.strip(), result.finish_reason)
+
+        memory_text = text
+        if tool_calls:
+            serialized = "\n".join(
+                f"<tool_call>{call.function.name} {call.function.arguments}</tool_call>"
+                for call in tool_calls
+            )
+            memory_text = "\n".join(part for part in (text, serialized) if part)
+        if memory and memory_text:
+            memory.add("assistant", memory_text)
+        if memory and request.session_id:
+            self.sessions.save(request.session_id, memory)
+
+        visible_text = text
+        if search_results:
+            visible_text = f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
+        return BackendGeneration(
+            text=visible_text,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=len(result.token_ids),
+            finish_reason=normalized_finish,
+            cached_tokens=0,
+            reasoning_tokens=reasoning_tokens,
+            structured_output_valid=structured_valid,
+            structured_output_error=structured_error,
+            reasoning_content=reasoning_content,
+            tool_calls=tool_calls,
+            tool_call_error=tool_call_error,
         )
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
@@ -576,6 +963,34 @@ class ConfiguredModelBackend:
     async def _stream_unlocked(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
+        # Tool calls and explicit reasoning require post-processing the complete
+        # native decode so protocol markers never leak as ordinary content.
+        # The HTTP layer still streams a standards-compatible event sequence;
+        # plain-text requests retain token-by-token streaming below.
+        if has_image_input(request._chat_messages) or request.reasoning_effort != "none" or (
+            request.chat_tools and request.tool_choice != "none"
+        ):
+            result = await self._generate_unlocked(request)
+            if result.reasoning_content:
+                yield BackendStreamEvent(
+                    reasoning_token=result.reasoning_content,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                )
+            if result.text:
+                yield BackendStreamEvent(
+                    token=result.text,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                )
+            yield BackendStreamEvent(
+                finish_reason=result.finish_reason,
+                prompt_tokens=result.prompt_tokens,
+                completion_tokens=result.completion_tokens,
+                tool_calls=result.tool_calls,
+                tool_call_error=result.tool_call_error,
+            )
+            return
         safety_refusal = blocked_prompt_message(request.prompt)
         if safety_refusal is not None:
             prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
@@ -931,8 +1346,9 @@ class ConfiguredModelBackend:
             return ConfiguredModelBackend._format_new_conversation(
                 self, system_prompt, user_prompt
             )
-        messages = [{"role": "system", "content": system_prompt}, *chat_messages]
-        prompt = format_messages(messages, add_generation_prompt=True)
+        prompt = render_native_messages(
+            system_prompt, chat_messages, add_generation_prompt=True
+        )
         prompt_ids = self.generator.tokenizer.encode(
             prompt, add_bos=True, allowed_special="all"
         )
@@ -943,9 +1359,8 @@ class ConfiguredModelBackend:
         trimmed = list(chat_messages)
         while len(trimmed) > 1:
             trimmed.pop(0)
-            candidate = format_messages(
-                [{"role": "system", "content": system_prompt}, *trimmed],
-                add_generation_prompt=True,
+            candidate = render_native_messages(
+                system_prompt, trimmed, add_generation_prompt=True
             )
             candidate_ids = self.generator.tokenizer.encode(
                 candidate, add_bos=True, allowed_special="all"
@@ -1003,7 +1418,43 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         low_memory_loading=bool(serving.get("low_memory_loading", False)),
         weight_dtype=str(serving.get("weight_dtype", "float32")),
         quantization=str(serving.get("quantization", "none")),
+        multimodal_config=(
+            os.getenv("GOPI_MULTIMODAL_CONFIG")
+            or serving.get("multimodal_config")
+        ),
+        multimodal_checkpoint=(
+            os.getenv("GOPI_MULTIMODAL_CHECKPOINT")
+            or serving.get("multimodal_checkpoint")
+        ),
+        vision_checkpoint=(
+            os.getenv("GOPI_VISION_CHECKPOINT")
+            or serving.get("vision_checkpoint")
+        ),
+        vision_allow_remote_images=_backend_environment_flag(
+            "GOPI_VISION_ALLOW_REMOTE_IMAGES",
+            bool(serving.get("vision_allow_remote_images", False)),
+        ),
+        vision_max_image_bytes=int(os.getenv(
+            "GOPI_VISION_MAX_IMAGE_BYTES",
+            str(serving.get("vision_max_image_bytes", 10 * 1024 * 1024)),
+        )),
+        vision_max_images=int(os.getenv(
+            "GOPI_VISION_MAX_IMAGES",
+            str(serving.get("vision_max_images", 4)),
+        )),
     )
+
+
+def _backend_environment_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return bool(default)
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
 
 
 def _load_mcp_config() -> dict:
@@ -1034,6 +1485,15 @@ def _reload_candidate():
             timeout_seconds=float(os.getenv("GOPI_EXTERNAL_TIMEOUT_SECONDS", "120")),
             context_length=int(os.getenv("GOPI_EXTERNAL_CONTEXT_LENGTH", "0")),
             parameter_count=int(os.getenv("GOPI_EXTERNAL_PARAMETER_COUNT", "0")) or None,
+            supports_tool_calling=_backend_environment_flag(
+                "GOPI_EXTERNAL_TOOL_CALLING", True
+            ),
+            supports_vision=_backend_environment_flag(
+                "GOPI_EXTERNAL_VISION", False
+            ),
+            supports_reasoning=_backend_environment_flag(
+                "GOPI_EXTERNAL_REASONING", True
+            ),
         )
         version = f"external:{backend.base_url}:{backend.model}"
         return backend, version

@@ -539,6 +539,8 @@ def create_app(
                 cached_tokens=result.cached_tokens,
                 reasoning_tokens=result.reasoning_tokens,
             ),
+            reasoning_content=result.reasoning_content,
+            tool_calls=list(result.tool_calls) or None,
         )
 
     @application.get(
@@ -666,6 +668,19 @@ def create_app(
                 async for event in runtime.stream(generation_request):
                     if await http_request.is_disconnected():
                         raise asyncio.CancelledError("client disconnected")
+                    if event.reasoning_token:
+                        chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": settings.model_name,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"reasoning_content": event.reasoning_token},
+                                "finish_reason": None,
+                            }],
+                        }
+                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     if event.token:
                         if is_structured:
                             structured_parts.append(event.token)
@@ -677,6 +692,27 @@ def create_app(
                             "model": settings.model_name,
                             "choices": [{
                                 "index": 0, "delta": {"content": event.token},
+                                "finish_reason": None,
+                            }],
+                        }
+                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                    if event.tool_calls:
+                        chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": settings.model_name,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": index,
+                                            **call.model_dump(mode="json"),
+                                        }
+                                        for index, call in enumerate(event.tool_calls)
+                                    ]
+                                },
                                 "finish_reason": None,
                             }],
                         }
@@ -720,7 +756,41 @@ def create_app(
                     validate_structured_output(result.text, spec)
                 except StructuredOutputError as exc:
                     structured_incomplete = True
-                    result = BackendGeneration(result.text, result.prompt_tokens, result.completion_tokens, FinishReason.LENGTH, result.cached_tokens, result.reasoning_tokens, False, str(exc))
+                    result = BackendGeneration(
+                        text=result.text,
+                        prompt_tokens=result.prompt_tokens,
+                        completion_tokens=result.completion_tokens,
+                        finish_reason=FinishReason.LENGTH,
+                        cached_tokens=result.cached_tokens,
+                        reasoning_tokens=result.reasoning_tokens,
+                        structured_output_valid=False,
+                        structured_output_error=str(exc),
+                        reasoning_content=result.reasoning_content,
+                        tool_calls=result.tool_calls,
+                        tool_call_error=result.tool_call_error,
+                    )
+        tool_call_incomplete = bool(result.tool_call_error and not result.tool_calls)
+        incomplete_reason = None
+        if structured_incomplete:
+            incomplete_reason = "structured_output_validation_failed"
+        elif tool_call_incomplete:
+            incomplete_reason = "tool_call_generation_failed"
+        message: dict[str, object | None] = {
+            "role": "assistant",
+            "content": (result.text or None) if result.tool_calls else result.text,
+        }
+        if result.reasoning_content:
+            message["reasoning_content"] = result.reasoning_content
+        if result.tool_calls:
+            message["tool_calls"] = [call.model_dump(mode="json") for call in result.tool_calls]
+        if structured_incomplete:
+            message = {
+                "role": "assistant",
+                "content": None,
+                "refusal": result.structured_output_error,
+            }
+        elif tool_call_incomplete:
+            message["refusal"] = result.tool_call_error
         return {
             "id": completion_id,
             "object": "chat.completion",
@@ -728,9 +798,12 @@ def create_app(
             "model": settings.model_name,
             "choices": [{
                 "index": 0,
-                "message": ({"role": "assistant", "content": None, "refusal": result.structured_output_error}
-                            if structured_incomplete else {"role": "assistant", "content": result.text}),
-                "finish_reason": "length" if structured_incomplete else result.finish_reason.value,
+                "message": message,
+                "finish_reason": (
+                    "length"
+                    if structured_incomplete
+                    else ("error" if tool_call_incomplete else result.finish_reason.value)
+                ),
             }],
             "usage": {
                 "prompt_tokens": result.prompt_tokens,
@@ -739,7 +812,7 @@ def create_app(
                 "cached_tokens": result.cached_tokens,
                 "reasoning_tokens": result.reasoning_tokens,
             },
-            "incomplete_details": ({"reason": "structured_output_validation_failed"} if structured_incomplete else None),
+            "incomplete_details": ({"reason": incomplete_reason} if incomplete_reason else None),
         }
 
     @application.post(

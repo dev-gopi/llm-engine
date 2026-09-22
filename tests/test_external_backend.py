@@ -69,3 +69,104 @@ def test_external_backend_streams_sse_chunks():
     assert "".join(event.token for event in events) == "external"
     assert events[-1].finish_reason is FinishReason.STOP
     assert events[-1].completion_tokens == 2
+
+
+def test_external_backend_forwards_multimodal_tools_and_parses_tool_reasoning():
+    captured = {}
+
+    def handler(request: httpx.Request):
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={
+            "choices": [{
+                "message": {
+                    "content": None,
+                    "reasoning_content": "Need a tool",
+                    "tool_calls": [{
+                        "id": "call_echo",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"value":"image"}'},
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4},
+        })
+
+    async def scenario():
+        from serving.schemas import OpenAITool
+
+        backend = OpenAICompatibleBackend(
+            base_url="http://local",
+            model="external-test",
+            supports_tool_calling=True,
+            supports_vision=True,
+            supports_reasoning=True,
+        )
+        backend._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://local")
+        backend._ready = True
+        request = GenerateRequest(
+            prompt="describe [image]",
+            reasoning_effort="high",
+            chat_tools=[OpenAITool.model_validate({
+                "type": "function",
+                "function": {
+                    "name": "echo",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"value": {"type": "string"}},
+                        "required": ["value"],
+                    },
+                },
+            })],
+            tool_choice="required",
+        )
+        request._chat_messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,YQ=="}},
+            ],
+        }]
+        result = await backend.generate(request)
+        await backend.shutdown()
+        return result
+
+    result = asyncio.run(scenario())
+    assert captured["messages"][0]["content"][1]["type"] == "image_url"
+    assert captured["tools"][0]["function"]["name"] == "echo"
+    assert captured["tool_choice"] == "required"
+    assert captured["reasoning_effort"] == "high"
+    assert result.reasoning_content == "Need a tool"
+    assert result.finish_reason is FinishReason.TOOL_CALLS
+    assert result.tool_calls[0].function.name == "echo"
+
+
+def test_external_backend_stream_assembles_reasoning_and_fragmented_tool_call():
+    async def stream_bytes():
+        yield b'data: {"choices":[{"delta":{"reasoning_content":"Need "},"finish_reason":null}]}\n\n'
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_","type":"function","function":{"name":"ec","arguments":"{\\\"value\\\":\\\""}}]},"finish_reason":null}]}\n\n'
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"echo","function":{"name":"ho","arguments":"ok\\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n'
+        yield b'data: [DONE]\n\n'
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            async for chunk in stream_bytes():
+                yield chunk
+
+    def handler(request: httpx.Request):
+        return httpx.Response(200, stream=Stream())
+
+    async def scenario():
+        backend = OpenAICompatibleBackend(base_url="http://local", model="external-test")
+        backend._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://local")
+        backend._ready = True
+        events = [event async for event in backend.stream(GenerateRequest(prompt="hi"))]
+        await backend.shutdown()
+        return events
+
+    events = asyncio.run(scenario())
+    assert any(event.reasoning_token == "Need " for event in events)
+    assert events[-1].finish_reason is FinishReason.TOOL_CALLS
+    assert events[-1].tool_calls[0].id == "call_echo"
+    assert events[-1].tool_calls[0].function.name == "echo"
+    assert events[-1].tool_calls[0].function.arguments == '{"value":"ok"}'

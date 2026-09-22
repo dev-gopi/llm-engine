@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from .schemas import FinishReason, GenerateRequest
+from .schemas import FinishReason, GenerateRequest, OpenAIToolCall
 from .orchestration import ContinuousStreamScheduler, TokenStepScheduler
 
 
@@ -44,6 +44,9 @@ class BackendGeneration:
     reasoning_tokens: int = 0
     structured_output_valid: bool | None = None
     structured_output_error: str | None = None
+    reasoning_content: str | None = None
+    tool_calls: tuple[OpenAIToolCall, ...] = ()
+    tool_call_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,9 @@ class BackendStreamEvent:
     finish_reason: FinishReason | None = None
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    reasoning_token: str = ""
+    tool_calls: tuple[OpenAIToolCall, ...] = ()
+    tool_call_error: str | None = None
 
 
 @runtime_checkable
@@ -176,9 +182,21 @@ class ServingRuntime:
         completion_tokens = 0
         try:
             async with asyncio.timeout(self.generation_timeout_seconds):
-                source = self.stream_scheduler.stream(request) if self.stream_scheduler else self.backend.stream(request)
+                protocol_sensitive = bool(
+                    request.reasoning_effort != "none"
+                    or (request.chat_tools and request.tool_choice != "none")
+                    or any(
+                        isinstance(message.get("content"), list)
+                        for message in (request._chat_messages or [])
+                    )
+                )
+                source = (
+                    self.stream_scheduler.stream(request)
+                    if self.stream_scheduler and not protocol_sensitive
+                    else self.backend.stream(request)
+                )
                 async for event in source:
-                    if first_token_at is None and event.token:
+                    if first_token_at is None and (event.token or event.reasoning_token or event.tool_calls):
                         first_token_at = time.monotonic()
                     completion_tokens = max(completion_tokens, event.completion_tokens)
                     yield event
