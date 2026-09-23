@@ -62,7 +62,7 @@ MCP is disabled by default in Compose because the minimal image does not ship
 Node/`npx` or external MCP servers. Build and review those dependencies before
 setting `GOPI_MCP_ENABLED=true`.
 
-For troubleshooting API/session/admin authentication behavior, see [RUNTIME_AUTH_TROUBLESHOOTING.md](../RUNTIME_AUTH_TROUBLESHOOTING.md).
+For authentication troubleshooting, inspect startup logs and verify `GOPI_API_KEY`, `GOPI_ADMIN_API_KEY`, and the request `Authorization` header before exposing the service.
 
 ## 4. Start and verify
 

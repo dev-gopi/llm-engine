@@ -68,6 +68,12 @@ The active GPU model uses the 40K base tokenizer written to `data/tokenizer`:
 .venv/bin/python scripts/tokenize.py train --config configs/tokenizer.yaml
 ```
 
+Before starting the active SFT profile, build its append-only tokenizer extension:
+
+```bash
+.venv/bin/python scripts/tokenize.py extend --config configs/tokenizer.yaml --extension finetuning
+```
+
 For a fresh training run:
 
 ```bash
@@ -87,7 +93,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 .venv/bin/python scripts/train.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/finetuning.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --init-from checkpoints/pretraining/best.pt \
   --output checkpoints/finetuning/latest.pt \
   --best-output checkpoints/finetuning/best.pt
@@ -134,7 +140,7 @@ Open `http://localhost:8000/training_report.html`. The dashboard automatically s
 .venv/bin/python scripts/generate.py "Hello Gopi" \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 ```
@@ -143,7 +149,7 @@ Open `http://localhost:8000/training_report.html`. The dashboard automatically s
 .venv/bin/python scripts/chat.py \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 ```
@@ -154,7 +160,7 @@ Open `http://localhost:8000/training_report.html`. The dashboard automatically s
 .venv/bin/python scripts/evaluate_domains.py \
   --domains configs/evaluation.finetuning.yaml \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 
@@ -162,7 +168,7 @@ Open `http://localhost:8000/training_report.html`. The dashboard automatically s
   --cases configs/evaluation.domains.jsonl \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda
 ```
@@ -181,7 +187,7 @@ Persist the two evaluations to make them available in the live report:
   --cases configs/evaluation.domains.jsonl \
   --model-config configs/model.gpu.yaml \
   --inference-config configs/inference.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --checkpoint checkpoints/finetuning/best.pt \
   --device cuda \
   --output reports/generation_quality.json
@@ -193,7 +199,7 @@ Persist the two evaluations to make them available in the live report:
 .venv/bin/python scripts/train_dpo.py \
   --model-config configs/model.gpu.yaml \
   --training-config configs/dpo.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --reference-checkpoint checkpoints/finetuning/best.pt \
   --init-from checkpoints/finetuning/best.pt \
   --output checkpoints/dpo/latest.pt \
@@ -204,7 +210,7 @@ Persist the two evaluations to make them available in the live report:
 ```bash
 .venv/bin/python scripts/export.py \
   --model-config configs/model.gpu.yaml \
-  --tokenizer data/tokenizer \
+  --tokenizer data/tokenizer-finetuning \
   --checkpoint checkpoints/dpo/best.pt \
   --format safetensors \
   --output exports/final/gopi.safetensors
@@ -213,7 +219,7 @@ Persist the two evaluations to make them available in the live report:
 ## Serving
 
 `configs/inference.yaml` defaults to model name `gopi`,
-`configs/model.gpu.yaml`, `data/tokenizer`, and
+`configs/model.gpu.yaml`, `data/tokenizer-finetuning`, and
 `checkpoints/finetuning/best.pt`.
 
 ```bash

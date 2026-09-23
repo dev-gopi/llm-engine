@@ -32,8 +32,8 @@ updates, and recorded 467 passing tests. Full pilot training has not yet been
 completed. The diagnostic checkpoint under `checkpoints/improvement-smoke/` is
 not a recommended model to use or a replacement for the frozen reference.
 
-Read [the implementation review](PRETRAINING_IMPROVEMENTS.md) for details of fixes
-to padding masks, lossless packing, document boundaries, code indentation,
+See [the current training guide](TRAINING_GUIDE.md) for the supported workflow.
+The previous review covered padding masks, lossless packing, document boundaries, code indentation,
 held-out exclusion, and matching training/inference text normalization.
 
 **Checkpoint:** confirm you are improving the existing model, rather than

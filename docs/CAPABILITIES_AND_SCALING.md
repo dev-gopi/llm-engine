@@ -1,7 +1,7 @@
 # Capabilities, limitations, and model scaling
 
 > [!NOTE]
-> **Authoritative Subsystem Specification**: For the complete distributed scaling strategy across all parameter tiers (80M → 1T), FSDP, Tensor Parallelism, Model Growth, and LoRA adaptation, see **[`docs/SCALING.md`](SCALING.md)** and compact context pack **[`docs/context/scaling.context.md`](context/scaling.context.md)**.
+> This guide is the repository reference for compact-model capabilities and scaling-related profiles. Source, configuration, and tests remain authoritative.
 > 
 > The filename is retained for existing links. This document describes baseline stability options for the compact profiles.
 

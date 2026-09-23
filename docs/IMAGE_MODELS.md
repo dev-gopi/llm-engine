@@ -1,7 +1,7 @@
 # Vision and diffusion models
 
 > [!NOTE]
-> **Authoritative Subsystem Specification**: For the complete and updated engineering reference on Vision Transformer, Multimodal VLM, and Latent Diffusion architectures, see **[`docs/VISION.md`](VISION.md)** and compact context pack **[`docs/context/vision.context.md`](context/vision.context.md)**.
+> This guide covers the repository image subsystems. Source, configuration, and tests remain authoritative.
 
 The image stack is independent from text-model checkpoints. It includes a Vision
 Transformer encoder and classifier, a multimodal projector, and a conditional

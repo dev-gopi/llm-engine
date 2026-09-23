@@ -3,7 +3,7 @@
 > **CRITICAL DIRECTIVE FOR AI AGENTS:**
 > **DO NOT SCAN OR READ THE ENTIRE REPOSITORY.**
 > This project is structured with a progressive context documentation system. Reading the entire repository wastes context tokens and risks hallucinations.
-> Follow this entry point, identify your task, look up the relevant component in [`docs/PROJECT_INDEX.md`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/PROJECT_INDEX.md) or [`docs/context/`](file:///home/user/Downloads/llm-engine-boilerplate/llm-engine/docs/context/), and read **ONLY** the specific files needed for your task.
+> Follow this entry point, identify your task, look up the relevant component in [`docs/PROJECT_INDEX.md`](docs/PROJECT_INDEX.md), then read **only** the linked source, configuration, test, and guide files needed for that task.
 
 ---
 
@@ -167,7 +167,7 @@ When tasked with any development job, follow this exact 8-step protocol:
 2. Find Task / Subsystem in docs/PROJECT_INDEX.md
            │
            ▼
-3. Load Compact Context: docs/context/<subsystem>.context.md
+3. Read the linked guide and relevant source/configuration/test files
            │
            ▼
 4. Inspect Authoritative Source Files (e.g. src/<subsystem>/...)
