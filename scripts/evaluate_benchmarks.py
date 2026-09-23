@@ -173,7 +173,7 @@ def main() -> None:
     if baseline is not None and baseline.get("protocol") != protocol:
         parser.error("baseline protocol differs; rerun the baseline with the same settings")
 
-    from datasets.preprocessor import format_messages
+    from local_dataset.preprocessor import format_messages
 
     scored = []
     details = []

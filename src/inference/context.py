@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 
-from datasets.preprocessor import clean, format_messages
+from local_dataset.preprocessor import clean, format_messages
 from tokenizer.encoder import Tokenizer
 
 

@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from datasets.quality import quality_source_weights, score_records
+from local_dataset.quality import quality_source_weights, score_records
 
 
 def main() -> None:

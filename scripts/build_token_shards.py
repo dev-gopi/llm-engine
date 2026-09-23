@@ -25,9 +25,9 @@ from dataclasses import asdict
 
 import numpy as np
 
-from datasets.filters import CorpusFilter
-from datasets.loader import TextDataset, iter_records
-from datasets.preprocessor import record_to_text
+from local_dataset.filters import CorpusFilter
+from local_dataset.loader import TextDataset, iter_records
+from local_dataset.preprocessor import record_to_text
 from tokenizer.encoder import Tokenizer
 
 _WORKER_TOKENIZER: Tokenizer | None = None

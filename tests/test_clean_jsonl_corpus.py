@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from datasets.filters import CorpusFilter
+from local_dataset.filters import CorpusFilter
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 

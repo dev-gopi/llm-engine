@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from datasets.governance import (
+from local_dataset.governance import (
     audit_dataset_files,
     enforce_dataset_governance,
     load_dataset_manifest,
 )
-from datasets.loader import iter_mixture_records, load_mixture_sources
+from local_dataset.loader import iter_mixture_records, load_mixture_sources
 
 
 def write_dataset(tmp_path, **overrides):
@@ -201,7 +201,7 @@ def write_capability_manifest(tmp_path, *, domain="web", quality_status="passed"
 
 def test_schema_v2_capability_manifest_passes_strict_audit(tmp_path) -> None:
     manifest = write_capability_manifest(tmp_path)
-    from datasets.governance import audit_manifest_files
+    from local_dataset.governance import audit_manifest_files
 
     assert audit_manifest_files(
         [manifest],
@@ -216,7 +216,7 @@ def test_schema_v2_capability_manifest_requires_provenance_quality_and_contamina
     payload = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     del payload["provenance"]
     manifest.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
-    from datasets.governance import audit_manifest_files
+    from local_dataset.governance import audit_manifest_files
 
     codes = {item.code for item in audit_manifest_files(
         [manifest], stage="pretraining", required_domains=["web"], expected_domains={manifest: "web"}
@@ -226,7 +226,7 @@ def test_schema_v2_capability_manifest_requires_provenance_quality_and_contamina
 
 def test_capability_manifest_audit_reports_missing_domains_and_review_gates(tmp_path) -> None:
     manifest = write_capability_manifest(tmp_path, domain="code", quality_status="pending")
-    from datasets.governance import audit_manifest_files
+    from local_dataset.governance import audit_manifest_files
 
     codes = {item.code for item in audit_manifest_files(
         [manifest],

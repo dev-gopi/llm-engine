@@ -8,7 +8,7 @@ from pathlib import Path
 
 script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory: sys.path.pop(0)
-from datasets.contamination import audit_contamination, load_documents
+from local_dataset.contamination import audit_contamination, load_documents
 
 
 def main() -> None:

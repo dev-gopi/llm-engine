@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from datasets.loader import iter_records
+from local_dataset.loader import iter_records
 from tokenizer.encoder import Tokenizer
 
 

@@ -1,4 +1,4 @@
-from datasets.instruction_quality import filter_and_balance, score_instruction
+from local_dataset.instruction_quality import filter_and_balance, score_instruction
 
 
 def test_instruction_quality_rejects_secret():

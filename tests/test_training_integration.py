@@ -3,7 +3,7 @@ import copy
 import pytest
 import torch
 
-from datasets.collator import Collator
+from local_dataset.collator import Collator
 from model.gpt import MiniGPT
 from optim.adamw import build_adamw
 from optim.ema import EMA

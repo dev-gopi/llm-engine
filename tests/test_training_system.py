@@ -6,8 +6,8 @@ import pytest
 import torch
 from torch.utils.data import DataLoader
 
-from datasets.collator import Collator
-from datasets.sampler import Sampler
+from local_dataset.collator import Collator
+from local_dataset.sampler import Sampler
 from model.gpt import MiniGPT
 from model.loss import CausalLanguageModelLoss
 from optim.adamw import build_adamw

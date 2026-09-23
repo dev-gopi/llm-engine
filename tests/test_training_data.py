@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from datasets.sampler import CurriculumSchedule, CurriculumStage, Sampler
+from local_dataset.sampler import CurriculumSchedule, CurriculumStage, Sampler
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 from training.data import (

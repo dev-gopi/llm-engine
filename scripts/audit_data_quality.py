@@ -17,8 +17,8 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
-from datasets.loader import TextDataset
-from datasets.preprocessor import record_to_text
+from local_dataset.loader import TextDataset
+from local_dataset.preprocessor import record_to_text
 from tokenizer.encoder import Tokenizer
 from utils.config import load_yaml
 

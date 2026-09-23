@@ -4,17 +4,17 @@ from pathlib import Path
 import pytest
 import torch
 
-import datasets
-from datasets.collator import Collator
-from datasets.loader import LazyJSONLDataset, TextDataset, iter_records
-from datasets.preprocessor import clean, format_messages
-from datasets.sampler import Sampler
+import local_dataset as datasets
+from local_dataset.collator import Collator
+from local_dataset.loader import LazyJSONLDataset, TextDataset, iter_records
+from local_dataset.preprocessor import clean, format_messages
+from local_dataset.sampler import Sampler
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
 
-def test_internal_dataset_package_wins_over_optional_huggingface_dependency() -> None:
-    assert Path(datasets.__file__).resolve().parent.name == "datasets"
+def test_project_dataset_package_uses_local_dataset_namespace() -> None:
+    assert Path(datasets.__file__).resolve().parent.name == "local_dataset"
     assert Path(datasets.__file__).resolve().parent.parent.name == "src"
 
 
@@ -204,7 +204,7 @@ def test_lazy_jsonl_reports_unusable_record_location_without_substitution(tmp_pa
 
 
 def test_code_whitespace_survives_plain_loading_and_chat_rendering():
-    from datasets.preprocessor import record_to_text
+    from local_dataset.preprocessor import record_to_text
     code = 'def add(a, b):\n    if a:\n        return a + b\n    return b'
     assert record_to_text({'text': code}) == code
     assert code in format_messages([{'role': 'user', 'content': code}])

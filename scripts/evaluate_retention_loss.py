@@ -19,8 +19,8 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import torch
 
-from datasets.loader import iter_records
-from datasets.preprocessor import record_to_text
+from local_dataset.loader import iter_records
+from local_dataset.preprocessor import record_to_text
 from model.gpt import MiniGPT
 from model.loss import CausalLanguageModelLoss
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options

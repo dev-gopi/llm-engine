@@ -27,7 +27,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 import torch
 from dotenv import load_dotenv
 
-from datasets.governance import enforce_dataset_governance
+from local_dataset.governance import enforce_dataset_governance
 from evaluation.benchmarks import BenchmarkCase, score_answer, summarize_scores
 from inference.context import format_system_prompt
 from inference.generator import Generator
@@ -532,7 +532,7 @@ def main() -> None:
             was_training = model.training
             started = time.perf_counter()
             try:
-                from datasets.preprocessor import format_messages
+                from local_dataset.preprocessor import format_messages
 
                 inference_config = load_yaml(generation_config.get("inference_config", "configs/inference.yaml"))
                 system_prompt = format_system_prompt(

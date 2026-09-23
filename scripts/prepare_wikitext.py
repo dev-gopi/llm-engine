@@ -15,7 +15,7 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import pyarrow.parquet as pq
 
-from datasets.preprocessor import clean
+from local_dataset.preprocessor import clean
 
 ARTICLE_TITLE = re.compile(r"^\s*=\s+[^=].*?\s+=\s*$")
 def normalize_line(value: str) -> str:

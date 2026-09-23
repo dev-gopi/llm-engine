@@ -23,8 +23,8 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 import yaml
 
-from datasets.loader import TextDataset, iter_records
-from datasets.preprocessor import record_to_text
+from local_dataset.loader import TextDataset, iter_records
+from local_dataset.preprocessor import record_to_text
 from tokenizer.encoder import Tokenizer
 from training.data import _mixture_name
 from utils.config import load_yaml

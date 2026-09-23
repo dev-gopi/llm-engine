@@ -1,6 +1,6 @@
 import json
 
-from datasets.contamination import audit_contamination, load_documents
+from local_dataset.contamination import audit_contamination, load_documents
 
 
 def write(path, rows):

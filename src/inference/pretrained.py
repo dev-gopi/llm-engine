@@ -8,7 +8,7 @@ from pathlib import Path
 
 from safetensors.torch import load_model, save_model
 
-from datasets.preprocessor import format_messages
+from local_dataset.preprocessor import format_messages
 from inference.generator import Generator
 from model.config import normalize_model_config
 from model.gpt import MiniGPT

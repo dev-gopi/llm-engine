@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 
 import torch
 
-from datasets.loader import iter_records
-from datasets.preprocessor import format_messages
+from local_dataset.loader import iter_records
+from local_dataset.preprocessor import format_messages
 from inference.context import format_system_prompt
 from inference.generator import Generator
 from model.gpt import MiniGPT

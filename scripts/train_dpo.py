@@ -22,7 +22,7 @@ sys.path[:0] = [src_root, repository_root]
 
 import torch
 
-from datasets.governance import enforce_dataset_governance
+from local_dataset.governance import enforce_dataset_governance
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from optim.adamw import adamw_from_config

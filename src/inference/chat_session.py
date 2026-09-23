@@ -218,7 +218,7 @@ class ChatSession:
 
 def validate_instruction_example(record: dict) -> dict:
     """Validate and score an instruction example before training export."""
-    from datasets.instruction_quality import score_instruction
+    from local_dataset.instruction_quality import score_instruction
     result = score_instruction(record)
     if result.flags:
         raise ValueError("instruction example failed quality gate: " + ",".join(result.flags))

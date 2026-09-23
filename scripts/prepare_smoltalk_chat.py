@@ -19,7 +19,7 @@ repository_root = str(Path(__file__).resolve().parents[1])
 if repository_root not in sys.path:
     sys.path.insert(0, repository_root)
 
-from datasets.loader import iter_records
+from local_dataset.loader import iter_records
 from scripts.prepare_recovery_sft import (
     BAD_TEXT,
     SYSTEM_PROMPT,

@@ -154,7 +154,7 @@ def main() -> None:
     if args.raw:
         rendered_prompt = prompt
     else:
-        from datasets.preprocessor import format_messages
+        from local_dataset.preprocessor import format_messages
         rendered_prompt = format_messages(
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
             add_generation_prompt=True,

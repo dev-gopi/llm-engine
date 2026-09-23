@@ -28,7 +28,7 @@ from dataclasses import asdict
 from html.parser import HTMLParser
 from typing import Any
 
-from datasets.filters import CorpusFilter
+from local_dataset.filters import CorpusFilter
 from utils.config import load_yaml
 
 

@@ -9,10 +9,10 @@ from typing import Any
 
 from torch.utils.data import ConcatDataset, DataLoader
 
-from datasets.collator import Collator
-from datasets.loader import build_text_dataset
-from datasets.sampler import Sampler
-from datasets.token_shards import TokenShardDataset
+from local_dataset.collator import Collator
+from local_dataset.loader import build_text_dataset
+from local_dataset.sampler import Sampler
+from local_dataset.token_shards import TokenShardDataset
 from tokenizer.encoder import Tokenizer
 
 

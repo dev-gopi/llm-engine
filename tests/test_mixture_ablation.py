@@ -1,6 +1,6 @@
 import pytest
 
-from datasets.mixture_ablation import MixtureObservation, compare_mixtures
+from local_dataset.mixture_ablation import MixtureObservation, compare_mixtures
 
 
 def test_compare_mixtures_is_descriptive_and_deterministic():

@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from datasets.packing import batch_padding_efficiency, packing_efficiency
+from local_dataset.packing import batch_padding_efficiency, packing_efficiency
 
 
 def main() -> None:

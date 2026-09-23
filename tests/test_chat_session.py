@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from datasets.collator import Collator
+from local_dataset.collator import Collator
 from inference.chat_session import (
     ChatSession,
     build_chat_sft_example,
@@ -68,7 +68,7 @@ def test_failed_generation_does_not_persist_partial_turn(tmp_path):
 
 
 def test_history_is_used_and_training_export_is_loadable(tmp_path):
-    from datasets.loader import TextDataset
+    from local_dataset.loader import TextDataset
     b = backend()
     session = ChatSession(b, tmp_path / "chat.sqlite", "a")
     session.chat("My name is Alice")

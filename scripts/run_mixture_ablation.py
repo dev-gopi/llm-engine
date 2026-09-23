@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from datasets.mixture_ablation import MixtureObservation, compare_mixtures
+from local_dataset.mixture_ablation import MixtureObservation, compare_mixtures
 
 
 def main() -> None:

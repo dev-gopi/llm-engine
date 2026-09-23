@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from datasets.instruction_quality import filter_and_balance
+from local_dataset.instruction_quality import filter_and_balance
 
 
 def main():

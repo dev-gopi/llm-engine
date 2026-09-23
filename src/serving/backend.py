@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 import torch
 
-from datasets.preprocessor import format_messages
+from local_dataset.preprocessor import format_messages
 from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.generator import BatchedGenerationState, Generator
 from inference.local_tools import direct_tool_answer, tool_context

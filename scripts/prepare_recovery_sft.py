@@ -16,7 +16,7 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
-from datasets.loader import iter_records
+from local_dataset.loader import iter_records
 from inference.context import format_system_prompt
 
 BASE_SYSTEM_PROMPT = "You are Gopi, a helpful assistant. Answer clearly and briefly."
@@ -170,7 +170,7 @@ def collect_records(
     stats["over_context"] = 0
     for _, item in sorted(candidates.values(), key=lambda item: item[0]):
         if tokenizer is not None:
-            from datasets.loader import TextDataset
+            from local_dataset.loader import TextDataset
             identifiers, _ = TextDataset._encode_chat(item["messages"], tokenizer, True, True)
             if len(identifiers) > max_length:
                 stats["over_context"] += 1

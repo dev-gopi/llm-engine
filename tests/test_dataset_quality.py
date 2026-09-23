@@ -1,4 +1,4 @@
-from datasets.quality import quality_source_weights, score_text
+from local_dataset.quality import quality_source_weights, score_text
 
 
 def test_quality_score_is_bounded_and_penalizes_repetition():

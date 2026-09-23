@@ -22,7 +22,7 @@ sys.path[:] = [
 ]
 sys.path.insert(0, src_directory)
 
-from datasets.governance import (
+from local_dataset.governance import (
     audit_dataset_files,
     audit_manifest_files,
     build_governance_report,

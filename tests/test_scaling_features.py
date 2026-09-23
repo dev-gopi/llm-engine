@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 import torch
 
-from datasets.filters import CorpusFilter
-from datasets.token_shards import TokenShardDataset
+from local_dataset.filters import CorpusFilter
+from local_dataset.token_shards import TokenShardDataset
 from evaluation.benchmarks import (
     BenchmarkCase,
     normalize_answer,

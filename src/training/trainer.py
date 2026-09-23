@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 from torch import Tensor, nn
 
-from datasets.sampler import CurriculumSchedule
+from local_dataset.sampler import CurriculumSchedule
 from model.loss import (
     CausalLanguageModelLoss,
     LanguageModelLossOutput,
