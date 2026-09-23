@@ -37,7 +37,7 @@ from mcp.orchestration import (
 )
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
-from rag.reranker import LexicalCrossEncoderBaseline, SentenceTransformersCrossEncoder
+from rag.reranker import HybridReranker, LexicalCrossEncoderBaseline, SentenceTransformersCrossEncoder
 from runtime.reasoning import resolve_reasoning_budget
 from schema.structured_outputs import (
     StructuredOutputError,
@@ -184,12 +184,15 @@ class ConfiguredModelBackend:
         kind = str(config.get("reranker", "lexical")).strip().lower()
         if kind in {"lexical", "baseline"}:
             return LexicalCrossEncoderBaseline()
-        if kind in {"sentence_transformers", "sentence-transformers", "cross_encoder"}:
-            return SentenceTransformersCrossEncoder(
+        if kind in {"sentence_transformers", "sentence-transformers", "cross_encoder", "hybrid"}:
+            primary = SentenceTransformersCrossEncoder(
                 str(config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")),
                 batch_size=int(config.get("reranker_batch_size", 16)),
                 device=str(config["reranker_device"]) if config.get("reranker_device") else None,
             )
+            if kind == "hybrid":
+                return HybridReranker(primary, primary_weight=float(config.get("reranker_primary_weight", 0.75)), rrf_k=int(config.get("reranker_rrf_k", 60)), fail_open=bool(config.get("reranker_fail_open", True)))
+            return primary
         raise ValueError(f"unsupported RAG reranker: {kind}")
 
     @property
