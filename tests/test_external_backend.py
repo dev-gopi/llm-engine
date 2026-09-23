@@ -43,6 +43,33 @@ def test_external_backend_maps_openai_response_and_sampler_controls():
     assert captured["reasoning_effort"] == "low"
 
 
+def test_external_backend_closes_client_after_failed_startup(monkeypatch):
+    clients = []
+
+    class FailingClient:
+        def __init__(self, **_kwargs):
+            self.closed = False
+            clients.append(self)
+
+        async def get(self, _path):
+            raise httpx.ConnectError("offline")
+
+        async def aclose(self):
+            self.closed = True
+
+    monkeypatch.setattr("serving.external_backend.httpx.AsyncClient", FailingClient)
+
+    async def scenario():
+        backend = OpenAICompatibleBackend(base_url="http://local")
+        await backend.startup()
+        return backend
+
+    backend = asyncio.run(scenario())
+    assert not backend.ready
+    assert backend._client is None
+    assert clients[0].closed
+
+
 def test_external_backend_streams_sse_chunks():
     async def stream_bytes():
         yield b'data: {"choices":[{"delta":{"content":"exter"},"finish_reason":null}]}\n\n'

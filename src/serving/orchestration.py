@@ -30,6 +30,7 @@ class ContinuousStreamScheduler:
         self.pending: asyncio.Queue[_StreamWork | None] = asyncio.Queue(maxsize=queue_size)
         self.event_queue_size = event_queue_size
         self.worker: asyncio.Task | None = None
+        self._active: set[asyncio.Task] = set()
 
     async def startup(self) -> None:
         if self.worker is None:
@@ -37,8 +38,8 @@ class ContinuousStreamScheduler:
 
     async def shutdown(self) -> None:
         if self.worker is not None:
-            await self.pending.put(None)
-            await self.worker
+            self.worker.cancel()
+            await asyncio.gather(self.worker, return_exceptions=True)
             self.worker = None
 
     async def stream(self, request: Any) -> AsyncIterator[Any]:
@@ -61,27 +62,36 @@ class ContinuousStreamScheduler:
                 work.task.cancel()
 
     async def _run(self) -> None:
-        active: set[asyncio.Task] = set()
+        active = self._active
         stopping = False
         intake: asyncio.Task | None = None
-        while not stopping or active:
-            if not stopping and len(active) < self.max_active and intake is None:
-                intake = asyncio.create_task(self.pending.get())
-            waiters = set(active)
+        try:
+            while not stopping or active:
+                if not stopping and len(active) < self.max_active and intake is None:
+                    intake = asyncio.create_task(self.pending.get())
+                waiters = set(active)
+                if intake is not None:
+                    waiters.add(intake)
+                if not waiters:
+                    break
+                done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+                if intake is not None and intake in done:
+                    work = intake.result()
+                    intake = None
+                    if work is None:
+                        stopping = True
+                    elif not work.cancelled:
+                        work.task = asyncio.create_task(self._pump(work))
+                        active.add(work.task)
+                active.difference_update(task for task in done if task is not intake)
+        finally:
             if intake is not None:
-                waiters.add(intake)
-            if not waiters:
-                break
-            done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
-            if intake is not None and intake in done:
-                work = intake.result()
-                intake = None
-                if work is None:
-                    stopping = True
-                elif not work.cancelled:
-                    work.task = asyncio.create_task(self._pump(work))
-                    active.add(work.task)
-            active.difference_update(task for task in done if task is not intake)
+                intake.cancel()
+                await asyncio.gather(intake, return_exceptions=True)
+            for task in active:
+                task.cancel()
+            await asyncio.gather(*active, return_exceptions=True)
+            active.clear()
 
     async def _pump(self, work: _StreamWork) -> None:
         try:
@@ -104,6 +114,7 @@ class _TokenWork:
     queue: asyncio.Queue
     state: Any = None
     cancelled: bool = False
+    released: bool = False
 
 
 class TokenStepScheduler:
@@ -123,6 +134,7 @@ class TokenStepScheduler:
         self.backend, self.max_active = backend, max_active
         self.pending: asyncio.Queue[_TokenWork | None] = asyncio.Queue(maxsize=queue_size)
         self.worker: asyncio.Task | None = None
+        self._active: list[_TokenWork] = []
 
     async def startup(self) -> None:
         if self.worker is None:
@@ -130,9 +142,21 @@ class TokenStepScheduler:
 
     async def shutdown(self) -> None:
         if self.worker is not None:
-            await self.pending.put(None)
-            await self.worker
+            self.worker.cancel()
+            await asyncio.gather(self.worker, return_exceptions=True)
             self.worker = None
+
+    async def _release_work(self, item: _TokenWork) -> None:
+        """Release a backend stream exactly once, including cancellation paths."""
+        if item.released:
+            return
+        item.released = True
+        release = getattr(self.backend, "release_stream", None)
+        if release is None:
+            return
+        result = release(item.state)
+        if asyncio.iscoroutine(result):
+            await result
 
     async def stream(self, request: Any) -> AsyncIterator[Any]:
         if self.worker is None:
@@ -151,89 +175,90 @@ class TokenStepScheduler:
             work.cancelled = True
 
     async def _run(self) -> None:
-        active: list[_TokenWork] = []
+        active = self._active
         stopping = False
-        while active or not stopping:
-            while not stopping and len(active) < self.max_active:
-                try:
-                    item = self.pending.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-                if item is None:
-                    stopping = True
-                    break
-                if not item.cancelled:
+        try:
+            while active or not stopping:
+                while not stopping and len(active) < self.max_active:
                     try:
-                        item.state = await self.backend.start_stream(item.request)
-                        active.append(item)
-                    except Exception as error:
-                        await item.queue.put(_StreamEnd(error))
-            if not active:
-                if stopping:
-                    break
-                item = await self.pending.get()
-                if item is None:
-                    stopping = True
-                else:
+                        item = self.pending.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    if item is None:
+                        stopping = True
+                        break
+                    if not item.cancelled:
+                        try:
+                            item.state = await self.backend.start_stream(item.request)
+                            active.append(item)
+                        except Exception as error:
+                            await item.queue.put(_StreamEnd(error))
+                if not active:
+                    if stopping:
+                        break
+                    item = await self.pending.get()
+                    if item is None:
+                        stopping = True
+                    else:
+                        try:
+                            item.state = await self.backend.start_stream(item.request)
+                            active.append(item)
+                        except Exception as error:
+                            await item.queue.put(_StreamEnd(error))
+                    continue
+                cancelled = [item for item in active if item.cancelled]
+                for item in cancelled:
                     try:
-                        item.state = await self.backend.start_stream(item.request)
-                        active.append(item)
-                    except Exception as error:
-                        await item.queue.put(_StreamEnd(error))
-                continue
-            cancelled = [item for item in active if item.cancelled]
-            release = getattr(self.backend, "release_stream", None)
-            for item in cancelled:
-                if release:
-                    try:
-                        result = release(item.state)
-                        if asyncio.iscoroutine(result):
-                            await result
+                        await self._release_work(item)
                     except BaseException:
                         # Cancellation cleanup is best-effort; never strand the
                         # scheduler worker because one backend cleanup failed.
                         pass
-            live = [item for item in active if not item.cancelled]
-            if not live:
-                active = []
-                continue
-            try:
-                results = await self.backend.decode_stream_batch([item.state for item in live])
-                if len(results) != len(live):
-                    raise RuntimeError("token-step backend returned the wrong result count")
-            except BaseException as error:
-                # A failed batch decode must not strand KV pages/session locks or
-                # leave consumers waiting forever on their per-request queues.
-                for item in live:
-                    if release and item.state is not None:
+                live = [item for item in active if not item.cancelled]
+                if not live:
+                    active.clear()
+                    continue
+                try:
+                    results = await self.backend.decode_stream_batch([item.state for item in live])
+                    if len(results) != len(live):
+                        raise RuntimeError("token-step backend returned the wrong result count")
+                except BaseException as error:
+                    # A failed batch decode must not strand KV pages/session locks or
+                    # leave consumers waiting forever on their per-request queues.
+                    for item in live:
                         try:
-                            result = release(item.state)
-                            if asyncio.iscoroutine(result):
-                                await result
+                            await self._release_work(item)
                         except BaseException:
                             pass
-                    try:
-                        await item.queue.put(_StreamEnd(error if isinstance(error, Exception) else RuntimeError("token decode cancelled")))
-                    except BaseException:
-                        pass
-                active = []
-                if isinstance(error, asyncio.CancelledError):
-                    raise
-                continue
-            survivors = []
-            for item, (event, done) in zip(live, results, strict=True):
-                if event is not None:
-                    await item.queue.put(event)
-                if done or item.cancelled:
-                    if release:
-                        result = release(item.state)
-                        if asyncio.iscoroutine(result):
-                            await result
-                    await item.queue.put(_StreamEnd())
-                else:
-                    survivors.append(item)
-            active = survivors
-            await asyncio.sleep(0)
+                        try:
+                            await item.queue.put(_StreamEnd(
+                                error if isinstance(error, Exception)
+                                else RuntimeError("token decode cancelled")
+                            ))
+                        except BaseException:
+                            pass
+                    active.clear()
+                    if isinstance(error, asyncio.CancelledError):
+                        raise
+                    continue
+                survivors = []
+                for item, (event, done) in zip(live, results, strict=True):
+                    if event is not None:
+                        await item.queue.put(event)
+                    if done or item.cancelled:
+                        await self._release_work(item)
+                        await item.queue.put(_StreamEnd())
+                    else:
+                        survivors.append(item)
+                active[:] = survivors
+                await asyncio.sleep(0)
+        finally:
+            for item in active:
+                try:
+                    await self._release_work(item)
+                except BaseException:
+                    pass
+            active.clear()
 
 
 class ReplicaPoolBackend:

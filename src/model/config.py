@@ -140,6 +140,13 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
         parameters += vocab * dim
     if bool(cfg.get("lm_head_bias", False)):
         parameters += vocab
+    mtp_predictions = _non_negative_int(
+        cfg.get("mtp_num_predictions", 0), "mtp_num_predictions"
+    )
+    # Auxiliary MTP heads are independent vocabulary projections. They are
+    # materialized with the model and used during training, so include them in
+    # both parameter storage and per-token training-compute estimates.
+    parameters += mtp_predictions * (vocab * dim + (vocab if bool(cfg.get("lm_head_bias", False)) else 0))
 
     layer_patterns = resolve_attention_layer_pattern(cfg, layers)
     linear_layers = sum(pattern == "linear" for pattern in layer_patterns)
@@ -216,6 +223,12 @@ def _validate_attention_backend(config: Mapping[str, Any]) -> None:
 def _positive_int(value: Any, name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _non_negative_int(value: Any, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
     return value
 
 

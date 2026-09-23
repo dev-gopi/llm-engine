@@ -330,9 +330,16 @@ class MiniGPT(nn.Module):
         # All position mechanisms use logical (non-padding) token positions.
         # A complete mask also accounts for padding already stored in the cache.
         if position_ids is None and block_attention_mask is not None:
-            position_ids = block_attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)[:, -seq_len:]
-            if not cached_length:
+            if attention_mask.shape[1] == seq_len:
+                # The block mask contains a synthetic all-valid prefix for
+                # attention. It must not contribute to position IDs: the
+                # actual prefix position is represented by position_offset.
+                position_ids = current_attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)
                 position_ids = position_ids + position_offset
+            else:
+                # A complete prefix mask already produces absolute logical
+                # positions, including any padding stored in the cache.
+                position_ids = block_attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)[:, -seq_len:]
         if position_ids is not None:
             position_ids = self._validate_position_ids(
                 position_ids, token_ids.shape[0], seq_len, token_ids.device
@@ -558,7 +565,7 @@ class MiniGPT(nn.Module):
                 float(config["logit_softcap"])
                 if config.get("logit_softcap") is not None else None
             ),
-            mtp_num_predictions=int(config.get("mtp_num_predictions", 0)),
+            mtp_num_predictions=config.get("mtp_num_predictions", 0),
             attention_pattern=str(config.get("attention_pattern", "dense")),
             attention_layer_pattern=(
                 list(config["attention_layer_pattern"])

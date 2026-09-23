@@ -80,6 +80,33 @@ def test_continuous_scheduler_cancels_disconnected_stream() -> None:
     asyncio.run(scenario())
 
 
+def test_continuous_scheduler_shutdown_cancels_active_streams():
+    class EndlessBackend(Backend):
+        def __init__(self):
+            super().__init__("model")
+            self.cancelled = asyncio.Event()
+
+        async def stream(self, _request):
+            try:
+                while True:
+                    yield "token"
+                    await asyncio.sleep(0)
+            finally:
+                self.cancelled.set()
+
+    async def scenario():
+        backend = EndlessBackend()
+        scheduler = ContinuousStreamScheduler(backend, event_queue_size=1)
+        await scheduler.startup()
+        stream = scheduler.stream("request")
+        assert await anext(stream) == "token"
+        await asyncio.wait_for(scheduler.shutdown(), timeout=1)
+        await asyncio.wait_for(backend.cancelled.wait(), timeout=1)
+        await stream.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_token_step_scheduler_batches_active_sequences_and_admits_work():
     class TokenBackend:
         def __init__(self):
@@ -152,6 +179,33 @@ def test_token_step_scheduler_releases_states_after_decode_failure() -> None:
     backend, results = asyncio.run(scenario())
     assert backend.released == ["a", "b"]
     assert all(isinstance(result, RuntimeError) for result in results)
+
+
+def test_token_step_scheduler_shutdown_releases_active_states():
+    class EndlessBackend:
+        def __init__(self):
+            self.released = []
+
+        async def start_stream(self, request):
+            return request
+
+        async def decode_stream_batch(self, states):
+            return [("token", False) for _ in states]
+
+        def release_stream(self, state):
+            self.released.append(state)
+
+    async def scenario():
+        backend = EndlessBackend()
+        scheduler = TokenStepScheduler(backend)
+        await scheduler.startup()
+        stream = scheduler.stream("request")
+        assert await anext(stream) == "token"
+        await asyncio.wait_for(scheduler.shutdown(), timeout=1)
+        await stream.aclose()
+        return backend.released
+
+    assert asyncio.run(scenario()) == ["request"]
 
 
 def test_replica_pool_routes_to_least_active_replica() -> None:

@@ -117,6 +117,35 @@ def test_small_moe_model_builds_from_config():
     assert model.num_parameters() == estimate_model_size(config).parameters
 
 
+@pytest.mark.parametrize("lm_head_bias", [False, True])
+def test_estimator_includes_optional_multi_token_prediction_heads(lm_head_bias):
+    config = {
+        "vocab_size": 32, "hidden_size": 16, "layers": 2, "heads": 4,
+        "max_position": 16, "mtp_num_predictions": 3, "lm_head_bias": lm_head_bias,
+    }
+    model = MiniGPT.from_config(config)
+    size = estimate_model_size(config)
+    expected_per_head = config["vocab_size"] * (
+        config["hidden_size"] + int(lm_head_bias)
+    )
+    baseline = estimate_model_size({**config, "mtp_num_predictions": 0})
+    assert size.parameters == model.num_parameters()
+    assert size.parameters - baseline.parameters == 3 * expected_per_head
+    assert size.active_parameters_per_token - baseline.active_parameters_per_token == 3 * expected_per_head
+
+
+@pytest.mark.parametrize("value", [True, -1, 1.5])
+def test_mtp_prediction_count_requires_a_non_negative_integer(value):
+    config = {
+        "vocab_size": 32, "hidden_size": 16, "layers": 1, "heads": 4,
+        "max_position": 16, "mtp_num_predictions": value,
+    }
+    with pytest.raises(ValueError, match="mtp_num_predictions"):
+        estimate_model_size(config)
+    with pytest.raises(ValueError, match="mtp_num_predictions"):
+        MiniGPT.from_config(config)
+
+
 @pytest.mark.parametrize("override", [
     {"ffn_type": "unknown"},
     {"ffn_type": "moe", "num_experts": 0},

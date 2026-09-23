@@ -121,6 +121,27 @@ def test_gpt_cached_padding_mask_matches_full_sequence(position_type):
     torch.testing.assert_close(step[:, -1], full[:, -1], atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize("position_type", ["learned", "rotary", "sinusoidal"])
+def test_current_only_decode_mask_preserves_cache_position_offset(position_type):
+    """A current-token mask must not restart automatic positions at zero."""
+    torch.manual_seed(47)
+    model = MiniGPT(
+        vocab_size=32, dim=16, layers=2, heads=4, kv_heads=2,
+        max_pos=16, position_type=position_type,
+    ).eval()
+    prefix = torch.tensor([[1, 2, 3]])
+    next_token = torch.tensor([[4]])
+    with torch.no_grad():
+        _, cache = model(prefix, use_cache=True)
+        expected = model(next_token, past_key_values=cache)
+        actual = model(
+            next_token,
+            attention_mask=torch.ones((1, 1), dtype=torch.bool),
+            past_key_values=cache,
+        )
+    torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
+
+
 @pytest.mark.parametrize("position_type", ["learned", "rotary"])
 def test_last_token_projection_preserves_logits_and_full_cache(position_type):
     model = MiniGPT(vocab_size=32, dim=16, layers=2, heads=4,

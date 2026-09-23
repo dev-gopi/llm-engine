@@ -88,6 +88,9 @@ def main() -> None:
     cases = []
     long_context_lengths = []
     needle_positions = []
+    # Long-context probe validation happens before tokenizer/checkpoint loading,
+    # so load the model configuration before referring to its position limit.
+    model_config = load_yaml(args.model_config)
     if args.long_context_lengths:
         try:
             long_context_lengths = [int(value) for value in args.long_context_lengths.split(",") if value.strip()]
@@ -122,7 +125,6 @@ def main() -> None:
         parser.error("cases must be nonempty and unique")
     device = resolve_device(args.device)
     tokenizer = Tokenizer.load(args.tokenizer)
-    model_config = load_yaml(args.model_config)
     inference_config = load_yaml(args.inference_config)
     try:
         model_config = adapt_config_to_tokenizer(model_config, tokenizer)

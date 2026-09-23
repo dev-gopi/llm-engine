@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -153,3 +154,35 @@ def test_ctx002_base_pretraining_profile_publishes_paired_profiles():
     profiles = config["long_context_profiles"]
     assert set(profiles) == {"2k", "4k", "8k"}
     assert [profiles[name]["max_position"] for name in ("2k", "4k", "8k")] == [2048, 4096, 8192]
+
+
+def test_benchmark_cli_rejects_contexts_larger_than_the_model_limit(tmp_path, monkeypatch, capsys):
+    """The CLI must validate its model config before constructing probe cases."""
+    from scripts.evaluate_benchmarks import main
+
+    model_config = tmp_path / "model.yaml"
+    model_config.write_text("max_position: 512\n", encoding="utf-8")
+    inference_config = tmp_path / "inference.yaml"
+    inference_config.write_text("{}\n", encoding="utf-8")
+    tokenizer = tmp_path / "tokenizer"
+    tokenizer.mkdir()
+    checkpoint = tmp_path / "model.pt"
+    checkpoint.touch()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate_benchmarks.py",
+            "--checkpoint", str(checkpoint),
+            "--model-config", str(model_config),
+            "--inference-config", str(inference_config),
+            "--tokenizer", str(tokenizer),
+            "--long-context-lengths", "1024",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exited:
+        main()
+
+    assert exited.value.code == 2
+    assert "exceeds model max_position 512" in capsys.readouterr().err

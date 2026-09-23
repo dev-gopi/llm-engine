@@ -75,6 +75,10 @@ class OpenAICompatibleBackend:
         return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 
     async def startup(self) -> None:
+        # A restart after a failed health check must not retain the previous
+        # connection pool (and its sockets) indefinitely.
+        if self._client is not None:
+            await self._client.aclose()
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             headers=self._headers(),
@@ -85,6 +89,8 @@ class OpenAICompatibleBackend:
             response.raise_for_status()
         except (httpx.HTTPError, ValueError):
             self._ready = False
+            await self._client.aclose()
+            self._client = None
             return
         self._ready = True
 
