@@ -1,6 +1,6 @@
 """OpenAI-compatible Responses API request/response contracts.
 
-Omni v7 keeps the original string/message forms while adding typed multimodal
+Omni keeps the original string/message forms while adding typed multimodal
 input parts. Media parts reference either content-safe image URLs/data URLs or
 assets previously uploaded through the media asset API.
 """
@@ -125,7 +125,7 @@ class ResponsesRequest(BaseModel):
     def validate_modalities(cls, values):
         normalized = list(dict.fromkeys(values))
         if "text" not in normalized:
-            raise ValueError("Omni v7 Responses currently requires text output; audio may be added alongside text")
+            raise ValueError("Omni Responses currently requires text output; audio may be added alongside text")
         return normalized
 
     @field_validator("stop")

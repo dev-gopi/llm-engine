@@ -264,7 +264,7 @@ async function refreshServerHistory() {
 }
 
 function validateUi() {
-  const p=text(el.prompt.value); if(!p) return "Message cannot be empty.";
+  const p=text(el.prompt.value); if(!p && !el.attachments.files.length) return "Add a message or a media attachment.";
   if(authenticationRequired && !el.apiKey.value.trim()) return "This server requires an API key. Enter GOPI_API_KEY in Connection settings, then try again.";
   if(p.length>262144) return "Message is too long. Maximum length is 262,144 characters.";
   const nums=[
@@ -276,14 +276,20 @@ function validateUi() {
   if(el.mcpTool.checked && !/^[A-Za-z0-9._-]{1,128}$/.test(text(el.mcpServer.value))) return "MCP server name must contain only letters, numbers, dot, underscore, or hyphen.";
   return "";
 }
+const SUPPORTED_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "audio/wav", "audio/x-wav", "audio/mpeg", "audio/flac", "video/mp4", "video/webm"]);
 async function readAttachments() {
   const files=[...el.attachments.files]; if(files.length>8) throw new Error("Attach at most 8 files.");
   let images=0;
   return Promise.all(files.map(async file=>{
     if(file.type.startsWith("image/")) {
+      if(!SUPPORTED_MEDIA_TYPES.has(file.type)) throw new Error(`${file.name} has an unsupported image type.`);
       if(++images>4) throw new Error("Attach at most 4 images.");
       if(file.size>10*1024*1024) throw new Error(`${file.name} exceeds the 10MB image limit.`);
       return {kind:"image",name:file.name,media_type:file.type,data_url:await fileToDataUrl(file)};
+    }
+    if(file.type.startsWith("audio/") || file.type.startsWith("video/")) {
+      if(!SUPPORTED_MEDIA_TYPES.has(file.type)) throw new Error(`${file.name} has an unsupported media type.`);
+      return {kind:file.type.startsWith("audio/")?"audio":"video",name:file.name,media_type:file.type,file};
     }
     if(file.size>262144) throw new Error(`${file.name} exceeds the 256KB text attachment limit.`);
     return {kind:"text",name:file.name,media_type:file.type || "text/plain",content:await file.text()};
@@ -291,7 +297,8 @@ async function readAttachments() {
 }
 function fileToDataUrl(file) { return new Promise((resolve,reject)=>{const reader=new FileReader(); reader.onerror=()=>reject(new Error(`Could not read ${file.name}.`)); reader.onload=()=>resolve(String(reader.result)); reader.readAsDataURL(file);}); }
 function renderAttachmentPreview() {
-  el.attachmentPreview.replaceChildren(); for(const file of [...el.attachments.files]) { const n=document.createElement("span"); n.className="attachment-chip"; n.textContent=`${file.type.startsWith("image/")?"🖼":"📄"} ${file.name}`; el.attachmentPreview.append(n); }
+  const icon = (file) => file.type.startsWith("image/") ? "🖼" : file.type.startsWith("audio/") ? "🔊" : file.type.startsWith("video/") ? "🎬" : "📄";
+  el.attachmentPreview.replaceChildren(); for(const file of [...el.attachments.files]) { const n=document.createElement("span"); n.className="file-pill"; n.textContent=`${icon(file)} ${file.name}`; el.attachmentPreview.append(n); }
 }
 
 function buildGeneratePayload(prompt, attachments) {
@@ -331,8 +338,8 @@ function buildChatPayload(messages) {
   delete payload.model; return payload;
 }
 function responseModeFor(attachments) {
-  const requested=el.apiMode.value; if(attachments.some(a=>a.kind==="image") && requested==="generate") return "chat";
-  if(attachments.some(a=>a.kind==="image")) return "chat";
+  const requested=el.apiMode.value;
+  if(attachments.some(a=>["image","audio","video"].includes(a.kind))) return "responses";
   if((el.responseFormat.value==="json_object" || el.responseFormat.value==="json_schema") && requested==="generate") return "chat";
   return requested;
 }
@@ -383,9 +390,25 @@ async function generateChat(target) {
   if(toolCalls.length) addMessage("tool",JSON.stringify(toolCalls,null,2),"plain","Tool calls returned by backend");
   return result;
 }
-function responsesInput(attachments) { return buildChatMessages(attachments).map((m)=>({role:m.role==="tool"?"tool":m.role,content:Array.isArray(m.content)?m.content.filter(p=>p.type==="text").map(p=>p.text).join("\n"):m.content})); }
-async function generateResponses(target) {
-  const attachments=await readAttachments(); const input=responsesInput(attachments); const seed=text(el.seed.value); const payload={model:window.GOPI_MODEL||"gopi",input,stream:el.stream.checked,max_output_tokens:Number(el.maxTokens.value),temperature:Number(el.temperature.value),top_p:Number(el.topP.value),top_k:Number(el.topK.value),min_p:Number(el.minP.value),seed:seed===""?null:Number(seed),stop:el.stopStrings.value.split("\n").filter(Boolean),reasoning_effort:el.reasoningEffort.value,session_id:el.useMemory.checked?sessionId:null,mode:el.chatMode.value,repetition_penalty:Number(el.repetitionPenalty.value),no_repeat_ngram_size:Number(el.noRepeatNgram.value),min_tokens:Number(el.minTokens.value),rag:el.ragTool.checked,web_search:el.searchTool.checked,mcp:el.mcpTool.checked,mcp_server:el.mcpTool.checked?text(el.mcpServer.value)||"filesystem":null,tools:buildOpenAITools(),tool_choice:"auto"};
+async function uploadMediaAsset(attachment) {
+  const response=await request("/v1/media/assets",{method:"POST",headers:authHeaders({"Content-Type":attachment.media_type,"X-Filename":attachment.name}),body:attachment.file,signal:activeController.signal});
+  const asset=await response.json();
+  if(!asset.id) throw new Error(`Media upload did not return an asset ID for ${attachment.name}.`);
+  return asset.id;
+}
+async function responsesInput(attachments) {
+  const messages=currentMessages().slice(-256).map((m)=>({role:m.role==="tool"?"tool":m.role,content:m.content}));
+  const parts=[{type:"input_text",text:text(el.prompt.value)}];
+  for(const attachment of attachments) {
+    if(attachment.kind==="text") parts[0].text += `\n\n[Attached file: ${attachment.name}]\n${attachment.content}`;
+    else if(attachment.kind==="image") parts.push({type:"input_image",image_url:attachment.data_url,detail:"auto"});
+    else parts.push({type:`input_${attachment.kind}`,asset_id:await uploadMediaAsset(attachment)});
+  }
+  messages.push({role:"user",content:parts});
+  return messages;
+}
+async function generateResponses(target, attachments) {
+  const input=await responsesInput(attachments); const seed=text(el.seed.value); const payload={model:window.GOPI_MODEL||"gopi",input,stream:el.stream.checked,max_output_tokens:Number(el.maxTokens.value),temperature:Number(el.temperature.value),top_p:Number(el.topP.value),top_k:Number(el.topK.value),min_p:Number(el.minP.value),seed:seed===""?null:Number(seed),stop:el.stopStrings.value.split("\n").filter(Boolean),reasoning_effort:el.reasoningEffort.value,session_id:el.useMemory.checked?sessionId:null,mode:el.chatMode.value,repetition_penalty:Number(el.repetitionPenalty.value),no_repeat_ngram_size:Number(el.noRepeatNgram.value),min_tokens:Number(el.minTokens.value),rag:el.ragTool.checked,web_search:el.searchTool.checked,mcp:el.mcpTool.checked,mcp_server:el.mcpTool.checked?text(el.mcpServer.value)||"filesystem":null,tools:buildOpenAITools(),tool_choice:"auto"};
   const format=jsonResponseFormat(); if(format) payload.response_format=format;
   let result="",reasoning="",toolCalls=[];
   if(el.stream.checked){ await streamSse("/v1/responses",payload,(event)=>{ if(event.type==="response.output_text.delta"){result+=event.delta||"";setMessageContent(target,result,el.responseFormat.value);} else if(event.type==="response.reasoning.delta") reasoning+=event.delta||""; else if(event.type==="response.tool_calls.delta") toolCalls.push(...(event.tool_calls||[])); else if(event.type==="response.completed") updateUsage(event.response?.usage,null); }); }
@@ -417,7 +440,7 @@ async function generate() {
       const payload=buildGeneratePayload(prompt,attachments); payload.attachments=attachments.filter(a=>a.kind==="text").map(a=>({name:a.name,content:a.content,media_type:a.media_type}));
       answer=el.stream.checked?await generateNativeStream(payload,target):await generateNativeRest(payload,target);
     } else if(requested==="chat") answer=await generateChat(target);
-    else answer=await generateResponses(target);
+    else answer=await generateResponses(target,attachments);
     if(answer.trim()){lastCompletedExample={prompt,answer};el.reviewLast.disabled=false;}
     persistLocalConversation(); setConversationTitle(); await refreshServerHistory();
   } catch(error) {

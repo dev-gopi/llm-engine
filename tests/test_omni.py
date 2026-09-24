@@ -8,15 +8,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from api.responses import ResponsesRequest
 from media_generation.assets import AssetStore
-from omni_platform.multimodal_input import latest_text, prepare_responses_input
+from omni_platform.multimodal_input import PreparedMultimodalInput, latest_text, prepare_responses_input
 from omni_platform.observability import Metrics
 from omni_platform.scheduler import GPUScheduler, ResourceRequest
 from omni_platform.speech import EnergyVAD, HuggingFaceASRProvider
 from omni_platform.video_understanding import _sample_times
-from serving.omni import create_omni_v6_router
+from serving.omni import create_omni_speech_router, create_omni_video_router
+from serving.runtime import BackendUnavailableError, ServingError
 from tests.asgi_client import ASGIClient
 
 
@@ -93,7 +95,7 @@ def test_asr_env_absent_is_not_provider(monkeypatch: pytest.MonkeyPatch) -> None
 def test_omni_requires_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOPI_API_KEY", "secret")
     app = FastAPI()
-    app.include_router(create_omni_v6_router())
+    app.include_router(create_omni_speech_router())
     with ASGIClient(app) as client:
         assert client.get("/v1/platform/capabilities/verify").status_code == 401
         result = client.get(
@@ -107,12 +109,47 @@ def test_tts_endpoint_conservative_without_model(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("GOPI_API_KEY", "secret")
     monkeypatch.delenv("GOPI_TTS_MODEL", raising=False)
     app = FastAPI()
-    app.include_router(create_omni_v6_router())
+    app.include_router(create_omni_speech_router())
     with ASGIClient(app) as client:
         result = client.post(
             "/v1/audio/speech", headers={"Authorization": "Bearer secret"}, json={"input": "hello"}
         )
         assert result.status_code == 503
+
+
+def test_video_understanding_preserves_serving_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    class NativeVisionBackend:
+        supports_vision = True
+        multimodal_generator = object()
+
+    class FailingRuntime:
+        backend = NativeVisionBackend()
+
+        async def generate(self, request):
+            raise BackendUnavailableError("generation backend is not loaded")
+
+    async def prepared_input(*args, **kwargs):
+        return PreparedMultimodalInput(messages=[{"role": "user", "content": "describe video"}])
+
+    monkeypatch.setenv("GOPI_API_KEY", "secret")
+    monkeypatch.setattr("serving.omni.prepare_responses_input", prepared_input)
+    app = FastAPI()
+
+    @app.exception_handler(ServingError)
+    async def serving_error_handler(request, error):
+        return JSONResponse(status_code=503, content={"detail": str(error)})
+
+    app.include_router(create_omni_video_router(FailingRuntime()))
+    with ASGIClient(app) as client:
+        result = client.post(
+            "/v1/videos/understand",
+            headers={"Authorization": "Bearer secret"},
+            json={"asset_id": "asset_0123456789abcdef0123456789abcdef"},
+        )
+    assert result.status_code == 503
+    assert result.json()["detail"] == "generation backend is not loaded"
+
+
 
 
 def test_responses_accepts_typed_multimodal_input() -> None:

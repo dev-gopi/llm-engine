@@ -67,7 +67,7 @@ def _asset_record(store: AssetStore, asset_id: str, prefix: str):
 def _image_asset_url(store: AssetStore, asset_id: str) -> str:
     record = _asset_record(store, asset_id, "image/")
     path = Path(record.path)
-    limit = int(os.getenv("GOPI_V7_MAX_INLINE_IMAGE_BYTES", str(16 * 1024 * 1024)))
+    limit = int(os.getenv("GOPI_OMNI_MAX_INLINE_IMAGE_BYTES", str(16 * 1024 * 1024)))
     if record.size_bytes > limit:
         raise MediaValidationError(f"image asset exceeds inline vision limit of {limit} bytes")
     return _data_url(path.read_bytes(), record.mime_type)
@@ -124,12 +124,12 @@ async def _video_parts(
     ff = await asyncio.to_thread(FFmpeg)
     probe = await asyncio.to_thread(ff.probe, record.path)
     duration = _probe_duration(probe)
-    hard_limit = max(1, min(32, int(os.getenv("GOPI_V7_VIDEO_MAX_FRAMES", "8"))))
-    count = min(max_frames or int(os.getenv("GOPI_V7_VIDEO_DEFAULT_FRAMES", "6")), hard_limit)
+    hard_limit = max(1, min(32, int(os.getenv("GOPI_OMNI_VIDEO_MAX_FRAMES", "8"))))
+    count = min(max_frames or int(os.getenv("GOPI_OMNI_VIDEO_DEFAULT_FRAMES", "6")), hard_limit)
     parts: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     transcript: str | None = None
-    with tempfile.TemporaryDirectory(prefix="gopi-v7-video-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="gopi-video-") as tmp:
         root = Path(tmp)
         for index, at in enumerate(_sample_times(duration, count)):
             frame = root / f"frame-{index:03d}.jpg"

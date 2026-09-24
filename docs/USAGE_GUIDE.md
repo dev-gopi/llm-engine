@@ -64,6 +64,11 @@ for REST requests and native WebSocket streaming, but does not save either API
 key in browser storage. Enter `GOPI_ADMIN_API_KEY` separately only for the
 model lifecycle controls.
 
+The playground supports PNG/JPEG/WebP images plus WAV/MP3/FLAC audio and
+MP4/WebM video attachments. Audio and video are uploaded as authenticated media
+assets and submitted as typed Responses API inputs; media attachments
+automatically select the Responses API transport.
+
 Launch the API using the project serving entry point documented in
 [DEPLOYMENT.md](DEPLOYMENT.md), then use the browser UI or an OpenAI-compatible
 client with base URL `http://HOST:8000/v1`, model `gopi`, and the configured API

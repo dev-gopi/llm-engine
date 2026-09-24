@@ -80,7 +80,7 @@ from .schemas import (
     WorkspaceAgentResponse,
 )
 from .media_generation import create_media_router
-from .omni import create_omni_v6_router, create_omni_v7_router
+from .omni import create_omni_speech_router, create_omni_video_router
 from omni_platform.multimodal_input import latest_text, prepare_responses_input, synthesize_response_audio
 from omni_platform.errors import OmniError
 from omni_platform.speech import HuggingFaceASRProvider, HuggingFaceTTSProvider
@@ -883,7 +883,7 @@ def create_app(
         if request.model != settings.model_name:
             raise InvalidGenerationRequestError(f"unknown model: {request.model}")
 
-        # Omni v7 preprocesses typed image/audio/video input into the same
+        # Omni preprocesses typed image/audio/video input into the same
         # conversation representation already consumed by the native backend.
         # This preserves the existing text API and trained vision runtime.
         try:
@@ -1253,8 +1253,8 @@ def create_app(
             return Response(ui_assets["script"], media_type="text/javascript")
 
     application.include_router(create_media_router())
-    application.include_router(create_omni_v6_router())
-    application.include_router(create_omni_v7_router(runtime))
+    application.include_router(create_omni_speech_router())
+    application.include_router(create_omni_video_router(runtime))
     application.include_router(websocket_router)
     return application
 

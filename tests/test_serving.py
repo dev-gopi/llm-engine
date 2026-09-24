@@ -247,11 +247,15 @@ def test_browser_playground_is_served():
     assert 'src="app.js"' in response.text
     assert 'id="mcpTool"' in response.text
     assert 'id="attachments"' in response.text
+    assert 'audio/wav' in response.text
+    assert 'video/mp4' in response.text
     assert 'id="reasoningEffort"' in response.text
     assert 'id="modelSummary"' in response.text
     script = request(create_app(FakeBackend(), settings=settings()), "GET", "/ui/app.js")
     assert "mcp_server:" in script.text
     assert "reasoning_effort:" in script.text
+    assert "uploadMediaAsset" in script.text
+    assert "input_${attachment.kind}" in script.text
     assert "/resources?context_length=" in script.text
 
 

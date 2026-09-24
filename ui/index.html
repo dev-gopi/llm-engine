@@ -201,9 +201,9 @@
           <div id="errorBox" class="error" role="alert" hidden></div>
           <form id="promptForm" class="composer">
             <label for="prompt" class="sr-only">Message</label>
-            <textarea id="prompt" rows="3" maxlength="262144" required placeholder="Ask Gopi something…"></textarea>
-            <label class="attachments-label">Attach text/code or images <small>(up to 8 text files and 4 images; server limits still apply)</small>
-              <input id="attachments" type="file" multiple accept="text/*,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.md,.csv,image/png,image/jpeg,image/webp,image/gif">
+            <textarea id="prompt" rows="3" maxlength="262144" placeholder="Ask Gopi something…"></textarea>
+            <label class="attachments-label">Attach text, images, audio, or video <small>(audio/video are securely uploaded as media assets; server limits still apply)</small>
+              <input id="attachments" type="file" multiple accept="text/*,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.md,.csv,image/png,image/jpeg,image/webp,audio/wav,audio/x-wav,audio/mpeg,audio/flac,video/mp4,video/webm">
             </label>
             <div id="attachmentPreview" class="attachment-preview" aria-live="polite"></div>
             <div class="composer-footer">

@@ -22,6 +22,7 @@ from omni_platform.multimodal_input import latest_text, prepare_responses_input
 from omni_platform.observability import METRICS
 from omni_platform.providers import ProviderContext, ProviderRegistry
 from omni_platform.speech import EnergyVAD, HuggingFaceASRProvider, HuggingFaceTTSProvider, SpeechToSpeechPipeline
+from serving.runtime import ServingError
 from serving.schemas import GenerateRequest
 
 
@@ -98,8 +99,8 @@ def _native_backend(runtime: Any) -> Any:
     return getattr(backend, "backend", backend)
 
 
-def create_omni_v6_router() -> APIRouter:
-    router = APIRouter(prefix="/v1", tags=["omni-v6"])
+def create_omni_speech_router() -> APIRouter:
+    router = APIRouter(prefix="/v1", tags=["omni-speech"])
 
     @router.get("/platform/capabilities/verify")
     async def verify_capabilities(authorization: str | None = Header(default=None)):
@@ -191,9 +192,9 @@ def create_omni_v6_router() -> APIRouter:
     return router
 
 
-def create_omni_v7_router(runtime: Any) -> APIRouter:
+def create_omni_video_router(runtime: Any) -> APIRouter:
     """Create native multimodal video-understanding routes."""
-    router = APIRouter(prefix="/v1", tags=["omni"])
+    router = APIRouter(prefix="/v1", tags=["omni-video"])
 
     @router.get("/platform/capabilities/runtime")
     async def runtime_capabilities(authorization: str | None = Header(default=None)):
@@ -237,6 +238,10 @@ def create_omni_v7_router(runtime: Any) -> APIRouter:
         generation._chat_messages = prepared.messages
         try:
             result = await runtime.generate(generation)
+        except ServingError:
+            # Let the application-level ServingError handler preserve the
+            # established 503/504/429 status mapping for runtime failures.
+            raise
         except Exception as exc:
             raise HTTPException(500, "video understanding failed") from exc
         return {

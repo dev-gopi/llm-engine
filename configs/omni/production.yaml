@@ -1,6 +1,4 @@
-# Canonical Omni production profile. This combines the original shared,
-# operational v6, and multimodal v7 settings; do not create versioned sibling
-# production profiles.
+# Canonical Omni production profile for shared operational and multimodal settings.
 version: 1
 platform:
   artifact_storage:
