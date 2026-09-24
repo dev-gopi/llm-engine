@@ -810,6 +810,10 @@ def main() -> None:
         best_checkpoint_callback=best_checkpoint_callback,
         early_stopping_patience=config.get("early_stopping_patience"),
         early_stopping_min_delta=float(config.get("early_stopping_min_delta", 0.0)),
+        validation_lr_adaptation_enabled=config.get(
+            "validation_lr_adaptation_enabled",
+            config.get("validation_lr_decay_factor") is not None,
+        ),
         validation_lr_decay_factor=(
             float(config["validation_lr_decay_factor"])
             if config.get("validation_lr_decay_factor") is not None else None

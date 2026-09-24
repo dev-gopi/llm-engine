@@ -64,6 +64,11 @@ runtime:
 | `ema_decay` | `float` | `0.999` | $(0.9, 1.0)$ | Decay rate for exponential moving average | `EMAModel` | Generates smoother, more resilient checkpoints |
 | `z_loss_coefficient` | `float` | `0.0001` | $\ge 0.0$ | Logit regularizer penalizing large $\log Z$ | `ChunkedCrossEntropyLoss` | Stabilizes logits and prevents numeric overflow |
 | `early_stopping_patience` | `int` | `3` | $\ge 1$ | Validation evaluations before stopping | `Trainer` | Halts training when validation loss stops improving |
+| `validation_lr_adaptation_enabled` | `bool` | `true` | `true`, `false` | Master switch for validation-driven LR adaptation | `Trainer` | When `false`, keeps best-checkpoint selection and early stopping but never changes LR |
+| `validation_lr_decay_factor` | `float` or `null` | `0.5` | $(0, 1)$ or `null` | Multiplier applied after a validation plateau | `Trainer` | Lowers the remaining scheduled learning-rate curve without changing model architecture |
+| `validation_lr_patience` | `int` | `1` | $\ge 1$ | Consecutive non-improving validation checks before each LR reduction | `Trainer` | Controls how quickly plateau recovery begins |
+| `validation_lr_min_scale` | `float` | `0.25` | $(0, 1]$ | Floor relative to the scheduled learning rate | `Trainer` | Prevents repeated reductions from making learning ineffective |
+| `validation_lr_min_steps_between_decays` | `int` | evaluation interval | $\ge 0$ | Minimum optimizer steps between validation-triggered reductions | `Trainer` | Avoids multiple LR reductions from closely spaced checks |
 
 ---
 

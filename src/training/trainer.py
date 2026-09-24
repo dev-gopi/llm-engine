@@ -60,6 +60,7 @@ class Trainer:
         self.best_validation_domains: dict[str, float] = {}
         self.early_stopping_best_loss = float("inf")
         self.validation_metric_name: str | None = None
+        self.validation_lr_last_decay_step: int | None = None
         self.epochs_without_improvement = 0
         self.stopped_early = False
         self.tokens_processed = 0
@@ -383,6 +384,7 @@ class Trainer:
         best_checkpoint_callback=None,
         early_stopping_patience: int | None = None,
         early_stopping_min_delta: float = 0.0,
+        validation_lr_adaptation_enabled: bool = True,
         validation_lr_decay_factor: float | None = None,
         validation_lr_patience: int = 1,
         validation_lr_min_scale: float = 0.1,
@@ -397,6 +399,8 @@ class Trainer:
     ) -> list[dict[str, object]]:
         if epochs < 1:
             raise ValueError("epochs must be positive")
+        if not isinstance(validation_lr_adaptation_enabled, bool):
+            raise TypeError("validation_lr_adaptation_enabled must be a boolean")
         if validation_lr_decay_factor is not None and not 0 < validation_lr_decay_factor < 1:
             raise ValueError("validation_lr_decay_factor must be between zero and one")
         if validation_lr_patience < 1:
@@ -410,8 +414,10 @@ class Trainer:
             and not 0 <= best_checkpoint_min_generation_accuracy <= 1
         ):
             raise ValueError("best checkpoint generation accuracy must be in [0, 1]")
-        if validation_lr_decay_factor is not None and not callable(
-            getattr(self.scheduler, "reduce_after_validation", None)
+        if (
+            validation_lr_adaptation_enabled
+            and validation_lr_decay_factor is not None
+            and not callable(getattr(self.scheduler, "reduce_after_validation", None))
         ):
             raise ValueError("validation-driven LR decay requires a compatible scheduler")
         if isinstance(validation_max_batches, Mapping):
@@ -441,7 +447,6 @@ class Trainer:
             self.early_stopping_best_loss = float("inf")
             self.epochs_without_improvement = 0
         history: list[dict[str, object]] = []
-        last_validation_lr_decay_step: int | None = None
         batch_sampler = getattr(dataloader, "batch_sampler", None)
         if curriculum_schedule is not None and not isinstance(curriculum_schedule, CurriculumSchedule):
             raise TypeError("curriculum_schedule must be a CurriculumSchedule")
@@ -517,18 +522,18 @@ class Trainer:
             )
 
         def update_from_validation(validation_loss: float) -> None:
-            nonlocal last_validation_lr_decay_step
             if validation_loss < self.early_stopping_best_loss - early_stopping_min_delta:
                 self.early_stopping_best_loss = validation_loss
                 self.epochs_without_improvement = 0
                 return
             self.epochs_without_improvement += 1
             if (
-                validation_lr_decay_factor is not None
+                validation_lr_adaptation_enabled
+                and validation_lr_decay_factor is not None
                 and self.epochs_without_improvement % validation_lr_patience == 0
                 and (
-                    last_validation_lr_decay_step is None
-                    or self.global_step - last_validation_lr_decay_step
+                    self.validation_lr_last_decay_step is None
+                    or self.global_step - self.validation_lr_last_decay_step
                     >= validation_lr_min_steps_between_decays
                 )
             ):
@@ -536,7 +541,7 @@ class Trainer:
                     validation_lr_decay_factor, min_scale=validation_lr_min_scale
                 )
                 if current < previous:
-                    last_validation_lr_decay_step = self.global_step
+                    self.validation_lr_last_decay_step = self.global_step
                     logger.info(
                         "validation_lr_decay step=%d loss=%.6f bad_checks=%d "
                         "scale=%.6f->%.6f lr=%.8g",
@@ -875,6 +880,7 @@ class Trainer:
             "best_validation_domains": self.best_validation_domains,
             "early_stopping_best_loss": self.early_stopping_best_loss,
             "validation_metric_name": self.validation_metric_name,
+            "validation_lr_last_decay_step": self.validation_lr_last_decay_step,
             "epochs_without_improvement": self.epochs_without_improvement,
             "stopped_early": self.stopped_early,
             "tokens_processed": self.tokens_processed,
@@ -907,6 +913,10 @@ class Trainer:
         )
         metric_name = state.get("validation_metric_name")
         self.validation_metric_name = str(metric_name) if metric_name is not None else None
+        last_decay_step = state.get("validation_lr_last_decay_step")
+        self.validation_lr_last_decay_step = (
+            int(last_decay_step) if last_decay_step is not None else None
+        )
         self.epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
         self.stopped_early = bool(state.get("stopped_early", False))
         self.tokens_processed = int(state.get("tokens_processed", 0))

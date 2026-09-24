@@ -228,9 +228,15 @@ generation_evaluation:
   max_tokens: 48
   repetition_penalty: 1.10
   no_repeat_ngram_size: 3
-# One regressing evaluation is enough to retain the prior best checkpoint.
-early_stopping_patience: 1
+# Retain the best checkpoint and try two lower-LR updates before stopping on a
+# validation plateau. Architecture and checkpoint shape remain unchanged.
+early_stopping_patience: 3
 early_stopping_min_delta: 0.005
+validation_lr_adaptation_enabled: true
+validation_lr_decay_factor: 0.5
+validation_lr_patience: 1
+validation_lr_min_scale: 0.25
+validation_lr_min_steps_between_decays: 2000
 ignore_index: -100
 label_smoothing: 0.0
 z_loss_coefficient: 0.0001

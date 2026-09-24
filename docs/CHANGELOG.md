@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added an explicit `validation_lr_adaptation_enabled` switch and persisted plateau-recovery spacing across checkpoint resume, so validation-driven LR adaptation can be safely enabled or disabled per profile.
+- Enabled validation-driven learning-rate plateau recovery in the primary CPU
+  and GPU pretraining and fine-tuning profiles. Training now retains the best
+  checkpoint, lowers learning rate on sustained validation regressions, then
+  early-stops; it never changes checkpoint-incompatible model architecture.
 - Added browser-playground support for typed image, audio, and video Responses inputs; audio/video files are uploaded as authenticated media assets before generation.
 - Renamed versioned Omni router helpers and internal media settings to descriptive speech, video, and multimodal names.
 - Fixed Omni video-understanding requests to preserve standard serving error statuses (for example, 503 when the generation backend is unavailable) instead of incorrectly returning HTTP 500.

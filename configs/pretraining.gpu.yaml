@@ -141,6 +141,13 @@ checkpoint_every: 1000
 evaluate_every: 2000
 early_stopping_patience: 3
 early_stopping_min_delta: 0.001
+# When held-out loss plateaus, reduce the remaining scheduled LR before
+# stopping. This is checkpoint-compatible: model architecture never changes.
+validation_lr_adaptation_enabled: true
+validation_lr_decay_factor: 0.5
+validation_lr_patience: 2
+validation_lr_min_scale: 0.25
+validation_lr_min_steps_between_decays: 2000
 ignore_index: -100
 label_smoothing: 0.0
 z_loss_coefficient: 0.0001

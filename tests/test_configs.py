@@ -160,6 +160,20 @@ def test_cpu_finetuning_and_pretraining_profiles_use_direct_validation() -> None
     assert cpu_pretraining["evaluate_every"] == 1000
 
 
+def test_primary_training_profiles_enable_validation_plateau_recovery() -> None:
+    for name in (
+        "pretraining.gpu.yaml", "pretraining.cpu.yaml",
+        "finetuning.gpu.yaml", "finetuning.cpu.yaml",
+    ):
+        config = load_yaml(CONFIGS / name)
+        assert config["validation_lr_adaptation_enabled"] is True
+        assert config["validation_lr_decay_factor"] == pytest.approx(0.5)
+        assert config["validation_lr_patience"] >= 1
+        assert 0 < config["validation_lr_min_scale"] <= 1
+        assert config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]
+        assert config["early_stopping_patience"] > config["validation_lr_patience"]
+
+
 def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
     config = load_yaml(CONFIGS / "inference.yaml")["serving"]
 

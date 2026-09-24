@@ -262,6 +262,44 @@ def test_validation_plateau_reduces_remaining_learning_rate_curve() -> None:
     assert trainer.learning_rate == pytest.approx(5e-4)
 
 
+def test_validation_lr_adaptation_can_be_disabled() -> None:
+    class FixedEvaluator:
+        def __init__(self):
+            self.losses = iter([2.0, 2.1, 2.1])
+
+        def evaluate(self, _loader):
+            loss = next(self.losses)
+            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
+                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    optimizer = build_adamw(model, learning_rate=1e-3)
+    scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=2, schedule="constant")
+    trainer = Trainer(model, optimizer, scheduler=scheduler)
+
+    trainer.fit(
+        list(make_loader()) * 2, epochs=1, evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        validation_lr_adaptation_enabled=False, validation_lr_decay_factor=0.5,
+    )
+
+    assert trainer.epochs_without_improvement == 1
+    assert scheduler.validation_scale == pytest.approx(1.0)
+    assert trainer.learning_rate == pytest.approx(1e-3)
+
+
+def test_validation_lr_decay_spacing_survives_resume() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+    trainer.validation_lr_last_decay_step = 42
+
+    restored_model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    restored = Trainer(restored_model, build_adamw(restored_model, learning_rate=1e-3))
+    restored.load_state_dict(trainer.state_dict())
+
+    assert restored.validation_lr_last_decay_step == 42
+
+
 def test_validation_lr_decay_respects_minimum_step_spacing() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):

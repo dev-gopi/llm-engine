@@ -187,6 +187,7 @@ early_stopping_patience: 4
 early_stopping_min_delta: 0.001
 # On a validation plateau, halve the remaining cosine LR curve before the
 # next early-stopping decision. Never go below 25% of the scheduled LR.
+validation_lr_adaptation_enabled: true
 validation_lr_decay_factor: 0.5
 validation_lr_patience: 3
 validation_lr_min_scale: 0.25
