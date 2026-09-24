@@ -167,6 +167,23 @@ def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
     assert config["tokenizer_path"] == "data/tokenizer-finetuning"
 
 
+def test_omni_has_one_merged_production_profile() -> None:
+    profile_dir = CONFIGS / "omni"
+    profiles = sorted(profile_dir.glob("*.yaml"))
+
+    assert profiles == [profile_dir / "production.yaml"]
+    config = load_yaml(profiles[0])
+    assert config["version"] == 1
+    assert config["runtime"]["multimodal_responses"] is True
+    assert config["responses"]["supported_input_parts"] == [
+        "input_text", "input_image", "input_audio", "input_video",
+    ]
+    assert config["speech"]["vad"]["frame_ms"] == 30
+    assert config["video_understanding"]["require_ffmpeg"] is True
+    assert config["platform"]["security"]["require_authentication"] is True
+    assert config["security"]["require_api_key"] is True
+
+
 def test_finetuning_profiles_have_complete_isolated_runtime_paths() -> None:
     # Versioned snapshots document previous runs and intentionally retain their
     # original output paths; only active profiles require mutually unique paths.

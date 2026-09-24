@@ -1,0 +1,103 @@
+# Canonical Omni production profile. This combines the original shared,
+# operational v6, and multimodal v7 settings; do not create versioned sibling
+# production profiles.
+version: 1
+platform:
+  artifact_storage:
+    backend: local
+    root: outputs/artifacts
+    # For S3-compatible production storage set backend=s3 and configure these via secrets/env.
+    bucket: null
+    prefix: gopi/artifacts
+    endpoint_url: null
+  queue:
+    backend: in_process
+    max_queued_jobs: 64
+    redis_url: null
+    retry:
+      max_attempts: 4
+      initial_backoff_seconds: 2
+      max_backoff_seconds: 60
+  resources:
+    precision: auto
+    allow_cpu_fallback: false
+    max_gpu_concurrency: 1
+    cuda_oom_recovery: true
+  limits:
+    max_prompt_chars: 8192
+    max_outputs: 8
+    max_image_pixels: 16777216
+    max_audio_seconds: 1800
+    max_video_seconds: 120
+    max_video_fps: 60
+    max_video_frames: 3600
+  observability:
+    structured_logging: true
+    prometheus_enabled: false
+    opentelemetry_enabled: false
+  security:
+    require_authentication: true
+    allow_remote_media_urls: false
+    expose_server_paths: false
+runtime:
+  multimodal_responses: true
+  capability_verification: true
+  cpu_fallback: false
+responses:
+  mixed_input: true
+  supported_input_parts:
+    - input_text
+    - input_image
+    - input_audio
+    - input_video
+  output_modalities:
+    - text
+    - audio
+  require_text_output_with_audio: true
+  max_inline_image_bytes: 16777216
+speech:
+  asr_model_env: GOPI_ASR_MODEL
+  tts_model_env: GOPI_TTS_MODEL
+  asr_translation_flag_env: GOPI_ASR_SUPPORTS_TRANSLATION
+  max_tts_chars: 12000
+  chunked_tts_streaming: true
+  vad:
+    frame_ms: 30
+    threshold_dbfs: -42.0
+    min_speech_ms: 180
+video_understanding:
+  enabled: true
+  default_sampled_frames: 6
+  max_sampled_frames: 8
+  extract_audio: true
+  require_real_vision_provider: true
+  require_native_vision: true
+  require_ffmpeg: true
+  audio_transcription_optional: true
+resources:
+  max_concurrency_per_gpu: 1
+  recover_cuda_oom: true
+observability:
+  prometheus_endpoint: /v1/metrics/prometheus
+  structured_events: true
+security:
+  require_api_key: true
+  allow_unauthenticated_media: false
+  asset_ids_only_for_audio_video: true
+  expose_server_paths: false
+  remote_media_urls: false
+  remote_video_urls: false
+  remote_audio_urls: false
+streaming:
+  protocol: sse
+  typed_events: true
+  events:
+    - response.created
+    - response.input_audio.transcription.completed
+    - response.input_video.frame.sampled
+    - response.input_video.transcription.completed
+    - response.output_text.delta
+    - response.reasoning.delta
+    - response.tool_calls.delta
+    - response.audio.completed
+    - response.completed

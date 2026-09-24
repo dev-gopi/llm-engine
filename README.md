@@ -1,3 +1,7 @@
+## Omni multimodal platform v5
+
+See [`docs/OMNI_PLATFORM_V5.md`](docs/OMNI_PLATFORM_V5.md) for the production multimodal provider, routing, job, artifact, queue, capability, resource, and deployment architecture.
+
 # Gopi LLM Engine
 
 A configuration-driven GPT-style language-model engine implemented with
@@ -413,3 +417,16 @@ work; the 100B profile therefore remains planning-only.
 ```
 
 `pyarrow` is a declared core dependency used by the Arrow/Hugging Face data-preparation tests. In an offline/source-only environment where it is not installed, report those modules as not executed rather than treating them as passing. Generated tokenizer artifacts and generated long-context/reasoning-SFT fixtures are intentionally gitignored, so their artifact-dependent tests skip when absent from a source archive.
+
+
+## Audio and video generation
+
+Local text-to-audio and text-to-video diffusion training, generation, resume, negative prompting, CFG/DDIM sampling, and optional HTTP serving are documented in [`docs/AUDIO_VIDEO_GENERATION.md`](docs/AUDIO_VIDEO_GENERATION.md).
+
+## Audio/video generation v2
+
+The repository includes production-oriented latent-diffusion stacks for text-to-audio, audio-to-audio, text-to-video, and video-to-video generation. The v2 models add token-level text cross-attention, Min-SNR training, deterministic validation, exact resume metadata, temporal-contiguous video sampling, negative prompts/CFG, EMA, mixed precision, and guarded HTTP serving. See `docs/AUDIO_VIDEO_GENERATION.md` and the `configs/audio_generation/` / `configs/video_generation/` profiles.
+
+## Audio/video generation v3 Pro
+
+The repository includes checkpoint-backed audio and video diffusion stacks with text-to-audio, audio-to-audio, long-form audio, text-to-video, image-to-video, video-to-video, multi-segment extension, negative prompts, named inference presets, batch generation, reproducibility manifests, and named model serving. See `docs/AUDIO_VIDEO_GENERATION_V3_PRO.md`.

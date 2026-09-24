@@ -1,0 +1,35 @@
+models:
+  - id: gopi-audio-pro
+    kind: audio
+    config: configs/audio_generation/high_quality.yaml
+    checkpoint: checkpoints/audio_generation/best.pt
+    description: High-quality text/audio-conditioned latent diffusion generator
+    revision: v4
+    capabilities:
+      - text_to_audio
+      - audio_to_audio
+      - long_form_audio
+      - preserve_regions
+      - negative_prompting
+      - classifier_free_guidance
+    metadata:
+      family: gopi-omni
+      tier: production
+
+  - id: gopi-video-pro
+    kind: video
+    config: configs/video_generation/high_quality.yaml
+    checkpoint: checkpoints/video_generation/best.pt
+    description: High-quality text/image/video-conditioned spatiotemporal diffusion generator
+    revision: v4
+    capabilities:
+      - text_to_video
+      - image_to_video
+      - video_to_video
+      - multi_shot_storyboard
+      - camera_presets
+      - negative_prompting
+      - classifier_free_guidance
+    metadata:
+      family: gopi-omni
+      tier: production

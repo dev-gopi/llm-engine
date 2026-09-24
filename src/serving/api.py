@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Security, status
+from fastapi import FastAPI, HTTPException, Request, Security, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
@@ -79,6 +79,11 @@ from .schemas import (
     WorkspaceAgentRequest,
     WorkspaceAgentResponse,
 )
+from .media_generation import create_media_router
+from .omni import create_omni_v6_router, create_omni_v7_router
+from omni_platform.multimodal_input import latest_text, prepare_responses_input, synthesize_response_audio
+from omni_platform.errors import OmniError
+from omni_platform.speech import HuggingFaceASRProvider, HuggingFaceTTSProvider
 from .websocket import router as websocket_router
 from .workspace import WorkspaceService
 
@@ -877,14 +882,26 @@ def create_app(
     async def responses(request: ResponsesRequest, http_request: Request):
         if request.model != settings.model_name:
             raise InvalidGenerationRequestError(f"unknown model: {request.model}")
-        if isinstance(request.input, str):
-            messages = [{"role": "user", "content": request.input}]
-        else:
-            messages = [item.model_dump() for item in request.input]
-        latest = next((m["content"] for m in reversed(messages) if m.get("content")), None)
+
+        # Omni v7 preprocesses typed image/audio/video input into the same
+        # conversation representation already consumed by the native backend.
+        # This preserves the existing text API and trained vision runtime.
+        try:
+            asr_provider = HuggingFaceASRProvider.from_env()
+            tts_provider = HuggingFaceTTSProvider.from_env()
+            prepared = await prepare_responses_input(
+                request.input,
+                asr=asr_provider,
+            )
+            if "audio" in request.modalities and (tts_provider is None or not tts_provider.is_available()):
+                raise HTTPException(status_code=503, detail={"code": "provider_unavailable", "message": "audio output requires a configured and ready text-to-speech provider"})
+        except OmniError as exc:
+            raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "message": exc.message}) from exc
+        messages = prepared.messages
+        latest = latest_text(messages)
         if not latest:
-            raise InvalidGenerationRequestError("input must contain non-empty content")
-        response_format = request.response_format
+            raise InvalidGenerationRequestError("input must contain non-empty text or supported media")
+
         generation_request = GenerateRequest(
             prompt=latest, max_tokens=request.max_output_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p, min_p=request.min_p, seed=request.seed,
@@ -902,10 +919,17 @@ def create_app(
             async def events():
                 cancellation_registry.register(response_id, asyncio.current_task())
                 try:
+                    yield f"data: {json.dumps({'type': 'response.created', 'response_id': response_id}, ensure_ascii=False)}\n\n"
+                    for prep_event in prepared.events:
+                        payload = {**prep_event, "response_id": response_id}
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    text_chunks: list[str] = []
                     async for event in runtime.stream(generation_request):
                         if await http_request.is_disconnected():
                             raise asyncio.CancelledError("client disconnected")
                         payload = {"type": "response.output_text.delta", "delta": event.token, "response_id": response_id}
+                        if event.token:
+                            text_chunks.append(event.token)
                         if event.reasoning_token:
                             payload = {"type": "response.reasoning.delta", "delta": event.reasoning_token, "response_id": response_id}
                         if event.tool_calls:
@@ -917,6 +941,11 @@ def create_app(
                         if event.finish_reason is not None:
                             payload = {"type": "response.completed", "response_id": response_id, "finish_reason": event.finish_reason.value}
                         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    if "audio" in request.modalities and text_chunks:
+                        audio = await synthesize_response_audio(
+                            "".join(text_chunks), tts=tts_provider, request_id=f"{response_id}_audio"
+                        )
+                        yield f"data: {json.dumps({'type': 'response.audio.completed', 'response_id': response_id, 'audio': audio}, ensure_ascii=False)}\n\n"
                     yield "data: [DONE]\n\n"
                 finally:
                     cancellation_registry.unregister(response_id)
@@ -924,15 +953,24 @@ def create_app(
         result = await _generate_with_disconnect(runtime, http_request, generation_request, request_id=response_id, registry=cancellation_registry)
         status_value = "completed" if result.structured_output_valid is not False else "incomplete"
         output_text = result.text if status_value == "completed" else ""
-        body = ResponsesResponse(
+        audio_output = None
+        if "audio" in request.modalities and output_text:
+            try:
+                audio_output = await synthesize_response_audio(
+                    output_text, tts=tts_provider, request_id=f"{response_id}_audio"
+                )
+            except OmniError as exc:
+                raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "message": exc.message}) from exc
+        return ResponsesResponse(
             id=response_id, created=created, model=settings.model_name, status=status_value,
             output=[ResponsesOutput(content=output_text)] if output_text else [],
             usage={"prompt_tokens": result.prompt_tokens, "completion_tokens": result.completion_tokens,
                    "total_tokens": result.prompt_tokens + result.completion_tokens,
                    "cached_tokens": result.cached_tokens, "reasoning_tokens": result.reasoning_tokens},
-            error=( {"code": "structured_output_incomplete", "message": result.structured_output_error} if result.structured_output_valid is False else None),
+            error=({"code": "structured_output_incomplete", "message": result.structured_output_error} if result.structured_output_valid is False else None),
+            input_metadata=prepared.metadata or None,
+            audio=audio_output,
         )
-        return body
 
     @application.post("/v1/requests/{request_id}/cancel", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
     async def cancel_request(request_id: str):
@@ -1214,6 +1252,9 @@ def create_app(
         async def playground_script() -> Response:
             return Response(ui_assets["script"], media_type="text/javascript")
 
+    application.include_router(create_media_router())
+    application.include_router(create_omni_v6_router())
+    application.include_router(create_omni_v7_router(runtime))
     application.include_router(websocket_router)
     return application
 

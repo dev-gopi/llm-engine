@@ -1,0 +1,75 @@
+# Gopi Video Gen v3 Ultra - intended for multi-GPU / 80 GB-class accelerators.
+seed: 42
+tokenizer: data/tokenizer-finetuning
+train_manifest: data/video/train.jsonl
+validation_manifest: data/video/validation.jsonl
+frames: 48
+height: 512
+width: 512
+fps: 24
+train_frame_sampling: random_contiguous
+validation_frame_sampling: center_contiguous
+horizontal_flip_probability: 0.5
+text_hidden_size: 1024
+text_layers: 16
+text_heads: 16
+text_max_length: 256
+text_dropout: 0.05
+autoencoder_channels: 160
+latent_channels: 48
+spatial_stages: 4
+temporal_downsample: true
+model_channels: 768
+blocks: 30
+temporal_heads: 16
+attention_every: 1
+cross_attention_every: 1
+cross_attention_heads: 16
+cross_attention_chunk_size: 512
+dropout: 0.05
+timesteps: 1000
+noise_schedule: cosine
+beta_start: 0.0001
+beta_end: 0.02
+condition_dropout: 0.12
+reconstruction_weight: 0.08
+min_snr_gamma: 5.0
+noise_offset: 0.02
+input_perturbation: 0.05
+guidance_scale: 6.5
+inference_steps: 120
+ddim_eta: 0.0
+batch_size: 1
+validation_batch_size: 1
+gradient_accumulation_steps: 32
+epochs: 160
+learning_rate: 0.00004
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 1.0e-8
+lr_schedule: cosine
+warmup_ratio: 0.03
+min_lr_ratio: 0.02
+max_grad_norm: 1.0
+ema_decay: 0.99995
+mixed_precision: bf16
+fused_optimizer: true
+allow_tf32: true
+cudnn_benchmark: true
+matmul_precision: high
+num_workers: 12
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+drop_last: true
+validation_seed: 12345
+log_every_steps: 5
+save_every_steps: 50
+output: checkpoints/video_generation/ultra-latest.pt
+best_output: checkpoints/video_generation/ultra-best.pt
+inference_presets:
+  draft: {steps: 24, guidance_scale: 4.0, eta: 0.0}
+  balanced: {steps: 50, guidance_scale: 5.0, eta: 0.0}
+  quality: {steps: 90, guidance_scale: 6.0, eta: 0.0}
+  max_quality: {steps: 140, guidance_scale: 6.5, eta: 0.0}
