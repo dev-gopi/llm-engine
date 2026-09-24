@@ -135,7 +135,7 @@ def _add_security_headers(response: Response, *, is_https: bool) -> None:
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; frame-ancestors 'none'; object-src 'none'; "
         "base-uri 'self'; img-src 'self' data:; "
-        "style-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
         "script-src 'self'; "
         "connect-src 'self' http: https: ws: wss:"
     )
