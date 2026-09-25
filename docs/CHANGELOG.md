@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed runtime timing contamination in training and validation report generation: reset log interval timing after initial/mid-epoch validations and checkpoint saves, fixed `Trainer.promotion_metrics()` calling `tokens_per_second` property as a function, fixed validation progress ETA formatting when target batches are unknown, and added training and validation start and end timestamps to report progress analysis.
 - Added a coding-mode tool workflow that guides compatible clients through inspect, analyze, patch, and verify stages.
 - Upgraded MCP client negotiation to fall back across supported legacy protocol versions and added `streamable_http` server wiring for serving and the MCP CLI; tool allowlists remain mandatory.
 - Added RAG support for image metadata (PNG/JPEG/WebP/GIF/BMP/TIFF) and safely bounded ZIP archives containing text, code, and configuration files.

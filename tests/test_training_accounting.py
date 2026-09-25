@@ -32,3 +32,16 @@ def test_trainer_accounting_uses_persisted_counters() -> None:
     assert report["parameters"] == sum(parameter.numel() for parameter in model.parameters())
     assert report["supervised_tokens"] == 50
     assert report["optimizer_steps"] == 3
+
+
+def test_trainer_promotion_metrics_returns_valid_metrics() -> None:
+    model = torch.nn.Linear(2, 2)
+    trainer = Trainer(model, torch.optim.AdamW(model.parameters()))
+    trainer.tokens_processed, trainer.training_seconds = 100, 5.0
+    trainer.best_validation_loss = 2.5
+    metrics = trainer.promotion_metrics()
+    assert metrics["validation_loss"] == 2.5
+    assert metrics["tokens_processed"] == 100.0
+    assert metrics["tokens_per_second"] == 20.0
+    assert metrics["training_seconds"] == 5.0
+

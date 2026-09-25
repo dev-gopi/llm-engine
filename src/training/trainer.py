@@ -648,8 +648,10 @@ class Trainer:
                 **metrics,
                 **({"domains": domains} if domains else {}),
             })
+            last_log_time = time.perf_counter()
 
         for epoch in range(self.current_epoch, epochs):
+            last_log_time = time.perf_counter()
             last_validation_step = None
             if curriculum_schedule is not None:
                 stage_index, stage = curriculum_schedule.stage_for_epoch(epoch)
@@ -801,6 +803,11 @@ class Trainer:
                 # baseline (often infinity for a new training stage).
                 if optimizer_stepped and checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0:
                     save_timed(checkpoint_callback, epoch, "latest")
+                if optimizer_stepped and (
+                    (evaluate_every and evaluator and validation_dataloader and self.global_step % evaluate_every == 0)
+                    or (checkpoint_every and checkpoint_callback and self.global_step % checkpoint_every == 0)
+                ):
+                    last_log_time = time.perf_counter()
                 if optimizer_stepped and stop_requested and stop_requested():
                     if checkpoint_callback:
                         save_timed(checkpoint_callback, epoch, "latest")
@@ -942,6 +949,6 @@ class Trainer:
         return {
             "validation_loss": float(self.best_validation_loss),
             "tokens_processed": float(self.tokens_processed),
-            "tokens_per_second": float(self.tokens_per_second()),
+            "tokens_per_second": float(self.tokens_per_second),
             "training_seconds": float(self.training_seconds),
         }

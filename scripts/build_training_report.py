@@ -254,8 +254,8 @@ def _fields(message: str) -> dict[str, Any]:
 def _empty_parsed() -> dict[str, Any]:
     return {
         "training": [], "validation": [], "best_updates": [],
-        "validation_timings": [], "checkpoint_timings": [], "warnings": [],
-        "run_configurations": [], "raw_log_tail": [], "line_count": 0,
+        "validation_timings": [], "checkpoint_timings": [], "generation_timings": [],
+        "warnings": [], "run_configurations": [], "raw_log_tail": [], "line_count": 0,
         "session_count": 0,
     }
 
@@ -308,6 +308,11 @@ def _append_lines(
             values["timestamp"] = timestamp
             values["session"] = parsed["session_count"]
             parsed["checkpoint_timings"].append(values)
+        elif message.startswith("generation_evaluation ") and "duration_seconds=" in message:
+            values = _fields(message)
+            values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
+            parsed["generation_timings"].append(values)
         elif "new_best_validation" in message:
             values = _fields(message)
             values["timestamp"] = timestamp
@@ -372,7 +377,7 @@ def normalize_history(parsed: dict[str, Any]) -> dict[str, Any]:
             continue
         best_updates[step] = item
     normalized["best_updates"] = [best_updates[key] for key in sorted(best_updates)]
-    for timing_name in ("checkpoint_timings", "validation_timings"):
+    for timing_name in ("checkpoint_timings", "validation_timings", "generation_timings"):
         normalized[timing_name] = [
             item for item in parsed.get(timing_name, [])
             if not any(
@@ -534,8 +539,9 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
         overfitting = {"status": "no_current_signal", "reason": "Recent validation loss is stable or improving."}
     else:
         overfitting = {"status": "inconclusive", "reason": "The available loss trends are inconclusive."}
-    best_validation = min(validation, key=lambda item: float(item["loss"])) if validation else None
-    latest_validation = validation[-1] if validation else None
+    valid_validations = [item for item in validation if item.get("loss") is not None]
+    best_validation = min(valid_validations, key=lambda item: float(item["loss"])) if valid_validations else None
+    latest_validation = valid_validations[-1] if valid_validations else (validation[-1] if validation else None)
     same_checkpoint = bool(
         latest_validation
         and best_validation
@@ -557,7 +563,7 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "latest_validation_loss": latest_validation.get("loss") if latest_validation else None,
             "latest_minus_best": (
                 float(latest_validation["loss"]) - float(best_validation["loss"])
-                if latest_validation and best_validation and not same_checkpoint else None
+                if latest_validation and best_validation and latest_validation.get("loss") is not None and best_validation.get("loss") is not None and not same_checkpoint else None
             ),
             "status": "same_checkpoint" if same_checkpoint else "different_checkpoints",
             "generation_accuracy": None,
@@ -574,6 +580,10 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "best_checkpoint_updates": len(parsed.get("best_updates", [])),
             "active_validation_metric": active_metric,
             "excluded_incompatible_validations": excluded_validation,
+            "training_start_time": training[0].get("timestamp") if training else None,
+            "training_end_time": training[-1].get("timestamp") if training else None,
+            "validation_start_time": validation[0].get("timestamp") if validation else None,
+            "validation_end_time": validation[-1].get("timestamp") if validation else None,
         },
         "report_coverage": {
             "loss_and_runtime": "available",
@@ -585,6 +595,10 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
         "runtime": {
             "training_points": len(training),
             "validation_points": len(validation),
+            "training_start_time": training[0].get("timestamp") if training else None,
+            "training_end_time": training[-1].get("timestamp") if training else None,
+            "validation_start_time": validation[0].get("timestamp") if validation else None,
+            "validation_end_time": validation[-1].get("timestamp") if validation else None,
             "average_tokens_per_second": sum(throughput) / len(throughput) if throughput else None,
             "minimum_tokens_per_second": min(throughput) if throughput else None,
             "maximum_tokens_per_second": max(throughput) if throughput else None,
@@ -608,6 +622,10 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "latest_validation_duration_seconds": (
                 parsed.get("validation_timings", [{}])[-1].get("duration_seconds")
                 if parsed.get("validation_timings") else None
+            ),
+            "latest_generation_duration_seconds": (
+                parsed.get("generation_timings", [{}])[-1].get("duration_seconds")
+                if parsed.get("generation_timings") else None
             ),
         },
     }

@@ -390,3 +390,43 @@ def test_parser_captures_mtp_and_moe_auxiliary_losses(tmp_path):
     parsed = MODULE.parse_training_log(log)
     assert parsed["training"][0]["mtp_loss"] == pytest.approx(0.25)
     assert parsed["training"][0]["moe_aux_loss"] == pytest.approx(0.01)
+
+
+def test_progress_analysis_includes_training_and_validation_timestamps() -> None:
+    parsed = {
+        "training": [
+            {"timestamp": "2026-09-01 10:00:00,000", "loss": 3.0, "step": 10},
+            {"timestamp": "2026-09-01 10:30:00,000", "loss": 2.0, "step": 20},
+        ],
+        "validation": [
+            {"timestamp": "2026-09-01 10:15:00,000", "loss": 2.8, "step": 10},
+            {"timestamp": "2026-09-01 10:35:00,000", "loss": 2.5, "step": 20},
+        ],
+        "best_updates": [],
+    }
+    analysis = MODULE.analyze_progress(parsed)
+    assert analysis["run_summary"]["training_start_time"] == "2026-09-01 10:00:00,000"
+    assert analysis["run_summary"]["training_end_time"] == "2026-09-01 10:30:00,000"
+    assert analysis["run_summary"]["validation_start_time"] == "2026-09-01 10:15:00,000"
+    assert analysis["run_summary"]["validation_end_time"] == "2026-09-01 10:35:00,000"
+    assert analysis["runtime"]["training_start_time"] == "2026-09-01 10:00:00,000"
+    assert analysis["runtime"]["training_end_time"] == "2026-09-01 10:30:00,000"
+    assert analysis["runtime"]["validation_start_time"] == "2026-09-01 10:15:00,000"
+    assert analysis["runtime"]["validation_end_time"] == "2026-09-01 10:35:00,000"
+
+
+def test_parser_captures_generation_timings(tmp_path) -> None:
+    log = tmp_path / "train.log"
+    log.write_text(
+        "2026-09-01 10:00:00,000 | INFO | trainer | generation_evaluation epoch=1 step=50 accuracy=0.8500 cases=20 duration_seconds=12.34\n",
+        encoding="utf-8",
+    )
+    parsed = MODULE.parse_training_log(log)
+    assert len(parsed["generation_timings"]) == 1
+    assert parsed["generation_timings"][0]["step"] == 50
+    assert parsed["generation_timings"][0]["accuracy"] == 0.85
+    assert parsed["generation_timings"][0]["duration_seconds"] == 12.34
+    analysis = MODULE.analyze_progress(parsed)
+    assert analysis["runtime"]["latest_generation_duration_seconds"] == 12.34
+
+

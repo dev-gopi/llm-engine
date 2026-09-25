@@ -244,12 +244,19 @@
     const MAX_TIMELINE_EPOCHS = 100;
     const MAX_DETAIL_ROWS = 500;
     const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
-    const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
     const dateFmt = value => {
       if (!value) return '—';
-      const normalized=(value.includes?.('T')||value.endsWith?.('Z')?value:value.replace(' ', 'T')).replace(/,(\d{3})(?=$|[+-]|Z)/,'.\$1');
-      const date=new Date(normalized);
-      return Number.isNaN(date.getTime())?String(value):date.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,hourCycle:'h12'});
+      let str = String(value).trim();
+      str = str.replace(' ', 'T').replace(/,(\d{3})/, '.$1');
+      if (!str.endsWith('Z') && !/[+-]\d{2}(:?\d{2})?$/.test(str)) {
+        str += 'Z';
+      }
+      const date = new Date(str);
+      return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: true, hourCycle: 'h12'
+      });
     };
     const durationFmt = seconds => {
       if (!Number.isFinite(Number(seconds))) return '—';
@@ -323,7 +330,8 @@
     function logTime(value) {
       const raw=typeof value==='string'?value:value?.timestamp;
       if(!raw)return -Infinity;
-      const normalized=(raw.includes('T')?raw:raw.replace(' ','T')).replace(/,(\d{3})(?=$|[+-]|Z)/,'.$1');
+      let normalized=(raw.includes('T')||raw.endsWith('Z')?raw:raw.replace(' ','T')).replace(/,(\d{3})(?=$|[+-]|Z)/,'.$1');
+      if (!normalized.endsWith('Z') && !/[+-]\d{2}/.test(normalized)) normalized += 'Z';
       const parsed=Date.parse(normalized);
       return Number.isNaN(parsed)?-Infinity:parsed;
     }
@@ -648,7 +656,11 @@
       ]);
       const recentTiming=train.filter(v=>v.log_interval_seconds!=null||v.seconds_per_step!=null);
       setPaginatedTable('recent-log-timing',['Time','Step','Log interval','Seconds / step','Next log','Next checkpoint','Next validation'],recentTiming.map(v=>[dateFmt(v.timestamp),fmt(v.step,0),durationFmt(v.log_interval_seconds),fmt(v.seconds_per_step,3),eventEta(v.next_log_eta_seconds),eventEta(v.next_checkpoint_eta_seconds),eventEta(v.next_validation_eta_seconds)]),8,'Timing data appears after the next training log.');
-      const completedEvents=[...(data.checkpoint_timings||[]).map(v=>({...v,event:`Checkpoint (${v.kind||'latest'})`})),...(data.validation_timings||[]).map(v=>({...v,event:'Validation'}))].sort((a,b)=>logTime(a)-logTime(b));
+      const completedEvents=[
+        ...(data.checkpoint_timings||[]).map(v=>({...v,event:`Checkpoint (${v.kind||'latest'})`})),
+        ...(data.validation_timings||[]).map(v=>({...v,event:'Validation'})),
+        ...(data.generation_timings||[]).map(v=>({...v,event:'Generation Benchmark'}))
+      ].sort((a,b)=>logTime(a)-logTime(b));
       setPaginatedTable('event-duration-history',['Time','Event','Step','Duration'],completedEvents.map(v=>[dateFmt(v.timestamp),esc(v.event),fmt(v.step,0),durationFmt(v.duration_seconds)]),6,'Completed checkpoint and validation timings will appear here.');
       updateCountdowns();
       const indexed=telemetry.map((value,index)=>({value,index}));
@@ -700,7 +712,8 @@
       ]);
       lineChart(document.getElementById('event-duration-chart'),[
         {name:'checkpoint seconds',points:(data.checkpoint_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#a78bfa'},
-        {name:'validation seconds',points:(data.validation_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#fb7185'}
+        {name:'validation seconds',points:(data.validation_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#fb7185'},
+        {name:'generation benchmark seconds',points:(data.generation_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#34d399'}
       ]);
       const modelAnalysis=data.model_analysis||{};
       document.getElementById('model-architecture').innerHTML=modelAnalysis.available?table(['Metric','Value'],[
@@ -746,7 +759,7 @@
         ['Generation accuracy',accuracy==null?'not measured':fmt(accuracy*100,2)+'%']
       ])+`<p class="muted">${esc(comparisonNote)}</p>`;
       const summary=analysis.run_summary||{};
-      document.getElementById('run-summary').innerHTML=table(['Metric','Value'],Object.entries(summary).map(([key,value])=>[esc(key.replaceAll('_',' ')),fmt(value)]));
+      document.getElementById('run-summary').innerHTML=table(['Metric','Value'],Object.entries(summary).map(([key,value])=>[esc(key.replaceAll('_',' ')),key.endsWith('_time')?esc(dateFmt(value)):fmt(value)]));
       const coverage=analysis.report_coverage||{};
       document.getElementById('report-coverage').innerHTML=table(['Area','Coverage'],Object.entries(coverage).map(([key,value])=>[esc(key.replaceAll('_',' ')),esc(value)]));
       document.getElementById('warnings').innerHTML=(data.warnings||[]).map(line=>`<span class="${line.includes('ERROR')?'severity-error':'severity-warning'}">${esc(line)}</span>`).join('\n')||'No warnings or errors captured.';

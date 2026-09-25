@@ -156,10 +156,11 @@ class Evaluator:
                     )
                     logger.info(
                         "validation_progress name=%s batches=%d/%s elapsed_seconds=%.1f "
-                        "eta_seconds=%.1f",
+                        "eta_seconds=%s",
                         label, batch_count,
                         target_batches if target_batches is not None else "?",
-                        elapsed, max(0.0, eta),
+                        elapsed,
+                        f"{max(0.0, eta):.1f}" if math.isfinite(eta) else "nan",
                     )
         finally:
             self.model.train(was_training)

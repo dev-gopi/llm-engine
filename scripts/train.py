@@ -610,10 +610,12 @@ def main() -> None:
                                         current.global_step, summary["accuracy"],
                                         generation_config["best_output"])
 
+                duration = time.perf_counter() - started
                 report = {
                     "checkpoint": str(args.output), "step": current.global_step,
                     "epoch": epoch + 1, "ema_used": use_generation_ema,
                     "summary": summary, "results": results,
+                    "duration_seconds": duration,
                 }
                 generation_output.parent.mkdir(parents=True, exist_ok=True)
                 descriptor, temporary = tempfile.mkstemp(
