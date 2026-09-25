@@ -6,6 +6,7 @@ import json
 import math
 import re
 import sqlite3
+import zipfile
 import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Iterator
@@ -19,8 +20,20 @@ import torch
 INDEX_VERSION = 1
 SUPPORTED_SUFFIXES = {
     ".txt", ".md", ".markdown", ".json", ".jsonl", ".csv", ".tsv",
-    ".yaml", ".yml", ".html", ".htm", ".pdf",
+    ".yaml", ".yml", ".html", ".htm", ".pdf", ".docx", ".xlsx", ".xlsm",
+    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".java", ".c", ".h",
+    ".cc", ".cpp", ".cxx", ".hpp", ".cs", ".go", ".rs", ".rb", ".php",
+    ".swift", ".kt", ".kts", ".scala", ".sh", ".bash", ".zsh", ".ps1",
+    ".sql", ".r", ".lua", ".pl", ".pm", ".dart", ".ex", ".exs", ".erl",
+    ".hrl", ".vue", ".svelte", ".css", ".scss", ".sass", ".less", ".xml",
+    ".toml", ".ini", ".cfg", ".conf",
 }
+SUPPORTED_FILENAMES = {"Dockerfile", "Makefile", "CMakeLists.txt", ".env"}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+ARCHIVE_SUFFIXES = {".zip"}
+MAX_ARCHIVE_MEMBERS = 1_000
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+MAX_ARCHIVE_COMPRESSION_RATIO = 100
 
 
 @dataclass(frozen=True)
@@ -102,14 +115,82 @@ def read_document(path: str | Path) -> str:
     """Read a supported local document without executing embedded content."""
     source = Path(path)
     suffix = source.suffix.lower()
-    if suffix not in SUPPORTED_SUFFIXES:
+    if suffix not in SUPPORTED_SUFFIXES and suffix not in IMAGE_SUFFIXES and suffix not in ARCHIVE_SUFFIXES and source.name not in SUPPORTED_FILENAMES:
         raise ValueError(f"unsupported document type {suffix!r}: {source}")
+    if suffix in IMAGE_SUFFIXES:
+        try:
+            from PIL import Image
+        except ImportError as error:
+            raise RuntimeError("image ingestion requires Pillow") from error
+        with Image.open(source) as image:
+            metadata = [
+                f"Image: {source.name}",
+                f"Format: {image.format or 'unknown'}",
+                f"Dimensions: {image.width}x{image.height}",
+                f"Mode: {image.mode}",
+            ]
+            for key, value in sorted(image.info.items()):
+                if isinstance(value, (str, int, float, bool)) and str(value).strip():
+                    metadata.append(f"{key}: {value}")
+            return "\n".join(metadata)
+    if suffix == ".zip":
+        try:
+            with zipfile.ZipFile(source) as archive:
+                members = [member for member in archive.infolist() if not member.is_dir()]
+                if len(members) > MAX_ARCHIVE_MEMBERS:
+                    raise ValueError(f"archive has too many members (maximum {MAX_ARCHIVE_MEMBERS})")
+                total_size = sum(member.file_size for member in members)
+                if total_size > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                    raise ValueError("archive exceeds the uncompressed size limit")
+                extracted = []
+                for member in members:
+                    member_path = Path(member.filename)
+                    member_suffix = member_path.suffix.lower()
+                    if member_suffix not in SUPPORTED_SUFFIXES or member_suffix in {".pdf", ".docx", ".xlsx", ".xlsm"}:
+                        continue
+                    if member.compress_size and member.file_size / member.compress_size > MAX_ARCHIVE_COMPRESSION_RATIO:
+                        raise ValueError(f"archive member has an unsafe compression ratio: {member.filename}")
+                    try:
+                        content = archive.read(member).decode("utf-8")
+                    except UnicodeDecodeError:
+                        continue
+                    if content.strip():
+                        extracted.append(f"File: {member.filename}\n{content}")
+                return "\n\n".join(extracted)
+        except zipfile.BadZipFile as error:
+            raise ValueError(f"invalid ZIP archive: {source}") from error
     if suffix == ".pdf":
         try:
             from pypdf import PdfReader
         except ImportError as error:
             raise RuntimeError("PDF ingestion requires the optional pypdf package") from error
         return "\n\n".join(page.extract_text() or "" for page in PdfReader(source).pages)
+    if suffix == ".docx":
+        try:
+            from docx import Document
+        except ImportError as error:
+            raise RuntimeError("DOCX ingestion requires the optional RAG dependencies") from error
+        document = Document(source)
+        paragraphs = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
+        tables = ["\t".join(cell.text.strip() for cell in row.cells) for table in document.tables for row in table.rows]
+        return "\n".join([*paragraphs, *tables])
+    if suffix in {".xlsx", ".xlsm"}:
+        try:
+            from openpyxl import load_workbook
+        except ImportError as error:
+            raise RuntimeError("Excel ingestion requires the optional RAG dependencies") from error
+        workbook = load_workbook(source, read_only=True, data_only=True)
+        try:
+            lines = []
+            for sheet in workbook.worksheets:
+                lines.append(f"Sheet: {sheet.title}")
+                for row in sheet.iter_rows(values_only=True):
+                    values = [str(value).strip() for value in row if value is not None and str(value).strip()]
+                    if values:
+                        lines.append("\t".join(values))
+            return "\n".join(lines)
+        finally:
+            workbook.close()
     if suffix in {".html", ".htm"}:
         parser = _TextExtractor()
         parser.feed(source.read_text(encoding="utf-8"))
@@ -145,10 +226,10 @@ def iter_chunks(
                 f"document path does not exist: {path}. Create it and add supported documents first"
             )
         files = (
-            sorted(item for item in path.rglob("*") if item.is_file() and item.suffix.lower() in SUPPORTED_SUFFIXES)
+            sorted(item for item in path.rglob("*") if item.is_file() and (item.suffix.lower() in SUPPORTED_SUFFIXES or item.suffix.lower() in IMAGE_SUFFIXES or item.suffix.lower() in ARCHIVE_SUFFIXES or item.name in SUPPORTED_FILENAMES))
             if path.is_dir() else [path]
         )
-        if path.is_file() and path.suffix.lower() not in SUPPORTED_SUFFIXES:
+        if path.is_file() and path.suffix.lower() not in SUPPORTED_SUFFIXES and path.suffix.lower() not in IMAGE_SUFFIXES and path.suffix.lower() not in ARCHIVE_SUFFIXES and path.name not in SUPPORTED_FILENAMES:
             supported = ", ".join(sorted(SUPPORTED_SUFFIXES))
             raise ValueError(f"unsupported document type {path.suffix!r}: {path}; supported: {supported}")
         for file_path in files:

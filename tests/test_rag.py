@@ -1,5 +1,8 @@
 import asyncio
 import json
+from zipfile import ZipFile
+
+from PIL import Image
 from types import SimpleNamespace
 
 import pytest
@@ -181,3 +184,16 @@ def test_sqlite_search_ignores_common_question_words(tmp_path) -> None:
     source.write_text("বাংলা ভাষা বাংলাদেশের প্রধান ভাষা।", encoding="utf-8")
     index = SQLiteRagIndex.build([source], tmp_path / "index.sqlite", chunk_chars=200)
     assert index.search("বাংলা ভাষা কী?")
+
+
+def test_image_metadata_and_zip_text_members_are_retrievable(tmp_path) -> None:
+    image = tmp_path / "diagram.png"
+    Image.new("RGB", (32, 16), "blue").save(image)
+    archive = tmp_path / "bundle.zip"
+    with ZipFile(archive, "w") as stream:
+        stream.writestr("notes.txt", "archive retrieval keyword")
+        stream.writestr("src/example.py", "def archive_code_keyword(): pass")
+    index = RagIndex(build_chunks([image, archive], chunk_chars=200, overlap_chars=10))
+    assert index.search("dimensions")[0].title == "diagram.png"
+    assert index.search("archive retrieval keyword")[0].title == "bundle.zip"
+    assert index.search("archive_code_keyword")[0].title == "bundle.zip"

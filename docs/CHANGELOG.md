@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added RAG support for image metadata (PNG/JPEG/WebP/GIF/BMP/TIFF) and safely bounded ZIP archives containing text, code, and configuration files.
+- Extended local RAG ingestion to PDF, DOCX, XLSX/XLSM, and common source-code/configuration files. Excel workbooks are read-only with cached values; all retrieved content remains untrusted.
+- Made Pillow a standard runtime dependency because the supported image-data
+  pipeline requires it, and fixed direct execution of affected audit and
+  benchmark CLIs by applying the shared script import-path bootstrap.
 - Added an explicit `validation_lr_adaptation_enabled` switch and persisted plateau-recovery spacing across checkpoint resume, so validation-driven LR adaptation can be safely enabled or disabled per profile.
 - Enabled validation-driven learning-rate plateau recovery in the primary CPU
   and GPU pretraining and fine-tuning profiles. Training now retains the best

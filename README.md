@@ -62,7 +62,7 @@ python -m pip install --editable '.[dev]'
 python scripts/capabilities.py
 ```
 
-Optional dependency groups are available for ONNX export, PDF RAG, and image
+Optional dependency groups are available for ONNX export, RAG ingestion of PDF/DOCX/Excel files, image metadata, ZIP-contained text/code, and source code, and image
 support. Install every runtime feature with `python -m pip install -e '.[full]'`,
 or a development environment with all features using
 `python -m pip install -e '.[dev,full]'`.

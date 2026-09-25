@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from scripts._bootstrap import PROJECT_ROOT  # noqa: F401
+except ModuleNotFoundError:
+    from _bootstrap import PROJECT_ROOT  # noqa: F401
+
 import argparse
 import json
 from pathlib import Path
