@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gopi Inference & Operations Report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --card: #0f1d30;
+      --line: #263950;
+      --text: #e7eef8;
+      --muted: #91a4ba;
+      --blue: #4f9cf9;
+      --red: #fb7185;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --cyan: #22d3ee;
+      --purple: #a78bfa;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 13.5px Inter, system-ui, -apple-system, sans-serif; line-height: 1.45; }
+    header { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; background: rgba(7,17,31,0.96); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 20; }
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
+    h2 { font-size: 14.5px; margin-bottom: 12px; color: #edf5ff; display: flex; align-items: center; justify-content: space-between; }
+    .muted { color: var(--muted); }
+    main { padding: 20px; max-width: 1560px; margin: auto; }
+    
+    /* Top Bar Navigation */
+    .report-explorer { display: flex; gap: 8px; align-items: center; padding: 10px 0 16px; overflow-x: auto; }
+    .report-explorer button { border: 1px solid var(--line); background: #10233a; color: var(--text); padding: 7px 13px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s; }
+    .report-explorer button:hover { background: #18375e; border-color: var(--blue); color: #fff; }
+    .report-explorer button.active { border-color: var(--blue); background: #1d4f86; color: #fff; box-shadow: 0 0 12px rgba(79,156,249,0.35); }
+    .report-explorer .search-box { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .report-explorer input { min-width: 200px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: #0a1728; color: var(--text); font-size: 12px; outline: none; }
+    .report-explorer input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(79,156,249,0.15); }
+    
+    /* Cards Grid */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .card, .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .card {
+      --card-accent: #4f9cf9;
+      --card-glow: rgba(79,156,249,.13);
+      position: relative; display: flex; min-width: 0; min-height: 94px; flex-direction: column; justify-content: space-between; overflow: hidden; padding: 15px;
+      border-color: rgba(96,117,141,.32); background: linear-gradient(145deg, rgba(20,39,63,.96), rgba(12,27,46,.98));
+      box-shadow: 0 8px 24px rgba(0,0,0,.13), inset 0 1px rgba(255,255,255,.035); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .card::before { content: ""; position: absolute; z-index: 1; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--card-accent), transparent 88%); opacity: .9; }
+    .card::after { content: ""; position: absolute; top: -42px; right: -38px; width: 105px; height: 105px; border-radius: 50%; background: var(--card-glow); filter: blur(22px); pointer-events: none; }
+    .card:hover { transform: translateY(-2px); border-color: rgba(125,160,198,.5); box-shadow: 0 12px 30px rgba(0,0,0,.2); }
+    .card-label { position: relative; z-index: 1; color: #8eacd0; font-size: 11px; line-height: 1.25; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+    .card .value { position: relative; z-index: 1; margin-top: 8px; color: #f2f7ff; font-size: 21px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .card.green { --card-accent: #34d399; --card-glow: rgba(52,211,153,.15); }
+    .card.yellow { --card-accent: #fbbf24; --card-glow: rgba(251,191,36,.15); }
+    .card.cyan { --card-accent: #22d3ee; --card-glow: rgba(34,211,238,.15); }
+    .card.purple { --card-accent: #a78bfa; --card-glow: rgba(167,139,250,.15); }
+
+    /* Meter Panel */
+    .meter-panel { position: relative; margin-bottom: 18px; overflow: hidden; border-color: rgba(74,105,139,.42); background: radial-gradient(circle at 12% 0, rgba(79,156,249,.09), transparent 30%), linear-gradient(145deg, #102138, #0a1728 68%); box-shadow: 0 12px 34px rgba(0,0,0,.16); }
+    .meter-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; margin: -2px 0 14px; padding: 0 2px 12px; border-bottom: 1px solid rgba(96,117,141,.2); }
+    .meter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .meter { --value: 0; --meter-color: var(--blue); position: relative; display: flex; min-width: 0; min-height: 160px; flex-direction: column; align-items: center; overflow: hidden; padding: 12px 8px 10px; border: 1px solid rgba(145,164,186,.17); border-radius: 14px; background: linear-gradient(155deg, rgba(25,47,75,.7), rgba(7,20,35,.82)); box-shadow: 0 7px 18px rgba(0,0,0,.1); transition: transform .18s ease; }
+    .meter:hover { transform: translateY(-2px); border-color: var(--meter-color); }
+    .meter-dial { position: relative; display: grid; width: 92px; height: 92px; place-items: center; border-radius: 50%; background: conic-gradient(from -135deg, var(--meter-color) calc(var(--value) * 2.7deg), #21344c 0 270deg, transparent 0); filter: drop-shadow(0 6px 12px rgba(0,0,0,.3)); }
+    .meter-dial::before { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, #1b3350, #091625 72%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.065); }
+    .meter-reading { position: relative; z-index: 1; font-size: 18px; font-weight: 800; letter-spacing: -.03em; color: #fff; }
+    .meter-reading small { margin-left: 2px; color: var(--muted); font-size: 10px; font-weight: 600; }
+    .meter-label { margin-top: 8px; color: #edf5ff; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; text-align: center; }
+    .meter-detail { width: 100%; margin-top: 3px; color: #839cb8; font-size: 10px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Operations & Environment Signals */
+    .operations { margin-bottom: 18px; border-color: rgba(74,105,139,.42); background: linear-gradient(145deg, #102138, #0b192b); }
+    .operations-grid { display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(400px, 1.1fr); gap: 16px; }
+    .alert-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .alert { padding: 6px 11px; border: 1px solid var(--line); border-radius: 999px; background: rgba(6,17,30,.72); font-size: 11px; font-weight: 600; }
+    .alert.ok { border-color: #166534; background: rgba(22,101,52,.18); color: var(--green); }
+    .alert.warning { color: var(--yellow); border-color: #a16207; background: rgba(161,98,7,.18); }
+    .alert.info { color: var(--cyan); border-color: #0e7490; background: rgba(14,116,144,.18); }
+    .signal-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
+    .signal { padding: 9px 12px; border: 1px solid rgba(96,117,141,.2); border-radius: 10px; background: linear-gradient(145deg, rgba(7,22,39,.88), rgba(5,16,29,.72)); }
+    .signal strong { display: block; margin-top: 3px; font-size: 13.5px; color: #fff; }
+    .signal span { color: #7f99b6; font-size: 10px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+
+    /* Grid layout & Charts */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .chart-container { width: 100%; height: 200px; background: #081322; border: 1px solid var(--line); border-radius: 8px; position: relative; overflow: hidden; display: flex; align-items: flex-end; padding: 10px 14px; gap: 8px; }
+    .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 4px; }
+    .chart-bar { width: 100%; background: linear-gradient(180deg, var(--blue), rgba(79,156,249,0.3)); border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.3s ease; }
+    .chart-bar-label { font-size: 9.5px; color: var(--muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
+    .chart-bar-val { font-size: 10px; font-weight: 700; color: #fff; }
+
+    /* Interactive Testing Playground Boxes */
+    .interactive-box { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .interactive-input { flex: 1 1 300px; height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #081424; color: var(--text); font-size: 13px; outline: none; }
+    .interactive-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(79,156,249,0.15); }
+    .result-box { background: #06101c; border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12.5px; line-height: 1.5; color: #e2e8f0; min-height: 45px; margin-top: 8px; }
+
+    /* Filterable & Sortable Tables */
+    .table-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 11px; padding: 9px; border: 1px solid rgba(96,117,141,.3); border-radius: 10px; background: linear-gradient(145deg, rgba(19,38,62,.78), rgba(7,20,35,.88)); }
+    .table-tools input, .table-tools select { height: 32px; padding: 5px 10px; border: 1px solid rgba(96,117,141,.42); border-radius: 7px; outline: none; background: #0b192b; color: var(--text); font-size: 12px; }
+    .table-tools input:focus, .table-tools select:focus { border-color: var(--blue); }
+    .table-search { flex: 1 1 180px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; background: rgba(10,23,40,0.6); }
+    th.num, td.num { text-align: right; }
+    tr:hover td { background: rgba(79,156,249,0.04); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(255,255,255,0.06); padding: 2px 5px; border-radius: 4px; font-size: 11px; }
+
+    /* Controls & Buttons */
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    button, .btn { border: 1px solid var(--line); background: #162942; color: var(--text); padding: 7px 13px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    button:hover { background: #203f67; border-color: var(--blue); color: #fff; }
+    button.primary { background: linear-gradient(135deg, #2563eb, #1d4ed8); border-color: #3b82f6; color: #fff; }
+    button.primary:hover { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+    .badge { padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .badge-ok { background: rgba(52,211,153,.2); color: var(--green); border: 1px solid var(--green); }
+    .badge-warn { background: rgba(251,191,36,.2); color: var(--yellow); border: 1px solid var(--yellow); }
+    .badge-off { background: rgba(251,113,133,.2); color: var(--red); border: 1px solid var(--red); }
+    .spinner { display: none; width: 13px; height: 13px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    .loading .spinner { display: inline-block; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .hidden-section { display: none !important; }
+    pre { white-space: pre-wrap; max-height: 420px; overflow: auto; background: #06101c; padding: 14px; border-radius: 8px; color: #cbd5e1; font-size: 11.5px; border: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>🚀 Gopi Engine — System & Operations Report <span id="header-status" class="badge badge-ok">Ready</span></h1>
+      <p class="muted" style="font-size:11.5px; margin-top:3px;">Live inference benchmarks, autoregressive generation latency, session cache, and RAG knowledge index.</p>
+    </div>
+    <div class="controls">
+      <button id="btn-refresh" onclick="loadReport(false)">
+        <span class="spinner"></span> 🔄 Refresh Data
+      </button>
+      <button id="btn-probes" class="primary" onclick="loadReport(true)">
+        <span class="spinner"></span> ⚡ Run Benchmark Probes
+      </button>
+      <button onclick="copyReportJSON()">📋 Copy JSON</button>
+      <a class="btn" href="system_report.json" target="_blank" rel="noopener">{ } Open JSON</a>
+      <span class="muted" style="font-size:11px;">Updated: <strong id="last-updated" style="color:#fff;">--</strong></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Navigation Bar Explorer -->
+    <nav class="report-explorer">
+      <button class="active" onclick="switchTab('all', this)">Overview & All</button>
+      <button onclick="switchTab('generation', this)">⚡ Generation Probes</button>
+      <button onclick="switchTab('playground', this)">🎮 Live Playgrounds</button>
+      <button onclick="switchTab('serving', this)">🌐 Serving & Capacity</button>
+      <button onclick="switchTab('chat', this)">💬 Chat Memory</button>
+      <button onclick="switchTab('rag', this)">📚 RAG Knowledge</button>
+      <button onclick="switchTab('raw', this)">{ } Raw JSON</button>
+      <div class="search-box">
+        <input type="text" id="global-filter" placeholder="Filter tables..." oninput="filterAllTables(this.value)">
+      </div>
+    </nav>
+
+    <!-- Top KPI Cards Grid -->
+    <section class="cards" id="top-cards">
+      <div class="card">
+        <span class="card-label">Generation Speed</span>
+        <div class="value" id="card-tps">-- <small style="font-size:12px;font-weight:400;color:var(--muted)">TPS</small></div>
+      </div>
+      <div class="card cyan">
+        <span class="card-label">Avg First Token (TTFT)</span>
+        <div class="value" id="card-ttft">-- <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small></div>
+      </div>
+      <div class="card green">
+        <span class="card-label">Paged KV Pages</span>
+        <div class="value" id="card-pages">128</div>
+      </div>
+      <div class="card yellow">
+        <span class="card-label">Rate Limit</span>
+        <div class="value" id="card-rate">60 <small style="font-size:12px;font-weight:400;color:var(--muted)">req/m</small></div>
+      </div>
+      <div class="card">
+        <span class="card-label">Recorded Sessions</span>
+        <div class="value" id="card-sessions">--</div>
+      </div>
+      <div class="card green">
+        <span class="card-label">Total Messages</span>
+        <div class="value" id="card-messages">--</div>
+      </div>
+      <div class="card cyan">
+        <span class="card-label">RAG Chunks</span>
+        <div class="value" id="card-chunks">--</div>
+      </div>
+      <div class="card purple">
+        <span class="card-label">RAG Search Latency</span>
+        <div class="value" id="card-rag-lat">-- <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small></div>
+      </div>
+    </section>
+
+    <!-- Operational Circular Dial Meters -->
+    <section class="panel meter-panel section-block" id="sec-meters">
+      <div class="meter-heading">
+        <div>
+          <h2>Operational Capacity & Performance Dials</h2>
+          <p class="muted">Real-time telemetry for autoregressive token decoding, prefill TTFT, KV allocation, and vector/BM25 retrieval.</p>
+        </div>
+        <span id="meter-device" class="badge badge-ok">CPU Engine</span>
+      </div>
+      <div class="meter-grid">
+        <div class="meter" id="meter-tps-wrap" style="--meter-color:var(--blue)">
+          <div class="meter-dial" id="dial-tps"><div class="meter-reading" id="meter-tps">--<small>TPS</small></div></div>
+          <div class="meter-label">Decode Speed</div>
+          <div class="meter-detail" id="meter-tps-detail">Tokens per second</div>
+        </div>
+        <div class="meter" id="meter-ttft-wrap" style="--meter-color:var(--cyan)">
+          <div class="meter-dial" id="dial-ttft"><div class="meter-reading" id="meter-ttft">--<small>ms</small></div></div>
+          <div class="meter-label">Prefill / TTFT</div>
+          <div class="meter-detail" id="meter-ttft-detail">Time to 1st token</div>
+        </div>
+        <div class="meter" style="--meter-color:var(--green)">
+          <div class="meter-dial" style="--value:64"><div class="meter-reading">128<small>pgs</small></div></div>
+          <div class="meter-label">Paged KV Cache</div>
+          <div class="meter-detail">16 tok/page allocation</div>
+        </div>
+        <div class="meter" style="--meter-color:var(--yellow)">
+          <div class="meter-dial" style="--value:45"><div class="meter-reading">60<small>RPM</small></div></div>
+          <div class="meter-label">Rate Limiter</div>
+          <div class="meter-detail">Requests / minute window</div>
+        </div>
+        <div class="meter" id="meter-rag-wrap" style="--meter-color:var(--purple)">
+          <div class="meter-dial" id="dial-rag"><div class="meter-reading" id="meter-rag-lat">--<small>ms</small></div></div>
+          <div class="meter-label">RAG Search</div>
+          <div class="meter-detail">BM25 SQLite latency</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visual Latency & Throughput Charts -->
+    <section class="grid section-block" id="sec-charts">
+      <div class="panel">
+        <h2>⚡ Generation Throughput (Tokens / Second)</h2>
+        <div class="chart-container" id="chart-tps-container">
+          <div style="margin:auto; opacity:0.6;">Run benchmark probes to populate throughput chart.</div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>⏱️ Time to First Token (TTFT in Milliseconds)</h2>
+        <div class="chart-container" id="chart-ttft-container">
+          <div style="margin:auto; opacity:0.6;">Run benchmark probes to populate TTFT latency chart.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Operations & Environment Signals -->
+    <section class="panel operations section-block" id="sec-ops">
+      <div class="operations-grid">
+        <div>
+          <h2>Subsystem Signals & Active Invariants</h2>
+          <div class="alert-strip">
+            <span class="alert ok">✓ Causal Transformer Active</span>
+            <span class="alert ok">✓ Paged KV Cache Ready</span>
+            <span class="alert info">ℹ 42K Extended Vocab</span>
+            <span class="alert ok">✓ SQLite FTS5 Index Ready</span>
+          </div>
+          <div class="signal-row">
+            <div class="signal"><span>Model Checkpoint</span><strong id="sig-model">best.pt</strong></div>
+            <div class="signal"><span>Weight Dtype</span><strong id="sig-dtype">bfloat16</strong></div>
+            <div class="signal"><span>Prefix Cache</span><strong id="sig-prefix">16 slots</strong></div>
+          </div>
+        </div>
+        <div>
+          <h2>Architecture & Deployment Footprint</h2>
+          <div class="signal-row">
+            <div class="signal"><span>Estimated Weight RAM</span><strong id="sig-weight-mem">-- MB</strong></div>
+            <div class="signal"><span>Estimated KV RAM</span><strong id="sig-kv-mem">-- MB</strong></div>
+            <div class="signal"><span>Session Store</span><strong id="sig-session-db">sessions.sqlite</strong></div>
+          </div>
+          <p class="muted" style="font-size:11.5px; margin-top:10px;">Low-memory loading enabled. Weights mapped directly into memory space to eliminate duplicate state-dict copies.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Live Playground Section -->
+    <section class="grid section-block" id="sec-playground">
+      <div class="panel">
+        <h2>🎮 Live Text Generation Playground</h2>
+        <p class="muted" style="font-size:11.5px; margin-bottom:10px;">Send a test prompt directly to the loaded model and measure live TTFT & TPS:</p>
+        <div class="interactive-box">
+          <input type="text" id="play-prompt" class="interactive-input" placeholder="Enter prompt, e.g. What is quantum computing?" value="Explain what an operating system does in one sentence.">
+          <button class="primary" id="btn-play-gen" onclick="runInteractiveGeneration()"><span class="spinner"></span> Generate</button>
+        </div>
+        <div id="play-gen-result" class="result-box" style="display:none;"></div>
+      </div>
+
+      <div class="panel">
+        <h2>🔍 Live RAG Knowledge Base Search</h2>
+        <p class="muted" style="font-size:11.5px; margin-bottom:10px;">Test live BM25/FTS5 retrieval against 313K Wikipedia index chunks:</p>
+        <div class="interactive-box">
+          <input type="text" id="play-rag-query" class="interactive-input" placeholder="Enter query, e.g. attention mechanism" value="transformer attention mechanism">
+          <button class="primary" id="btn-play-rag" onclick="runInteractiveRagSearch()"><span class="spinner"></span> Search</button>
+        </div>
+        <div id="play-rag-result" class="result-box" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- Generation Probes Table -->
+    <section class="panel section-block" id="sec-gen" style="margin-bottom:16px;">
+      <h2>
+        <span>⚡ Generation Probe Benchmarks</span>
+        <button class="primary" style="padding:4px 10px; font-size:11px;" onclick="loadReport(true)">Run Live Probes</button>
+      </h2>
+      <div class="table-tools">
+        <input type="text" class="table-search" placeholder="Filter generation probes..." oninput="filterTable('tbl-gen', this.value)">
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tbl-gen">
+          <thead>
+            <tr>
+              <th style="width:30%;">Prompt</th>
+              <th style="width:35%;">Generated Output Preview</th>
+              <th class="num">Prompt Tokens</th>
+              <th class="num">Gen Tokens</th>
+              <th class="num">TTFT (ms)</th>
+              <th class="num">TPS</th>
+              <th>Finish</th>
+            </tr>
+          </thead>
+          <tbody id="body-gen">
+            <tr><td colspan="7" style="text-align:center; opacity:0.6; padding:20px;">Click "Run Benchmark Probes" to evaluate live model generation.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Chat Sessions & Memory Table -->
+    <section class="panel section-block" id="sec-chat" style="margin-bottom:16px;">
+      <h2>💬 Chat Session History & Memory Accounting</h2>
+      <div class="table-tools">
+        <input type="text" class="table-search" placeholder="Filter sessions..." oninput="filterTable('tbl-chat', this.value)">
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tbl-chat">
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th class="num">Message Turns</th>
+              <th>Last Activity</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="body-chat">
+            <tr><td colspan="4" style="text-align:center; opacity:0.6; padding:15px;">Loading session history…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- RAG Search Benchmark Table -->
+    <section class="panel section-block" id="sec-rag" style="margin-bottom:16px;">
+      <h2>📚 RAG Knowledge Retrieval Benchmarks</h2>
+      <div class="table-tools">
+        <input type="text" class="table-search" placeholder="Filter RAG queries..." oninput="filterTable('tbl-rag', this.value)">
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tbl-rag">
+          <thead>
+            <tr>
+              <th style="width:30%;">Benchmark Query</th>
+              <th class="num" style="width:15%;">Latency (ms)</th>
+              <th style="width:55%;">Top Retrieval Hits & Scores</th>
+            </tr>
+          </thead>
+          <tbody id="body-rag">
+            <tr><td colspan="3" style="text-align:center; opacity:0.6; padding:15px;">Loading RAG benchmark results…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Raw JSON Inspector -->
+    <section class="panel section-block hidden-section" id="sec-raw" style="margin-bottom:16px;">
+      <h2>{ } Raw System Report JSON</h2>
+      <pre id="raw-json">Loading JSON...</pre>
+    </section>
+  </main>
+
+  <script>
+    const LOCAL_REPORT_URLS = ['system_report.json', 'system_report.sample.json'];
+    let currentReportData = {
+  "timestamp": "2026-09-25T12:45:43.130037+00:00",
+  "generation": {
+    "model_name": "Gopi",
+    "device": "cpu",
+    "samples_evaluated": 3,
+    "total_tokens_generated": 96,
+    "avg_tokens_per_second": 38.82,
+    "avg_ttft_seconds": 0.0528,
+    "p95_ttft_seconds": 0.0837,
+    "peak_vram_mb": null,
+    "samples": [
+      {
+        "prompt": "Explain machine learning in simple terms.",
+        "generated_text": "For example, in the case of a machine learning model, the machine learning algorithm is used to learn how to learn and learn. In the case that the machine",
+        "prompt_tokens": 8,
+        "tokens": 32,
+        "duration_s": 0.9037,
+        "ttft_s": 0.0429,
+        "tokens_per_second": 35.41,
+        "finish_reason": "length"
+      },
+      {
+        "prompt": "What is the function of an operating system?",
+        "generated_text": "It is a system that uses a network to store and manage data. The system is used to generate a network of data, such as data, data, and",
+        "prompt_tokens": 10,
+        "tokens": 32,
+        "duration_s": 0.7525,
+        "ttft_s": 0.0318,
+        "tokens_per_second": 42.52,
+        "finish_reason": "length"
+      },
+      {
+        "prompt": "Write a brief python function to compute factorial.",
+        "generated_text": "The function will return the sum of the numbers in the given sequence.\nThe function will then use the `is_prime` function to calculate the sum.\nThe `",
+        "prompt_tokens": 11,
+        "tokens": 32,
+        "duration_s": 0.8307,
+        "ttft_s": 0.0837,
+        "tokens_per_second": 38.52,
+        "finish_reason": "length"
+      }
+    ]
+  },
+  "serving": {
+    "status": "offline / idle",
+    "endpoint": "http://localhost:8000",
+    "online": false,
+    "model_config_path": "configs/model.gpu.yaml",
+    "checkpoint_path": "checkpoints/finetuning/best.pt",
+    "paged_kv_pages": 128,
+    "paged_kv_page_size": 16,
+    "prefix_cache_capacity": 16,
+    "requests_per_minute": 60,
+    "estimated_weight_memory_mb": 0.0,
+    "estimated_kv_cache_memory_mb": 0.0,
+    "metadata": {
+      "weight_dtype": "bfloat16",
+      "quantization": "none",
+      "low_memory_loading": true
+    }
+  },
+  "chat": {
+    "total_sessions": 9,
+    "total_messages": 47,
+    "avg_messages_per_session": 5.22,
+    "database_path": "data/cache/sessions.sqlite",
+    "sessions_found": true,
+    "recent_sessions": [
+      {
+        "session_id": "chat-d12c159d-30b4-42ca-aebd-6394080fa07d",
+        "message_count": 3,
+        "updated_at": "2026-09-24T11:06:09.794186+00:00"
+      },
+      {
+        "session_id": "chat-1391d1d8-8304-4a5d-9017-f6e089e206c1",
+        "message_count": 3,
+        "updated_at": "2026-09-24T11:05:40.293502+00:00"
+      },
+      {
+        "session_id": "chat-80dd5f64-d04f-4e87-80ea-b2bcd256881c",
+        "message_count": 11,
+        "updated_at": "2026-09-24T11:03:55.961719+00:00"
+      },
+      {
+        "session_id": "chat-1b76ea56-3df3-46e3-b85b-2a4ddc4bb1a4",
+        "message_count": 5,
+        "updated_at": "2026-09-24T11:01:02.574761+00:00"
+      },
+      {
+        "session_id": "chat-8ae3b282-602e-4734-bf58-c7fb9073aea9",
+        "message_count": 13,
+        "updated_at": "2026-09-24T11:00:52.703324+00:00"
+      },
+      {
+        "session_id": "chat-afe613ce-e583-4bb6-90e0-cf301b1dc05a",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:58:14.488419+00:00"
+      },
+      {
+        "session_id": "chat-4b059cbe-9c8b-4af4-8da8-08ab8ada1e61",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:57:49.036627+00:00"
+      },
+      {
+        "session_id": "chat-3843848c-e78b-4b7c-870a-603091fef733",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:53:19.317201+00:00"
+      },
+      {
+        "session_id": "chat-f2fa7feb-f3e8-42e0-96bf-55a40857fc6f",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:50:52.650614+00:00"
+      }
+    ]
+  },
+  "rag": {
+    "database_path": "data/rag/index.sqlite",
+    "index_exists": true,
+    "total_chunks": 313913,
+    "sample_queries_tested": 3,
+    "avg_query_latency_ms": 12.51,
+    "sample_results": [
+      {
+        "query": "transformer attention mechanism",
+        "latency_ms": 29.24,
+        "hits": [
+          {
+            "title": "test_transformer_block.py",
+            "score": 23.258,
+            "snippet": "import torch\nfrom torch import nn\n\nfrom model.layer_norm import LayerNorm, RMSNo"
+          },
+          {
+            "title": "test_transformer_block.py",
+            "score": 21.75,
+            "snippet": "(parameter)\n for parameter in block.ffn.parameters():\n nn.init.zeros_(parameter)"
+          }
+        ]
+      },
+      {
+        "query": "artificial intelligence neural network",
+        "latency_ms": 3.37,
+        "hits": [
+          {
+            "title": "List of artificial intelligence projects",
+            "score": 35.758,
+            "snippet": "machine learning algorithms.\n Deeplearning4j, an open-source, distributed deep l"
+          },
+          {
+            "title": "List of artificial intelligence projects",
+            "score": 30.774,
+            "snippet": "cs.\n Neuroph, a Java neural network framework.\n OpenCog, a GPL-licensed framewor"
+          }
+        ]
+      },
+      {
+        "query": "python programming language",
+        "latency_ms": 4.9,
+        "hits": [
+          {
+            "title": "Programming language",
+            "score": 26.779,
+            "snippet": "A programming language is a type of written language that tells computers what t"
+          },
+          {
+            "title": "Object-oriented programming",
+            "score": 26.674,
+            "snippet": "s). For example, Python allows for computer programs to be written both in objec"
+          }
+        ]
+      }
+    ]
+  }
+};
+    window.addEventListener('DOMContentLoaded', () => { renderReport(currentReportData); });
+
+    function switchTab(tab, btn) {
+      document.querySelectorAll('.report-explorer button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const allSecs = document.querySelectorAll('.section-block');
+      if (tab === 'all') {
+        allSecs.forEach(s => s.classList.remove('hidden-section'));
+        document.getElementById('sec-raw').classList.add('hidden-section');
+      } else if (tab === 'raw') {
+        allSecs.forEach(s => s.classList.add('hidden-section'));
+        document.getElementById('sec-raw').classList.remove('hidden-section');
+      } else {
+        allSecs.forEach(s => s.classList.add('hidden-section'));
+        const target = {
+          'generation': 'sec-gen',
+          'playground': 'sec-playground',
+          'serving': 'sec-ops',
+          'chat': 'sec-chat',
+          'rag': 'sec-rag'
+        }[tab];
+        if (target) document.getElementById(target).classList.remove('hidden-section');
+        document.getElementById('sec-meters').classList.remove('hidden-section');
+      }
+    }
+
+    async function loadReport(full = false) {
+      const btn = full ? document.getElementById('btn-probes') : document.getElementById('btn-refresh');
+      btn.classList.add('loading');
+      try {
+        let data;
+        if (full) {
+          const res = await fetch('/report/api/full');
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          data = await res.json();
+        } else {
+          const errors = [];
+          for (const url of [...LOCAL_REPORT_URLS, '/report/api/data']) {
+            try {
+              const res = await fetch(url, {cache: 'no-store'});
+              if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+              data = await res.json();
+              break;
+            } catch (error) {
+              errors.push(error);
+            }
+          }
+          if (!data) throw new Error(errors.map(error => error.message).join('; '));
+        }
+        currentReportData = data;
+        renderReport(data);
+      } catch (err) {
+        console.error('Failed to load system report:', err);
+      } finally {
+        btn.classList.remove('loading');
+      }
+    }
+
+    function renderReport(data) {
+      document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+      document.getElementById('raw-json').textContent = JSON.stringify(data, null, 2);
+
+      // Serving
+      if (data.serving) {
+        const s = data.serving;
+        const badge = document.getElementById('header-status');
+        if (s.online) {
+          badge.textContent = 'Server Online';
+          badge.className = 'badge badge-ok';
+        } else {
+          badge.textContent = 'Standalone Ready';
+          badge.className = 'badge badge-ok';
+        }
+        document.getElementById('card-pages').textContent = s.paged_kv_pages || 128;
+        document.getElementById('card-rate').innerHTML = (s.requests_per_minute || 60) + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">req/m</small>';
+        document.getElementById('sig-dtype').textContent = s.metadata?.weight_dtype || 'bfloat16';
+        document.getElementById('sig-prefix').textContent = (s.prefix_cache_capacity || 16) + ' slots';
+        document.getElementById('sig-weight-mem').textContent = (s.estimated_weight_memory_mb || 0).toFixed(1) + ' MB';
+        document.getElementById('sig-kv-mem').textContent = (s.estimated_kv_cache_memory_mb || 0).toFixed(1) + ' MB';
+      }
+
+      // Chat
+      if (data.chat) {
+        const c = data.chat;
+        document.getElementById('card-sessions').textContent = c.total_sessions || 0;
+        document.getElementById('card-messages').textContent = c.total_messages || 0;
+        document.getElementById('sig-session-db').textContent = c.database_path.split('/').pop();
+
+        const chatTbody = document.getElementById('body-chat');
+        if (c.recent_sessions && c.recent_sessions.length > 0) {
+          chatTbody.innerHTML = '';
+          c.recent_sessions.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td><code>${s.session_id}</code></td>
+              <td class="num"><strong>${s.message_count}</strong></td>
+              <td>${s.updated_at ? new Date(s.updated_at).toLocaleString() : 'Recent'}</td>
+              <td><span class="badge badge-ok">Active</span></td>
+            `;
+            chatTbody.appendChild(tr);
+          });
+        } else {
+          chatTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; opacity:0.6; padding:12px;">No active sessions stored in database.</td></tr>';
+        }
+      }
+
+      // RAG
+      if (data.rag) {
+        const r = data.rag;
+        document.getElementById('card-chunks').textContent = (r.total_chunks || 0).toLocaleString();
+        const lat = r.avg_query_latency_ms ? r.avg_query_latency_ms.toFixed(1) : '--';
+        document.getElementById('card-rag-lat').innerHTML = lat + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small>';
+        document.getElementById('meter-rag-lat').innerHTML = lat + '<small>ms</small>';
+        
+        const val = Math.min(100, Math.max(5, (r.avg_query_latency_ms || 10) * 5));
+        document.getElementById('dial-rag').style.setProperty('--value', val);
+
+        const ragTbody = document.getElementById('body-rag');
+        if (r.sample_results && r.sample_results.length > 0) {
+          ragTbody.innerHTML = '';
+          r.sample_results.forEach(res => {
+            const hits = (res.hits || []).map(h => `<span class="badge badge-ok">${h.title} (score ${h.score})</span>`).join(' ');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td><strong>${res.query}</strong></td>
+              <td class="num"><code>${res.latency_ms} ms</code></td>
+              <td>${hits || '<span class="muted">No direct match</span>'}</td>
+            `;
+            ragTbody.appendChild(tr);
+          });
+        }
+      }
+
+      // Generation & Charts
+      if (data.generation) {
+        const g = data.generation;
+        document.getElementById('meter-device').textContent = (g.device || 'CPU').toUpperCase() + ' ENGINE';
+        const tps = g.avg_tokens_per_second ? g.avg_tokens_per_second.toFixed(1) : '--';
+        const ttft = g.avg_ttft_seconds ? (g.avg_ttft_seconds * 1000).toFixed(1) : '--';
+        
+        document.getElementById('card-tps').innerHTML = tps + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">TPS</small>';
+        document.getElementById('card-ttft').innerHTML = ttft + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small>';
+        document.getElementById('meter-tps').innerHTML = tps + '<small>TPS</small>';
+        document.getElementById('meter-ttft').innerHTML = ttft + '<small>ms</small>';
+
+        document.getElementById('dial-tps').style.setProperty('--value', Math.min(100, (g.avg_tokens_per_second || 0) * 2.5));
+        document.getElementById('dial-ttft').style.setProperty('--value', Math.min(100, (g.avg_ttft_seconds || 0.1) * 300));
+
+        const genTbody = document.getElementById('body-gen');
+        if (g.samples && g.samples.length > 0) {
+          genTbody.innerHTML = '';
+          const tpsChart = document.getElementById('chart-tps-container');
+          const ttftChart = document.getElementById('chart-ttft-container');
+          tpsChart.innerHTML = '';
+          ttftChart.innerHTML = '';
+
+          const maxTps = Math.max(...g.samples.map(s => s.tokens_per_second || 1), 1);
+          const maxTtft = Math.max(...g.samples.map(s => (s.ttft_s || 0.05) * 1000), 1);
+
+          g.samples.forEach((s, idx) => {
+            // Table row
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td><strong>${s.prompt}</strong></td>
+              <td style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${s.generated_text}">${s.generated_text}</td>
+              <td class="num">${s.prompt_tokens || '--'}</td>
+              <td class="num"><strong>${s.tokens || 0}</strong></td>
+              <td class="num"><code>${s.ttft_s ? (s.ttft_s * 1000).toFixed(1) : '--'} ms</code></td>
+              <td class="num"><strong>${s.tokens_per_second || '--'}</strong></td>
+              <td><span class="badge badge-ok">${s.finish_reason || 'stop'}</span></td>
+            `;
+            genTbody.appendChild(tr);
+
+            // TPS Chart Bar
+            const tpsH = Math.max(8, Math.round(((s.tokens_per_second || 0) / maxTps) * 160));
+            tpsChart.innerHTML += `
+              <div class="chart-bar-wrap">
+                <div class="chart-bar-val">${s.tokens_per_second || 0}</div>
+                <div class="chart-bar" style="height:${tpsH}px;"></div>
+                <div class="chart-bar-label" title="${s.prompt}">P${idx + 1}</div>
+              </div>
+            `;
+
+            // TTFT Chart Bar
+            const ttftMs = (s.ttft_s || 0) * 1000;
+            const ttftH = Math.max(8, Math.round((ttftMs / maxTtft) * 160));
+            ttftChart.innerHTML += `
+              <div class="chart-bar-wrap">
+                <div class="chart-bar-val">${ttftMs.toFixed(0)}ms</div>
+                <div class="chart-bar" style="height:${ttftH}px; background:linear-gradient(180deg, var(--cyan), rgba(34,211,238,0.3));"></div>
+                <div class="chart-bar-label" title="${s.prompt}">P${idx + 1}</div>
+              </div>
+            `;
+          });
+        }
+      }
+    }
+
+    async function runInteractiveGeneration() {
+      const prompt = document.getElementById('play-prompt').value.trim();
+      if (!prompt) return;
+      const btn = document.getElementById('btn-play-gen');
+      const box = document.getElementById('play-gen-result');
+      btn.classList.add('loading');
+      box.style.display = 'block';
+      box.innerHTML = '<em>Generating tokens from model…</em>';
+      try {
+        const res = await fetch('/report/api/generate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prompt, max_tokens: 32, temperature: 0.2})
+        });
+        const d = await res.json();
+        if (d.error) {
+          box.innerHTML = '<span style="color:var(--red);">Error: ' + d.error + '</span>';
+        } else {
+          box.innerHTML = `
+            <div style="margin-bottom:6px; font-weight:600; color:var(--cyan);">Generated Response:</div>
+            <div style="padding:6px 0; font-size:13px;">${d.text}</div>
+            <div style="margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:14px;">
+              <span>⚡ TTFT: <strong>${(d.ttft_s * 1000).toFixed(1)} ms</strong></span>
+              <span>🚀 Speed: <strong>${d.tokens_per_second.toFixed(1)} tok/s</strong></span>
+              <span>🔢 Tokens: <strong>${d.tokens}</strong></span>
+              <span>🏁 Reason: <strong>${d.finish_reason}</strong></span>
+            </div>
+          `;
+        }
+      } catch (err) {
+        box.innerHTML = '<span style="color:var(--red);">Request failed: ' + err + '</span>';
+      } finally {
+        btn.classList.remove('loading');
+      }
+    }
+
+    async function runInteractiveRagSearch() {
+      const query = document.getElementById('play-rag-query').value.trim();
+      if (!query) return;
+      const btn = document.getElementById('btn-play-rag');
+      const box = document.getElementById('play-rag-result');
+      btn.classList.add('loading');
+      box.style.display = 'block';
+      box.innerHTML = '<em>Searching SQLite knowledge index…</em>';
+      try {
+        const res = await fetch('/report/api/search', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({query, top_k: 3})
+        });
+        const d = await res.json();
+        if (d.error) {
+          box.innerHTML = '<span style="color:var(--red);">Error: ' + d.error + '</span>';
+        } else {
+          let hitsHtml = (d.hits || []).map((h, i) => `
+            <div style="margin-top:6px; padding:6px; background:#0a1728; border-radius:6px; border:1px solid var(--line);">
+              <div style="font-weight:600; color:var(--blue); font-size:12px;">#${i + 1} ${h.title} <span class="badge badge-ok" style="margin-left:6px;">Score ${h.score.toFixed(2)}</span></div>
+              <div style="font-size:11.5px; opacity:0.85; margin-top:2px;">${h.snippet}...</div>
+            </div>
+          `).join('');
+          box.innerHTML = `
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted);">
+              <span>Query latency: <strong>${d.latency_ms.toFixed(2)} ms</strong></span>
+              <span>Total matches: <strong>${d.hits.length}</strong></span>
+            </div>
+            ${hitsHtml}
+          `;
+        }
+      } catch (err) {
+        box.innerHTML = '<span style="color:var(--red);">Search failed: ' + err + '</span>';
+      } finally {
+        btn.classList.remove('loading');
+      }
+    }
+
+    function copyReportJSON() {
+      if (!currentReportData) return;
+      navigator.clipboard.writeText(JSON.stringify(currentReportData, null, 2));
+      alert('Report JSON copied to clipboard!');
+    }
+
+    function filterTable(tableId, query) {
+      const rows = document.querySelectorAll('#' + tableId + ' tbody tr');
+      const q = query.toLowerCase();
+      rows.forEach(r => {
+        const text = r.textContent.toLowerCase();
+        r.style.display = text.includes(q) ? '' : 'none';
+      });
+    }
+
+    function filterAllTables(query) {
+      filterTable('tbl-gen', query);
+      filterTable('tbl-chat', query);
+      filterTable('tbl-rag', query);
+    }
+
+    // Auto-load on open and every 30s
+    loadReport(false);
+    setInterval(() => loadReport(false), 30000);
+  </script>
+</body>
+</html>

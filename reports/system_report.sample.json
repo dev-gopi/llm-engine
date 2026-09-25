@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-01-01T00:00:00+00:00",
+  "generation": {
+    "model_name": "Gopi",
+    "device": "cpu",
+    "samples_evaluated": 1,
+    "total_tokens_generated": 24,
+    "avg_tokens_per_second": 18.5,
+    "avg_ttft_seconds": 0.06,
+    "p95_ttft_seconds": 0.08,
+    "peak_vram_mb": null,
+    "samples": [{
+      "prompt": "Explain a neural network simply.",
+      "generated_text": "A neural network learns patterns from examples to make useful predictions.",
+      "prompt_tokens": 6,
+      "tokens": 14,
+      "duration_s": 0.76,
+      "ttft_s": 0.06,
+      "tokens_per_second": 18.5,
+      "finish_reason": "stop"
+    }]
+  },
+  "serving": {
+    "status": "offline / sample",
+    "endpoint": "http://localhost:8000",
+    "online": false,
+    "model_config_path": "configs/model.gpu.yaml",
+    "checkpoint_path": "checkpoints/finetuning/best.pt",
+    "paged_kv_pages": 128,
+    "paged_kv_page_size": 16,
+    "prefix_cache_capacity": 16,
+    "requests_per_minute": 60,
+    "estimated_weight_memory_mb": 0.0,
+    "estimated_kv_cache_memory_mb": 0.0,
+    "metadata": {"weight_dtype": "bfloat16", "quantization": "none", "low_memory_loading": true}
+  },
+  "chat": {
+    "total_sessions": 2,
+    "total_messages": 8,
+    "avg_messages_per_session": 4.0,
+    "database_path": "data/cache/sessions.sqlite",
+    "sessions_found": true,
+    "recent_sessions": [{"session_id": "sample-session", "message_count": 4, "updated_at": "2026-01-01T00:00:00+00:00"}]
+  },
+  "rag": {
+    "database_path": "data/rag/index.sqlite",
+    "index_exists": true,
+    "total_chunks": 1024,
+    "sample_queries_tested": 1,
+    "avg_query_latency_ms": 7.2,
+    "sample_results": [{
+      "query": "transformer attention",
+      "latency_ms": 7.2,
+      "hits": [{"title": "Transformer overview", "score": 0.92, "snippet": "Attention lets a model weigh relevant tokens in its context."}]
+    }]
+  }
+}

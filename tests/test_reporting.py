@@ -23,6 +23,17 @@ from inference.reporting import (
 )
 
 
+def test_standalone_system_report_uses_local_json_and_sample() -> None:
+    root = Path(__file__).parents[1]
+    html = (root / "reports" / "system_report.html").read_text(encoding="utf-8")
+    sample = json.loads((root / "reports" / "system_report.sample.json").read_text(encoding="utf-8"))
+
+    assert "system_report.json" in html
+    assert "system_report.sample.json" in html
+    assert sample["generation"]["samples_evaluated"] >= 1
+    assert sample["serving"]["paged_kv_pages"] >= 1
+
+
 # ─── Chat Report ──────────────────────────────────────────────────────────────
 
 class TestChatReport:

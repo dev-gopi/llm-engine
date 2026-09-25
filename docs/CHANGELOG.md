@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added unified system reporting and interactive web dashboard for inference, serving, chat session memory, and RAG knowledge retrieval. Includes `src/inference/reporting.py`, `src/serving/report_router.py`, `scripts/build_report.py`, and `scripts/serve_report.py` with standalone offline HTML export and live interactive generation and RAG search playgrounds.
+- Made the standalone system report load `system_report.json` by default, added an explicit JSON link, and included a sample report fallback for offline viewing.
 - Improved the live training report: validation is now shown while it runs, with per-batch ETA when available or a clearly labelled historical-duration estimate; optimizer-step, log-window, checkpoint, and validation timings now use separate charts so their scales do not obscure one another.
 - Fixed runtime timing contamination in training and validation report generation: reset log interval timing after initial/mid-epoch validations and checkpoint saves, fixed `Trainer.promotion_metrics()` calling `tokens_per_second` property as a function, fixed validation progress ETA formatting when target batches are unknown, and added training and validation start and end timestamps to report progress analysis.
 - Added a coding-mode tool workflow that guides compatible clients through inspect, analyze, patch, and verify stages.

@@ -83,7 +83,8 @@ reports/*
 !reports/notification-sw.js
 # Curated report sources and reproducible fine-tuning probe evidence.
 !reports/verify_minigpt_improvements.py
-!reports/system_report.json
+!reports/system_report.html
+!reports/system_report.sample.json
 !reports/finetuning_response_test/
 !reports/finetuning_response_test/run.py
 !reports/finetuning_response_test/results.json
