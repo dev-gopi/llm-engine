@@ -12,6 +12,7 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
+from agents.mcp import RemoteMCPClient
 from mcp.client import MCPClient, MCPError
 from utils.config import load_yaml
 
@@ -39,15 +40,18 @@ async def run(args: argparse.Namespace) -> None:
     server = servers[args.server]
     if not isinstance(server, dict):
         raise ValueError(f"MCP server configuration must be a mapping: {args.server}")
-    command = [str(server["command"]), *(str(value) for value in server.get("args", []))]
-    async with MCPClient(
-        command,
-        cwd=server.get("cwd"),
-        env=server.get("env"),
-        timeout=float(server.get("timeout_seconds", 30)),
-        protocol=str(server.get("protocol", "auto")),
-        max_message_bytes=int(server.get("max_message_bytes", 16 * 1024 * 1024)),
-    ) as client:
+    transport = str(server.get("transport", "stdio"))
+    if transport == "streamable_http":
+        url = server.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError(f"MCP streamable_http server has no URL: {args.server}")
+        client = RemoteMCPClient(url, timeout=float(server.get("timeout_seconds", 30)), server_label=args.server)
+    elif transport == "stdio":
+        command = [str(server["command"]), *(str(value) for value in server.get("args", []))]
+        client = MCPClient(command, cwd=server.get("cwd"), env=server.get("env"), timeout=float(server.get("timeout_seconds", 30)), protocol=str(server.get("protocol", "auto")), max_message_bytes=int(server.get("max_message_bytes", 16 * 1024 * 1024)))
+    else:
+        raise ValueError(f"unsupported MCP transport: {transport}")
+    async with client:
         if args.action == "list":
             result = [tool.__dict__ for tool in await client.list_tools()]
         else:

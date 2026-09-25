@@ -27,6 +27,7 @@ from inference.web_search import (
     search_brave,
     search_searxng,
 )
+from agents.mcp import RemoteMCPClient
 from mcp.client import MCPClient, MCPTool
 from mcp.orchestration import (
     parse_explicit_tool_call,
@@ -250,14 +251,25 @@ class ConfiguredModelBackend:
             if not isinstance(allowed, list) or not allowed:
                 logger.warning("MCP server %s has no allowed_tools; skipping", name)
                 continue
-            client = MCPClient(
-                [str(settings["command"]), *(str(value) for value in settings.get("args", []))],
-                cwd=settings.get("cwd"), env=settings.get("env"),
-                timeout=float(settings.get("timeout_seconds", 30)),
-                protocol=str(settings.get("protocol", "auto")),
-                max_message_bytes=int(settings.get("max_message_bytes", 16 * 1024 * 1024)),
-                inherit_environment=bool(settings.get("inherit_environment", False)),
-            )
+            transport = str(settings.get("transport", "stdio"))
+            if transport == "streamable_http":
+                url = settings.get("url")
+                if not isinstance(url, str) or not url:
+                    logger.warning("MCP server %s has no streamable_http URL; skipping", name)
+                    continue
+                client = RemoteMCPClient(url, timeout=float(settings.get("timeout_seconds", 30)), server_label=str(name))
+            elif transport == "stdio":
+                client = MCPClient(
+                    [str(settings["command"]), *(str(value) for value in settings.get("args", []))],
+                    cwd=settings.get("cwd"), env=settings.get("env"),
+                    timeout=float(settings.get("timeout_seconds", 30)),
+                    protocol=str(settings.get("protocol", "auto")),
+                    max_message_bytes=int(settings.get("max_message_bytes", 16 * 1024 * 1024)),
+                    inherit_environment=bool(settings.get("inherit_environment", False)),
+                )
+            else:
+                logger.warning("MCP server %s has unsupported transport %r; skipping", name, transport)
+                continue
             try:
                 await client.start()
                 tools = [tool for tool in await client.list_tools() if tool.name in allowed]
@@ -604,7 +616,9 @@ class ConfiguredModelBackend:
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
                                              include_safety_instruction=getattr(self, "embed_safety_instruction", True))
         extra_system = [
-            build_tool_system_instruction(request.chat_tools, request.tool_choice),
+            build_tool_system_instruction(
+                request.chat_tools, request.tool_choice, coding=request.mode == "coding",
+            ),
             build_reasoning_system_instruction(request.reasoning_effort),
         ]
         system_prompt = "\n".join(
@@ -729,7 +743,9 @@ class ConfiguredModelBackend:
         )
         system_prompt = "\n".join(part for part in (
             system_prompt,
-            build_tool_system_instruction(request.chat_tools, request.tool_choice),
+            build_tool_system_instruction(
+                request.chat_tools, request.tool_choice, coding=request.mode == "coding",
+            ),
             build_reasoning_system_instruction(request.reasoning_effort),
         ) if part)
         prompt = ConfiguredModelBackend._format_request_conversation(

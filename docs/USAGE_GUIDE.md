@@ -74,6 +74,20 @@ Launch the API using the project serving entry point documented in
 client with base URL `http://HOST:8000/v1`, model `gopi`, and the configured API
 key.
 
+## VS Code coding-agent loop
+
+For a VS Code client that supports OpenAI function calls, use `mode: "coding"`
+and provide narrowly scoped workspace tools such as `list_files`, `search_text`,
+`read_file`, `apply_patch`, `run_tests`, and `git_diff`. In coding mode, the
+server instructs the model to inspect relevant files, analyze the returned tool
+results, make a targeted patch, and verify the change. The client must preserve
+the complete history on every request: the assistant `tool_calls` message and
+the matching `tool` result message must be sent back before the next model call.
+
+Keep write/patch and command tools behind VS Code approval. Do not give the
+model a blanket “read all files” tool: listing and searching first keeps the
+context window focused and avoids exposing unrelated workspace content.
+
 ## Non-streaming request
 
 ```bash

@@ -28,7 +28,7 @@ SERVER = Path(__file__).parent / "fixtures" / "fake_mcp_server.py"
 def test_auto_negotiates_legacy_lists_and_calls_tools() -> None:
     async def scenario():
         async with MCPClient([sys.executable, str(SERVER)], timeout=2) as client:
-            assert client.protocol_version == LEGACY_PROTOCOL_VERSION
+            assert client.protocol_version == "2025-06-18"
             assert client.server_info["name"] == "fake-legacy"
             tools = await client.list_tools()
             assert tools[0].name == "echo"
@@ -58,7 +58,7 @@ def test_mcp_does_not_inherit_parent_secrets_by_default(monkeypatch) -> None:
         async with MCPClient([sys.executable, str(SERVER)], timeout=2) as client:
             # The fake server only advertises modern mode when it receives the
             # environment variable. A secure default must keep it isolated.
-            assert client.protocol_version == LEGACY_PROTOCOL_VERSION
+            assert client.protocol_version == "2025-06-18"
 
     asyncio.run(scenario())
 

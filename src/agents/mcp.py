@@ -29,7 +29,8 @@ class RemoteMCPClient:
         self.url, self.timeout, self.server_label = url, timeout, server_label
         self.client: httpx.AsyncClient | None = None
         self.request_id = 0
-        self.protocol_version = "2025-06-18"
+        self.protocol_version = "2025-11-25"
+        self.session_id: str | None = None
     async def start(self) -> None:
         if self.timeout <= 0:
             raise ValueError("MCP timeout must be positive")
@@ -44,16 +45,26 @@ class RemoteMCPClient:
             raise
     async def close(self) -> None:
         if self.client: await self.client.aclose(); self.client = None
+    def _headers(self, method: str, name: str | None = None) -> dict[str, str]:
+        headers = {"Accept": "application/json, text/event-stream", "MCP-Protocol-Version": self.protocol_version, "Mcp-Method": method}
+        if name:
+            headers["Mcp-Name"] = name
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        return headers
     async def notify(self, method: str, params: Mapping[str, Any] | None = None) -> None:
         if self.client is None: raise RuntimeError("MCP client is not started")
-        response = await self.client.post(self.url, json={"jsonrpc":"2.0","method":method,"params":dict(params or {})}, headers={"Accept":"application/json, text/event-stream"})
+        response = await self.client.post(self.url, json={"jsonrpc":"2.0","method":method,"params":dict(params or {})}, headers=self._headers(method))
         response.raise_for_status()
     async def request(self, method: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
         if self.client is None: raise RuntimeError("MCP client is not started")
         self.request_id += 1
         payload={"jsonrpc":"2.0","id":self.request_id,"method":method,"params":dict(params or {})}
-        response=await self.client.post(self.url,json=payload,headers={"Accept":"application/json, text/event-stream"})
+        response=await self.client.post(self.url,json=payload,headers=self._headers(method, params.get("name") if isinstance(params, Mapping) and isinstance(params.get("name"), str) else None))
         response.raise_for_status()
+        session_id = response.headers.get("Mcp-Session-Id")
+        if session_id:
+            self.session_id = session_id
         data=response.json()
         if not isinstance(data, dict) or data.get("jsonrpc") != "2.0": raise MCPProtocolError("invalid remote MCP response")
         if isinstance(data.get("error"), dict): raise MCPProtocolError(str(data["error"].get("message","MCP request failed")))

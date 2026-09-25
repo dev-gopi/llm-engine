@@ -2,6 +2,8 @@ mcp:
   enabled: true
   planning_max_tokens: 96
   max_result_chars: 2000
+  # Each server uses transport: stdio (command/args) or streamable_http (url).
+  # Streamable HTTP servers remain disabled until their URL and allowlist are reviewed.
   servers:
     filesystem:
       enabled: true

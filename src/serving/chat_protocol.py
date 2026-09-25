@@ -118,7 +118,9 @@ def render_native_messages(
     return "".join(chunks)
 
 
-def build_tool_system_instruction(tools: list[OpenAITool], tool_choice: Any) -> str:
+def build_tool_system_instruction(
+    tools: list[OpenAITool], tool_choice: Any, *, coding: bool = False,
+) -> str:
     """Build a compact, deterministic native function-calling contract."""
     if not tools or tool_choice == "none":
         return ""
@@ -149,8 +151,16 @@ def build_tool_system_instruction(tools: list[OpenAITool], tool_choice: Any) -> 
             " When calling a function, emit only one or more blocks exactly in this form: "
             '<tool_call>{"name":"function_name","arguments":{}}</tool_call>. '
         )
+    coding_workflow = (
+        " For coding tasks, work in small verified stages: first use listing, search, "
+        "or read tools to inspect relevant files; analyze the returned content; then use "
+        "a write or patch tool only for the necessary change; finally use the available "
+        "test or diff tools. Never claim a file was changed or a test passed until its "
+        "tool result confirms it. Prefer targeted reads over reading an entire workspace."
+        if coding else ""
+    )
     return (
-        "Function calling is available. " + choice + contract
+        "Function calling is available. " + choice + contract + coding_workflow
         + " arguments must be a JSON object satisfying that function's JSON Schema. "
         + "Do not invent function names. Available functions: "
         + json.dumps(definitions, ensure_ascii=False, separators=(",", ":"))

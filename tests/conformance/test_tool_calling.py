@@ -91,3 +91,23 @@ def test_auto_tool_choice_does_not_misclassify_plain_json_answer_as_tool_call():
     assert parsed.error is None
     assert parsed.tool_calls == ()
     assert parsed.content == '{"answer":"ordinary structured response"}'
+
+
+def test_coding_tool_instruction_requires_inspect_patch_verify_stages():
+    from serving.chat_protocol import build_tool_system_instruction
+    from serving.schemas import OpenAITool
+
+    instruction = build_tool_system_instruction(
+        [OpenAITool.model_validate(tool())], "auto", coding=True,
+    )
+    assert "inspect relevant files" in instruction
+    assert "write or patch" in instruction
+    assert "test or diff" in instruction
+
+
+def test_non_coding_tool_instruction_omits_coding_workflow():
+    from serving.chat_protocol import build_tool_system_instruction
+    from serving.schemas import OpenAITool
+
+    instruction = build_tool_system_instruction([OpenAITool.model_validate(tool())], "auto")
+    assert "inspect relevant files" not in instruction

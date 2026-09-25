@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 MODERN_PROTOCOL_VERSION = "2026-07-28"
-LEGACY_PROTOCOL_VERSION = "2025-06-18"
+LEGACY_PROTOCOL_VERSION = "2025-11-25"
+LEGACY_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 
 
 class MCPError(RuntimeError):
@@ -234,15 +235,25 @@ class MCPClient:
 
     async def _initialize_legacy(self) -> None:
         self.protocol_version = None
-        result = await self.request("initialize", {
-            "protocolVersion": LEGACY_PROTOCOL_VERSION,
-            "capabilities": {},
-            "clientInfo": self.client_info,
-        })
-        self.protocol_version = str(result.get("protocolVersion", LEGACY_PROTOCOL_VERSION))
-        self.server_info = dict(result.get("serverInfo", {}))
-        self.server_capabilities = dict(result.get("capabilities", {}))
-        await self._write({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+        last_error: MCPProtocolError | None = None
+        for version in LEGACY_PROTOCOL_VERSIONS:
+            try:
+                result = await self.request("initialize", {
+                    "protocolVersion": version,
+                    "capabilities": {},
+                    "clientInfo": self.client_info,
+                })
+            except MCPProtocolError as error:
+                last_error = error
+                if error.code not in {-32022, -32021, -32602}:
+                    raise
+                continue
+            self.protocol_version = str(result.get("protocolVersion", version))
+            self.server_info = dict(result.get("serverInfo", {}))
+            self.server_capabilities = dict(result.get("capabilities", {}))
+            await self._write({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+            return
+        raise last_error or MCPProtocolError("MCP server rejected all supported legacy protocol versions")
 
     async def _write(self, payload: Mapping[str, Any]) -> None:
         if self.process is None or self.process.stdin is None:

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a coding-mode tool workflow that guides compatible clients through inspect, analyze, patch, and verify stages.
+- Upgraded MCP client negotiation to fall back across supported legacy protocol versions and added `streamable_http` server wiring for serving and the MCP CLI; tool allowlists remain mandatory.
 - Added RAG support for image metadata (PNG/JPEG/WebP/GIF/BMP/TIFF) and safely bounded ZIP archives containing text, code, and configuration files.
 - Extended local RAG ingestion to PDF, DOCX, XLSX/XLSM, and common source-code/configuration files. Excel workbooks are read-only with cached values; all retrieved content remains untrusted.
 - Made Pillow a standard runtime dependency because the supported image-data
