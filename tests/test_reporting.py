@@ -30,6 +30,10 @@ def test_standalone_system_report_uses_local_json_and_sample() -> None:
 
     assert "system_report.json" in html
     assert "system_report.sample.json" in html
+    assert 'id="generation-modal"' in html
+    assert "openGenerationModal" in html
+    assert "play-gen-preview" in html
+    assert "generation-modal-metrics" in html
     assert sample["generation"]["samples_evaluated"] >= 1
     assert sample["serving"]["paged_kv_pages"] >= 1
 

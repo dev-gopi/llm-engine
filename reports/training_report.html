@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Gopi Training Report</title>
   <style>
-    :root { color-scheme: dark; --bg:#07111f; --card:#0f1d30; --line:#263950; --text:#e7eef8; --muted:#91a4ba; --blue:#4f9cf9; --red:#fb7185; --green:#34d399; }
+    :root { color-scheme: dark; --bg:#07111f; --card:#0f1d30; --line:#263950; --text:#e7eef8; --muted:#91a4ba; --blue:#4f9cf9; --red:#fb7185; --green:#34d399; --yellow:#fbbf24; --cyan:#22d3ee; --purple:#a78bfa; }
     * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--text); font:14px Inter,system-ui,sans-serif }
-    header { padding:24px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:20px; align-items:center }
-    h1,h2 { margin:0 } h1 { font-size:24px } h2 { font-size:16px; margin-bottom:14px }
+    header { position:sticky; top:0; z-index:20; padding:18px 24px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:16px; align-items:center; background:rgba(7,17,31,.96); backdrop-filter:blur(12px) }
+    h1,h2 { margin:0 } h1 { display:flex; align-items:center; gap:10px; font-size:20px } h2 { font-size:16px; margin-bottom:14px }
     .muted { color:var(--muted) } main { padding:22px; max-width:1500px; margin:auto }
     main > section { content-visibility:auto; contain-intrinsic-size:auto 420px }
     .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:11px; margin-bottom:18px }
@@ -45,7 +45,8 @@
     tr.table-filtered { display:none }
     .pagination { display:flex; justify-content:flex-end; gap:8px; align-items:center; margin-top:12px }.pagination button { padding:6px 10px }.pagination button:disabled { cursor:not-allowed; opacity:.45 }.pagination-status { min-width:130px; color:var(--muted); text-align:center; font-size:12px }
     pre { white-space:pre-wrap; max-height:430px; overflow:auto; background:#06101c; padding:14px; border-radius:8px; color:#cbd5e1 }
-    button,.file { border:1px solid var(--line); background:#162942; color:var(--text); padding:9px 12px; border-radius:8px; cursor:pointer }
+    button,.file { border:1px solid var(--line); background:#162942; color:var(--text); padding:9px 12px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600; transition:background .15s,border-color .15s,color .15s }
+    button:hover,.file:hover { background:#203f67; border-color:var(--blue); color:#fff }.primary { background:linear-gradient(135deg,#2563eb,#1d4ed8); border-color:#3b82f6; color:#fff }.primary:hover { background:linear-gradient(135deg,#3b82f6,#2563eb) }.badge { padding:3px 8px; border-radius:999px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.035em }.badge-ok { border:1px solid var(--green); background:rgba(52,211,153,.2); color:var(--green) }.badge-warn { border:1px solid var(--yellow); background:rgba(251,191,36,.2); color:var(--yellow) }.badge-off { border:1px solid var(--red); background:rgba(251,113,133,.2); color:var(--red) }
     input[type=file] { max-width:230px } .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
     .report-explorer { position:sticky; z-index:10; top:0; display:flex; gap:8px; align-items:center; padding:10px 22px; overflow-x:auto; border-bottom:1px solid var(--line); background:rgba(7,17,31,.94); backdrop-filter:blur(12px) }
     .report-explorer button.active { border-color:var(--blue); background:#1d4f86 }.report-explorer input { min-width:210px; margin-left:auto; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:#0a1728; color:var(--text) }
@@ -53,6 +54,7 @@
     /* Filters on very wide SVG paths force Chromium to allocate large GPU
        surfaces and can eventually crash the renderer on long-running reports. */
     .chart-line { filter:none }
+    button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--cyan); outline-offset:2px }.panel { box-shadow:inset 0 1px rgba(255,255,255,.025),0 12px 30px rgba(0,0,0,.10); transition:border-color .18s ease,transform .18s ease }.panel:hover { border-color:rgba(103,132,166,.55) }.generation-quality { display:grid; gap:10px }.generation-quality-summary { padding:12px 14px; border:1px solid rgba(34,211,238,.28); border-radius:10px; background:linear-gradient(135deg,rgba(8,47,73,.72),rgba(7,20,35,.9)); box-shadow:inset 0 1px rgba(255,255,255,.04) }.generation-quality-summary p { margin:0 0 6px }.generation-quality-summary p:last-child { margin-bottom:0 }.generation-quality table td:nth-child(2),.generation-quality table td:nth-child(3) { max-width:38ch; white-space:normal; overflow-wrap:anywhere }
     .chart-area { pointer-events:none }
     .chart-point { cursor:crosshair; filter:drop-shadow(0 3px 3px rgba(0,0,0,.3)); transition:r .12s,opacity .12s }.chart-point:hover { r:6px; opacity:1 }
     .ok { color:var(--green) } .bad { color:var(--red) }
@@ -153,11 +155,11 @@
 </head>
 <body>
   <header>
-    <div><h1>Gopi training report</h1><div id="status" class="muted">Loading latest training report…</div></div>
-    <div class="controls"><button id="compact" aria-pressed="false">Compact</button><button id="fullscreen">Full screen</button><button id="notifications" aria-pressed="false">Notifications off</button><button id="export-pdf" disabled title="Open print dialog and choose Save as PDF">Export PDF</button><button id="refresh">Show latest</button><button id="sample">Load sample</button><label class="file">Load JSON <input id="file" type="file" accept="application/json"></label></div>
+    <div><h1>📈 Gopi Engine — Training & Operations <span id="training-status" class="badge badge-ok">Loading</span></h1><div id="status" class="muted">Live loss, throughput, validation, and hardware telemetry.</div></div>
+    <div class="controls"><button id="refresh" class="primary">🔄 Show latest</button><button id="compact" aria-pressed="false">▣ Compact</button><button id="fullscreen">⛶ Full screen</button><button id="notifications" aria-pressed="false">🔔 Notifications off</button><button id="export-pdf" disabled title="Open print dialog and choose Save as PDF">⇩ Export PDF</button><button id="sample">◈ Load sample</button><label class="file">Load JSON <input id="file" type="file" accept="application/json"></label></div>
   </header>
   <nav class="report-explorer" aria-label="Report views">
-    <button class="active" data-report-view="all">All</button><button data-report-view="overview">Overview</button><button data-report-view="timing">Timing</button><button data-report-view="resources">Resources</button><button data-report-view="quality">Quality</button><button data-report-view="details">Details</button>
+    <button class="active" data-report-view="all">Overview & All</button><button data-report-view="overview">◉ Training overview</button><button data-report-view="timing">◷ Timing</button><button data-report-view="resources">▦ Resources</button><button data-report-view="quality">✓ Quality</button><button data-report-view="details">{ } Details</button>
     <input id="report-search" type="search" placeholder="Filter cards and tables…" aria-label="Filter report details">
   </nav>
   <main>
@@ -223,7 +225,7 @@
       <div class="panel"><h2>Run summary</h2><div id="run-summary"></div></div>
     </section>
     <section class="panel" style="margin-bottom:16px"><h2>Report coverage and recommended additional evaluations</h2><div id="report-coverage"></div></section>
-    <section class="panel" style="margin-bottom:16px"><h2>Generation quality</h2><div id="generation-quality" style="overflow-x:auto"></div></section>
+    <section class="panel" style="margin-bottom:16px"><h2>Generation quality</h2><div id="generation-quality" class="generation-quality" style="overflow-x:auto"></div></section>
     <section class="panel report-details"><h2>Dataset quality audit</h2><div id="data-quality"></div></section>
     <section class="panel report-details"><h2>Runtime statistics</h2><div id="runtime-details"></div></section>
     <section class="panel report-details"><h2>Report metadata</h2><div id="report-metadata"></div></section>
@@ -610,6 +612,11 @@
       const resumes=resumeCount(data);
       const activeValidation = analysis.runtime?.active_validation || analysis.active_validation || {running: false};
       const valRunning = Boolean(activeValidation?.running);
+      const headerStatus=document.getElementById('training-status');
+      if(manual){headerStatus.textContent='Snapshot';headerStatus.className='badge badge-warn'}
+      else if(valRunning){headerStatus.textContent='Validating';headerStatus.className='badge badge-warn'}
+      else if(!train.length){headerStatus.textContent='Waiting';headerStatus.className='badge badge-off'}
+      else {headerStatus.textContent='Training active';headerStatus.className='badge badge-ok'}
       const valLabel = valRunning ? ` · 🔄 Validation running${activeValidation.name ? ` (${esc(activeValidation.name)})` : ''}${activeValidation.batches ? ` [${esc(activeValidation.batches)}]` : ''}${activeValidation.eta_seconds != null ? ` · ETA ${durationFmt(activeValidation.eta_seconds)}${activeValidation.eta_source==='historical_average'?' (prior-pass average)':''}` : ' · ETA learning after first completed pass'}` : '';
       const epochLabel=latest.epoch!=null?`Epoch ${fmt(latest.epoch,0)}${configuredEpochs>0?` of ${fmt(configuredEpochs,0)}`:''}`:'Epoch not started';
       document.getElementById('meter-step').textContent=latest.step!=null?`Step ${fmt(latest.step,0)} · ${epochLabel}${valLabel}`:'Waiting for training data';
@@ -755,9 +762,9 @@
       const accuracy=typeof rawAccuracy==='number'&&Number.isFinite(rawAccuracy)&&rawAccuracy>=0&&rawAccuracy<=1&&generation.summary?.cases!==0?rawAccuracy:null;
       const probes=Array.isArray(generation.responses)?generation.responses.filter(row=>row&&typeof row==='object'):[];
       const results=Array.isArray(generation.results)?generation.results.filter(row=>row&&typeof row==='object'):[];
-      document.getElementById('generation-quality').innerHTML=`<p>${accuracy==null?(probes.length?'Qualitative probes available; accuracy not measured.':'Generation accuracy pending; no valid benchmark result available.'):'Benchmark accuracy: '+fmt(accuracy*100,2)+'%'}</p>`
+      document.getElementById('generation-quality').innerHTML=`<div class="generation-quality-summary"><p>${accuracy==null?(probes.length?'Qualitative probes available; accuracy not measured.':'Generation accuracy pending; no valid benchmark result available.'):'Benchmark accuracy: '+fmt(accuracy*100,2)+'%'}</p>`
         +(generation.checkpoint?`<p>Checkpoint: ${esc(generation.checkpoint)}</p>`:'')
-        +(generation.note?`<p class="muted">${esc(generation.note)}</p>`:'')
+        +(generation.note?`<p class="muted">${esc(generation.note)}</p>`:'')+`</div>`
         +(results.length?table(['Category','Prompt','Response','Score'],results.map(row=>[esc(row.category),esc(row.prompt),esc(row.answer),typeof row.score==='number'&&Number.isFinite(row.score)&&row.score>=0&&row.score<=1?fmt(row.score*100,2)+'%':'—'])):'')
         +(probes.length?table(['Probe','Prompt','Response','Review criterion'],probes.map(row=>[esc(row.name||row.mode),esc(row.prompt),esc(row.response),esc(row.criterion||'Coherence and relevance.')])):'');
       const comparisonNote=probes.length&&accuracy==null

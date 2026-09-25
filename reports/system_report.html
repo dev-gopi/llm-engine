@@ -20,7 +20,7 @@
       --purple: #a78bfa;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text); font: 13.5px Inter, system-ui, -apple-system, sans-serif; line-height: 1.45; }
+    body { margin: 0; background: radial-gradient(circle at 12% -8%, rgba(79,156,249,.16), transparent 28%), radial-gradient(circle at 94% 8%, rgba(167,139,250,.10), transparent 25%), var(--bg); color: var(--text); font: 13.5px Inter, system-ui, -apple-system, sans-serif; line-height: 1.45; }
     header { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; background: rgba(7,17,31,0.96); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 20; }
     h1, h2, h3 { margin: 0; }
     h1 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
@@ -92,10 +92,11 @@
     .chart-bar-val { font-size: 10px; font-weight: 700; color: #fff; }
 
     /* Interactive Testing Playground Boxes */
-    .interactive-box { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-    .interactive-input { flex: 1 1 300px; height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #081424; color: var(--text); font-size: 13px; outline: none; }
-    .interactive-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(79,156,249,0.15); }
-    .result-box { background: #06101c; border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12.5px; line-height: 1.5; color: #e2e8f0; min-height: 45px; margin-top: 8px; }
+    .interactive-box { display: flex; gap: 9px; margin-bottom: 14px; flex-wrap: wrap; padding: 11px; border: 1px solid rgba(96,117,141,.3); border-radius: 12px; background: linear-gradient(145deg, rgba(17,38,63,.76), rgba(6,17,30,.88)); box-shadow: inset 0 1px rgba(255,255,255,.04), 0 8px 22px rgba(0,0,0,.12); }
+    .interactive-input { flex: 1 1 300px; height: 42px; padding: 9px 12px; border: 1px solid rgba(96,117,141,.52); border-radius: 9px; background: #081424; color: var(--text); font-size: 13px; outline: none; transition: border-color .15s, box-shadow .15s, background .15s; }
+    .interactive-input:hover { border-color: #58779a; background: #0b1b2e; }.interactive-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(79,156,249,.16); }
+    .result-box { position: relative; overflow: auto; background: linear-gradient(145deg, #091827, #06101c); border: 1px solid rgba(96,117,141,.38); border-radius: 10px; padding: 14px; font-size: 12.5px; line-height: 1.6; color: #e2e8f0; min-height: 52px; margin-top: 9px; box-shadow: inset 0 1px rgba(255,255,255,.03); }
+    .generation-preview { width:100%; overflow:hidden; border:1px solid rgba(96,117,141,.34); border-radius:8px; background:rgba(8,24,39,.86); color:#dbeafe; padding:8px 10px; text-align:left; text-overflow:ellipsis; white-space:nowrap; font:inherit; cursor:pointer; }.generation-preview:hover { border-color:var(--cyan); background:rgba(14,53,79,.86); }.generation-modal { position:fixed; z-index:100; inset:0; display:grid; place-items:center; padding:20px; background:rgba(2,8,18,.72); backdrop-filter:blur(9px); }.generation-modal[hidden] { display:none; }.generation-modal-card { width:min(820px,100%); max-height:min(760px,calc(100vh - 40px)); overflow:auto; border:1px solid rgba(103,132,166,.62); border-radius:16px; background:linear-gradient(145deg,#112842,#091827); box-shadow:0 28px 80px rgba(0,0,0,.52); }.generation-modal-header { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid rgba(96,117,141,.3); background:rgba(13,31,51,.96); backdrop-filter:blur(12px); }.generation-modal-body { display:grid; gap:14px; padding:18px; }.generation-modal-label { margin:0 0 6px; color:#8eacd0; font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }.generation-modal-copy { white-space:pre-wrap; overflow-wrap:anywhere; padding:13px; border:1px solid rgba(96,117,141,.3); border-radius:10px; background:#06101c; color:#e2e8f0; line-height:1.65; }.generation-modal-actions { display:flex; justify-content:flex-end; gap:8px; }
 
     /* Filterable & Sortable Tables */
     .table-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 11px; padding: 9px; border: 1px solid rgba(96,117,141,.3); border-radius: 10px; background: linear-gradient(145deg, rgba(19,38,62,.78), rgba(7,20,35,.88)); }
@@ -112,7 +113,7 @@
     /* Controls & Buttons */
     .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     button, .btn { border: 1px solid var(--line); background: #162942; color: var(--text); padding: 7px 13px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
-    button:hover { background: #203f67; border-color: var(--blue); color: #fff; }
+    button:hover { background: #203f67; border-color: var(--blue); color: #fff; transform: translateY(-1px); } button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
     button.primary { background: linear-gradient(135deg, #2563eb, #1d4ed8); border-color: #3b82f6; color: #fff; }
     button.primary:hover { background: linear-gradient(135deg, #3b82f6, #2563eb); }
     .badge { padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
@@ -124,6 +125,8 @@
     @keyframes spin { 100% { transform: rotate(360deg); } }
     .hidden-section { display: none !important; }
     pre { white-space: pre-wrap; max-height: 420px; overflow: auto; background: #06101c; padding: 14px; border-radius: 8px; color: #cbd5e1; font-size: 11.5px; border: 1px solid var(--line); }
+    .panel { box-shadow: inset 0 1px rgba(255,255,255,.025), 0 12px 30px rgba(0,0,0,.10); transition: border-color .18s ease, transform .18s ease; }.panel:hover { border-color: rgba(103,132,166,.55); }
+    @media (max-width: 720px) { header { padding: 14px; align-items: stretch; } main { padding: 14px; } h1 { font-size: 17px; } .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .controls button, .controls .btn { justify-content: center; } .report-explorer { padding-bottom: 10px; } .report-explorer .search-box { margin-left: 0; min-width: 100%; } .report-explorer input { width: 100%; min-width: 0; } .grid, .operations-grid { grid-template-columns: minmax(0, 1fr); } .interactive-box { padding: 9px; } }
   </style>
 </head>
 <body>
@@ -382,6 +385,12 @@
       <pre id="raw-json">Loading JSON...</pre>
     </section>
   </main>
+  <div id="generation-modal" class="generation-modal" role="dialog" aria-modal="true" aria-labelledby="generation-modal-title" hidden>
+    <div class="generation-modal-card">
+      <div class="generation-modal-header"><h2 id="generation-modal-title">Generated response</h2><button type="button" onclick="closeGenerationModal()" aria-label="Close generated response">✕ Close</button></div>
+      <div class="generation-modal-body"><div><p class="generation-modal-label">Prompt</p><div id="generation-modal-prompt" class="generation-modal-copy"></div></div><div><p class="generation-modal-label">Response</p><div id="generation-modal-response" class="generation-modal-copy"></div></div><div id="generation-modal-metrics" class="muted" style="font-size:11px;"></div><div class="generation-modal-actions"><button type="button" onclick="copyGenerationResponse()">⧉ Copy response</button></div></div>
+    </div>
+  </div>
 
   <script>
     const LOCAL_REPORT_URLS = ['system_report.json', 'system_report.sample.json'];
@@ -724,13 +733,20 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
               <td><strong>${s.prompt}</strong></td>
-              <td style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${s.generated_text}">${s.generated_text}</td>
+              <td class="generation-response-cell"></td>
               <td class="num">${s.prompt_tokens || '--'}</td>
               <td class="num"><strong>${s.tokens || 0}</strong></td>
               <td class="num"><code>${s.ttft_s ? (s.ttft_s * 1000).toFixed(1) : '--'} ms</code></td>
               <td class="num"><strong>${s.tokens_per_second || '--'}</strong></td>
               <td><span class="badge badge-ok">${s.finish_reason || 'stop'}</span></td>
             `;
+            const preview = document.createElement('button');
+            preview.type = 'button';
+            preview.className = 'generation-preview';
+            preview.textContent = s.generated_text || 'No generated output';
+            preview.title = 'Open full generated response';
+            preview.onclick = () => openGenerationModal(s.prompt || '', s.generated_text || '');
+            tr.querySelector('.generation-response-cell').appendChild(preview);
             genTbody.appendChild(tr);
 
             // TPS Chart Bar
@@ -776,9 +792,9 @@
         if (d.error) {
           box.innerHTML = '<span style="color:var(--red);">Error: ' + d.error + '</span>';
         } else {
+          const metrics = `TTFT ${(d.ttft_s * 1000).toFixed(1)} ms · ${d.tokens_per_second.toFixed(1)} tok/s · ${d.tokens} tokens · ${d.finish_reason}`;
           box.innerHTML = `
-            <div style="margin-bottom:6px; font-weight:600; color:var(--cyan);">Generated Response:</div>
-            <div style="padding:6px 0; font-size:13px;">${d.text}</div>
+            <button type="button" class="generation-preview" id="play-gen-preview">Generated response — open full view</button>
             <div style="margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:14px;">
               <span>⚡ TTFT: <strong>${(d.ttft_s * 1000).toFixed(1)} ms</strong></span>
               <span>🚀 Speed: <strong>${d.tokens_per_second.toFixed(1)} tok/s</strong></span>
@@ -786,6 +802,8 @@
               <span>🏁 Reason: <strong>${d.finish_reason}</strong></span>
             </div>
           `;
+          document.getElementById('play-gen-preview').onclick = () => openGenerationModal(prompt, d.text || '', metrics);
+          openGenerationModal(prompt, d.text || '', metrics);
         }
       } catch (err) {
         box.innerHTML = '<span style="color:var(--red);">Request failed: ' + err + '</span>';
@@ -838,6 +856,28 @@
       navigator.clipboard.writeText(JSON.stringify(currentReportData, null, 2));
       alert('Report JSON copied to clipboard!');
     }
+
+    let generationModalTrigger = null;
+
+    function openGenerationModal(prompt, response, metrics = '') {
+      document.getElementById('generation-modal-prompt').textContent = prompt;
+      document.getElementById('generation-modal-response').textContent = response;
+      generationModalTrigger = document.activeElement;
+      document.getElementById('generation-modal-metrics').textContent = metrics;
+      document.getElementById('generation-modal').hidden = false;
+      document.querySelector('#generation-modal button').focus();
+    }
+
+    function closeGenerationModal() {
+      document.getElementById('generation-modal').hidden = true;
+      if (generationModalTrigger instanceof HTMLElement) generationModalTrigger.focus();
+    }
+
+    function copyGenerationResponse() {
+      navigator.clipboard.writeText(document.getElementById('generation-modal-response').textContent || '');
+    }
+
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeGenerationModal(); });
 
     function filterTable(tableId, query) {
       const rows = document.querySelectorAll('#' + tableId + ' tbody tr');

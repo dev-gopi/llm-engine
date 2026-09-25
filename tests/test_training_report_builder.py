@@ -29,6 +29,14 @@ def test_training_report_uses_four_separate_timing_charts() -> None:
     assert 'id="event-duration-chart"' not in template
 
 
+def test_training_report_uses_operations_style_header() -> None:
+    template = REPORT_TEMPLATE.read_text(encoding="utf-8")
+
+    assert 'id="training-status"' in template
+    assert 'Gopi Engine — Training & Operations' in template
+    assert 'Overview & All' in template
+
+
 def test_parse_training_log_collects_training_domains_and_best_updates(tmp_path) -> None:
     log = tmp_path / "train.log"
     log.write_text("""2026-09-01 22:50:09,507 | INFO | trainer | epoch=1 step=10000 loss=2.125895 lr=2.7e-05 grad_norm=8.3 tokens=32907795 tokens_per_second=2642.9 progress=20.27% elapsed_seconds=12451 eta_seconds=48986 best_validation_loss=2.855694 peak_memory_mb=1650.0 gpu_memory_mb=1083.2/1856.0/3770.2 nonfinite_updates=0 log_interval_seconds=31.06 seconds_per_step=1.242 next_log_eta_seconds=31.1 next_checkpoint_eta_seconds=0.0 next_validation_eta_seconds=2484.0 (avg=2.325153)
@@ -479,5 +487,4 @@ def test_parser_captures_validation_events_and_active_state(tmp_path) -> None:
     assert analysis_done["runtime"]["active_validation"]["running"] is False
     assert analysis_done["runtime"]["latest_validation_duration_seconds"] == 13.0
     assert analysis_done["runtime"]["average_validation_duration_seconds"] == 13.0
-
 

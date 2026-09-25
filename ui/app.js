@@ -81,12 +81,13 @@ function showDiagnostic(value) { el.diagnosticOutput.textContent = typeof value 
 function setBusy(busy) {
   generationInProgress = busy;
   el.send.disabled = busy;
-  el.stop.hidden = !busy;
+  el.stop.disabled = !busy;
   el.prompt.disabled = busy;
   el.clear.disabled = busy;
   el.newTop.disabled = busy;
   el.send.textContent = busy ? "Generating…" : "Generate";
   el.reviewLast.disabled = busy || !lastCompletedExample;
+  el.stop.textContent = busy ? "■ Stop" : "Stop";
 }
 function setTransport(label) { el.transportBadge.textContent = label; }
 
@@ -493,6 +494,12 @@ el.form.addEventListener("submit",(e)=>{e.preventDefault();if(!generationInProgr
 el.prompt.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!generationInProgress)el.form.requestSubmit();}});
 el.prompt.addEventListener("input",()=>{el.prompt.style.height="auto";el.prompt.style.height=`${Math.min(el.prompt.scrollHeight,220)}px`;});
 el.attachments.addEventListener("change",renderAttachmentPreview);
+document.querySelectorAll("[data-prompt]").forEach((button)=>button.addEventListener("click",()=>{
+  if(generationInProgress) return;
+  el.prompt.value=button.dataset.prompt || "";
+  el.prompt.dispatchEvent(new Event("input"));
+  el.prompt.focus();
+}));
 el.health.addEventListener("click",checkHealth); el.refreshHistory.addEventListener("click",refreshServerHistory); el.refreshModel.addEventListener("click",refreshModel);
 el.newTop.addEventListener("click",()=>newConversation()); el.clear.addEventListener("click",()=>newConversation());
 el.stop.addEventListener("click",()=>{cancelActiveRequest();activeController?.abort();if(activeSocket){activeSocket.close(1000);activeSocket=null;}setBusy(false);});

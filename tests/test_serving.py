@@ -247,6 +247,8 @@ def test_browser_playground_is_served():
     assert 'src="app.js"' in response.text
     assert 'id="mcpTool"' in response.text
     assert 'id="attachments"' in response.text
+    assert 'id="stopButton"' in response.text
+    assert 'aria-label="Stop generation"' in response.text
     assert 'audio/wav' in response.text
     assert 'video/mp4' in response.text
     assert 'id="reasoningEffort"' in response.text

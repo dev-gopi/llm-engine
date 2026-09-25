@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+- Modernized the `/ui/` text-generation playground with a refined chat canvas, prompt suggestions, and a focused generation composer while retaining streaming, multimodal attachments, tools, and API-mode controls.
+- Made the text-generation playground Stop action permanently visible and generation-aware: it becomes active while a response streams and cancels the current request safely.
 - Added unified system reporting and interactive web dashboard for inference, serving, chat session memory, and RAG knowledge retrieval. Includes `src/inference/reporting.py`, `src/serving/report_router.py`, `scripts/build_report.py`, and `scripts/serve_report.py` with standalone offline HTML export and live interactive generation and RAG search playgrounds.
 - Made the standalone system report load `system_report.json` by default, added an explicit JSON link, and included a sample report fallback for offline viewing.
+- Updated the training report UI to match the system report's operations dashboard style, with a live status badge, elevated controls, and categorized navigation.
+- Refined the training, standalone system, and served operations dashboards with modern responsive surfaces, accessible focus states, improved controls, and clearer generation playground and response presentation.
+- Added a responsive generation-response modal to the standalone and served system reports, including benchmark and live-playground results, performance metadata, full prompt/output viewing, Escape-to-close, focus restoration, and one-click response copying.
 - Improved the live training report: validation is now shown while it runs, with per-batch ETA when available or a clearly labelled historical-duration estimate; optimizer-step, log-window, checkpoint, and validation timings now use separate charts so their scales do not obscure one another.
 - Fixed runtime timing contamination in training and validation report generation: reset log interval timing after initial/mid-epoch validations and checkpoint saves, fixed `Trainer.promotion_metrics()` calling `tokens_per_second` property as a function, fixed validation progress ETA formatting when target batches are unknown, and added training and validation start and end timestamps to report progress analysis.
 - Added a coding-mode tool workflow that guides compatible clients through inspect, analyze, patch, and verify stages.
