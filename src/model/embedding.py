@@ -176,7 +176,7 @@ class TokenEmbedding(nn.Module):
         return cls(
             vocab_size=int(config["vocab_size"]),
             dim=int(config["hidden_size"]),
-            padding_idx=config.get("padding_idx"),
+            padding_idx=(int(config["padding_idx"]) if config.get("padding_idx") is not None else None),
             initializer_range=float(config.get("initializer_range", 0.02)),
             scale_embeddings=bool(config.get("scale_embeddings", False)),
             freeze=bool(config.get("freeze_embeddings", False)),

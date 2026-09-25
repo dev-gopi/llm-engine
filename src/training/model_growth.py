@@ -52,7 +52,9 @@ def grow_model(
             if name.startswith("blocks."):
                 continue
             raise ValueError(f"target has an unsupported new parameter: {name}")
-        if name in _VOCABULARY_PARAMETERS and source_value.shape != destination.shape:
+        if (
+            name in _VOCABULARY_PARAMETERS or name.startswith("mtp_heads.")
+        ) and source_value.shape != destination.shape:
             if (
                 source_value.ndim != destination.ndim
                 or source_value.shape[1:] != destination.shape[1:]
@@ -87,9 +89,15 @@ def grow_model(
             block.attn.out_proj.weight.zero_()
             if block.attn.out_proj.bias is not None:
                 block.attn.out_proj.bias.zero_()
-            block.ffn.out_proj.weight.zero_()
-            if block.ffn.out_proj.bias is not None:
-                block.ffn.out_proj.bias.zero_()
+            if hasattr(block.ffn, "out_proj"):
+                block.ffn.out_proj.weight.zero_()
+                if block.ffn.out_proj.bias is not None:
+                    block.ffn.out_proj.bias.zero_()
+            elif hasattr(block.ffn, "experts"):
+                for expert in block.ffn.experts:
+                    expert.out_proj.weight.zero_()
+                    if expert.out_proj.bias is not None:
+                        expert.out_proj.bias.zero_()
     if target.tie_word_embeddings:
         target.tie_weights()
 

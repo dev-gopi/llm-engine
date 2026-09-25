@@ -62,3 +62,23 @@ def test_depth_doubling_from_sixteen_to_thirty_two_layers_is_an_exact_identity()
     grow_model(source, target)
 
     assert identity_output_error(source, target, torch.tensor([[1, 2, 3, 4]])) == 0.0
+
+
+def test_grow_model_supports_mtp_and_moe() -> None:
+    torch.manual_seed(11)
+    source_moe = MiniGPT(
+        vocab_size=32, dim=16, layers=2, heads=4, kv_heads=2, max_pos=16,
+        ffn_type="moe", num_experts=4, experts_per_token=2, mtp_num_predictions=2,
+    ).eval()
+    target_moe = MiniGPT(
+        vocab_size=36, dim=16, layers=4, heads=4, kv_heads=2, max_pos=16,
+        ffn_type="moe", num_experts=4, experts_per_token=2, mtp_num_predictions=2,
+    ).eval()
+    report = grow_model(source_moe, target_moe)
+    assert report.source_vocab_size == 32
+    assert report.target_vocab_size == 36
+    for block in target_moe.blocks[2:]:
+        assert torch.count_nonzero(block.attn.out_proj.weight) == 0
+        for expert in block.ffn.experts:
+            assert torch.count_nonzero(expert.out_proj.weight) == 0
+

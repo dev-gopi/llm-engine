@@ -208,7 +208,11 @@ class TransformerBlock(nn.Module):
             causal_attention=bool(config.get("causal_attention", True)),
             qk_norm=bool(config.get("qk_norm", False)),
             qk_norm_eps=float(config.get("qk_norm_eps", 1e-6)),
-            ffn_hidden_dim=config.get("ffn_hidden_size"),
+            ffn_hidden_dim=(
+                int(config["ffn_hidden_size"])
+                if config.get("ffn_hidden_size") is not None
+                else None
+            ),
             ffn_expansion_factor=float(config.get("ffn_expansion_factor", 4.0)),
             ffn_multiple_of=int(config.get("ffn_multiple_of", 1)),
             ffn_activation=str(config.get("ffn_activation", "gelu")),

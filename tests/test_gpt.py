@@ -233,3 +233,17 @@ def test_mtp_model_can_load_ordinary_causal_checkpoint() -> None:
     assert not result.missing_keys or all(key.startswith("mtp_heads.") for key in result.missing_keys)
     assert result.unexpected_keys == []
     torch.testing.assert_close(mtp.tok.weight, base.tok.weight)
+
+
+def test_mtp_resizes_token_embeddings() -> None:
+    mtp = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2, mtp_num_predictions=2)
+    assert mtp.resize_token_embeddings(40) == 40
+    assert mtp.vocab_size == 40
+    assert mtp.tok.vocab_size == 40
+    assert mtp.head.out_features == 40
+    for head in mtp.mtp_heads:
+        assert head.out_features == 40
+    logits, aux = mtp(torch.randint(0, 40, (2, 8)), return_mtp_logits=True)
+    assert logits.shape == (2, 8, 40)
+    assert [item.shape for item in aux] == [(2, 8, 40), (2, 8, 40)]
+

@@ -476,6 +476,32 @@ class MiniGPT(nn.Module):
                 replacement.bias[:rows].copy_(old_head.bias[:rows])
 
         self.head = replacement
+        if self.mtp_num_predictions:
+            new_mtp_heads = nn.ModuleList()
+            for old_mtp_head in self.mtp_heads:
+                mtp_replacement = nn.Linear(
+                    self.dim,
+                    effective_size,
+                    bias=old_mtp_head.bias is not None,
+                    device=old_mtp_head.weight.device,
+                    dtype=old_mtp_head.weight.dtype,
+                )
+                mtp_rows = min(old_mtp_head.out_features, effective_size)
+                with torch.no_grad():
+                    if init_strategy == "zero":
+                        mtp_replacement.weight.zero_()
+                    elif init_strategy == "mean":
+                        mean_vec = old_mtp_head.weight.mean(dim=0)
+                        mtp_replacement.weight.copy_(mean_vec.unsqueeze(0).expand(effective_size, -1))
+                    else:
+                        nn.init.normal_(mtp_replacement.weight, mean=0.0, std=self.tok.initializer_range)
+
+                    mtp_replacement.weight[:mtp_rows].copy_(old_mtp_head.weight[:mtp_rows])
+                    if mtp_replacement.bias is not None:
+                        mtp_replacement.bias.zero_()
+                        mtp_replacement.bias[:mtp_rows].copy_(old_mtp_head.bias[:mtp_rows])
+                new_mtp_heads.append(mtp_replacement)
+            self.mtp_heads = new_mtp_heads
         self.vocab_size = effective_size
         if self.tie_word_embeddings:
             self.tie_weights()

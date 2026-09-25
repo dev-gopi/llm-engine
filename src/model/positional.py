@@ -47,8 +47,8 @@ def apply_rotary_pos_emb(
                     f"position IDs must be in [0, {cos.shape[2] - 1}], "
                     f"but received range [{minimum}, {maximum}]"
                 )
-        cos = cos.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)  # [batch, 1, seq, head_dim]
-        sin = sin.squeeze(0).squeeze(0)[position_ids].unsqueeze(1)
+        cos = cos[0, 0, position_ids].unsqueeze(1)  # [batch, 1, seq, head_dim]
+        sin = sin[0, 0, position_ids].unsqueeze(1)
     # Autocast projections can be BF16/FP16 while the position tables are
     # FP32. Keep rotated states in the projection dtype so cached K and V
     # remain compatible and do not silently double key-cache storage.

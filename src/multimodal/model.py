@@ -114,7 +114,19 @@ class VisionLanguageModel(nn.Module):
         if self.language_model.rotary_emb is not None:
             rotary = self.language_model.rotary_emb(hidden_states, seq_len=hidden_states.shape[1])
         for block in self.language_model.blocks:
-            hidden_states = block(hidden_states, rotary_pos_emb=rotary)
+            if self.language_model.gradient_checkpointing and self.training:
+                def create_custom_forward(target_block: nn.Module):
+                    def custom_forward(*inputs: Tensor) -> Tensor:
+                        return target_block(inputs[0], rotary_pos_emb=rotary)
+                    return custom_forward
+
+                hidden_states = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(block),
+                    hidden_states,
+                    use_reentrant=False,
+                )
+            else:
+                hidden_states = block(hidden_states, rotary_pos_emb=rotary)
         logits = self.language_model.head(self.language_model.norm(hidden_states))
         if self.language_model.logit_softcap is not None:
             logits = self.language_model.logit_softcap * torch.tanh(
