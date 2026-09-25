@@ -9,10 +9,24 @@ from types import SimpleNamespace
 import pytest
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "build_training_report.py"
+REPORT_TEMPLATE = Path(__file__).parents[1] / "reports" / "training_report.html"
 SPEC = importlib.util.spec_from_file_location("build_training_report", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+
+
+def test_training_report_uses_four_separate_timing_charts() -> None:
+    template = REPORT_TEMPLATE.read_text(encoding="utf-8")
+
+    for chart_id in (
+        "step-timing-chart",
+        "log-window-timing-chart",
+        "checkpoint-duration-chart",
+        "validation-duration-chart",
+    ):
+        assert f'id="{chart_id}"' in template
+    assert 'id="event-duration-chart"' not in template
 
 
 def test_parse_training_log_collects_training_domains_and_best_updates(tmp_path) -> None:
@@ -465,6 +479,5 @@ def test_parser_captures_validation_events_and_active_state(tmp_path) -> None:
     assert analysis_done["runtime"]["active_validation"]["running"] is False
     assert analysis_done["runtime"]["latest_validation_duration_seconds"] == 13.0
     assert analysis_done["runtime"]["average_validation_duration_seconds"] == 13.0
-
 
 

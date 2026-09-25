@@ -81,6 +81,13 @@ reports/*
 !reports/training_report.html
 !reports/training_report.sample.json
 !reports/notification-sw.js
+# Curated report sources and reproducible fine-tuning probe evidence.
+!reports/verify_minigpt_improvements.py
+!reports/system_report.json
+!reports/finetuning_response_test/
+!reports/finetuning_response_test/run.py
+!reports/finetuning_response_test/results.json
+!reports/finetuning_response_test/summary.md
 outputs/
 
 # Model and tensor artifacts

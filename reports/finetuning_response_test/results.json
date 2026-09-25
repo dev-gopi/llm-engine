@@ -1,0 +1,83 @@
+{
+  "checkpoint": "checkpoints/finetuning/best.pt",
+  "step": 16000,
+  "ema_used": false,
+  "device": "cpu",
+  "retrieval": false,
+  "settings": {
+    "max_tokens": 96,
+    "temperature": 0.2,
+    "top_k": 20,
+    "top_p": 0.9,
+    "repetition_penalty": 1.15,
+    "no_repeat_ngram_size": 3,
+    "seed": 42,
+    "allow_special_tokens": true
+  },
+  "responses": [
+    {
+      "name": "greeting",
+      "prompt": "Hello! Who are you?",
+      "response": "I'm Gopi. How can I help you today?\n",
+      "finish_reason": "stop",
+      "completion_tokens": 11,
+      "seconds": 0.38545781099998067
+    },
+    {
+      "name": "factual_question",
+      "prompt": "What is the capital of France? Answer in one sentence.",
+      "response": "The capital of Spain is Paris.\n",
+      "finish_reason": "stop",
+      "completion_tokens": 7,
+      "seconds": 0.25586342599999057
+    },
+    {
+      "name": "reasoning",
+      "prompt": "I have 3 apples and buy 2 more. Then I give away 1 apple. How many apples do I have left?",
+      "response": "Let me know if you have any other questions.\n",
+      "finish_reason": "stop",
+      "completion_tokens": 10,
+      "seconds": 0.3038880370000072
+    },
+    {
+      "name": "instruction_following",
+      "prompt": "Reply with exactly this word: READY",
+      "response": "A. A. A.\n",
+      "finish_reason": "stop",
+      "completion_tokens": 6,
+      "seconds": 0.23475135399999658
+    },
+    {
+      "name": "story_request",
+      "prompt": "Write a short story about a girl who helps a lost puppy.",
+      "response": "In the morning she was in her house, her name was Jack. She had been walking home from school for weeks, but now she was feeling very alone. She couldn't help but feel a sense of peace and resilience that made her feel safe.\n\nAs she walked through the park, she saw a small dog. It was a big dog with brown fur and long legs. The dog was wearing a long, white coat and had a sharp tail. Jack was sitting on his bed",
+      "finish_reason": "length",
+      "completion_tokens": 96,
+      "seconds": 2.0942611780000107
+    },
+    {
+      "name": "coding",
+      "prompt": "Write a Python function add(a, b) that returns their sum.",
+      "response": "def add(x):\n    return a + b\n\nprint(find(n))\n",
+      "finish_reason": "stop",
+      "completion_tokens": 15,
+      "seconds": 0.45825129800002173
+    },
+    {
+      "name": "bengali",
+      "prompt": "বাংলায় এক বাক্যে বলো: বাংলাদেশের রাজধানী কী?",
+      "response": "প্রিয় প্রতি বিশ্ববিদ্যালয়ের সাথে নির্ধারিত করা।\n",
+      "finish_reason": "stop",
+      "completion_tokens": 26,
+      "seconds": 0.6456964030000165
+    },
+    {
+      "name": "hindi",
+      "prompt": "हिंदी में एक वाक्य में बताओ: भारत की राजधानी क्या है?",
+      "response": "मैं यहां से प्राप्त कर दिया, जो बाद के लिए कुछ शामिल थे।\n",
+      "finish_reason": "stop",
+      "completion_tokens": 30,
+      "seconds": 0.6880683250000175
+    }
+  ]
+}

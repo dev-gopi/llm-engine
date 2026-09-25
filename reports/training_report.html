@@ -174,7 +174,9 @@
     </section>
     <section class="grid">
       <div class="panel"><h2>Optimizer-step timing</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Seconds per optimizer step. Validation time is excluded, so slow training steps stay visible.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="step-timing-chart"></svg></div></div>
-      <div class="panel"><h2>Log, checkpoint, and validation duration</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Compares trainer log windows with checkpoint, validation, and generation-benchmark event durations.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="event-duration-chart"></svg></div></div>
+      <div class="panel"><h2>Log-window timing</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Elapsed seconds between trainer logs.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="log-window-timing-chart"></svg></div></div>
+      <div class="panel"><h2>Checkpoint duration</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Time spent saving each checkpoint.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="checkpoint-duration-chart"></svg></div></div>
+      <div class="panel"><h2>Validation duration</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Time spent on each completed validation pass.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="validation-duration-chart"></svg></div></div>
     </section>
     <section class="grid">
       <div class="panel"><h2>Recent log timing</h2><div id="recent-log-timing"></div></div>
@@ -361,7 +363,7 @@
 
     function reportCategory(section) {
       if(section.matches('.meter-panel,.operations,.cards'))return 'overview';
-      if(section.querySelector('#event-schedule,#step-timing-chart,#event-duration-chart,#recent-log-timing,#event-duration-history'))return 'timing';
+      if(section.querySelector('#event-schedule,#step-timing-chart,#log-window-timing-chart,#checkpoint-duration-chart,#validation-duration-chart,#recent-log-timing,#event-duration-history'))return 'timing';
       if(section.querySelector('#system-resources,#system-chart,#gpu-chart,#temperature-chart,#gpu-power-chart'))return 'resources';
       if(section.matches('.report-details')||section.querySelector('#warnings,#logs'))return 'details';
       return 'quality';
@@ -718,11 +720,14 @@
       lineChart(document.getElementById('step-timing-chart'),[
         {name:'seconds / optimizer step',points:train.filter(v=>v.seconds_per_step!=null).map(v=>[v.step,v.seconds_per_step]),color:'#22d3ee'}
       ]);
-      lineChart(document.getElementById('event-duration-chart'),[
-        {name:'log interval seconds',points:train.filter(v=>v.log_interval_seconds!=null).map(v=>[v.step,v.log_interval_seconds]),color:'#fbbf24'},
-        {name:'checkpoint seconds',points:(data.checkpoint_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#a78bfa'},
-        {name:'validation seconds',points:(data.validation_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#fb7185'},
-        {name:'generation benchmark seconds',points:(data.generation_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#34d399'}
+      lineChart(document.getElementById('log-window-timing-chart'),[
+        {name:'log interval seconds',points:train.filter(v=>v.log_interval_seconds!=null).map(v=>[v.step,v.log_interval_seconds]),color:'#fbbf24'}
+      ]);
+      lineChart(document.getElementById('checkpoint-duration-chart'),[
+        {name:'checkpoint seconds',points:(data.checkpoint_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#a78bfa'}
+      ]);
+      lineChart(document.getElementById('validation-duration-chart'),[
+        {name:'validation seconds',points:(data.validation_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#fb7185'}
       ]);
       const modelAnalysis=data.model_analysis||{};
       document.getElementById('model-architecture').innerHTML=modelAnalysis.available?table(['Metric','Value'],[

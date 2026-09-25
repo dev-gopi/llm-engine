@@ -1,0 +1,174 @@
+{
+  "timestamp": "2026-09-25T12:45:43.130037+00:00",
+  "generation": {
+    "model_name": "Gopi",
+    "device": "cpu",
+    "samples_evaluated": 3,
+    "total_tokens_generated": 96,
+    "avg_tokens_per_second": 38.82,
+    "avg_ttft_seconds": 0.0528,
+    "p95_ttft_seconds": 0.0837,
+    "peak_vram_mb": null,
+    "samples": [
+      {
+        "prompt": "Explain machine learning in simple terms.",
+        "generated_text": "For example, in the case of a machine learning model, the machine learning algorithm is used to learn how to learn and learn. In the case that the machine",
+        "prompt_tokens": 8,
+        "tokens": 32,
+        "duration_s": 0.9037,
+        "ttft_s": 0.0429,
+        "tokens_per_second": 35.41,
+        "finish_reason": "length"
+      },
+      {
+        "prompt": "What is the function of an operating system?",
+        "generated_text": "It is a system that uses a network to store and manage data. The system is used to generate a network of data, such as data, data, and",
+        "prompt_tokens": 10,
+        "tokens": 32,
+        "duration_s": 0.7525,
+        "ttft_s": 0.0318,
+        "tokens_per_second": 42.52,
+        "finish_reason": "length"
+      },
+      {
+        "prompt": "Write a brief python function to compute factorial.",
+        "generated_text": "The function will return the sum of the numbers in the given sequence.\nThe function will then use the `is_prime` function to calculate the sum.\nThe `",
+        "prompt_tokens": 11,
+        "tokens": 32,
+        "duration_s": 0.8307,
+        "ttft_s": 0.0837,
+        "tokens_per_second": 38.52,
+        "finish_reason": "length"
+      }
+    ]
+  },
+  "serving": {
+    "status": "offline / idle",
+    "endpoint": "http://localhost:8000",
+    "online": false,
+    "model_config_path": "configs/model.gpu.yaml",
+    "checkpoint_path": "checkpoints/finetuning/best.pt",
+    "paged_kv_pages": 128,
+    "paged_kv_page_size": 16,
+    "prefix_cache_capacity": 16,
+    "requests_per_minute": 60,
+    "estimated_weight_memory_mb": 0.0,
+    "estimated_kv_cache_memory_mb": 0.0,
+    "metadata": {
+      "weight_dtype": "bfloat16",
+      "quantization": "none",
+      "low_memory_loading": true
+    }
+  },
+  "chat": {
+    "total_sessions": 9,
+    "total_messages": 47,
+    "avg_messages_per_session": 5.22,
+    "database_path": "data/cache/sessions.sqlite",
+    "sessions_found": true,
+    "recent_sessions": [
+      {
+        "session_id": "chat-d12c159d-30b4-42ca-aebd-6394080fa07d",
+        "message_count": 3,
+        "updated_at": "2026-09-24T11:06:09.794186+00:00"
+      },
+      {
+        "session_id": "chat-1391d1d8-8304-4a5d-9017-f6e089e206c1",
+        "message_count": 3,
+        "updated_at": "2026-09-24T11:05:40.293502+00:00"
+      },
+      {
+        "session_id": "chat-80dd5f64-d04f-4e87-80ea-b2bcd256881c",
+        "message_count": 11,
+        "updated_at": "2026-09-24T11:03:55.961719+00:00"
+      },
+      {
+        "session_id": "chat-1b76ea56-3df3-46e3-b85b-2a4ddc4bb1a4",
+        "message_count": 5,
+        "updated_at": "2026-09-24T11:01:02.574761+00:00"
+      },
+      {
+        "session_id": "chat-8ae3b282-602e-4734-bf58-c7fb9073aea9",
+        "message_count": 13,
+        "updated_at": "2026-09-24T11:00:52.703324+00:00"
+      },
+      {
+        "session_id": "chat-afe613ce-e583-4bb6-90e0-cf301b1dc05a",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:58:14.488419+00:00"
+      },
+      {
+        "session_id": "chat-4b059cbe-9c8b-4af4-8da8-08ab8ada1e61",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:57:49.036627+00:00"
+      },
+      {
+        "session_id": "chat-3843848c-e78b-4b7c-870a-603091fef733",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:53:19.317201+00:00"
+      },
+      {
+        "session_id": "chat-f2fa7feb-f3e8-42e0-96bf-55a40857fc6f",
+        "message_count": 3,
+        "updated_at": "2026-09-24T10:50:52.650614+00:00"
+      }
+    ]
+  },
+  "rag": {
+    "database_path": "data/rag/index.sqlite",
+    "index_exists": true,
+    "total_chunks": 313913,
+    "sample_queries_tested": 3,
+    "avg_query_latency_ms": 12.51,
+    "sample_results": [
+      {
+        "query": "transformer attention mechanism",
+        "latency_ms": 29.24,
+        "hits": [
+          {
+            "title": "test_transformer_block.py",
+            "score": 23.258,
+            "snippet": "import torch\nfrom torch import nn\n\nfrom model.layer_norm import LayerNorm, RMSNo"
+          },
+          {
+            "title": "test_transformer_block.py",
+            "score": 21.75,
+            "snippet": "(parameter)\n for parameter in block.ffn.parameters():\n nn.init.zeros_(parameter)"
+          }
+        ]
+      },
+      {
+        "query": "artificial intelligence neural network",
+        "latency_ms": 3.37,
+        "hits": [
+          {
+            "title": "List of artificial intelligence projects",
+            "score": 35.758,
+            "snippet": "machine learning algorithms.\n Deeplearning4j, an open-source, distributed deep l"
+          },
+          {
+            "title": "List of artificial intelligence projects",
+            "score": 30.774,
+            "snippet": "cs.\n Neuroph, a Java neural network framework.\n OpenCog, a GPL-licensed framewor"
+          }
+        ]
+      },
+      {
+        "query": "python programming language",
+        "latency_ms": 4.9,
+        "hits": [
+          {
+            "title": "Programming language",
+            "score": 26.779,
+            "snippet": "A programming language is a type of written language that tells computers what t"
+          },
+          {
+            "title": "Object-oriented programming",
+            "score": 26.674,
+            "snippet": "s). For example, Python allows for computer programs to be written both in objec"
+          }
+        ]
+      }
+    ]
+  }
+}
