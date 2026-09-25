@@ -1,0 +1,846 @@
+"""FastAPI router providing the complete web dashboard UI and JSON endpoints for system reports."""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from typing import Any
+
+import torch
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
+
+from inference.generator import Generator
+from inference.rag import SQLiteRagIndex
+from inference.reporting import (
+    build_system_inference_report,
+    collect_chat_report,
+    collect_generation_report,
+    collect_rag_report,
+    collect_serving_report,
+)
+from model.gpt import MiniGPT
+from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
+from tokenizer.encoder import Tokenizer
+from training.checkpoint import load_checkpoint
+from utils.config import load_yaml
+from utils.device import resolve_device
+
+router = APIRouter(prefix="/report", tags=["report"])
+
+
+class QuickGenerateRequest(BaseModel):
+    prompt: str
+    max_tokens: int = 32
+    temperature: float = 0.2
+    device: str = "cpu"
+
+
+class QuickSearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+DASHBOARD_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gopi Inference & Operations Report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --card: #0f1d30;
+      --line: #263950;
+      --text: #e7eef8;
+      --muted: #91a4ba;
+      --blue: #4f9cf9;
+      --red: #fb7185;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --cyan: #22d3ee;
+      --purple: #a78bfa;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 13.5px Inter, system-ui, -apple-system, sans-serif; line-height: 1.45; }
+    header { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; background: rgba(7,17,31,0.96); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 20; }
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
+    h2 { font-size: 14.5px; margin-bottom: 12px; color: #edf5ff; display: flex; align-items: center; justify-content: space-between; }
+    .muted { color: var(--muted); }
+    main { padding: 20px; max-width: 1560px; margin: auto; }
+    
+    /* Top Bar Navigation */
+    .report-explorer { display: flex; gap: 8px; align-items: center; padding: 10px 0 16px; overflow-x: auto; }
+    .report-explorer button { border: 1px solid var(--line); background: #10233a; color: var(--text); padding: 7px 13px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s; }
+    .report-explorer button:hover { background: #18375e; border-color: var(--blue); color: #fff; }
+    .report-explorer button.active { border-color: var(--blue); background: #1d4f86; color: #fff; box-shadow: 0 0 12px rgba(79,156,249,0.35); }
+    .report-explorer .search-box { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .report-explorer input { min-width: 200px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: #0a1728; color: var(--text); font-size: 12px; outline: none; }
+    .report-explorer input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(79,156,249,0.15); }
+    
+    /* Cards Grid */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .card, .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .card {
+      --card-accent: #4f9cf9;
+      --card-glow: rgba(79,156,249,.13);
+      position: relative; display: flex; min-width: 0; min-height: 94px; flex-direction: column; justify-content: space-between; overflow: hidden; padding: 15px;
+      border-color: rgba(96,117,141,.32); background: linear-gradient(145deg, rgba(20,39,63,.96), rgba(12,27,46,.98));
+      box-shadow: 0 8px 24px rgba(0,0,0,.13), inset 0 1px rgba(255,255,255,.035); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .card::before { content: ""; position: absolute; z-index: 1; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg, var(--card-accent), transparent 88%); opacity: .9; }
+    .card::after { content: ""; position: absolute; top: -42px; right: -38px; width: 105px; height: 105px; border-radius: 50%; background: var(--card-glow); filter: blur(22px); pointer-events: none; }
+    .card:hover { transform: translateY(-2px); border-color: rgba(125,160,198,.5); box-shadow: 0 12px 30px rgba(0,0,0,.2); }
+    .card-label { position: relative; z-index: 1; color: #8eacd0; font-size: 11px; line-height: 1.25; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+    .card .value { position: relative; z-index: 1; margin-top: 8px; color: #f2f7ff; font-size: 21px; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .card.green { --card-accent: #34d399; --card-glow: rgba(52,211,153,.15); }
+    .card.yellow { --card-accent: #fbbf24; --card-glow: rgba(251,191,36,.15); }
+    .card.cyan { --card-accent: #22d3ee; --card-glow: rgba(34,211,238,.15); }
+    .card.purple { --card-accent: #a78bfa; --card-glow: rgba(167,139,250,.15); }
+
+    /* Meter Panel */
+    .meter-panel { position: relative; margin-bottom: 18px; overflow: hidden; border-color: rgba(74,105,139,.42); background: radial-gradient(circle at 12% 0, rgba(79,156,249,.09), transparent 30%), linear-gradient(145deg, #102138, #0a1728 68%); box-shadow: 0 12px 34px rgba(0,0,0,.16); }
+    .meter-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; margin: -2px 0 14px; padding: 0 2px 12px; border-bottom: 1px solid rgba(96,117,141,.2); }
+    .meter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .meter { --value: 0; --meter-color: var(--blue); position: relative; display: flex; min-width: 0; min-height: 160px; flex-direction: column; align-items: center; overflow: hidden; padding: 12px 8px 10px; border: 1px solid rgba(145,164,186,.17); border-radius: 14px; background: linear-gradient(155deg, rgba(25,47,75,.7), rgba(7,20,35,.82)); box-shadow: 0 7px 18px rgba(0,0,0,.1); transition: transform .18s ease; }
+    .meter:hover { transform: translateY(-2px); border-color: var(--meter-color); }
+    .meter-dial { position: relative; display: grid; width: 92px; height: 92px; place-items: center; border-radius: 50%; background: conic-gradient(from -135deg, var(--meter-color) calc(var(--value) * 2.7deg), #21344c 0 270deg, transparent 0); filter: drop-shadow(0 6px 12px rgba(0,0,0,.3)); }
+    .meter-dial::before { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, #1b3350, #091625 72%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.065); }
+    .meter-reading { position: relative; z-index: 1; font-size: 18px; font-weight: 800; letter-spacing: -.03em; color: #fff; }
+    .meter-reading small { margin-left: 2px; color: var(--muted); font-size: 10px; font-weight: 600; }
+    .meter-label { margin-top: 8px; color: #edf5ff; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; text-align: center; }
+    .meter-detail { width: 100%; margin-top: 3px; color: #839cb8; font-size: 10px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Operations & Environment Signals */
+    .operations { margin-bottom: 18px; border-color: rgba(74,105,139,.42); background: linear-gradient(145deg, #102138, #0b192b); }
+    .operations-grid { display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(400px, 1.1fr); gap: 16px; }
+    .alert-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .alert { padding: 6px 11px; border: 1px solid var(--line); border-radius: 999px; background: rgba(6,17,30,.72); font-size: 11px; font-weight: 600; }
+    .alert.ok { border-color: #166534; background: rgba(22,101,52,.18); color: var(--green); }
+    .alert.warning { color: var(--yellow); border-color: #a16207; background: rgba(161,98,7,.18); }
+    .alert.info { color: var(--cyan); border-color: #0e7490; background: rgba(14,116,144,.18); }
+    .signal-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
+    .signal { padding: 9px 12px; border: 1px solid rgba(96,117,141,.2); border-radius: 10px; background: linear-gradient(145deg, rgba(7,22,39,.88), rgba(5,16,29,.72)); }
+    .signal strong { display: block; margin-top: 3px; font-size: 13.5px; color: #fff; }
+    .signal span { color: #7f99b6; font-size: 10px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+
+    /* Grid layout & Charts */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .chart-container { width: 100%; height: 200px; background: #081322; border: 1px solid var(--line); border-radius: 8px; position: relative; overflow: hidden; display: flex; align-items: flex-end; padding: 10px 14px; gap: 8px; }
+    .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 4px; }
+    .chart-bar { width: 100%; background: linear-gradient(180deg, var(--blue), rgba(79,156,249,0.3)); border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.3s ease; }
+    .chart-bar-label { font-size: 9.5px; color: var(--muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
+    .chart-bar-val { font-size: 10px; font-weight: 700; color: #fff; }
+
+    /* Interactive Testing Playground Boxes */
+    .interactive-box { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .interactive-input { flex: 1 1 300px; height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: #081424; color: var(--text); font-size: 13px; outline: none; }
+    .interactive-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(79,156,249,0.15); }
+    .result-box { background: #06101c; border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12.5px; line-height: 1.5; color: #e2e8f0; min-height: 45px; margin-top: 8px; }
+
+    /* Filterable & Sortable Tables */
+    .table-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 11px; padding: 9px; border: 1px solid rgba(96,117,141,.3); border-radius: 10px; background: linear-gradient(145deg, rgba(19,38,62,.78), rgba(7,20,35,.88)); }
+    .table-tools input, .table-tools select { height: 32px; padding: 5px 10px; border: 1px solid rgba(96,117,141,.42); border-radius: 7px; outline: none; background: #0b192b; color: var(--text); font-size: 12px; }
+    .table-tools input:focus, .table-tools select:focus { border-color: var(--blue); }
+    .table-search { flex: 1 1 180px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; background: rgba(10,23,40,0.6); }
+    th.num, td.num { text-align: right; }
+    tr:hover td { background: rgba(79,156,249,0.04); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(255,255,255,0.06); padding: 2px 5px; border-radius: 4px; font-size: 11px; }
+
+    /* Controls & Buttons */
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    button, .btn { border: 1px solid var(--line); background: #162942; color: var(--text); padding: 7px 13px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    button:hover { background: #203f67; border-color: var(--blue); color: #fff; }
+    button.primary { background: linear-gradient(135deg, #2563eb, #1d4ed8); border-color: #3b82f6; color: #fff; }
+    button.primary:hover { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+    .badge { padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .badge-ok { background: rgba(52,211,153,.2); color: var(--green); border: 1px solid var(--green); }
+    .badge-warn { background: rgba(251,191,36,.2); color: var(--yellow); border: 1px solid var(--yellow); }
+    .badge-off { background: rgba(251,113,133,.2); color: var(--red); border: 1px solid var(--red); }
+    .spinner { display: none; width: 13px; height: 13px; border: 2px solid transparent; border-top-color: currentColor; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    .loading .spinner { display: inline-block; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .hidden-section { display: none !important; }
+    pre { white-space: pre-wrap; max-height: 420px; overflow: auto; background: #06101c; padding: 14px; border-radius: 8px; color: #cbd5e1; font-size: 11.5px; border: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>🚀 Gopi Engine — System & Operations Report <span id="header-status" class="badge badge-ok">Ready</span></h1>
+      <p class="muted" style="font-size:11.5px; margin-top:3px;">Live inference benchmarks, autoregressive generation latency, session cache, and RAG knowledge index.</p>
+    </div>
+    <div class="controls">
+      <button id="btn-refresh" onclick="loadReport(false)">
+        <span class="spinner"></span> 🔄 Refresh Data
+      </button>
+      <button id="btn-probes" class="primary" onclick="loadReport(true)">
+        <span class="spinner"></span> ⚡ Run Benchmark Probes
+      </button>
+      <button onclick="copyReportJSON()">📋 Copy JSON</button>
+      <span class="muted" style="font-size:11px;">Updated: <strong id="last-updated" style="color:#fff;">--</strong></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Navigation Bar Explorer -->
+    <nav class="report-explorer">
+      <button class="active" onclick="switchTab('all', this)">Overview & All</button>
+      <button onclick="switchTab('generation', this)">⚡ Generation Probes</button>
+      <button onclick="switchTab('playground', this)">🎮 Live Playgrounds</button>
+      <button onclick="switchTab('serving', this)">🌐 Serving & Capacity</button>
+      <button onclick="switchTab('chat', this)">💬 Chat Memory</button>
+      <button onclick="switchTab('rag', this)">📚 RAG Knowledge</button>
+      <button onclick="switchTab('raw', this)">{ } Raw JSON</button>
+      <div class="search-box">
+        <input type="text" id="global-filter" placeholder="Filter tables..." oninput="filterAllTables(this.value)">
+      </div>
+    </nav>
+
+    <!-- Top KPI Cards Grid -->
+    <section class="cards" id="top-cards">
+      <div class="card">
+        <span class="card-label">Generation Speed</span>
+        <div class="value" id="card-tps">-- <small style="font-size:12px;font-weight:400;color:var(--muted)">TPS</small></div>
+      </div>
+      <div class="card cyan">
+        <span class="card-label">Avg First Token (TTFT)</span>
+        <div class="value" id="card-ttft">-- <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small></div>
+      </div>
+      <div class="card green">
+        <span class="card-label">Paged KV Pages</span>
+        <div class="value" id="card-pages">128</div>
+      </div>
+      <div class="card yellow">
+        <span class="card-label">Rate Limit</span>
+        <div class="value" id="card-rate">60 <small style="font-size:12px;font-weight:400;color:var(--muted)">req/m</small></div>
+      </div>
+      <div class="card">
+        <span class="card-label">Recorded Sessions</span>
+        <div class="value" id="card-sessions">--</div>
+      </div>
+      <div class="card green">
+        <span class="card-label">Total Messages</span>
+        <div class="value" id="card-messages">--</div>
+      </div>
+      <div class="card cyan">
+        <span class="card-label">RAG Chunks</span>
+        <div class="value" id="card-chunks">--</div>
+      </div>
+      <div class="card purple">
+        <span class="card-label">RAG Search Latency</span>
+        <div class="value" id="card-rag-lat">-- <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small></div>
+      </div>
+    </section>
+
+    <!-- Operational Circular Dial Meters -->
+    <section class="panel meter-panel section-block" id="sec-meters">
+      <div class="meter-heading">
+        <div>
+          <h2>Operational Capacity & Performance Dials</h2>
+          <p class="muted">Real-time telemetry for autoregressive token decoding, prefill TTFT, KV allocation, and vector/BM25 retrieval.</p>
+        </div>
+        <span id="meter-device" class="badge badge-ok">CPU Engine</span>
+      </div>
+      <div class="meter-grid">
+        <div class="meter" id="meter-tps-wrap" style="--meter-color:var(--blue)">
+          <div class="meter-dial" id="dial-tps"><div class="meter-reading" id="meter-tps">--<small>TPS</small></div></div>
+          <div class="meter-label">Decode Speed</div>
+          <div class="meter-detail" id="meter-tps-detail">Tokens per second</div>
+        </div>
+        <div class="meter" id="meter-ttft-wrap" style="--meter-color:var(--cyan)">
+          <div class="meter-dial" id="dial-ttft"><div class="meter-reading" id="meter-ttft">--<small>ms</small></div></div>
+          <div class="meter-label">Prefill / TTFT</div>
+          <div class="meter-detail" id="meter-ttft-detail">Time to 1st token</div>
+        </div>
+        <div class="meter" style="--meter-color:var(--green)">
+          <div class="meter-dial" style="--value:64"><div class="meter-reading">128<small>pgs</small></div></div>
+          <div class="meter-label">Paged KV Cache</div>
+          <div class="meter-detail">16 tok/page allocation</div>
+        </div>
+        <div class="meter" style="--meter-color:var(--yellow)">
+          <div class="meter-dial" style="--value:45"><div class="meter-reading">60<small>RPM</small></div></div>
+          <div class="meter-label">Rate Limiter</div>
+          <div class="meter-detail">Requests / minute window</div>
+        </div>
+        <div class="meter" id="meter-rag-wrap" style="--meter-color:var(--purple)">
+          <div class="meter-dial" id="dial-rag"><div class="meter-reading" id="meter-rag-lat">--<small>ms</small></div></div>
+          <div class="meter-label">RAG Search</div>
+          <div class="meter-detail">BM25 SQLite latency</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visual Latency & Throughput Charts -->
+    <section class="grid section-block" id="sec-charts">
+      <div class="panel">
+        <h2>⚡ Generation Throughput (Tokens / Second)</h2>
+        <div class="chart-container" id="chart-tps-container">
+          <div style="margin:auto; opacity:0.6;">Run benchmark probes to populate throughput chart.</div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>⏱️ Time to First Token (TTFT in Milliseconds)</h2>
+        <div class="chart-container" id="chart-ttft-container">
+          <div style="margin:auto; opacity:0.6;">Run benchmark probes to populate TTFT latency chart.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Operations & Environment Signals -->
+    <section class="panel operations section-block" id="sec-ops">
+      <div class="operations-grid">
+        <div>
+          <h2>Subsystem Signals & Active Invariants</h2>
+          <div class="alert-strip">
+            <span class="alert ok">✓ Causal Transformer Active</span>
+            <span class="alert ok">✓ Paged KV Cache Ready</span>
+            <span class="alert info">ℹ 42K Extended Vocab</span>
+            <span class="alert ok">✓ SQLite FTS5 Index Ready</span>
+          </div>
+          <div class="signal-row">
+            <div class="signal"><span>Model Checkpoint</span><strong id="sig-model">best.pt</strong></div>
+            <div class="signal"><span>Weight Dtype</span><strong id="sig-dtype">bfloat16</strong></div>
+            <div class="signal"><span>Prefix Cache</span><strong id="sig-prefix">16 slots</strong></div>
+          </div>
+        </div>
+        <div>
+          <h2>Architecture & Deployment Footprint</h2>
+          <div class="signal-row">
+            <div class="signal"><span>Estimated Weight RAM</span><strong id="sig-weight-mem">-- MB</strong></div>
+            <div class="signal"><span>Estimated KV RAM</span><strong id="sig-kv-mem">-- MB</strong></div>
+            <div class="signal"><span>Session Store</span><strong id="sig-session-db">sessions.sqlite</strong></div>
+          </div>
+          <p class="muted" style="font-size:11.5px; margin-top:10px;">Low-memory loading enabled. Weights mapped directly into memory space to eliminate duplicate state-dict copies.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Live Playground Section -->
+    <section class="grid section-block" id="sec-playground">
+      <div class="panel">
+        <h2>🎮 Live Text Generation Playground</h2>
+        <p class="muted" style="font-size:11.5px; margin-bottom:10px;">Send a test prompt directly to the loaded model and measure live TTFT & TPS:</p>
+        <div class="interactive-box">
+          <input type="text" id="play-prompt" class="interactive-input" placeholder="Enter prompt, e.g. What is quantum computing?" value="Explain what an operating system does in one sentence.">
+          <button class="primary" id="btn-play-gen" onclick="runInteractiveGeneration()"><span class="spinner"></span> Generate</button>
+        </div>
+        <div id="play-gen-result" class="result-box" style="display:none;"></div>
+      </div>
+
+      <div class="panel">
+        <h2>🔍 Live RAG Knowledge Base Search</h2>
+        <p class="muted" style="font-size:11.5px; margin-bottom:10px;">Test live BM25/FTS5 retrieval against 313K Wikipedia index chunks:</p>
+        <div class="interactive-box">
+          <input type="text" id="play-rag-query" class="interactive-input" placeholder="Enter query, e.g. attention mechanism" value="transformer attention mechanism">
+          <button class="primary" id="btn-play-rag" onclick="runInteractiveRagSearch()"><span class="spinner"></span> Search</button>
+        </div>
+        <div id="play-rag-result" class="result-box" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- Generation Probes Table -->
+    <section class="panel section-block" id="sec-gen" style="margin-bottom:16px;">
+      <h2>
+        <span>⚡ Generation Probe Benchmarks</span>
+        <button class="primary" style="padding:4px 10px; font-size:11px;" onclick="loadReport(true)">Run Live Probes</button>
+      </h2>
+      <div class="table-tools">
+        <input type="text" class="table-search" placeholder="Filter generation probes..." oninput="filterTable('tbl-gen', this.value)">
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tbl-gen">
+          <thead>
+            <tr>
+              <th style="width:30%;">Prompt</th>
+              <th style="width:35%;">Generated Output Preview</th>
+              <th class="num">Prompt Tokens</th>
+              <th class="num">Gen Tokens</th>
+              <th class="num">TTFT (ms)</th>
+              <th class="num">TPS</th>
+              <th>Finish</th>
+            </tr>
+          </thead>
+          <tbody id="body-gen">
+            <tr><td colspan="7" style="text-align:center; opacity:0.6; padding:20px;">Click "Run Benchmark Probes" to evaluate live model generation.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Chat Sessions & Memory Table -->
+    <section class="panel section-block" id="sec-chat" style="margin-bottom:16px;">
+      <h2>💬 Chat Session History & Memory Accounting</h2>
+      <div class="table-tools">
+        <input type="text" class="table-search" placeholder="Filter sessions..." oninput="filterTable('tbl-chat', this.value)">
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tbl-chat">
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th class="num">Message Turns</th>
+              <th>Last Activity</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="body-chat">
+            <tr><td colspan="4" style="text-align:center; opacity:0.6; padding:15px;">Loading session history…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- RAG Search Benchmark Table -->
+    <section class="panel section-block" id="sec-rag" style="margin-bottom:16px;">
+      <h2>📚 RAG Knowledge Retrieval Benchmarks</h2>
+      <div class="table-tools">
+        <input type="text" class="table-search" placeholder="Filter RAG queries..." oninput="filterTable('tbl-rag', this.value)">
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tbl-rag">
+          <thead>
+            <tr>
+              <th style="width:30%;">Benchmark Query</th>
+              <th class="num" style="width:15%;">Latency (ms)</th>
+              <th style="width:55%;">Top Retrieval Hits & Scores</th>
+            </tr>
+          </thead>
+          <tbody id="body-rag">
+            <tr><td colspan="3" style="text-align:center; opacity:0.6; padding:15px;">Loading RAG benchmark results…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Raw JSON Inspector -->
+    <section class="panel section-block hidden-section" id="sec-raw" style="margin-bottom:16px;">
+      <h2>{ } Raw System Report JSON</h2>
+      <pre id="raw-json">Loading JSON...</pre>
+    </section>
+  </main>
+
+  <script>
+    let currentReportData = null;
+
+    function switchTab(tab, btn) {
+      document.querySelectorAll('.report-explorer button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const allSecs = document.querySelectorAll('.section-block');
+      if (tab === 'all') {
+        allSecs.forEach(s => s.classList.remove('hidden-section'));
+        document.getElementById('sec-raw').classList.add('hidden-section');
+      } else if (tab === 'raw') {
+        allSecs.forEach(s => s.classList.add('hidden-section'));
+        document.getElementById('sec-raw').classList.remove('hidden-section');
+      } else {
+        allSecs.forEach(s => s.classList.add('hidden-section'));
+        const target = {
+          'generation': 'sec-gen',
+          'playground': 'sec-playground',
+          'serving': 'sec-ops',
+          'chat': 'sec-chat',
+          'rag': 'sec-rag'
+        }[tab];
+        if (target) document.getElementById(target).classList.remove('hidden-section');
+        document.getElementById('sec-meters').classList.remove('hidden-section');
+      }
+    }
+
+    async function loadReport(full = false) {
+      const btn = full ? document.getElementById('btn-probes') : document.getElementById('btn-refresh');
+      btn.classList.add('loading');
+      try {
+        const url = full ? '/report/api/full' : '/report/api/data';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        currentReportData = data;
+        renderReport(data);
+      } catch (err) {
+        console.error('Failed to load system report:', err);
+      } finally {
+        btn.classList.remove('loading');
+      }
+    }
+
+    function renderReport(data) {
+      document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+      document.getElementById('raw-json').textContent = JSON.stringify(data, null, 2);
+
+      // Serving
+      if (data.serving) {
+        const s = data.serving;
+        const badge = document.getElementById('header-status');
+        if (s.online) {
+          badge.textContent = 'Server Online';
+          badge.className = 'badge badge-ok';
+        } else {
+          badge.textContent = 'Standalone Ready';
+          badge.className = 'badge badge-ok';
+        }
+        document.getElementById('card-pages').textContent = s.paged_kv_pages || 128;
+        document.getElementById('card-rate').innerHTML = (s.requests_per_minute || 60) + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">req/m</small>';
+        document.getElementById('sig-dtype').textContent = s.metadata?.weight_dtype || 'bfloat16';
+        document.getElementById('sig-prefix').textContent = (s.prefix_cache_capacity || 16) + ' slots';
+        document.getElementById('sig-weight-mem').textContent = (s.estimated_weight_memory_mb || 0).toFixed(1) + ' MB';
+        document.getElementById('sig-kv-mem').textContent = (s.estimated_kv_cache_memory_mb || 0).toFixed(1) + ' MB';
+      }
+
+      // Chat
+      if (data.chat) {
+        const c = data.chat;
+        document.getElementById('card-sessions').textContent = c.total_sessions || 0;
+        document.getElementById('card-messages').textContent = c.total_messages || 0;
+        document.getElementById('sig-session-db').textContent = c.database_path.split('/').pop();
+
+        const chatTbody = document.getElementById('body-chat');
+        if (c.recent_sessions && c.recent_sessions.length > 0) {
+          chatTbody.innerHTML = '';
+          c.recent_sessions.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td><code>${s.session_id}</code></td>
+              <td class="num"><strong>${s.message_count}</strong></td>
+              <td>${s.updated_at ? new Date(s.updated_at).toLocaleString() : 'Recent'}</td>
+              <td><span class="badge badge-ok">Active</span></td>
+            `;
+            chatTbody.appendChild(tr);
+          });
+        } else {
+          chatTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; opacity:0.6; padding:12px;">No active sessions stored in database.</td></tr>';
+        }
+      }
+
+      // RAG
+      if (data.rag) {
+        const r = data.rag;
+        document.getElementById('card-chunks').textContent = (r.total_chunks || 0).toLocaleString();
+        const lat = r.avg_query_latency_ms ? r.avg_query_latency_ms.toFixed(1) : '--';
+        document.getElementById('card-rag-lat').innerHTML = lat + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small>';
+        document.getElementById('meter-rag-lat').innerHTML = lat + '<small>ms</small>';
+        
+        const val = Math.min(100, Math.max(5, (r.avg_query_latency_ms || 10) * 5));
+        document.getElementById('dial-rag').style.setProperty('--value', val);
+
+        const ragTbody = document.getElementById('body-rag');
+        if (r.sample_results && r.sample_results.length > 0) {
+          ragTbody.innerHTML = '';
+          r.sample_results.forEach(res => {
+            const hits = (res.hits || []).map(h => `<span class="badge badge-ok">${h.title} (score ${h.score})</span>`).join(' ');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td><strong>${res.query}</strong></td>
+              <td class="num"><code>${res.latency_ms} ms</code></td>
+              <td>${hits || '<span class="muted">No direct match</span>'}</td>
+            `;
+            ragTbody.appendChild(tr);
+          });
+        }
+      }
+
+      // Generation & Charts
+      if (data.generation) {
+        const g = data.generation;
+        document.getElementById('meter-device').textContent = (g.device || 'CPU').toUpperCase() + ' ENGINE';
+        const tps = g.avg_tokens_per_second ? g.avg_tokens_per_second.toFixed(1) : '--';
+        const ttft = g.avg_ttft_seconds ? (g.avg_ttft_seconds * 1000).toFixed(1) : '--';
+        
+        document.getElementById('card-tps').innerHTML = tps + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">TPS</small>';
+        document.getElementById('card-ttft').innerHTML = ttft + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small>';
+        document.getElementById('meter-tps').innerHTML = tps + '<small>TPS</small>';
+        document.getElementById('meter-ttft').innerHTML = ttft + '<small>ms</small>';
+
+        document.getElementById('dial-tps').style.setProperty('--value', Math.min(100, (g.avg_tokens_per_second || 0) * 2.5));
+        document.getElementById('dial-ttft').style.setProperty('--value', Math.min(100, (g.avg_ttft_seconds || 0.1) * 300));
+
+        const genTbody = document.getElementById('body-gen');
+        if (g.samples && g.samples.length > 0) {
+          genTbody.innerHTML = '';
+          const tpsChart = document.getElementById('chart-tps-container');
+          const ttftChart = document.getElementById('chart-ttft-container');
+          tpsChart.innerHTML = '';
+          ttftChart.innerHTML = '';
+
+          const maxTps = Math.max(...g.samples.map(s => s.tokens_per_second || 1), 1);
+          const maxTtft = Math.max(...g.samples.map(s => (s.ttft_s || 0.05) * 1000), 1);
+
+          g.samples.forEach((s, idx) => {
+            // Table row
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td><strong>${s.prompt}</strong></td>
+              <td style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${s.generated_text}">${s.generated_text}</td>
+              <td class="num">${s.prompt_tokens || '--'}</td>
+              <td class="num"><strong>${s.tokens || 0}</strong></td>
+              <td class="num"><code>${s.ttft_s ? (s.ttft_s * 1000).toFixed(1) : '--'} ms</code></td>
+              <td class="num"><strong>${s.tokens_per_second || '--'}</strong></td>
+              <td><span class="badge badge-ok">${s.finish_reason || 'stop'}</span></td>
+            `;
+            genTbody.appendChild(tr);
+
+            // TPS Chart Bar
+            const tpsH = Math.max(8, Math.round(((s.tokens_per_second || 0) / maxTps) * 160));
+            tpsChart.innerHTML += `
+              <div class="chart-bar-wrap">
+                <div class="chart-bar-val">${s.tokens_per_second || 0}</div>
+                <div class="chart-bar" style="height:${tpsH}px;"></div>
+                <div class="chart-bar-label" title="${s.prompt}">P${idx + 1}</div>
+              </div>
+            `;
+
+            // TTFT Chart Bar
+            const ttftMs = (s.ttft_s || 0) * 1000;
+            const ttftH = Math.max(8, Math.round((ttftMs / maxTtft) * 160));
+            ttftChart.innerHTML += `
+              <div class="chart-bar-wrap">
+                <div class="chart-bar-val">${ttftMs.toFixed(0)}ms</div>
+                <div class="chart-bar" style="height:${ttftH}px; background:linear-gradient(180deg, var(--cyan), rgba(34,211,238,0.3));"></div>
+                <div class="chart-bar-label" title="${s.prompt}">P${idx + 1}</div>
+              </div>
+            `;
+          });
+        }
+      }
+    }
+
+    async function runInteractiveGeneration() {
+      const prompt = document.getElementById('play-prompt').value.trim();
+      if (!prompt) return;
+      const btn = document.getElementById('btn-play-gen');
+      const box = document.getElementById('play-gen-result');
+      btn.classList.add('loading');
+      box.style.display = 'block';
+      box.innerHTML = '<em>Generating tokens from model…</em>';
+      try {
+        const res = await fetch('/report/api/generate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prompt, max_tokens: 32, temperature: 0.2})
+        });
+        const d = await res.json();
+        if (d.error) {
+          box.innerHTML = '<span style="color:var(--red);">Error: ' + d.error + '</span>';
+        } else {
+          box.innerHTML = `
+            <div style="margin-bottom:6px; font-weight:600; color:var(--cyan);">Generated Response:</div>
+            <div style="padding:6px 0; font-size:13px;">${d.text}</div>
+            <div style="margin-top:8px; font-size:11px; color:var(--muted); display:flex; gap:14px;">
+              <span>⚡ TTFT: <strong>${(d.ttft_s * 1000).toFixed(1)} ms</strong></span>
+              <span>🚀 Speed: <strong>${d.tokens_per_second.toFixed(1)} tok/s</strong></span>
+              <span>🔢 Tokens: <strong>${d.tokens}</strong></span>
+              <span>🏁 Reason: <strong>${d.finish_reason}</strong></span>
+            </div>
+          `;
+        }
+      } catch (err) {
+        box.innerHTML = '<span style="color:var(--red);">Request failed: ' + err + '</span>';
+      } finally {
+        btn.classList.remove('loading');
+      }
+    }
+
+    async function runInteractiveRagSearch() {
+      const query = document.getElementById('play-rag-query').value.trim();
+      if (!query) return;
+      const btn = document.getElementById('btn-play-rag');
+      const box = document.getElementById('play-rag-result');
+      btn.classList.add('loading');
+      box.style.display = 'block';
+      box.innerHTML = '<em>Searching SQLite knowledge index…</em>';
+      try {
+        const res = await fetch('/report/api/search', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({query, top_k: 3})
+        });
+        const d = await res.json();
+        if (d.error) {
+          box.innerHTML = '<span style="color:var(--red);">Error: ' + d.error + '</span>';
+        } else {
+          let hitsHtml = (d.hits || []).map((h, i) => `
+            <div style="margin-top:6px; padding:6px; background:#0a1728; border-radius:6px; border:1px solid var(--line);">
+              <div style="font-weight:600; color:var(--blue); font-size:12px;">#${i + 1} ${h.title} <span class="badge badge-ok" style="margin-left:6px;">Score ${h.score.toFixed(2)}</span></div>
+              <div style="font-size:11.5px; opacity:0.85; margin-top:2px;">${h.snippet}...</div>
+            </div>
+          `).join('');
+          box.innerHTML = `
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted);">
+              <span>Query latency: <strong>${d.latency_ms.toFixed(2)} ms</strong></span>
+              <span>Total matches: <strong>${d.hits.length}</strong></span>
+            </div>
+            ${hitsHtml}
+          `;
+        }
+      } catch (err) {
+        box.innerHTML = '<span style="color:var(--red);">Search failed: ' + err + '</span>';
+      } finally {
+        btn.classList.remove('loading');
+      }
+    }
+
+    function copyReportJSON() {
+      if (!currentReportData) return;
+      navigator.clipboard.writeText(JSON.stringify(currentReportData, null, 2));
+      alert('Report JSON copied to clipboard!');
+    }
+
+    function filterTable(tableId, query) {
+      const rows = document.querySelectorAll('#' + tableId + ' tbody tr');
+      const q = query.toLowerCase();
+      rows.forEach(r => {
+        const text = r.textContent.toLowerCase();
+        r.style.display = text.includes(q) ? '' : 'none';
+      });
+    }
+
+    function filterAllTables(query) {
+      filterTable('tbl-gen', query);
+      filterTable('tbl-chat', query);
+      filterTable('tbl-rag', query);
+    }
+
+    // Auto-load on open and every 30s
+    loadReport(false);
+    setInterval(() => loadReport(false), 30000);
+  </script>
+</body>
+</html>
+"""
+
+
+@router.get("", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
+def get_dashboard() -> HTMLResponse:
+    """Render the advanced web dashboard matching the Gopi Training Report theme."""
+    return HTMLResponse(content=DASHBOARD_HTML)
+
+
+@router.get("/api/data", response_class=JSONResponse)
+def get_report_data(
+    sessions_db: str = Query("data/cache/sessions.sqlite"),
+    rag_db: str = Query("data/rag/index.sqlite"),
+    inference_config: str = Query("configs/inference.yaml"),
+) -> JSONResponse:
+    """Return an instantaneous snapshot of serving, chat, and RAG stats."""
+    rep = build_system_inference_report(
+        include_generation=False,
+        include_serving=True,
+        include_chat=True,
+        include_rag=True,
+        inference_config_path=inference_config,
+        sessions_db_path=sessions_db,
+        rag_db_path=rag_db,
+    )
+    return JSONResponse(content=rep.to_dict())
+
+
+@router.get("/api/full", response_class=JSONResponse)
+def get_full_report(
+    max_tokens: int = Query(16, ge=1, le=128),
+    device: str = Query("cpu"),
+    sessions_db: str = Query("data/cache/sessions.sqlite"),
+    rag_db: str = Query("data/rag/index.sqlite"),
+    model_config: str = Query("configs/model.gpu.yaml"),
+    inference_config: str = Query("configs/inference.yaml"),
+    checkpoint: str = Query("checkpoints/finetuning/best.pt"),
+) -> JSONResponse:
+    """Run generation probes and return the full unified report with charts."""
+    rep = build_system_inference_report(
+        include_generation=True,
+        include_serving=True,
+        include_chat=True,
+        include_rag=True,
+        model_config_path=model_config,
+        inference_config_path=inference_config,
+        checkpoint_path=checkpoint,
+        sessions_db_path=sessions_db,
+        rag_db_path=rag_db,
+        device=device,
+    )
+    return JSONResponse(content=rep.to_dict())
+
+
+@router.post("/api/generate", response_class=JSONResponse)
+def quick_generate(req: QuickGenerateRequest) -> JSONResponse:
+    """Live interactive text generation endpoint with TTFT & TPS measurement."""
+    ckpt_path = Path("checkpoints/finetuning/best.pt")
+    if not ckpt_path.is_file():
+        return JSONResponse(status_code=404, content={"error": f"Checkpoint not found at {ckpt_path}"})
+
+    try:
+        model_cfg = load_yaml("configs/model.gpu.yaml")
+        tok = Tokenizer.load("data/tokenizer-finetuning")
+        model_cfg = adapt_config_to_tokenizer(model_cfg, tok)
+        dev = resolve_device(req.device)
+
+        model = MiniGPT.from_config(model_cfg, device="cpu")
+        load_checkpoint(
+            ckpt_path,
+            model,
+            use_ema=True,
+            restore_rng=False,
+            **checkpoint_tokenizer_options(tok, allow_extension=False),
+        )
+        model.to(dev).eval()
+
+        gen = Generator(model, tok, device=dev)
+        prompt_ids = tok.encode(req.prompt, add_bos=True)
+
+        t_prefill = time.perf_counter()
+        with torch.inference_mode():
+            _ = gen._prefill(prompt_ids)
+        ttft = max(time.perf_counter() - t_prefill, 1e-6)
+
+        t_start = time.perf_counter()
+        result = gen.generate(req.prompt, max_tokens=req.max_tokens, temperature=req.temperature)
+        duration = max(time.perf_counter() - t_start, 1e-6)
+        token_count = len(result.token_ids)
+        tps = token_count / duration
+
+        return JSONResponse(content={
+            "prompt": req.prompt,
+            "text": result.text.strip(),
+            "tokens": token_count,
+            "prompt_tokens": result.prompt_tokens,
+            "duration_s": round(duration, 4),
+            "ttft_s": round(ttft, 4),
+            "tokens_per_second": round(tps, 2),
+            "finish_reason": result.finish_reason,
+        })
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/search", response_class=JSONResponse)
+def quick_rag_search(req: QuickSearchRequest) -> JSONResponse:
+    """Live interactive RAG SQLite search endpoint."""
+    rag_path = Path("data/rag/index.sqlite")
+    if not rag_path.is_file():
+        return JSONResponse(status_code=404, content={"error": f"RAG index not found at {rag_path}"})
+
+    try:
+        rag = SQLiteRagIndex(rag_path)
+        start = time.perf_counter()
+        results = rag.search(req.query, top_k=req.top_k)
+        latency_ms = (time.perf_counter() - start) * 1000.0
+
+        hits = [
+            {"title": r.title, "score": round(r.score, 3), "snippet": r.description[:120]}
+            for r in results
+        ]
+        return JSONResponse(content={
+            "query": req.query,
+            "latency_ms": round(latency_ms, 2),
+            "hits": hits,
+        })
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})

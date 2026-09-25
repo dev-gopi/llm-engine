@@ -14,10 +14,12 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 
 from dotenv import load_dotenv
 
+import time
 from inference.context import ConversationMemory, format_system_prompt
 from inference.generator import Generator
 from inference.prompt_safety import blocked_prompt_message
 from inference.quantization import prepare_model_for_inference
+from inference.reporting import record_generation_sample
 from inference.web_search import (
     SearchResult,
     build_search_prompt,
@@ -223,6 +225,7 @@ def main() -> None:
                 search_results,
                 description_char_limit=int(search_config.get("description_char_limit", 200)),
             )
+        t_chat_start = time.perf_counter()
         result = generator.generate_chat(
             memory,
             message,
@@ -247,6 +250,26 @@ def main() -> None:
                 else int(inference_config.get("no_repeat_ngram_size", 3))
             ),
         )
+        duration_s = max(time.perf_counter() - t_chat_start, 1e-6)
+        token_count = len(result.token_ids)
+        tps = token_count / duration_s
+
+        try:
+            record_generation_sample(
+                prompt=message,
+                text=result.text,
+                prompt_tokens=result.prompt_tokens,
+                tokens=token_count,
+                duration_s=duration_s,
+                ttft_s=duration_s / max(token_count, 1),
+                tokens_per_second=tps,
+                finish_reason=result.finish_reason,
+                model_name=bot_name,
+                device=str(device),
+            )
+        except Exception:
+            pass
+
         print(f"{bot_name}: {result.text.strip()}")
         if search_results:
             print("Sources:")

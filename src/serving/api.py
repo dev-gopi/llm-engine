@@ -84,6 +84,7 @@ from .omni import create_omni_speech_router, create_omni_video_router
 from omni_platform.multimodal_input import latest_text, prepare_responses_input, synthesize_response_audio
 from omni_platform.errors import OmniError
 from omni_platform.speech import HuggingFaceASRProvider, HuggingFaceTTSProvider
+from .report_router import router as report_router
 from .websocket import router as websocket_router
 from .workspace import WorkspaceService
 
@@ -1255,6 +1256,7 @@ def create_app(
     application.include_router(create_media_router())
     application.include_router(create_omni_speech_router())
     application.include_router(create_omni_video_router(runtime))
+    application.include_router(report_router)
     application.include_router(websocket_router)
     return application
 
