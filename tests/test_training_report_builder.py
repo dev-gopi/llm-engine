@@ -430,3 +430,41 @@ def test_parser_captures_generation_timings(tmp_path) -> None:
     assert analysis["runtime"]["latest_generation_duration_seconds"] == 12.34
 
 
+def test_parser_captures_validation_events_and_active_state(tmp_path) -> None:
+    log = tmp_path / "train.log"
+    log.write_text(
+        "2026-09-01 10:00:00,000 | INFO | trainer | epoch=1 step=100 loss=2.0 tokens_per_second=1000 progress=50%\n"
+        "2026-09-01 10:00:05,000 | INFO | trainer | validation_started step=100\n"
+        "2026-09-01 10:00:10,000 | INFO | evaluator | validation_progress name=general batches=20/50 elapsed_seconds=5.0 eta_seconds=7.5\n",
+        encoding="utf-8",
+    )
+    parsed = MODULE.parse_training_log(log)
+    assert len(parsed["validation_events"]) == 2
+    assert parsed["validation_events"][0]["event"] == "started"
+    assert parsed["validation_events"][1]["event"] == "progress"
+    assert parsed["validation_events"][1]["batches"] == "20/50"
+    assert parsed["validation_events"][1]["elapsed_seconds"] == 5.0
+    assert parsed["validation_events"][1]["eta_seconds"] == 7.5
+
+    analysis = MODULE.analyze_progress(parsed)
+    active = analysis["runtime"]["active_validation"]
+    assert active["running"] is True
+    assert active["step"] == 100
+    assert active["name"] == "general"
+    assert active["batches"] == "20/50"
+    assert active["elapsed_seconds"] == 5.0
+    assert active["eta_seconds"] == 7.5
+
+    # Now append completion
+    with log.open("a", encoding="utf-8") as f:
+        f.write("2026-09-01 10:00:18,000 | INFO | trainer | validation epoch=1 step=100 loss=1.9 cross_entropy=1.85 perplexity=6.36 tokens=50000 batches=50\n")
+        f.write("2026-09-01 10:00:18,000 | INFO | trainer | validation_timing step=100 duration_seconds=13.0\n")
+
+    parsed_done = MODULE.parse_training_log(log)
+    analysis_done = MODULE.analyze_progress(parsed_done)
+    assert analysis_done["runtime"]["active_validation"]["running"] is False
+    assert analysis_done["runtime"]["latest_validation_duration_seconds"] == 13.0
+    assert analysis_done["runtime"]["average_validation_duration_seconds"] == 13.0
+
+
+

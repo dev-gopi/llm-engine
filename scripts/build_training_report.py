@@ -255,6 +255,7 @@ def _empty_parsed() -> dict[str, Any]:
     return {
         "training": [], "validation": [], "best_updates": [],
         "validation_timings": [], "checkpoint_timings": [], "generation_timings": [],
+        "validation_events": [],
         "warnings": [], "run_configurations": [], "raw_log_tail": [], "line_count": 0,
         "session_count": 0,
     }
@@ -284,6 +285,18 @@ def _append_lines(
                 parsed["warnings"].append(
                     f"invalid run configuration snapshot: {error}"
                 )
+        elif message.startswith("validation_started"):
+            values = _fields(message)
+            values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
+            values["event"] = "started"
+            parsed["validation_events"].append(values)
+        elif message.startswith("validation_progress"):
+            values = _fields(message)
+            values["timestamp"] = timestamp
+            values["session"] = parsed["session_count"]
+            values["event"] = "progress"
+            parsed["validation_events"].append(values)
         elif "validation_domain=" in message:
             values = _fields(message)
             key = (int(values.get("epoch", 0)), int(values.get("step", 0)))
@@ -303,6 +316,9 @@ def _append_lines(
             values["timestamp"] = timestamp
             values["session"] = parsed["session_count"]
             parsed["validation_timings"].append(values)
+            values_copy = dict(values)
+            values_copy["event"] = "completed"
+            parsed["validation_events"].append(values_copy)
         elif message.startswith("checkpoint ") and "duration_seconds=" in message:
             values = _fields(message)
             values["timestamp"] = timestamp
@@ -377,7 +393,7 @@ def normalize_history(parsed: dict[str, Any]) -> dict[str, Any]:
             continue
         best_updates[step] = item
     normalized["best_updates"] = [best_updates[key] for key in sorted(best_updates)]
-    for timing_name in ("checkpoint_timings", "validation_timings", "generation_timings"):
+    for timing_name in ("checkpoint_timings", "validation_timings", "generation_timings", "validation_events"):
         normalized[timing_name] = [
             item for item in parsed.get(timing_name, [])
             if not any(
@@ -469,6 +485,80 @@ def _change(first: float | None, latest: float | None) -> dict[str, Any]:
         "latest": latest,
         "absolute_improvement": improvement,
         "percent_improvement": percent,
+    }
+
+
+def _timestamp_seconds(value: Any) -> float | None:
+    """Parse the logger's timestamp format without making live reporting fragile."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace(",", ".", 1))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _event_step(events: list[dict[str, Any]], training: list[dict[str, Any]]) -> int:
+    for event in reversed(events):
+        try:
+            return int(event["step"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return int(training[-1].get("step", 0)) if training else 0
+
+
+def _active_validation_state(
+    events: list[dict[str, Any]],
+    timings: list[dict[str, Any]],
+    training: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Describe an in-flight validation, with a history-based ETA fallback."""
+    if not events or events[-1].get("event") not in {"started", "progress"}:
+        return {"running": False}
+    step = _event_step(events, training)
+    completed_step = timings[-1].get("step") if timings else None
+    try:
+        if completed_step is not None and int(completed_step) > step:
+            return {"running": False}
+    except (TypeError, ValueError):
+        pass
+    latest = events[-1]
+    started = next(
+        (event for event in reversed(events)
+         if event.get("event") == "started" and _event_step([event], []) == step),
+        latest,
+    )
+    reported_elapsed = _number(str(latest.get("elapsed_seconds", "")))
+    started_at = _timestamp_seconds(started.get("timestamp"))
+    wall_elapsed = max(0.0, time.time() - started_at) if started_at is not None else None
+    elapsed = reported_elapsed if reported_elapsed is not None else wall_elapsed
+    completed_durations = [
+        float(item["duration_seconds"])
+        for item in timings
+        if item.get("duration_seconds") is not None
+        and _number(str(item["duration_seconds"])) is not None
+    ]
+    estimated_duration = sum(completed_durations) / len(completed_durations) if completed_durations else None
+    reported_eta = _number(str(latest.get("eta_seconds", "")))
+    eta = reported_eta
+    if eta is None and estimated_duration is not None and elapsed is not None:
+        eta = max(0.0, estimated_duration - elapsed)
+    return {
+        "running": True,
+        "step": step,
+        "name": str(latest.get("name", "validation")),
+        "batches": str(latest["batches"]) if latest.get("batches") is not None else None,
+        "elapsed_seconds": elapsed,
+        "eta_seconds": eta,
+        "estimated_duration_seconds": estimated_duration,
+        "eta_source": "progress" if reported_eta is not None else (
+            "historical_average" if eta is not None else "unavailable"
+        ),
+        "started_at": started.get("timestamp"),
+        "timestamp": latest.get("timestamp"),
     }
 
 
@@ -623,9 +713,18 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
                 parsed.get("validation_timings", [{}])[-1].get("duration_seconds")
                 if parsed.get("validation_timings") else None
             ),
+            "average_validation_duration_seconds": (
+                sum(float(v["duration_seconds"]) for v in parsed.get("validation_timings", []) if v.get("duration_seconds") is not None)
+                / len([v for v in parsed.get("validation_timings", []) if v.get("duration_seconds") is not None])
+                if any(v.get("duration_seconds") is not None for v in parsed.get("validation_timings", [])) else None
+            ),
             "latest_generation_duration_seconds": (
                 parsed.get("generation_timings", [{}])[-1].get("duration_seconds")
                 if parsed.get("generation_timings") else None
+            ),
+            "active_validation": _active_validation_state(
+                parsed.get("validation_events", []),
+                parsed.get("validation_timings", []), training,
             ),
         },
     }

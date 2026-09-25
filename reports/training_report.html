@@ -173,8 +173,9 @@
       <div id="event-schedule"></div>
     </section>
     <section class="grid">
-      <div class="panel"><h2>Step and log timing</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="step-timing-chart"></svg></div></div>
-      <div class="panel"><h2>Checkpoint and validation duration</h2><div class="chart-scroll" data-fixed-legend="true"><svg id="event-duration-chart"></svg></div></div>
+      <div class="panel"><h2>Optimizer-step timing</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Seconds per optimizer step. Validation time is excluded, so slow training steps stay visible.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="step-timing-chart"></svg></div></div>
+      <div class="panel"><h2>Log-window timing</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Wall-clock duration between trainer logs. Shown separately so it cannot flatten the step-time line.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="log-timing-chart"></svg></div></div>
+      <div class="panel"><h2>Checkpoint and validation duration</h2><p class="muted" style="margin:0 0 8px;font-size:12px">Measures duration of validation and checkpoint events.</p><div class="chart-scroll" data-fixed-legend="true"><svg id="event-duration-chart"></svg></div></div>
     </section>
     <section class="grid">
       <div class="panel"><h2>Recent log timing</h2><div id="recent-log-timing"></div></div>
@@ -606,8 +607,11 @@
       const gradientLevel=gradientRatio==null?'':gradientRatio>2?'usage-high':gradientRatio>1?'usage-medium':'usage-low';
       const configuredEpochsValue=Number(data.training_config?.epochs),configuredEpochs=Number.isFinite(configuredEpochsValue)&&configuredEpochsValue>0?Math.floor(configuredEpochsValue):0,epochProgress=latest.epoch_progress??(latest.progress!=null&&configuredEpochs>0&&latest.epoch!=null?Math.max(0,Math.min(100,latest.progress*configuredEpochs-(latest.epoch-1)*100)):null);
       const resumes=resumeCount(data);
+      const activeValidation = analysis.runtime?.active_validation || analysis.active_validation || {running: false};
+      const valRunning = Boolean(activeValidation?.running);
+      const valLabel = valRunning ? ` · 🔄 Validation running${activeValidation.name ? ` (${esc(activeValidation.name)})` : ''}${activeValidation.batches ? ` [${esc(activeValidation.batches)}]` : ''}${activeValidation.eta_seconds != null ? ` · ETA ${durationFmt(activeValidation.eta_seconds)}${activeValidation.eta_source==='historical_average'?' (prior-pass average)':''}` : ' · ETA learning after first completed pass'}` : '';
       const epochLabel=latest.epoch!=null?`Epoch ${fmt(latest.epoch,0)}${configuredEpochs>0?` of ${fmt(configuredEpochs,0)}`:''}`:'Epoch not started';
-      document.getElementById('meter-step').textContent=latest.step!=null?`Step ${fmt(latest.step,0)} · ${epochLabel}`:'Waiting for training data';
+      document.getElementById('meter-step').textContent=latest.step!=null?`Step ${fmt(latest.step,0)} · ${epochLabel}${valLabel}`:'Waiting for training data';
       document.getElementById('meters').innerHTML=[
         meter('Overall',latest.progress,latest.eta_seconds!=null?countdownMarkup(latest.eta_seconds,' remaining'):'Completion','#4f9cf9','%',true),
         meter('Epoch',epochProgress,epochLabel,'#22d3ee'),
@@ -623,6 +627,7 @@
       const latestTime=logTime(latest),stalled=!manual&&latestTime>0&&Date.now()-latestTime>STALL_MS&&Number(latest.progress)<100;
       countdownAnchorMs=manual||latestTime<=0?Date.now():Math.min(Date.now(),latestTime);
       const alerts=[];
+      if(valRunning)alerts.push(['ok',`Validation in progress at step ${fmt(activeValidation.step,0)}${activeValidation.elapsed_seconds!=null?` (${fmt(activeValidation.elapsed_seconds,1)}s elapsed)`:''}${activeValidation.eta_seconds!=null?` · ETA ${durationFmt(activeValidation.eta_seconds)}${activeValidation.eta_source==='historical_average'?' from prior-pass average':''}`:' · ETA available after the first completed pass'}`]);
       if(stalled)alerts.push(['critical',`No training update for ${durationFmt((Date.now()-latestTime)/1000)}`]);
       if(Number(system.ram_percent)>=90)alerts.push(['critical','System RAM is above 90%']);else if(Number(system.ram_percent)>=75)alerts.push(['warning','System RAM is elevated']);
       if(Number(system.cpu_temperature_c)>=90)alerts.push(['critical','CPU temperature is critical']);else if(Number(system.cpu_temperature_c)>=75)alerts.push(['warning','CPU temperature is elevated']);
@@ -634,7 +639,8 @@
       document.getElementById('health-alerts').innerHTML=alerts.map(([level,message])=>`<span class="alert ${level}">${level==='critical'?'●':level==='warning'?'▲':'✓'} ${esc(message)}</span>`).join('');
       const recentEtas=train.slice(-6).map(value=>Number(value.eta_seconds)).filter(Number.isFinite),etaDrops=recentEtas.slice(1).map((value,index)=>recentEtas[index]-value),etaStable=etaDrops.length>1&&etaDrops.filter(value=>value>0).length/etaDrops.length>=.75;
       const lossWord=trainTrend==null?'Waiting':trainTrend>.001?'Improving':trainTrend<-.001?'Worsening':'Stable',lossColor=trendColor(trainTrend);
-      document.getElementById('signals').innerHTML=`<div class="signal"><span class="muted">Loss trend</span><strong style="color:${lossColor}">${lossWord}</strong>${sparkline(train.map(value=>Number(value.avg??value.loss)),lossColor)}</div><div class="signal"><span class="muted">ETA confidence</span><strong class="${etaStable?'ok':'usage-medium'}">${recentEtas.length<3?'Learning':etaStable?'Stable':'Variable'}</strong><span>${countdownMarkup(latest.eta_seconds,' remaining')}</span></div><div class="signal"><span class="muted">Training state</span><strong class="${stalled?'bad':'ok'}">${stalled?'Stalled':'Active'}</strong><span>${latestTime>0?dateFmt(latest.timestamp):'No timestamp yet'}</span></div>`;
+      const valStateHtml = valRunning ? `<div class="signal"><span class="muted">Training state</span><strong class="ok" style="color:var(--blue)">Validation running</strong><span>${activeValidation.eta_seconds!=null?`${durationFmt(activeValidation.eta_seconds)} remaining`:(activeValidation.elapsed_seconds!=null?`${fmt(activeValidation.elapsed_seconds,1)}s elapsed`:'In progress')}</span></div>` : `<div class="signal"><span class="muted">Training state</span><strong class="${stalled?'bad':'ok'}">${stalled?'Stalled':'Active'}</strong><span>${latestTime>0?dateFmt(latest.timestamp):'No timestamp yet'}</span></div>`;
+      document.getElementById('signals').innerHTML=`<div class="signal"><span class="muted">Loss trend</span><strong style="color:${lossColor}">${lossWord}</strong>${sparkline(train.map(value=>Number(value.avg??value.loss)),lossColor)}</div><div class="signal"><span class="muted">ETA confidence</span><strong class="${etaStable?'ok':'usage-medium'}">${recentEtas.length<3?'Learning':etaStable?'Stable':'Variable'}</strong><span>${countdownMarkup(latest.eta_seconds,' remaining')}</span></div>${valStateHtml}`;
       const requestedEpochCount=Math.max(1,configuredEpochs||Number(latest.epoch)||1),epochCount=Math.min(MAX_TIMELINE_EPOCHS,requestedEpochCount),bestEpoch=vals.length?Number(vals.reduce((a,b)=>Number(a.loss)<Number(b.loss)?a:b).epoch):null;
       document.getElementById('epoch-timeline').innerHTML=Array.from({length:epochCount},(_,index)=>{const epoch=index+1,done=epoch<Number(latest.epoch)||Number(latest.progress)>=100,current=epoch===Number(latest.epoch),fill=done?100:current?(epochProgress||0):0,validationCount=vals.filter(value=>Number(value.epoch)===epoch).length,bubbles=fill>0?Array.from({length:6},(_,bubble)=>`<i class="epoch-bubble" aria-hidden="true" style="--x:${10+(bubble*17+epoch*7)%82}%;--size:${3+(bubble+epoch)%4}px;--duration:${2.4+(bubble%3)*.55}s;--delay:${-((bubble*0.63+epoch*.27)%3.2)}s;--drift:${bubble%2?6:-6}px"></i>`).join(''):'';return `<div class="epoch-block ${done?'done':''} ${current?'current':''}"><div class="epoch-fill" style="height:${fill}%"><svg class="epoch-wave-shape" aria-hidden="true" viewBox="0 0 144 12" preserveAspectRatio="none"><path fill="currentColor" d="M0 6 C12 3 24 3 36 6 S60 9 72 6 S96 3 108 6 S132 9 144 6 V12 H0 Z"/></svg><span class="epoch-water">${bubbles}</span></div><strong>Epoch ${epoch}</strong><small>${done?'Complete':current?`${fmt(fill,1)}%`:'Queued'}${validationCount?` · ${validationCount} val`:''}${bestEpoch===epoch?' · ★':''}</small></div>`}).join('');
       if(requestedEpochCount>epochCount)document.getElementById('epoch-timeline').insertAdjacentHTML('beforeend',`<p class="muted">Timeline limited to ${epochCount} of ${fmt(requestedEpochCount,0)} configured epochs.</p>`);
@@ -650,10 +656,13 @@
       document.getElementById('cards').innerHTML=cards.map(([k,v,level=''])=>`<div class="card ${level}"><div class="card-label">${k}</div><div class="value ${level}">${fmt(v)}</div></div>`).join('');
       const cadence=data.training_config||{},currentStep=Number(latest.step)||0;
       const eventRow=(name,interval,eta,detail)=>{const cadenceSteps=Number(interval),hasEta=eta!==null&&eta!==undefined&&eta!==''&&Number.isFinite(Number(eta)),etaSeconds=Number(eta),secondsPerStep=Number(latest.seconds_per_step),estimatedSteps=hasEta&&secondsPerStep>0?Math.round(etaSeconds/secondsPerStep):null,baseRemaining=cadenceSteps>0?(cadenceSteps-currentStep%cadenceSteps)%cadenceSteps:null,remaining=estimatedSteps??(baseRemaining===0&&hasEta&&etaSeconds>0?cadenceSteps:baseRemaining),due=remaining==null?null:currentStep+remaining;return [name,cadenceSteps>0?`Every ${fmt(cadenceSteps,0)} steps`:'At epoch end',remaining==null?'—':fmt(remaining,0),due==null?'—':fmt(due,0),countdownMarkup(eta),detail]};
+      const valRow = valRunning
+        ? ['Validation', cadence.evaluate_every ? `Every ${fmt(cadence.evaluate_every,0)} steps` : 'At epoch end', '0 (active)', fmt(activeValidation.step,0), activeValidation.eta_seconds!=null?countdownMarkup(activeValidation.eta_seconds):(activeValidation.elapsed_seconds!=null?`${fmt(activeValidation.elapsed_seconds,1)}s elapsed`:'In progress'), durationFmt(validationTiming.duration_seconds)]
+        : eventRow('Validation',cadence.evaluate_every,latest.next_validation_eta_seconds,durationFmt(validationTiming.duration_seconds));
       document.getElementById('event-schedule').innerHTML=table(['Event','Cadence','Steps remaining','Due step','Estimated wait','Last measured duration'],[
         eventRow('Training log',cadence.log_every,latest.next_log_eta_seconds,durationFmt(latest.log_interval_seconds)),
         eventRow('Checkpoint',cadence.checkpoint_every,latest.next_checkpoint_eta_seconds,durationFmt(checkpointTiming.duration_seconds)),
-        eventRow('Validation',cadence.evaluate_every,latest.next_validation_eta_seconds,durationFmt(validationTiming.duration_seconds))
+        valRow
       ]);
       const recentTiming=train.filter(v=>v.log_interval_seconds!=null||v.seconds_per_step!=null);
       setPaginatedTable('recent-log-timing',['Time','Step','Log interval','Seconds / step','Next log','Next checkpoint','Next validation'],recentTiming.map(v=>[dateFmt(v.timestamp),fmt(v.step,0),durationFmt(v.log_interval_seconds),fmt(v.seconds_per_step,3),eventEta(v.next_log_eta_seconds),eventEta(v.next_checkpoint_eta_seconds),eventEta(v.next_validation_eta_seconds)]),8,'Timing data appears after the next training log.');
@@ -708,7 +717,9 @@
       const throughputColor=throughputLevel==='usage-high'?'#fb7185':throughputLevel==='usage-medium'?'#fbbf24':'#34d399';
       lineChart(document.getElementById('throughput-chart'),[{name:'tokens / second',points:train.filter(v=>v.tokens_per_second!=null).map(v=>[v.step,v.tokens_per_second]),color:throughputColor}]);
       lineChart(document.getElementById('step-timing-chart'),[
-        {name:'seconds / step',points:train.filter(v=>v.seconds_per_step!=null).map(v=>[v.step,v.seconds_per_step]),color:'#22d3ee'},
+        {name:'seconds / optimizer step',points:train.filter(v=>v.seconds_per_step!=null).map(v=>[v.step,v.seconds_per_step]),color:'#22d3ee'}
+      ]);
+      lineChart(document.getElementById('log-timing-chart'),[
         {name:'log interval seconds',points:train.filter(v=>v.log_interval_seconds!=null).map(v=>[v.step,v.log_interval_seconds]),color:'#fbbf24'}
       ]);
       lineChart(document.getElementById('event-duration-chart'),[

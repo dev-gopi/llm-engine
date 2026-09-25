@@ -466,6 +466,7 @@ class Trainer:
                         kind, self.global_step, time.perf_counter() - started)
 
         def evaluate_validation() -> tuple[dict[str, float | int], dict[str, dict[str, float | int]]]:
+            logger.info("validation_started step=%d", self.global_step)
             started = time.perf_counter()
             metrics, domains = evaluate_validation_metrics()
             logger.info("validation_timing step=%d duration_seconds=%.2f",
