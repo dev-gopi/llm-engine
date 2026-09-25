@@ -70,6 +70,23 @@ provide context; they do not guarantee truth.
 Never treat model output as authoritative medical, legal, financial, security,
 or safety-critical advice. Validate generated code and factual claims.
 
+## Image, audio, and video generation
+
+The repository includes independent image diffusion, text-conditioned audio
+diffusion, and text/image/video-conditioned video diffusion implementations.
+They are experimental training systems, not pretrained media services: output
+quality depends entirely on licensed captioned data, convergence, the selected
+profile, and the checkpoint used. The local 4 GB video profile produces only
+8 frames at 64×64; it is a correctness and development target, not a
+high-resolution production video model.
+
+Image DDPM/DDIM profiles can be trained from image folders. The native latent
+image profile remains planning-only. Audio and video support initialized-media
+editing, classifier-free guidance, negative prompts, and extension, subject to
+the capabilities declared by the configured model registry. See
+[IMAGE_MODELS.md](IMAGE_MODELS.md), [TRAINING_GUIDE.md](TRAINING_GUIDE.md#11-audio-and-video-diffusion-training),
+and [MODEL.md](MODEL.md#6-image-audio-and-video-generation-models).
+
 ## What each stage contributes
 
 | Stage | Main purpose | Does not guarantee |

@@ -124,6 +124,47 @@ TLS, request limits, and storage permissions appropriate for the deployment.
 
 An export is a set: weights, `model.yaml`, and tokenizer must remain together.
 
+## Generate images, audio, or video
+
+Generate an image with the separately trained image-diffusion checkpoint:
+
+```bash
+.venv/bin/python scripts/sample_diffusion.py \
+  --config configs/diffusion/training.local.yaml \
+  --checkpoint checkpoints/diffusion/local.pt \
+  --steps 50 --output outputs/generated_images/sample.png --device cuda
+```
+
+The bundled image CLI samples the pixel-space diffusion profile. The native
+latent image-diffusion configuration is planning-only and must not be presented
+as an available pretrained text-to-image model.
+
+Media generation uses a separately trained audio or video diffusion checkpoint;
+language-model checkpoints are incompatible. Install the optional media runtime
+first if it is not already installed:
+
+```bash
+.venv/bin/python -m pip install --editable '.[media]'
+```
+
+Generate a video from text:
+
+```bash
+.venv/bin/python scripts/generate_video.py \
+  --config configs/video_generation/local_4gb.yaml \
+  --checkpoint checkpoints/video_generation/best.pt \
+  --prompt "A red fox walking through snowy woods" \
+  --negative-prompt "blurry, distorted, flickering" \
+  --output outputs/video/fox.mp4 --preset balanced --device cuda
+```
+
+Generate audio using `scripts/generate_audio.py` with the equivalent audio
+profile and checkpoint. Both CLIs support seeds, named DDIM presets, negative
+prompts, batch output, and reproducibility metadata. Video additionally accepts
+`--init-image` or `--init-video`, plus `--segments` and `--overlap-frames` for
+extension. See [the media training guide](TRAINING_GUIDE.md#11-audio-and-video-diffusion-training)
+for compatible checkpoint and data requirements.
+
 ## Troubleshooting
 
 - Vocabulary mismatch: use the tokenizer that trained the checkpoint or a
@@ -134,3 +175,5 @@ An export is a set: weights, `model.yaml`, and tokenizer must remain together.
   DPO checkpoint instead.
 - Old live-report points after a new stage: update to the current `train.py`;
   new stages archive old report files, while `--resume` preserves history.
+- Media checkpoint error: use the matching media configuration and tokenizer;
+  an LLM checkpoint cannot be sampled by the audio/video generators.

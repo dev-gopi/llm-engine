@@ -182,6 +182,17 @@ fixed seed; larger values add stochasticity. The U-Net supports cosine or linear
 noise schedules, bottleneck attention, residual dropout, reduced-step DDIM, and
 classifier-free guidance when external conditioning vectors are supplied.
 
+### Native latent image diffusion
+
+The repository also contains `AutoencoderKL` and `LatentDiffusionPipeline` for
+native image latent diffusion. Train its VAE with `scripts/train_vae.py` before
+using the pipeline: latent diffusion scales VAE latents before denoising and
+decodes them after sampling. The supplied
+[`configs/diffusion/latent.production.yaml`](../configs/diffusion/latent.production.yaml)
+is deliberately marked `planning_only: true`; `train_vae.py` refuses to run it
+until you provide reviewed datasets and explicitly remove that flag. It is an
+architecture/research profile, not a bundled pretrained text-to-image workflow.
+
 ## Production checklist
 
 - Keep train, validation, and test images disjoint and deduplicate them.
@@ -192,3 +203,13 @@ classifier-free guidance when external conditioning vectors are supplied.
 - Evaluate robustness, demographic performance, memorization, and unsafe outputs.
 - Serve behind authentication, request limits, input validation, and monitoring.
 - Keep vision, multimodal, diffusion, and language checkpoints in separate paths.
+
+## Audio and video diffusion
+
+Audio and video generation are separate latent-diffusion systems, rather than
+extensions of the image U-Net described above. They use captioned WAV or video
+manifests, a trainable tokenizer-backed text conditioner, and distinct
+checkpoints. For the data contract, 4 GB profiles, training, resume, and
+sampling commands, see [Audio and video diffusion training](TRAINING_GUIDE.md#11-audio-and-video-diffusion-training).
+The corresponding architecture and loss formulation are documented in
+[Model Architecture](MODEL.md#6-image-audio-and-video-generation-models).

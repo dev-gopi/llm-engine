@@ -2,6 +2,8 @@
 
 *Authoritative Source: [`src/model/gpt.py`](../src/model/gpt.py), [`src/model/config.py`](../src/model/config.py), [`configs/model.gpu.yaml`](../configs/model.gpu.yaml)*
 
+*Media-generation source: [`src/audio_generation/model.py`](../src/audio_generation/model.py), [`src/audio_generation/pipeline.py`](../src/audio_generation/pipeline.py), [`src/video_generation/model.py`](../src/video_generation/model.py), [`src/video_generation/pipeline.py`](../src/video_generation/pipeline.py)*
+
 ---
 
 ## 1. Overview & Hyperparameters
@@ -128,3 +130,109 @@ A planning-only 7B-class hybrid-MoE profile is provided at
 [`configs/scaling/model.hybrid-moe-7b.yaml`](../configs/scaling/model.hybrid-moe-7b.yaml).
 It can be sized and planned without allocating the weights; it is not a bundled
 trained model.
+
+---
+
+## 6. Image, Audio, and Video Generation Models
+
+The image, audio, and video systems are separate checkpoint families from the
+causal language model. The image stack provides pixel-space DDPM/DDIM and a
+native latent-diffusion research path; audio and video use tokenizer-backed,
+trainable text conditioning. Media checkpoints are never interchangeable with
+language-model checkpoints.
+
+### 6.1 Image Diffusion and VAE
+
+The pixel-space image diffusion U-Net denoises RGB tensors directly. The native
+latent-diffusion path first encodes an image $x$ with `AutoencoderKL` into a
+Gaussian latent, $z=\mu+\exp(\tfrac12\log\sigma^2)\odot\xi$, then decodes it
+with $\hat{x}=D(z)$. Its VAE objective is:
+
+$$\mathcal{L}_{\mathrm{VAE}}=\lVert\hat{x}-x\rVert_1-
+\tfrac{\lambda_{\mathrm{KL}}}{2}\operatorname{mean}
+\left(1+\log\sigma^2-\mu^2-\exp(\log\sigma^2)\right)$$
+
+For latent diffusion, the scaled latent $z_0'=s z_0$ is passed to the same
+noise-prediction process used below, and decoded as $D(z/s)$. The bundled
+`latent.production.yaml` is explicitly `planning_only: true`; it describes a
+native 256×256, 4-channel latent architecture but does not claim a bundled or
+ready-to-train production checkpoint.
+
+### 6.2 Shared Audio/Video Latent-Diffusion Objective
+
+For a media sample $x$, an autoencoder produces a latent $z_0 = E(x)$ and a
+reconstruction $\hat{x} = \tanh(D(z_0))$. At a randomly sampled diffusion step
+$t$, the scheduler creates a noised latent:
+
+$$z_t = \sqrt{\bar{\alpha}_t}z_0 + \sqrt{1-\bar{\alpha}_t}\,\tilde{\epsilon}$$
+
+where $\tilde{\epsilon}$ may include configured noise offset and input
+perturbation. The denoiser predicts the original noise $\epsilon$:
+
+$$\hat{\epsilon}_\theta = \epsilon_\theta(z_t, t, c, C)$$
+
+Training combines noise-prediction MSE with L1 reconstruction loss:
+
+$$\mathcal{L} = \mathbb{E}\left[w_t\lVert\hat{\epsilon}_\theta-\epsilon\rVert_2^2\right]
++ \lambda_{\mathrm{recon}}\lVert\hat{x}-x\rVert_1$$
+
+When `min_snr_gamma` is positive, the implementation uses
+$w_t=\min(\mathrm{SNR}_t,\gamma)/\mathrm{SNR}_t$, with
+$\mathrm{SNR}_t=\bar{\alpha}_t/(1-\bar{\alpha}_t)$. Classifier-free guidance
+is trained by dropping text conditioning with probability
+`condition_dropout`; at DDIM inference it combines predictions as:
+
+$$\hat{\epsilon}_{\mathrm{cfg}} = \hat{\epsilon}_{\mathrm{uncond}}
++ s(\hat{\epsilon}_{\mathrm{cond}}-\hat{\epsilon}_{\mathrm{uncond}})$$
+
+where $s$ is `guidance_scale`.
+
+### 6.3 Text Conditioning and FiLM
+
+Given text-encoder states $H\in\mathbb{R}^{B\times S\times d}$ and attention
+mask $m$, the pooled condition is:
+
+$$c = \frac{\sum_{j=1}^{S}m_jH_j}{\max(1,\sum_{j=1}^{S}m_j)}$$
+
+The denoisers add MLP projections of a sinusoidal timestep embedding and $c$.
+In a residual block, FiLM applies the resulting embedding $e$ as a learned
+per-channel scale and shift: $\mathrm{FiLM}(h,e)=\gamma(e)\odot h+\beta(e)$.
+
+### 6.4 Audio Architecture
+
+`AudioAutoencoder1D` maps mono waveforms $x\in\mathbb{R}^{B\times 1\times N}$
+through strided 1-D convolutions to $z\in\mathbb{R}^{B\times C_z\times
+\lceil N/2^k\rceil}$, where $k$ is `downsample_stages`; transposed convolutions
+decode the result. `AudioDenoiser1D` is a WaveNet-like stack of dilated residual
+blocks (dilations $2^{i\bmod 8}$), with optional text cross-attention.
+
+The 4 GB development profile uses 16 kHz, four-second mono clips (64,000
+samples), $k=6$, 32 latent channels, 128 denoiser channels, 10 residual blocks,
+and cross-attention every third block. See
+[`configs/audio_generation/local_4gb.yaml`](../configs/audio_generation/local_4gb.yaml).
+
+### 6.5 Video Architecture
+
+`VideoAutoencoder3D` encodes RGB clips
+$x\in\mathbb{R}^{B\times3\times T\times H\times W}$ with 3-D convolutions.
+Each spatial stage halves height and width; when `temporal_downsample` is true,
+the first stage also halves time. Thus the latent shape is approximately:
+
+$$B\times C_z\times\lceil T/f_t\rceil\times\lceil H/2^k\rceil\times\lceil W/2^k\rceil$$
+
+where $f_t\in\{1,2\}$ and $k$ is `spatial_stages`. The `VideoDenoiser3D` uses
+FiLM-conditioned 3-D residual blocks, temporal self-attention independently at
+each latent spatial position, and memory-bounded cross-attention over flattened
+video latent tokens in configurable chunks.
+
+The 4 GB development profile is deliberately small: 8 RGB frames at 64×64 and
+8 FPS, three spatial stages with temporal downsampling, 8 latent channels, 96
+denoiser channels, eight residual blocks, temporal attention every second block,
+and text cross-attention every fourth block. See
+[`configs/video_generation/local_4gb.yaml`](../configs/video_generation/local_4gb.yaml).
+
+Both media pipelines use a 1,000-step cosine noise schedule during training and
+DDIM sampling at inference. They support text-to-media as well as initialized
+audio/video or image-to-video generation; an initialized input is encoded,
+noised according to `strength`, then denoised, optionally preserving masked
+regions.

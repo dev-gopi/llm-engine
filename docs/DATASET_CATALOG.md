@@ -208,3 +208,18 @@ manual license, privacy, or sample-quality review.
 Generated `data/cleaned/` outputs are reproducible local artifacts and are not
 committed. The cleaned pretraining configuration must only be started after all
 referenced outputs exist and their reports have been reviewed.
+
+## Local audio and video generation datasets
+
+Audio and video generation datasets are user-provided and are not bundled with
+the repository. Keep each media asset next to a UTF-8 `.txt` caption sidecar,
+then use `scripts/prepare_media_manifest.py` to create deterministic
+`train.jsonl` and `validation.jsonl` files. Audio records require `audio` and
+`text`; video records require `video` and `text`. See
+[the training guide](TRAINING_GUIDE.md#11-audio-and-video-diffusion-training)
+for the exact contract.
+
+Before training, record the source, license, consent/privacy basis, allowed
+use, caption provenance, editing history, and train/validation split method for
+every asset. Do not train on copyrighted, private, biometric, or otherwise
+restricted recordings unless their use is documented and authorized.

@@ -4,11 +4,11 @@ See [`docs/OMNI_PLATFORM_V5.md`](docs/OMNI_PLATFORM_V5.md) for the production mu
 
 # Gopi LLM Engine
 
-A configuration-driven GPT-style language-model engine implemented with
+A configuration-driven language and media-model engine implemented with
 PyTorch. It includes tokenizer training and safe vocabulary extension,
 pretraining, supervised fine-tuning, recovery SFT, DPO, evaluation, export,
-RAG, web search, an OpenAI-compatible API, and distributed-training building
-blocks.
+RAG, web search, image diffusion, audio/video latent diffusion, an
+OpenAI-compatible API, and distributed-training building blocks.
 
 This is an educational and experimental engine. It does not ship pretrained
 weights, and its small-model profiles are not substitutes for production-scale
@@ -20,7 +20,7 @@ foundation models.
 - [Model reference](docs/MODEL.md) and [configuration reference](docs/CONFIGURATION.md).
 - [Training guide](docs/TRAINING_GUIDE.md) and [model-growth guide](docs/DIRECT_TRAINING_GUIDE.md).
 - [Usage guide](docs/USAGE_GUIDE.md), [deployment guide](docs/DEPLOYMENT.md), and [dataset catalog](docs/DATASET_CATALOG.md).
-- [Capabilities and scaling](docs/CAPABILITIES_AND_SCALING.md) and [vision and diffusion](docs/IMAGE_MODELS.md).
+- [Capabilities and scaling](docs/CAPABILITIES_AND_SCALING.md), [vision and image diffusion](docs/IMAGE_MODELS.md), and [audio/video diffusion training](docs/TRAINING_GUIDE.md#11-audio-and-video-diffusion-training).
 
 Documentation and active configuration filenames are unversioned.
 
@@ -44,6 +44,9 @@ Active profiles, including the tokenizer, use unversioned filenames.
 | `configs/evaluation.*` | Domain and fixed-case evaluation |
 | `configs/*packed*` | Memory-mapped token-shard training |
 | `configs/vision/multimodal.yaml` | Small multimodal adapter profile |
+| `configs/diffusion/` | Pixel-space image diffusion and planning-only native latent-image profiles |
+| `configs/audio_generation/` | Local, high-quality, and ultra-quality text-to-audio diffusion profiles |
+| `configs/video_generation/` | Local, high-quality, and ultra-quality text/image/video-to-video diffusion profiles |
 | `configs/text/` | Future 50K tokenizer and 1B/7B/30B targets |
 | `configs/scaling/model.moe-100b.yaml` | Sparse 97.28B planning profile with about 13.96B parameters active per token |
 
@@ -424,4 +427,7 @@ The repository includes checkpoint-backed diffusion stacks for text-to-audio,
 audio-to-audio, long-form audio, text-to-video, image-to-video, and
 video-to-video generation. Supported workflows include multi-segment extension,
 negative prompts, CFG, named inference presets, batch generation, reproducibility
-manifests, and guarded HTTP model serving.
+manifests, and guarded HTTP model serving. These are separate checkpoint
+families from the language model; see the [training guide](docs/TRAINING_GUIDE.md#11-audio-and-video-diffusion-training),
+[model formulation](docs/MODEL.md#6-audio-and-video-latent-diffusion-models),
+and [configuration reference](docs/CONFIGURATION.md#6-audio-and-video-generation-configuration).

@@ -96,3 +96,57 @@ runtime:
 | `DEVICE` | `auto` | Target device selection (`cuda`, `cpu`, `auto`) |
 | `RATE_LIMIT_PER_MINUTE`| `60` | Maximum requests per IP/token per minute |
 | `WORKSPACE_DIR` | `.` | Restricts sandboxed local tool execution boundary |
+
+---
+
+## 6. Image, audio, and video generation configuration
+
+### Image diffusion
+
+Image-generation profiles live under [`configs/diffusion/`](../configs/diffusion/).
+`training.local.yaml` configures the runnable pixel-space DDPM/DDIM workflow;
+`latent.production.yaml` defines a separate native VAE/latent-diffusion research
+profile and is intentionally blocked by `planning_only: true` until a reviewed
+dataset and run plan are supplied.
+
+| Name | Used by | Purpose |
+| :--- | :--- | :--- |
+| `image_size`, `image_channels` | Image dataset, U-Net, VAE | Input/output image geometry and channels |
+| `train_data`, `validation_data` | Image dataset | Root directories containing licensed training/validation images |
+| `base_channels`, `channel_multipliers`, `res_blocks`, `attention_resolutions` | Pixel U-Net | Image denoiser capacity and attention placement |
+| `num_classes`, `class_dropout_probability` | Optional class-conditioned DDPM | Classifier-free conditioning; omit classes for unconditional diffusion |
+| `vae_base_channels`, `vae_downsample_factor`, `latent_channels`, `latent_scale` | Native latent path | VAE capacity, compression, and diffusion latent scaling |
+| `kl_weight`, `vae_batch_size`, `vae_epochs`, `vae_learning_rate` | `train_vae.py` | VAE reconstruction/KL balance and optimization |
+| `timesteps`, `noise_schedule`, `inference_steps`, `ddim_eta` | Image diffusion | Noise schedule and DDIM sampling quality/speed trade-off |
+| `image_normalization`, `train_resize_mode`, `eval_resize_mode` | Image processor | Preprocessing; training and inference must agree on normalization |
+
+### Audio and video
+
+Audio and video diffusion profiles are self-contained YAML files under
+[`configs/audio_generation/`](../configs/audio_generation/) and
+[`configs/video_generation/`](../configs/video_generation/). They must use the
+same tokenizer and architecture when resuming a checkpoint.
+
+| Name | Used by | Valid values / constraint | Purpose |
+| :--- | :--- | :--- | :--- |
+| `tokenizer` | Audio and video trainers | Existing tokenizer directory | Tokenizer lineage for text conditioning |
+| `train_manifest`, `validation_manifest` | Dataset loaders | JSONL records containing `audio` or `video` plus non-empty `text` | Captioned media inputs; relative paths resolve from the manifest |
+| `sample_rate`, `duration_seconds` | Audio | Positive | Fixed decoded waveform length is `round(sample_rate × duration_seconds)` |
+| `frames`, `height`, `width`, `fps` | Video | Positive; height/width divisible by `2^spatial_stages` | Clip geometry and MP4 output rate |
+| `text_hidden_size`, `text_layers`, `text_heads`, `text_max_length` | Text conditioner | Positive; hidden size divisible by heads | Trainable tokenizer-backed text encoder |
+| `autoencoder_channels`, `latent_channels` | Both | Positive | Encoder/decoder width and diffusion latent width |
+| `downsample_stages` | Audio | Positive | Waveform compression factor `2^downsample_stages` |
+| `spatial_stages`, `temporal_downsample` | Video | Positive; boolean | Spatial compression `2^spatial_stages` and optional first-stage 2× temporal compression |
+| `model_channels`, `blocks`, `dropout` | Both | Positive widths/block count; dropout in `[0,1)` | Denoiser capacity and regularization |
+| `temporal_heads`, `attention_every` | Video | `model_channels` divisible by heads | Per-spatial-location temporal self-attention |
+| `cross_attention_every`, `cross_attention_heads`, `cross_attention_chunk_size` | Both; chunk size video only | Channel count divisible by cross-attention heads | Token-level text cross-attention; video chunks flattened latent tokens to bound memory |
+| `timesteps`, `noise_schedule`, `beta_start`, `beta_end` | Both | Positive; schedule currently `cosine` or scheduler-supported choice | Forward noise schedule |
+| `condition_dropout`, `guidance_scale` | Both | Dropout in `[0,1]`; non-negative scale | Classifier-free guidance training and sampling strength |
+| `reconstruction_weight`, `min_snr_gamma`, `noise_offset`, `input_perturbation` | Both | Non-negative | Diffusion-loss stabilization and reconstruction balance |
+| `inference_steps`, `ddim_eta` | Both | Steps in `[1, timesteps]`; eta non-negative | DDIM sampling quality/speed and stochasticity |
+| `batch_size`, `gradient_accumulation_steps`, `mixed_precision` | Both | Positive; `none`, `fp16`, or `bf16` | Memory budget and effective batch size |
+| `output`, `best_output`, `save_every_steps` | Both | Writable paths; positive interval | Rolling resume and lowest-validation-loss EMA checkpoints |
+
+The `local_4gb.yaml` profiles use `batch_size: 1`, accumulation of 16, and FP16.
+Increase frame count, spatial resolution, clip duration, or denoiser width only
+after measuring peak VRAM and validating checkpoint restore.

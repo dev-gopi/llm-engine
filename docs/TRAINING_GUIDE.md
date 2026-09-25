@@ -185,3 +185,117 @@ Use `configs/dpo.cpu.yaml` and `--device cpu` for the CPU route.
 ```
 
 Keep `model.yaml` and the copied tokenizer beside the exported weights.
+
+## 11. Audio and video diffusion training
+
+Audio and video diffusion models are distinct from the language-model
+checkpoint lineage. They require their own captioned datasets, configurations,
+and checkpoints. Install the optional media dependencies before preparing data
+or writing generated media:
+
+```bash
+.venv/bin/python -m pip install --editable '.[dev,media]'
+```
+
+Use one media file and one UTF-8 caption sidecar per example. The manifest
+builder recognizes `.wav` for audio and `.mp4`, `.mov`, `.mkv`, or `.webm` for
+video. For example:
+
+```text
+data/source_audio/rain.wav
+data/source_audio/rain.txt
+data/source_video/fox.mp4
+data/source_video/fox.txt
+```
+
+Each non-empty caption sidecar describes its adjacent media file. Build a
+deterministic train/validation split and inspect the JSONL output before
+training:
+
+```bash
+.venv/bin/python scripts/prepare_media_manifest.py \
+  --kind audio --root data/source_audio --output-dir data/audio
+
+.venv/bin/python scripts/prepare_media_manifest.py \
+  --kind video --root data/source_video --output-dir data/video
+```
+
+The resulting records have the following contracts; paths may be absolute or
+relative to the manifest directory:
+
+```json
+{"audio": "/absolute/path/rain.wav", "text": "Steady rain on a window"}
+{"video": "/absolute/path/fox.mp4", "text": "A red fox walking through snow"}
+```
+
+### 11.1 Low-memory profiles
+
+[`configs/audio_generation/local_4gb.yaml`](../configs/audio_generation/local_4gb.yaml)
+trains on 16 kHz, four-second mono clips with batch size 1, 16 accumulation
+steps, FP16, and gradient clipping. [`configs/video_generation/local_4gb.yaml`](../configs/video_generation/local_4gb.yaml)
+trains on 8-frame, 64×64 RGB clips at 8 FPS with the same memory-oriented batch
+and accumulation settings. These are development-scale profiles, not a route to
+high-resolution production video on a 4 GB GPU.
+
+Use the media tokenizer specified by the selected configuration. A checkpoint
+can only be resumed with the same architecture and tokenizer fingerprint.
+
+### 11.2 Train or resume
+
+Start a fresh audio or video run with the relevant local profile:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train_audio_generation.py \
+  --config configs/audio_generation/local_4gb.yaml --device cuda
+
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/train_video_generation.py \
+  --config configs/video_generation/local_4gb.yaml --device cuda
+```
+
+The profiles write rolling checkpoints to `checkpoints/audio_generation/latest.pt`
+and `checkpoints/video_generation/latest.pt`. When a validation manifest is
+configured, the EMA-weighted lowest-validation-loss checkpoint is also written
+to the corresponding `best.pt` path. Resume an interrupted run with its
+rolling checkpoint:
+
+```bash
+.venv/bin/python scripts/train_audio_generation.py \
+  --config configs/audio_generation/local_4gb.yaml \
+  --resume checkpoints/audio_generation/latest.pt --device cuda
+
+.venv/bin/python scripts/train_video_generation.py \
+  --config configs/video_generation/local_4gb.yaml \
+  --resume checkpoints/video_generation/latest.pt --device cuda
+```
+
+The trainers restore model, optimizer, scheduler, EMA, AMP scaler, progress,
+and RNG state. They fail early for missing manifest files, invalid media shapes,
+or incompatible tokenizer/checkpoint metadata.
+
+### 11.3 Validate and sample
+
+Run the focused contract tests before a long job:
+
+```bash
+.venv/bin/python -m pytest tests/test_audio_video_generation.py \
+  tests/test_media_generation_production.py -q
+```
+
+After training, generate a small verification sample from the best video
+checkpoint:
+
+```bash
+.venv/bin/python scripts/generate_video.py \
+  --config configs/video_generation/local_4gb.yaml \
+  --checkpoint checkpoints/video_generation/best.pt \
+  --prompt "A red fox walking through snowy woods" \
+  --output outputs/video/fox.mp4 --preset balanced
+```
+
+For image-to-video or video-to-video, add `--init-image PATH` or
+`--init-video PATH`; `--strength` controls how much the initialized input is
+changed. The generator supports `--segments` and `--overlap-frames` for
+multi-segment extension. Use `scripts/generate_audio.py --help` or
+`scripts/generate_video.py --help` to inspect all sampling controls.

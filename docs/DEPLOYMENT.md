@@ -166,7 +166,41 @@ Do not overwrite the only checkpoint during deployment. Version artifacts and
 deploy a new directory, perform a smoke test, then switch traffic. Roll back to
 the previous immutable artifact if readiness or quality checks fail.
 
-## 9. Security and privacy checklist
+## 9. Audio and video generation service
+
+The API can serve audio and video only after a compatible media checkpoint is
+configured. Install the `media` optional dependency group, keep media configs
+and checkpoints read-only, and configure either a registry or explicit default
+model paths:
+
+```bash
+export GOPI_MEDIA_MODEL_REGISTRY='configs/media_generation/registry.yaml'
+# Or configure one default model of each kind:
+export GOPI_AUDIO_CONFIG='configs/audio_generation/high_quality.yaml'
+export GOPI_AUDIO_CHECKPOINT='checkpoints/audio_generation/best.pt'
+export GOPI_VIDEO_CONFIG='configs/video_generation/high_quality.yaml'
+export GOPI_VIDEO_CHECKPOINT='checkpoints/video_generation/best.pt'
+export GOPI_MEDIA_MAX_CONCURRENCY='1'
+export GOPI_MEDIA_MAX_QUEUED_JOBS='16'
+export GOPI_MEDIA_ASSET_DIR='outputs/api_media/assets'
+export GOPI_MEDIA_OUTPUT_DIR='outputs/api_media/jobs'
+```
+
+Start with one concurrent worker on a consumer GPU. Media generation is
+resource-intensive; route overload returns HTTP 429 and a missing/unavailable
+model returns HTTP 503. Store uploaded assets and generated outputs on a volume
+with a retention policy, access controls, and sufficient capacity. Do not expose
+asset or job endpoints without API-key authentication.
+
+The `/v1/media/*` routes provide model discovery, capability discovery,
+authenticated asset upload, asynchronous generation jobs, cancellation, retry,
+SSE job events, and artifact download. The backward-compatible synchronous
+`/v1/audio/generations` and `/v1/video/generations` routes return WAV or MP4
+directly. See [`configs/media_generation/registry.example.yaml`](../configs/media_generation/registry.example.yaml)
+for the registry schema and [USAGE_GUIDE.md](USAGE_GUIDE.md#generate-images-audio-or-video)
+for local CLI sampling.
+
+## 10. Security and privacy checklist
 
 - use TLS for traffic outside the local machine;
 - rotate long random API keys and never put them in URLs;
