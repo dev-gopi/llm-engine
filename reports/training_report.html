@@ -244,6 +244,7 @@
     const MAX_TIMELINE_EPOCHS = 100;
     const MAX_DETAIL_ROWS = 500;
     const colors = ['#4f9cf9','#fb7185','#34d399','#fbbf24','#a78bfa','#22d3ee','#f97316'];
+    const fmt = (v,d=4) => v == null ? '—' : typeof v === 'number' ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : v;
     const dateFmt = value => {
       if (!value) return '—';
       let str = String(value).trim();
