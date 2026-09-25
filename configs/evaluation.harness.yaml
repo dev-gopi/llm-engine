@@ -1,0 +1,46 @@
+# LM Evaluation Harness Configuration
+#
+# Controls for the built-in evaluation harness runner and optional
+# integration with EleutherAI lm-evaluation-harness.
+
+schema_version: 1
+
+# Default tasks to run when no --tasks flag is provided
+default_tasks:
+  - mmlu
+  - arc_challenge
+  - hellaswag
+  - gsm8k
+  - winogrande
+  - truthfulqa
+  - lambada
+
+# Few-shot configuration per task (overrides --num-fewshot CLI)
+fewshot_defaults:
+  mmlu: 5
+  arc_challenge: 25
+  arc_easy: 25
+  hellaswag: 10
+  gsm8k: 5
+  winogrande: 5
+  truthfulqa: 0
+  lambada: 0
+
+# Inference controls for harness evaluation
+inference:
+  batch_size: 4
+  max_gen_toks: 256
+  max_length: null       # null = use model max_position
+  truncation: false
+  temperature: 0.0       # deterministic scoring by default
+  top_k: 0
+  top_p: 1.0
+
+# Checkpoint weights preference
+weights: ema
+
+# Output path for JSON report (null = stdout only)
+output: null
+
+# Optional: use the official lm_eval package if installed
+native_lm_eval: false
