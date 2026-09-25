@@ -31,6 +31,9 @@ from optim.scheduler import Scheduler
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
 from utils.config import load_yaml
+from utils.logger import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 
 def _features(model, tokenizer, texts, device):
@@ -66,6 +69,7 @@ def _checkpoint_metadata(config, tokenizer):
 
 
 def main() -> None:
+    configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/audio_generation/high_quality.yaml"))
     parser.add_argument("--resume", type=Path)

@@ -9,6 +9,9 @@ import httpx
 
 from mcp.client import MCPClient, MCPProtocolError, MCPTool
 from security.authorization import ToolAuthorization
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)

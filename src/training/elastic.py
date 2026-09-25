@@ -8,6 +8,10 @@ import threading
 import torch
 import torch.distributed as dist
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class PreemptionCoordinator:
     """Turn termination signals into a collective, checkpointable stop request."""

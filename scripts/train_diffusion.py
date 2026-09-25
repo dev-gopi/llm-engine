@@ -22,9 +22,13 @@ from optim.ema import EMA
 from optim.scheduler import Scheduler
 from training.checkpoint import load_checkpoint, save_checkpoint
 from utils.config import load_yaml
+from utils.logger import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 
 def main() -> None:
+    configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/diffusion/training.production.yaml"))
     parser.add_argument("--data", type=Path)

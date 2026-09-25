@@ -24,6 +24,9 @@ from omni_platform.providers import ProviderContext, ProviderRegistry
 from omni_platform.speech import EnergyVAD, HuggingFaceASRProvider, HuggingFaceTTSProvider, SpeechToSpeechPipeline
 from serving.runtime import ServingError
 from serving.schemas import GenerateRequest
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class TranscriptionRequest(BaseModel):

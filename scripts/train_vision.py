@@ -19,7 +19,10 @@ from image_data.processor import ImageProcessor
 from optim.scheduler import Scheduler
 from training.checkpoint import load_checkpoint, save_checkpoint
 from utils.config import load_yaml
+from utils.logger import configure_logging, get_logger
 from vision.classifier import VisionClassifier
+
+logger = get_logger(__name__)
 
 
 def loader_options(config: dict, device: torch.device) -> dict:
@@ -38,6 +41,7 @@ def loader_options(config: dict, device: torch.device) -> dict:
 
 
 def main() -> None:
+    configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/vision/training.production.yaml"))
     parser.add_argument("--data", type=Path)

@@ -19,6 +19,10 @@ import os
 import uvicorn
 from dotenv import load_dotenv
 
+from utils.logger import configure_logging, get_logger
+
+logger = get_logger(__name__)
+
 
 def main() -> None:
     load_dotenv()
@@ -50,6 +54,8 @@ def main() -> None:
         parser.error("--reload requires --workers 1")
     if args.config is not None:
         os.environ["GOPI_INFERENCE_CONFIG"] = args.config
+    configure_logging(level=args.log_level)
+    logger.info("Starting serving backend on http://%s:%d (workers=%d)", args.host, args.port, args.workers)
     uvicorn.run(
         "serving.api:app",
         host=args.host,

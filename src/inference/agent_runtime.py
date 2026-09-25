@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class AgentState(str, Enum):
     PLANNING="planning"; WAITING_APPROVAL="waiting_approval"; EXECUTING="executing"; OBSERVING="observing"; COMPLETED="completed"; FAILED="failed"

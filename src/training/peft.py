@@ -10,6 +10,10 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 DEFAULT_LORA_TARGETS = (
     "q_proj",
     "k_proj",
@@ -83,6 +87,10 @@ def apply_lora(model: nn.Module, config: Mapping[str, Any]) -> dict[str, Any]:
 
     trainable = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
     total = sum(parameter.numel() for parameter in model.parameters())
+    logger.info(
+        "Applied LoRA: rank=%d, alpha=%.1f, %d/%d trainable parameters (%.2f%%)",
+        rank, alpha, trainable, total, (trainable / total * 100) if total else 0.0,
+    )
     return {
         "method": "lora",
         "rank": rank,

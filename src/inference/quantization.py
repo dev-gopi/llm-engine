@@ -7,6 +7,10 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor, nn
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 Q1_0_GROUP_SIZE = 128
 Q1_0_EFFECTIVE_BITS = 1.0 + 16.0 / Q1_0_GROUP_SIZE
 

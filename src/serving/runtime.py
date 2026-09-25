@@ -12,6 +12,9 @@ from typing import Protocol, runtime_checkable
 
 from .orchestration import ContinuousStreamScheduler, TokenStepScheduler
 from .schemas import FinishReason, GenerateRequest, OpenAIToolCall
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ServingError(RuntimeError):

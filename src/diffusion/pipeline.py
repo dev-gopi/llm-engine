@@ -8,8 +8,12 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
+from utils.logger import get_logger
+
 from .scheduler import DiffusionScheduler
 from .unet import SmallUNet
+
+logger = get_logger(__name__)
 
 
 class DiffusionPipeline:

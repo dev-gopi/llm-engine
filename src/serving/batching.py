@@ -6,6 +6,10 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class _WorkItem:
@@ -98,6 +102,7 @@ class DynamicBatcher:
                         item.future.cancel()
                 raise
             except Exception as error:
+                logger.exception("Batch generation failed for %d requests: %s", len(active), error)
                 for item in active:
                     if not item.future.cancelled() and not item.future.done():
                         item.future.set_exception(error)

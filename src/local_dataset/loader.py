@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,10 +12,11 @@ import torch
 from torch.utils.data import ConcatDataset, Dataset
 
 from tokenizer.encoder import Tokenizer
+from utils.logger import get_logger
 
 from .preprocessor import clean, record_to_text
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)

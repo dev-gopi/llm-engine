@@ -17,6 +17,10 @@ from urllib.parse import quote
 
 import torch
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 INDEX_VERSION = 1
 SUPPORTED_SUFFIXES = {
     ".txt", ".md", ".markdown", ".json", ".jsonl", ".csv", ".tsv",
@@ -341,6 +345,7 @@ class RagIndex:
         payload = json.loads(source.read_text(encoding="utf-8"))
         if payload.get("version") != INDEX_VERSION or not isinstance(payload.get("chunks"), list):
             raise ValueError(f"unsupported or invalid RAG index: {source}")
+        logger.debug("Loaded JSON RAG index from %s (%d chunks)", source, len(payload["chunks"]))
         return cls(DocumentChunk(**chunk) for chunk in payload["chunks"])
 
 
@@ -357,6 +362,7 @@ class SQLiteRagIndex:
             ).fetchone()
             if version is None or int(version[0]) != INDEX_VERSION:
                 raise ValueError(f"unsupported or invalid SQLite RAG index: {self.path}")
+        logger.debug("Loaded SQLite RAG index from %s", self.path)
 
     @property
     def count(self) -> int:
@@ -458,6 +464,7 @@ class SQLiteRagIndex:
                 connection.execute("INSERT INTO chunks(chunks) VALUES ('optimize')")
                 connection.commit()
             temporary.replace(target)
+            logger.info("Built SQLite RAG index at %s", target)
         except BaseException:
             temporary.unlink(missing_ok=True)
             raise

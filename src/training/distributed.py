@@ -10,6 +10,10 @@ import torch.distributed as dist
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 try:
     from torch.distributed.fsdp import (
         FullyShardedDataParallel,
@@ -58,6 +62,10 @@ class DistributedTrainer:
         if world_size > 1 and not dist.is_initialized():
             resolved_backend = backend or ("nccl" if torch.cuda.is_available() else "gloo")
             dist.init_process_group(backend=resolved_backend, init_method="env://")
+            logger.info(
+                "Initialized torch.distributed: backend=%s, rank=%d, world_size=%d",
+                resolved_backend, rank, world_size,
+            )
         if torch.cuda.is_available():
             if local_rank >= torch.cuda.device_count():
                 raise ValueError(
@@ -145,3 +153,4 @@ class DistributedTrainer:
     def shutdown() -> None:
         if dist.is_initialized():
             dist.destroy_process_group()
+            logger.info("Destroyed torch.distributed process group")

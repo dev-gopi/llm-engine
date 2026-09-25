@@ -9,6 +9,10 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass(frozen=True)
 class DistributedTopology:

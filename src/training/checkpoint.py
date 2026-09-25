@@ -13,6 +13,10 @@ import numpy as np
 import torch
 from torch import nn
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def save_checkpoint(
     path: str | Path,
@@ -50,6 +54,7 @@ def save_checkpoint(
     try:
         torch.save(payload, temporary)
         os.replace(temporary, destination)
+        logger.debug("Saved checkpoint to %s (step=%d)", destination, step)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
@@ -180,8 +185,10 @@ def load_checkpoint(
                 _set_numpy_rng_state(payload["numpy_rng_state"])
             except Exception:
                 pass
+    step = int(payload.get("step", 0))
+    logger.debug("Loaded checkpoint from %s (step=%d, use_ema=%s)", source, step, use_ema)
     return {
-        "step": int(payload.get("step", 0)),
+        "step": step,
         "metadata": payload.get("metadata", {}),
         "trainer": payload.get("trainer", {}),
         "sampler": payload.get("sampler", {}),

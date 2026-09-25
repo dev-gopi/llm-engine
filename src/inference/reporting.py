@@ -27,6 +27,9 @@ from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
 from utils.device import resolve_device
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)

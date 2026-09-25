@@ -9,6 +9,10 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class TokenShardDataset(Dataset[dict[str, torch.Tensor]]):
     """Read fixed-width uint32 token sequences from NumPy shards on demand."""

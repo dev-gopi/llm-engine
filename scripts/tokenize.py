@@ -25,6 +25,9 @@ import yaml
 
 from tokenizer.encoder import DEFAULT_PATTERN, Tokenizer
 from tokenizer.trainer import create_tokenizer_trainer
+from utils.logger import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 
 def extract_text(value: Any) -> Iterator[str]:
@@ -390,6 +393,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    configure_logging()
     args = parse_args()
     args.handler(args)
 

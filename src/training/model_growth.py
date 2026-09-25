@@ -7,6 +7,9 @@ from dataclasses import dataclass
 import torch
 
 from model.gpt import MiniGPT
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _VOCABULARY_PARAMETERS = frozenset({
     "tok.embedding.weight", "head.weight", "head.bias",
