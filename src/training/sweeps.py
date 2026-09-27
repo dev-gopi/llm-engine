@@ -8,10 +8,18 @@ from dataclasses import dataclass
 from itertools import product
 from typing import Any
 
-_SUPPORTED_AXES = frozenset({
-    "learning_rate", "batch_size", "gradient_accumulation_steps", "lr_schedule",
-    "optimizer", "weight_decay", "warmup_ratio", "min_lr_ratio",
-})
+_SUPPORTED_AXES = frozenset(
+    {
+        "learning_rate",
+        "batch_size",
+        "gradient_accumulation_steps",
+        "lr_schedule",
+        "optimizer",
+        "weight_decay",
+        "warmup_ratio",
+        "min_lr_ratio",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -24,7 +32,10 @@ class SweepTrial:
 
 
 def build_sweep(
-    base_config: Mapping[str, Any], axes: Mapping[str, Sequence[Any]], *, prefix: str = "trial"
+    base_config: Mapping[str, Any],
+    axes: Mapping[str, Sequence[Any]],
+    *,
+    prefix: str = "trial",
 ) -> list[SweepTrial]:
     """Expand a Cartesian hyperparameter grid in sorted axis order.
 
@@ -33,7 +44,9 @@ def build_sweep(
     expensive training work.
     """
     if not prefix or not prefix.replace("_", "").replace("-", "").isalnum():
-        raise ValueError("prefix must contain letters, numbers, hyphens, or underscores")
+        raise ValueError(
+            "prefix must contain letters, numbers, hyphens, or underscores"
+        )
     unknown = set(axes) - _SUPPORTED_AXES
     if unknown:
         raise ValueError(f"unsupported sweep axes: {', '.join(sorted(unknown))}")
@@ -43,7 +56,11 @@ def build_sweep(
     values = []
     for axis in ordered_axes:
         choices = axes[axis]
-        if isinstance(choices, (str, bytes)) or not isinstance(choices, Sequence) or not choices:
+        if (
+            isinstance(choices, (str, bytes))
+            or not isinstance(choices, Sequence)
+            or not choices
+        ):
             raise ValueError(f"sweep axis {axis!r} must contain at least one value")
         values.append(choices)
 

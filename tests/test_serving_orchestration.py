@@ -67,9 +67,7 @@ def test_continuous_scheduler_cancels_disconnected_stream() -> None:
 
     async def scenario():
         backend = EndlessBackend()
-        scheduler = ContinuousStreamScheduler(
-            backend, max_active=1, event_queue_size=1
-        )
+        scheduler = ContinuousStreamScheduler(backend, max_active=1, event_queue_size=1)
         await scheduler.startup()
         stream = scheduler.stream("request")
         assert await anext(stream) == "request"
@@ -131,9 +129,12 @@ def test_token_step_scheduler_batches_active_sequences_and_admits_work():
         backend = TokenBackend()
         scheduler = TokenStepScheduler(backend, max_active=4)
         await scheduler.startup()
-        results = await asyncio.gather(*(
-            asyncio.create_task(collect(scheduler.stream(value))) for value in ("a", "b", "c")
-        ))
+        results = await asyncio.gather(
+            *(
+                asyncio.create_task(collect(scheduler.stream(value)))
+                for value in ("a", "b", "c")
+            )
+        )
         await scheduler.shutdown()
         return backend, results
 
@@ -144,7 +145,6 @@ def test_token_step_scheduler_batches_active_sequences_and_admits_work():
     assert all(len(values) == 3 for values in results)
     assert any(size > 1 for size in backend.batch_sizes)
     assert sorted(backend.released) == ["a", "b", "c"]
-
 
 
 def test_token_step_scheduler_releases_states_after_decode_failure() -> None:
@@ -169,7 +169,9 @@ def test_token_step_scheduler_releases_states_after_decode_failure() -> None:
         await scheduler.startup()
         streams = [scheduler.stream("a"), scheduler.stream("b")]
         tasks = [asyncio.create_task(collect(stream)) for stream in streams]
-        results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=1)
+        results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True), timeout=1
+        )
         await scheduler.shutdown()
         return backend, results
 

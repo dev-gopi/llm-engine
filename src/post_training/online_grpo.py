@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import random
 from collections import deque
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -15,7 +14,9 @@ from inference.generator import Generator
 
 
 class CompletionScorer(Protocol):
-    def score(self, prompt: str, completion: str, *, normalized: bool = False) -> float: ...
+    def score(
+        self, prompt: str, completion: str, *, normalized: bool = False
+    ) -> float: ...
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,9 @@ class RolloutReplayBuffer:
                 while len(self._items) > 0:
                     self._items.popleft()
 
-    def extend_current(self, records: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    def extend_current(
+        self, records: Iterable[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
         current = [dict(record) for record in records]
         if self.capacity > 0:
             self.add(current)
@@ -99,14 +102,19 @@ class RolloutReplayBuffer:
                 if isinstance(payload, dict):
                     loaded.append(payload)
         if self.capacity > 0:
-            self._items.extend(loaded[-self.capacity:])
+            self._items.extend(loaded[-self.capacity :])
         return len(loaded)
 
 
 class OnlineRolloutGenerator:
     """Generate grouped policy samples and assign reward-model/verifier rewards."""
 
-    def __init__(self, generator: Generator, scorer: CompletionScorer | None, config: RolloutConfig) -> None:
+    def __init__(
+        self,
+        generator: Generator,
+        scorer: CompletionScorer | None,
+        config: RolloutConfig,
+    ) -> None:
         self.generator = generator
         self.scorer = scorer
         self.config = config
@@ -127,7 +135,9 @@ class OnlineRolloutGenerator:
             return 0.0
         return 1.0 if completion.strip() == expected.strip() else 0.0
 
-    def generate_group(self, record: Mapping[str, Any], *, prompt_index: int = 0) -> dict[str, Any] | None:
+    def generate_group(
+        self, record: Mapping[str, Any], *, prompt_index: int = 0
+    ) -> dict[str, Any] | None:
         prompt = record.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return None
@@ -163,13 +173,22 @@ class OnlineRolloutGenerator:
         for completion in completions:
             rm = 0.0
             if self.scorer is not None and self.config.reward_model_weight != 0:
-                rm = float(self.scorer.score(
-                    prompt, completion, normalized=self.config.normalize_reward_model,
-                ))
+                rm = float(
+                    self.scorer.score(
+                        prompt,
+                        completion,
+                        normalized=self.config.normalize_reward_model,
+                    )
+                )
             exact = self._exact_match(completion, expected)
-            total = self.config.reward_model_weight * rm + self.config.exact_match_weight * exact
+            total = (
+                self.config.reward_model_weight * rm
+                + self.config.exact_match_weight * exact
+            )
             rewards.append(float(total))
-            components.append({"reward_model": rm, "exact_match": exact, "total": float(total)})
+            components.append(
+                {"reward_model": rm, "exact_match": exact, "total": float(total)}
+            )
         if max(rewards) == min(rewards):
             return None
         return {
@@ -184,7 +203,9 @@ class OnlineRolloutGenerator:
             },
         }
 
-    def generate(self, records: Iterable[Mapping[str, Any]], *, max_groups: int | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def generate(
+        self, records: Iterable[Mapping[str, Any]], *, max_groups: int | None = None
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         groups: list[dict[str, Any]] = []
         failures: list[dict[str, Any]] = []
         for index, record in enumerate(records):
@@ -193,11 +214,24 @@ class OnlineRolloutGenerator:
             try:
                 group = self.generate_group(record, prompt_index=index)
                 if group is None:
-                    failures.append({"index": index, "reason": "insufficient_unique_or_nonconstant_group"})
+                    failures.append(
+                        {
+                            "index": index,
+                            "reason": "insufficient_unique_or_nonconstant_group",
+                        }
+                    )
                 else:
                     groups.append(group)
-            except Exception as error:  # rollout generation is intentionally fault-tolerant per prompt
-                failures.append({"index": index, "reason": type(error).__name__, "message": str(error)})
+            except (
+                Exception
+            ) as error:  # rollout generation is intentionally fault-tolerant per prompt
+                failures.append(
+                    {
+                        "index": index,
+                        "reason": type(error).__name__,
+                        "message": str(error),
+                    }
+                )
         return groups, failures
 
 
@@ -212,7 +246,9 @@ def load_prompt_records(paths: Iterable[str | Path]) -> list[dict[str, Any]]:
                 try:
                     payload = json.loads(line)
                 except json.JSONDecodeError as error:
-                    raise ValueError(f"invalid rollout JSONL at {path}:{line_number}: {error}") from error
+                    raise ValueError(
+                        f"invalid rollout JSONL at {path}:{line_number}: {error}"
+                    ) from error
                 if isinstance(payload, str):
                     payload = {"prompt": payload}
                 if isinstance(payload, dict):

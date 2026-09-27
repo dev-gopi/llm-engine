@@ -40,7 +40,9 @@ class VisionBlock(nn.Module):
 
     def forward(self, hidden_states: Tensor) -> Tensor:
         normalized = self.attention_norm(hidden_states)
-        attended, _ = self.attention(normalized, normalized, normalized, need_weights=False)
+        attended, _ = self.attention(
+            normalized, normalized, normalized, need_weights=False
+        )
         hidden_states = hidden_states + attended
         return hidden_states + self.ffn(self.ffn_norm(hidden_states))
 
@@ -71,7 +73,10 @@ class VisionEncoder(nn.Module):
         if pool_type not in {"cls", "mean"}:
             raise ValueError("pool_type must be cls or mean")
         self.patch_embedding = PatchEmbedding(
-            image_size, patch_size, channels, hidden_size,
+            image_size,
+            patch_size,
+            channels,
+            hidden_size,
             strict_image_size=strict_image_size,
         )
         self.pool_type = pool_type
@@ -103,16 +108,31 @@ class VisionEncoder(nn.Module):
     def _position_embedding(self, images: Tensor) -> Tensor:
         height = images.shape[-2] // self.patch_embedding.patch_size
         width = images.shape[-1] // self.patch_embedding.patch_size
-        if height == self.patch_embedding.grid_size and width == self.patch_embedding.grid_size:
+        if (
+            height == self.patch_embedding.grid_size
+            and width == self.patch_embedding.grid_size
+        ):
             return self.position_embedding
         cls_position = self.position_embedding[:, :1]
-        patch_position = self.position_embedding[:, 1:].reshape(
-            1, self.patch_embedding.grid_size, self.patch_embedding.grid_size, self.hidden_size
-        ).permute(0, 3, 1, 2)
+        patch_position = (
+            self.position_embedding[:, 1:]
+            .reshape(
+                1,
+                self.patch_embedding.grid_size,
+                self.patch_embedding.grid_size,
+                self.hidden_size,
+            )
+            .permute(0, 3, 1, 2)
+        )
         patch_position = F.interpolate(
-            patch_position.float(), size=(height, width), mode="bicubic", align_corners=False
+            patch_position.float(),
+            size=(height, width),
+            mode="bicubic",
+            align_corners=False,
         ).to(self.position_embedding.dtype)
-        return torch.cat((cls_position, patch_position.flatten(2).transpose(1, 2)), dim=1)
+        return torch.cat(
+            (cls_position, patch_position.flatten(2).transpose(1, 2)), dim=1
+        )
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any]) -> VisionEncoder:
@@ -130,6 +150,7 @@ class VisionEncoder(nn.Module):
             pool_type=str(config.get("pool_type", "cls")),
         )
 
+
 @dataclass(frozen=True)
 class ModalityContract:
     modality: str
@@ -138,5 +159,7 @@ class ModalityContract:
     safety_policy: str = "explicit_opt_in"
 
     def validate(self) -> None:
-        if self.modality not in {"image", "audio", "video"}: raise ValueError("unsupported modality")
-        if self.feature_dim < 1 or not self.encoder_id.strip(): raise ValueError("invalid modality encoder contract")
+        if self.modality not in {"image", "audio", "video"}:
+            raise ValueError("unsupported modality")
+        if self.feature_dim < 1 or not self.encoder_id.strip():
+            raise ValueError("invalid modality encoder contract")

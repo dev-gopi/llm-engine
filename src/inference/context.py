@@ -63,9 +63,16 @@ def format_system_prompt(
     except KeyError as error:
         raise ValueError("unsupported assistant mode") from error
     safety_instruction = SAFETY_INSTRUCTION if include_safety_instruction else ""
-    return "\n".join(part for part in (
-        clean(system_prompt), safety_instruction, mode_instruction, instruction
-    ) if part)
+    return "\n".join(
+        part
+        for part in (
+            clean(system_prompt),
+            safety_instruction,
+            mode_instruction,
+            instruction,
+        )
+        if part
+    )
 
 
 class ConversationMemory:
@@ -75,7 +82,9 @@ class ConversationMemory:
     persist snapshots in a shared session store.
     """
 
-    def __init__(self, tokenizer: Tokenizer, *, max_tokens: int, system_prompt: str | None = None) -> None:
+    def __init__(
+        self, tokenizer: Tokenizer, *, max_tokens: int, system_prompt: str | None = None
+    ) -> None:
         if max_tokens < 2:
             raise ValueError("max_tokens must be at least two")
         self.tokenizer = tokenizer
@@ -95,13 +104,21 @@ class ConversationMemory:
             self._messages.append(Message(role, normalized))
             self._trim()
 
-    def render(self, *, add_generation_prompt: bool = True, reserve_tokens: int = 0) -> str:
+    def render(
+        self, *, add_generation_prompt: bool = True, reserve_tokens: int = 0
+    ) -> str:
         if reserve_tokens < 0:
             raise ValueError("reserve_tokens must be non-negative")
         with self._lock:
-            self._trim(budget=self.max_tokens - reserve_tokens, add_generation_prompt=add_generation_prompt)
+            self._trim(
+                budget=self.max_tokens - reserve_tokens,
+                add_generation_prompt=add_generation_prompt,
+            )
             return format_messages(
-                [{"role": message.role, "content": message.content} for message in self._messages],
+                [
+                    {"role": message.role, "content": message.content}
+                    for message in self._messages
+                ],
                 add_generation_prompt=add_generation_prompt,
             )
 
@@ -111,7 +128,11 @@ class ConversationMemory:
 
     def clear(self, *, preserve_system: bool = True) -> None:
         with self._lock:
-            self._messages = [message for message in self._messages if preserve_system and message.role == "system"]
+            self._messages = [
+                message
+                for message in self._messages
+                if preserve_system and message.role == "system"
+            ]
 
     def set_system_prompt(self, content: str) -> None:
         """Replace the system prompt while preserving the conversation."""
@@ -126,39 +147,58 @@ class ConversationMemory:
 
     def restore(self, messages: list[dict[str, str]]) -> None:
         with self._lock:
-            self._messages = [Message(message["role"], clean(message["content"])) for message in messages]
+            self._messages = [
+                Message(message["role"], clean(message["content"]))
+                for message in messages
+            ]
             self._trim()
 
-    def _trim(self, *, budget: int | None = None, add_generation_prompt: bool = False) -> None:
+    def _trim(
+        self, *, budget: int | None = None, add_generation_prompt: bool = False
+    ) -> None:
         budget = budget if budget is not None else self.max_tokens
         max_prompt_budget = max(1, self.max_tokens - 1)
         target_budget = max(1, min(budget, max_prompt_budget))
         while self._token_count(add_generation_prompt) > target_budget:
-            non_system_indices = [index for index, message in enumerate(self._messages) if message.role != "system"]
+            non_system_indices = [
+                index
+                for index, message in enumerate(self._messages)
+                if message.role != "system"
+            ]
             if not non_system_indices:
                 break
             index = non_system_indices[0]
             if len(non_system_indices) == 1:
-                if not self._truncate_message(index, target_budget, add_generation_prompt):
+                if not self._truncate_message(
+                    index, target_budget, add_generation_prompt
+                ):
                     break
             else:
                 self._messages.pop(index)
         if self._token_count(add_generation_prompt) > max_prompt_budget:
-            non_system_indices = [index for index, message in enumerate(self._messages) if message.role != "system"]
+            non_system_indices = [
+                index
+                for index, message in enumerate(self._messages)
+                if message.role != "system"
+            ]
             if not non_system_indices:
                 raise ValueError("system prompt alone exceeds the context budget")
             self._messages.pop(non_system_indices[0])
         if not self._messages:
             raise ValueError("conversation context is empty")
 
-    def _truncate_message(self, index: int, budget: int, add_generation_prompt: bool) -> bool:
+    def _truncate_message(
+        self, index: int, budget: int, add_generation_prompt: bool
+    ) -> bool:
         """Shorten a lone oversized message while retaining its leading instructions."""
         message = self._messages[index]
         low, high, best = 1, len(message.content), ""
         while low <= high:
             middle = (low + high) // 2
             candidate = message.content[:middle].rstrip()
-            self._messages[index] = Message(message.role, candidate or message.content[:1])
+            self._messages[index] = Message(
+                message.role, candidate or message.content[:1]
+            )
             if self._token_count(add_generation_prompt) <= budget:
                 best = self._messages[index].content
                 low = middle + 1
@@ -174,7 +214,10 @@ class ConversationMemory:
         if not self._messages:
             return 0
         text = format_messages(
-            [{"role": message.role, "content": message.content} for message in self._messages],
+            [
+                {"role": message.role, "content": message.content}
+                for message in self._messages
+            ],
             add_generation_prompt=add_generation_prompt,
         )
         return len(self.tokenizer.encode(text, add_bos=True, allowed_special="all"))
@@ -183,7 +226,15 @@ class ConversationMemory:
 class SQLiteSessionStore:
     """Process-safe persistent conversation sessions backed by SQLite."""
 
-    def __init__(self, path: str | Path, tokenizer: Tokenizer, *, max_tokens: int, system_prompt: str, ttl_seconds: int = 86400) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        tokenizer: Tokenizer,
+        *,
+        max_tokens: int,
+        system_prompt: str,
+        ttl_seconds: int = 86400,
+    ) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.tokenizer = tokenizer
@@ -206,7 +257,12 @@ class SQLiteSessionStore:
                     PRIMARY KEY(session_id, messages)
                 )"""
             )
-            columns = {row[1] for row in connection.execute("PRAGMA table_info(approved_chat_examples)").fetchall()}
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(approved_chat_examples)"
+                ).fetchall()
+            }
             if "created" not in columns:
                 connection.execute(
                     "ALTER TABLE approved_chat_examples ADD COLUMN created REAL NOT NULL DEFAULT 0"
@@ -216,9 +272,13 @@ class SQLiteSessionStore:
             )
 
     def load(self, session_id: str) -> ConversationMemory:
-        memory = ConversationMemory(self.tokenizer, max_tokens=self.max_tokens, system_prompt=self.system_prompt)
+        memory = ConversationMemory(
+            self.tokenizer, max_tokens=self.max_tokens, system_prompt=self.system_prompt
+        )
         with self._database_lock, self._connect() as connection:
-            row = connection.execute("SELECT messages, updated FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            row = connection.execute(
+                "SELECT messages, updated FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
         cutoff = time.time() - self.ttl_seconds
         if row and row[1] >= cutoff:
             memory.restore(json.loads(row[0]))
@@ -227,37 +287,68 @@ class SQLiteSessionStore:
         return memory
 
     def save(self, session_id: str, memory: ConversationMemory) -> None:
-        payload = json.dumps([{"role": message.role, "content": message.content} for message in memory.snapshot()])
+        payload = json.dumps(
+            [
+                {"role": message.role, "content": message.content}
+                for message in memory.snapshot()
+            ]
+        )
         with self._database_lock, self._connect() as connection:
-            expired = [row[0] for row in connection.execute(
-                "SELECT id FROM sessions WHERE updated < ?", (time.time() - self.ttl_seconds,)
-            ).fetchall()]
+            expired = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM sessions WHERE updated < ?",
+                    (time.time() - self.ttl_seconds,),
+                ).fetchall()
+            ]
             if expired:
-                connection.executemany("DELETE FROM sessions WHERE id = ?", ((item,) for item in expired))
-                connection.executemany("DELETE FROM approved_chat_examples WHERE session_id = ?", ((item,) for item in expired))
+                connection.executemany(
+                    "DELETE FROM sessions WHERE id = ?", ((item,) for item in expired)
+                )
+                connection.executemany(
+                    "DELETE FROM approved_chat_examples WHERE session_id = ?",
+                    ((item,) for item in expired),
+                )
             connection.execute(
                 "INSERT INTO sessions VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET messages=excluded.messages, updated=excluded.updated",
                 (session_id, payload, time.time()),
             )
 
-    def delete(self, session_id: str, *, include_training_examples: bool = False) -> None:
+    def delete(
+        self, session_id: str, *, include_training_examples: bool = False
+    ) -> None:
         with self._database_lock, self._connect() as connection:
             connection.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             if include_training_examples:
-                connection.execute("DELETE FROM approved_chat_examples WHERE session_id = ?", (session_id,))
+                connection.execute(
+                    "DELETE FROM approved_chat_examples WHERE session_id = ?",
+                    (session_id,),
+                )
 
     def list_sessions(self, *, limit: int = 100) -> list[dict]:
         """Return bounded session metadata without exposing full conversation text."""
-        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 500
+        ):
             raise ValueError("session list limit must be between 1 and 500")
         cutoff = time.time() - self.ttl_seconds
         with self._database_lock, self._connect() as connection:
-            expired = [row[0] for row in connection.execute(
-                "SELECT id FROM sessions WHERE updated < ?", (cutoff,)
-            ).fetchall()]
+            expired = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM sessions WHERE updated < ?", (cutoff,)
+                ).fetchall()
+            ]
             if expired:
-                connection.executemany("DELETE FROM sessions WHERE id = ?", ((item,) for item in expired))
-                connection.executemany("DELETE FROM approved_chat_examples WHERE session_id = ?", ((item,) for item in expired))
+                connection.executemany(
+                    "DELETE FROM sessions WHERE id = ?", ((item,) for item in expired)
+                )
+                connection.executemany(
+                    "DELETE FROM approved_chat_examples WHERE session_id = ?",
+                    ((item,) for item in expired),
+                )
             rows = connection.execute(
                 "SELECT id, messages, updated FROM sessions ORDER BY updated DESC LIMIT ?",
                 (limit,),
@@ -271,23 +362,35 @@ class SQLiteSessionStore:
             if not isinstance(messages, list):
                 messages = []
             user_text = next(
-                (str(item.get("content", "")) for item in messages
-                 if isinstance(item, dict) and item.get("role") == "user" and item.get("content")),
+                (
+                    str(item.get("content", ""))
+                    for item in messages
+                    if isinstance(item, dict)
+                    and item.get("role") == "user"
+                    and item.get("content")
+                ),
                 "",
             )
             assistant_text = next(
-                (str(item.get("content", "")) for item in reversed(messages)
-                 if isinstance(item, dict) and item.get("role") == "assistant" and item.get("content")),
+                (
+                    str(item.get("content", ""))
+                    for item in reversed(messages)
+                    if isinstance(item, dict)
+                    and item.get("role") == "assistant"
+                    and item.get("content")
+                ),
                 "",
             )
             title_source = user_text or assistant_text or "New conversation"
             title = " ".join(title_source.split())[:96]
-            result.append({
-                "session_id": session_id,
-                "updated": float(updated),
-                "message_count": len(messages),
-                "title": title,
-            })
+            result.append(
+                {
+                    "session_id": session_id,
+                    "updated": float(updated),
+                    "message_count": len(messages),
+                    "title": title,
+                }
+            )
         return result
 
     def review_last(self, session_id: str) -> dict | None:
@@ -299,20 +402,36 @@ class SQLiteSessionStore:
             if item.role != "system"
         ]
         for index in range(len(messages) - 1, 0, -1):
-            if messages[index]["role"] == "assistant" and messages[index - 1]["role"] == "user":
-                return {"prompt": messages[index - 1]["content"], "answer": messages[index]["content"]}
+            if (
+                messages[index]["role"] == "assistant"
+                and messages[index - 1]["role"] == "user"
+            ):
+                return {
+                    "prompt": messages[index - 1]["content"],
+                    "answer": messages[index]["content"],
+                }
         return None
 
-    def approve_last(self, session_id: str, *, corrected_response: str | None = None) -> int:
+    def approve_last(
+        self, session_id: str, *, corrected_response: str | None = None
+    ) -> int:
         """Persist a bounded conversation snapshot only after explicit approval."""
         memory = self.load(session_id)
-        messages = [{"role": item.role, "content": item.content} for item in memory.snapshot()]
+        messages = [
+            {"role": item.role, "content": item.content} for item in memory.snapshot()
+        ]
         if not messages:
             raise ValueError("no conversation to approve")
-        if messages[-1].get("role") != "assistant" or not str(messages[-1].get("content", "")).strip():
+        if (
+            messages[-1].get("role") != "assistant"
+            or not str(messages[-1].get("content", "")).strip()
+        ):
             raise ValueError("no completed assistant response to approve")
         if corrected_response is not None:
-            if not isinstance(corrected_response, str) or not corrected_response.strip():
+            if (
+                not isinstance(corrected_response, str)
+                or not corrected_response.strip()
+            ):
                 raise ValueError("corrected_response must be nonempty text")
             messages[-1]["content"] = corrected_response.strip()
         payload = json.dumps(messages, ensure_ascii=False, sort_keys=True)

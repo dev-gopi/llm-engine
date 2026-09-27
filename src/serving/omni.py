@@ -1,4 +1,5 @@
 """Unified operational and native multimodal Omni endpoints."""
+
 from __future__ import annotations
 
 import base64
@@ -13,16 +14,25 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from media_generation.assets import AssetStore
 from api.responses import ResponseInput, ResponseInputText, ResponseInputVideo
+from media_generation.assets import AssetStore
 from omni_platform.capabilities import build_capability_snapshot
 from omni_platform.errors import OmniError
 from omni_platform.ffmpeg import FFmpeg
 from omni_platform.multimodal_input import latest_text, prepare_responses_input
+from omni_platform.native_multimodal import (
+    CoquiXTTSVoiceCloningProvider,
+    HuggingFaceAudioUnderstandingProvider,
+    HuggingFaceVideoUnderstandingProvider,
+)
 from omni_platform.observability import METRICS
 from omni_platform.providers import ProviderContext, ProviderRegistry
-from omni_platform.speech import EnergyVAD, HuggingFaceASRProvider, HuggingFaceTTSProvider, SpeechToSpeechPipeline
-from omni_platform.native_multimodal import HuggingFaceAudioUnderstandingProvider, HuggingFaceVideoUnderstandingProvider, CoquiXTTSVoiceCloningProvider
+from omni_platform.speech import (
+    EnergyVAD,
+    HuggingFaceASRProvider,
+    HuggingFaceTTSProvider,
+    SpeechToSpeechPipeline,
+)
 from omni_platform.voice_cloning import ProviderVoiceCloner, VoiceClonePolicy
 from serving.runtime import ServingError
 from serving.schemas import GenerateRequest
@@ -60,8 +70,6 @@ class SpeechToSpeechRequest(BaseModel):
     language: str | None = None
 
 
-
-
 class AudioUnderstandRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     asset_id: str
@@ -77,10 +85,15 @@ class VoiceCloneRequest(BaseModel):
     consent_token: str = Field(min_length=8, max_length=4096)
     reference_duration_seconds: float = Field(gt=0, le=30)
 
+
 class VideoUnderstandRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     asset_id: str = Field(pattern=r"^asset_[0-9a-f]{32}$")
-    prompt: str = Field(default="Describe and summarize this video accurately.", min_length=1, max_length=8192)
+    prompt: str = Field(
+        default="Describe and summarize this video accurately.",
+        min_length=1,
+        max_length=8192,
+    )
     language: str | None = Field(default=None, max_length=32)
     max_frames: int = Field(default=6, ge=1, le=32)
     max_output_tokens: int = Field(default=256, ge=1, le=4096)
@@ -103,11 +116,15 @@ def _require_auth(authorization: str | None) -> None:
         raise HTTPException(401, "invalid bearer token")
 
 
-def _providers() -> tuple[ProviderRegistry, HuggingFaceASRProvider | None, HuggingFaceTTSProvider | None]:
+def _providers() -> tuple[
+    ProviderRegistry, HuggingFaceASRProvider | None, HuggingFaceTTSProvider | None
+]:
     registry = ProviderRegistry()
     asr = HuggingFaceASRProvider.from_env()
     tts = HuggingFaceTTSProvider.from_env()
-    audio_understanding = HuggingFaceAudioUnderstandingProvider.from_env(asr_provider=asr)
+    audio_understanding = HuggingFaceAudioUnderstandingProvider.from_env(
+        asr_provider=asr
+    )
     video_understanding = HuggingFaceVideoUnderstandingProvider.from_env()
     voice_cloning = CoquiXTTSVoiceCloningProvider.from_env()
     for provider in (asr, tts, audio_understanding, video_understanding, voice_cloning):
@@ -136,109 +153,199 @@ def create_omni_speech_router() -> APIRouter:
         caps = registry.capability_set()
         snapshot = build_capability_snapshot(provider_capabilities=caps)
         METRICS.set("capability_verification_seconds", time.perf_counter() - started)
-        return {"object": "platform.capability.verification", **snapshot.as_dict(), "providers": providers}
+        return {
+            "object": "platform.capability.verification",
+            **snapshot.as_dict(),
+            "providers": providers,
+        }
 
     @router.get("/metrics/prometheus", response_class=PlainTextResponse)
     async def prometheus_metrics():
         return METRICS.prometheus()
 
     @router.post("/audio/transcriptions")
-    async def audio_transcriptions(req: TranscriptionRequest, authorization: str | None = Header(default=None)):
+    async def audio_transcriptions(
+        req: TranscriptionRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         _, asr, _ = _providers()
         if asr is None or not asr.is_available():
-            raise HTTPException(503, "speech-to-text provider is not configured and ready")
+            raise HTTPException(
+                503, "speech-to-text provider is not configured and ready"
+            )
         path = _asset_store().resolve(req.asset_id)
         request_id = f"asr_{uuid.uuid4().hex}"
         started = time.perf_counter()
         try:
-            result = asr.transcribe({"path": str(path), "language": req.language, "timestamps": req.timestamps, "task": "transcribe"}, ProviderContext(request_id=request_id))
+            result = asr.transcribe(
+                {
+                    "path": str(path),
+                    "language": req.language,
+                    "timestamps": req.timestamps,
+                    "task": "transcribe",
+                },
+                ProviderContext(request_id=request_id),
+            )
         finally:
             METRICS.set("asr_last_duration_seconds", time.perf_counter() - started)
         METRICS.inc("asr_requests_total")
         return {"id": request_id, "object": "audio.transcription", **result}
 
     @router.post("/audio/translations")
-    async def audio_translations(req: TranscriptionRequest, authorization: str | None = Header(default=None)):
+    async def audio_translations(
+        req: TranscriptionRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         _, asr, _ = _providers()
         if asr is None or not asr.is_available():
-            raise HTTPException(503, "audio translation provider is not configured and ready")
+            raise HTTPException(
+                503, "audio translation provider is not configured and ready"
+            )
         if os.getenv("GOPI_ASR_SUPPORTS_TRANSLATION", "0") != "1":
-            raise HTTPException(501, "configured ASR model does not advertise translation support")
+            raise HTTPException(
+                501, "configured ASR model does not advertise translation support"
+            )
         path = _asset_store().resolve(req.asset_id)
-        result = asr.transcribe({"path": str(path), "language": req.language, "timestamps": req.timestamps, "task": "translate"}, ProviderContext(request_id=f"atr_{uuid.uuid4().hex}"))
+        result = asr.transcribe(
+            {
+                "path": str(path),
+                "language": req.language,
+                "timestamps": req.timestamps,
+                "task": "translate",
+            },
+            ProviderContext(request_id=f"atr_{uuid.uuid4().hex}"),
+        )
         METRICS.inc("audio_translation_requests_total")
         return {"object": "audio.translation", **result}
 
     @router.post("/audio/speech")
-    async def audio_speech(req: SpeechRequest, authorization: str | None = Header(default=None)):
+    async def audio_speech(
+        req: SpeechRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         _, _, tts = _providers()
         if tts is None or not tts.is_available():
-            raise HTTPException(503, "text-to-speech provider is not configured and ready")
+            raise HTTPException(
+                503, "text-to-speech provider is not configured and ready"
+            )
         request_id = f"tts_{uuid.uuid4().hex}"
-        result = tts.synthesize({"text": req.input}, ProviderContext(request_id=request_id))
+        result = tts.synthesize(
+            {"text": req.input}, ProviderContext(request_id=request_id)
+        )
         METRICS.inc("tts_requests_total")
-        return FileResponse(result.artifacts[0].path, media_type="audio/wav", filename=f"{request_id}.wav")
+        return FileResponse(
+            result.artifacts[0].path,
+            media_type="audio/wav",
+            filename=f"{request_id}.wav",
+        )
 
     @router.post("/audio/speech/stream")
-    async def audio_speech_stream(req: SpeechRequest, authorization: str | None = Header(default=None)):
+    async def audio_speech_stream(
+        req: SpeechRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         _, _, tts = _providers()
         if tts is None or not tts.is_available():
-            raise HTTPException(503, "text-to-speech provider is not configured and ready")
+            raise HTTPException(
+                503, "text-to-speech provider is not configured and ready"
+            )
         context = ProviderContext(request_id=f"ttsstream_{uuid.uuid4().hex}")
+
         def events():
             for index, chunk in enumerate(tts.stream(req.input, context=context)):
-                payload = {"type": "response.audio.delta", "index": index, "audio": base64.b64encode(chunk).decode("ascii"), "format": "wav"}
+                payload = {
+                    "type": "response.audio.delta",
+                    "index": index,
+                    "audio": base64.b64encode(chunk).decode("ascii"),
+                    "format": "wav",
+                }
                 yield f"data: {json.dumps(payload)}\n\n"
             yield 'data: {"type":"response.audio.done"}\n\n'
+
         return StreamingResponse(events(), media_type="text/event-stream")
 
     @router.post("/audio/voice-activity")
-    async def audio_vad(req: VADRequest, authorization: str | None = Header(default=None)):
+    async def audio_vad(
+        req: VADRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         path = _asset_store().resolve(req.asset_id)
-        segments = EnergyVAD().detect(path, threshold_dbfs=req.threshold_dbfs, min_speech_ms=req.min_speech_ms)
+        segments = EnergyVAD().detect(
+            path, threshold_dbfs=req.threshold_dbfs, min_speech_ms=req.min_speech_ms
+        )
         return {"object": "audio.voice_activity", "segments": segments}
 
     @router.post("/audio/understand")
-    async def audio_understand(req: AudioUnderstandRequest, authorization: str | None = Header(default=None)):
+    async def audio_understand(
+        req: AudioUnderstandRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         registry, asr, _ = _providers()
         providers = registry.available("audio_understanding")
         if not providers:
-            raise HTTPException(503, "audio understanding provider is not configured and ready")
+            raise HTTPException(
+                503, "audio understanding provider is not configured and ready"
+            )
         path = _asset_store().resolve(req.asset_id)
-        result = providers[0].understand_audio({"path": str(path), "question": req.question, "top_k": req.top_k}, ProviderContext(request_id=f"aud_{uuid.uuid4().hex}"))
+        result = providers[0].understand_audio(
+            {"path": str(path), "question": req.question, "top_k": req.top_k},
+            ProviderContext(request_id=f"aud_{uuid.uuid4().hex}"),
+        )
         METRICS.inc("audio_understanding_requests_total")
         return {"object": "audio.understanding", **result}
 
     @router.post("/audio/voice-clone")
-    async def voice_clone(req: VoiceCloneRequest, authorization: str | None = Header(default=None)):
+    async def voice_clone(
+        req: VoiceCloneRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         registry, _, _ = _providers()
         providers = registry.available("voice_cloning")
         if not providers:
-            raise HTTPException(503, "voice cloning provider is not configured and ready")
+            raise HTTPException(
+                503, "voice cloning provider is not configured and ready"
+            )
         reference = _asset_store().resolve(req.reference_asset_id)
-        cloner = ProviderVoiceCloner(providers[0], VoiceClonePolicy(require_consent_token=True, max_reference_seconds=30.0))
-        result = cloner.clone_voice({
-            "reference_audio": str(reference), "text": req.text, "language": req.language,
-            "consent_token": req.consent_token, "reference_duration_seconds": req.reference_duration_seconds,
-        }, ProviderContext(request_id=f"vclone_{uuid.uuid4().hex}"))
+        cloner = ProviderVoiceCloner(
+            providers[0],
+            VoiceClonePolicy(require_consent_token=True, max_reference_seconds=30.0),
+        )
+        result = cloner.clone_voice(
+            {
+                "reference_audio": str(reference),
+                "text": req.text,
+                "language": req.language,
+                "consent_token": req.consent_token,
+                "reference_duration_seconds": req.reference_duration_seconds,
+            },
+            ProviderContext(request_id=f"vclone_{uuid.uuid4().hex}"),
+        )
         METRICS.inc("voice_clone_requests_total")
-        return FileResponse(result.artifacts[0].path, media_type="audio/wav", filename=result.artifacts[0].path.name)
+        return FileResponse(
+            result.artifacts[0].path,
+            media_type="audio/wav",
+            filename=result.artifacts[0].path.name,
+        )
 
     @router.post("/audio/speech-to-speech")
-    async def speech_to_speech(req: SpeechToSpeechRequest, authorization: str | None = Header(default=None)):
+    async def speech_to_speech(
+        req: SpeechToSpeechRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         _, asr, tts = _providers()
-        if asr is None or tts is None or not asr.is_available() or not tts.is_available():
-            raise HTTPException(503, "speech-to-speech requires ready ASR and TTS providers")
+        if (
+            asr is None
+            or tts is None
+            or not asr.is_available()
+            or not tts.is_available()
+        ):
+            raise HTTPException(
+                503, "speech-to-speech requires ready ASR and TTS providers"
+            )
         path = _asset_store().resolve(req.asset_id)
-        result = SpeechToSpeechPipeline(asr, tts).convert_speech({"path": str(path)}, ProviderContext(request_id=f"s2s_{uuid.uuid4().hex}"))
+        result = SpeechToSpeechPipeline(asr, tts).convert_speech(
+            {"path": str(path)}, ProviderContext(request_id=f"s2s_{uuid.uuid4().hex}")
+        )
         METRICS.inc("speech_to_speech_requests_total")
         return FileResponse(result.artifacts[0].path, media_type="audio/wav")
 
@@ -253,7 +360,10 @@ def create_omni_video_router(runtime: Any) -> APIRouter:
     async def runtime_capabilities(authorization: str | None = Header(default=None)):
         _require_auth(authorization)
         native = _native_backend(runtime)
-        vision = bool(getattr(native, "supports_vision", False) and getattr(native, "multimodal_generator", None) is not None)
+        vision = bool(
+            getattr(native, "supports_vision", False)
+            and getattr(native, "multimodal_generator", None) is not None
+        )
         try:
             FFmpeg()
             ffmpeg_ready = True
@@ -264,35 +374,74 @@ def create_omni_video_router(runtime: Any) -> APIRouter:
         video_ready = vision and ffmpeg_ready
         return {
             "object": "platform.runtime.capabilities",
-            "capabilities": {"vision": vision, "video_input": video_ready, "video_understanding": video_ready, "speech_to_text": asr_ready, "audio_input": asr_ready},
+            "capabilities": {
+                "vision": vision,
+                "video_input": video_ready,
+                "video_understanding": video_ready,
+                "speech_to_text": asr_ready,
+                "audio_input": asr_ready,
+            },
             "evidence": {
                 "vision": ["native_multimodal_checkpoint"] if vision else [],
-                "video_understanding": ["native_vision+safe_ffmpeg_sampling"] if video_ready else [],
+                "video_understanding": ["native_vision+safe_ffmpeg_sampling"]
+                if video_ready
+                else [],
                 "speech_to_text": ["ready_asr_provider"] if asr_ready else [],
             },
         }
 
     @router.post("/videos/understand")
-    async def understand_video(req: VideoUnderstandRequest, authorization: str | None = Header(default=None)):
+    async def understand_video(
+        req: VideoUnderstandRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         native = _native_backend(runtime)
-        if not bool(getattr(native, "supports_vision", False) and getattr(native, "multimodal_generator", None) is not None):
+        if not bool(
+            getattr(native, "supports_vision", False)
+            and getattr(native, "multimodal_generator", None) is not None
+        ):
             standalone = HuggingFaceVideoUnderstandingProvider.from_env()
             if standalone is None or not standalone.is_available():
-                raise HTTPException(503, "video understanding requires a native multimodal checkpoint or standalone video model")
+                raise HTTPException(
+                    503,
+                    "video understanding requires a native multimodal checkpoint or standalone video model",
+                )
             path = _asset_store().resolve(req.asset_id)
-            result = standalone.understand_video({"path": str(path), "question": req.prompt, "top_k": 5}, ProviderContext(request_id=f"vunder_{uuid.uuid4().hex}"))
-            return {"id": f"vunder_{uuid.uuid4().hex}", "object": "video.understanding", **result}
-        item = ResponseInput(role="user", content=[
-            ResponseInputText(text=req.prompt),
-            ResponseInputVideo(asset_id=req.asset_id, max_frames=req.max_frames, language=req.language),
-        ])
+            result = standalone.understand_video(
+                {"path": str(path), "question": req.prompt, "top_k": 5},
+                ProviderContext(request_id=f"vunder_{uuid.uuid4().hex}"),
+            )
+            return {
+                "id": f"vunder_{uuid.uuid4().hex}",
+                "object": "video.understanding",
+                **result,
+            }
+        item = ResponseInput(
+            role="user",
+            content=[
+                ResponseInputText(text=req.prompt),
+                ResponseInputVideo(
+                    asset_id=req.asset_id,
+                    max_frames=req.max_frames,
+                    language=req.language,
+                ),
+            ],
+        )
         try:
-            prepared = await prepare_responses_input([item], asr=HuggingFaceASRProvider.from_env())
+            prepared = await prepare_responses_input(
+                [item], asr=HuggingFaceASRProvider.from_env()
+            )
         except OmniError as exc:
-            raise HTTPException(exc.http_status, detail={"code": exc.code, "message": exc.message}) from exc
-        generation = GenerateRequest(prompt=latest_text(prepared.messages), max_tokens=req.max_output_tokens,
-                                     temperature=req.temperature, seed=req.seed, mode="precise")
+            raise HTTPException(
+                exc.http_status, detail={"code": exc.code, "message": exc.message}
+            ) from exc
+        generation = GenerateRequest(
+            prompt=latest_text(prepared.messages),
+            max_tokens=req.max_output_tokens,
+            temperature=req.temperature,
+            seed=req.seed,
+            mode="precise",
+        )
         generation._chat_messages = prepared.messages
         try:
             result = await runtime.generate(generation)
@@ -303,11 +452,17 @@ def create_omni_video_router(runtime: Any) -> APIRouter:
         except Exception as exc:
             raise HTTPException(500, "video understanding failed") from exc
         return {
-            "id": f"vunder_{uuid.uuid4().hex}", "object": "video.understanding",
-            "model": getattr(native, "model_name", None) or os.getenv("GOPI_MODEL_NAME", "gopi"),
-            "text": result.text, "input_metadata": prepared.metadata,
-            "usage": {"prompt_tokens": result.prompt_tokens, "completion_tokens": result.completion_tokens,
-                      "total_tokens": result.prompt_tokens + result.completion_tokens},
+            "id": f"vunder_{uuid.uuid4().hex}",
+            "object": "video.understanding",
+            "model": getattr(native, "model_name", None)
+            or os.getenv("GOPI_MODEL_NAME", "gopi"),
+            "text": result.text,
+            "input_metadata": prepared.metadata,
+            "usage": {
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.prompt_tokens + result.completion_tokens,
+            },
         }
 
     return router

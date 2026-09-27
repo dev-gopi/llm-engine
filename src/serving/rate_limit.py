@@ -104,7 +104,9 @@ class SQLiteRateLimiter:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 cutoff = now - 60.0
-                connection.execute("DELETE FROM rate_events WHERE occurred <= ?", (cutoff,))
+                connection.execute(
+                    "DELETE FROM rate_events WHERE occurred <= ?", (cutoff,)
+                )
                 row = connection.execute(
                     "SELECT COUNT(*), MIN(occurred) FROM rate_events WHERE identity = ?",
                     (identity,),

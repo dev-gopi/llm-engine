@@ -33,19 +33,24 @@ def test_training_report_uses_operations_style_header() -> None:
     template = REPORT_TEMPLATE.read_text(encoding="utf-8")
 
     assert 'id="training-status"' in template
-    assert 'Gopi Engine — Training & Operations' in template
-    assert 'Overview & All' in template
+    assert "Gopi Engine — Training & Operations" in template
+    assert "Overview & All" in template
 
 
-def test_parse_training_log_collects_training_domains_and_best_updates(tmp_path) -> None:
+def test_parse_training_log_collects_training_domains_and_best_updates(
+    tmp_path,
+) -> None:
     log = tmp_path / "train.log"
-    log.write_text("""2026-09-01 22:50:09,507 | INFO | trainer | epoch=1 step=10000 loss=2.125895 lr=2.7e-05 grad_norm=8.3 tokens=32907795 tokens_per_second=2642.9 progress=20.27% elapsed_seconds=12451 eta_seconds=48986 best_validation_loss=2.855694 peak_memory_mb=1650.0 gpu_memory_mb=1083.2/1856.0/3770.2 nonfinite_updates=0 log_interval_seconds=31.06 seconds_per_step=1.242 next_log_eta_seconds=31.1 next_checkpoint_eta_seconds=0.0 next_validation_eta_seconds=2484.0 (avg=2.325153)
+    log.write_text(
+        """2026-09-01 22:50:09,507 | INFO | trainer | epoch=1 step=10000 loss=2.125895 lr=2.7e-05 grad_norm=8.3 tokens=32907795 tokens_per_second=2642.9 progress=20.27% elapsed_seconds=12451 eta_seconds=48986 best_validation_loss=2.855694 peak_memory_mb=1650.0 gpu_memory_mb=1083.2/1856.0/3770.2 nonfinite_updates=0 log_interval_seconds=31.06 seconds_per_step=1.242 next_log_eta_seconds=31.1 next_checkpoint_eta_seconds=0.0 next_validation_eta_seconds=2484.0 (avg=2.325153)
 2026-09-01 23:04:20,569 | INFO | trainer | validation_domain=english epoch=1 step=10000 loss=2.914236 cross_entropy=2.904576 perplexity=18.2575 tokens=1458682 batches=9129
 2026-09-01 23:04:20,569 | INFO | trainer | validation epoch=1 step=10000 loss=2.811581 cross_entropy=2.802199 perplexity=16.4808 tokens=4930332 batches=22530
 2026-09-01 23:04:20,569 | INFO | trainer | validation_timing step=10000 duration_seconds=851.06
 2026-09-01 23:04:20,569 | INFO | trainer | new_best_validation step=10000 previous_loss=2.855694 loss=2.811581 metric=domains_v2
 2026-09-01 23:04:21,100 | INFO | trainer | checkpoint kind=best step=10000 duration_seconds=0.53
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     report = MODULE.parse_training_log(log)
 
@@ -85,11 +90,16 @@ def test_direct_script_does_not_shadow_stdlib_tokenize(tmp_path) -> None:
         [
             sys.executable,
             str(SCRIPT),
-            "--log", str(log),
-            "--output", str(output),
-            "--latest-checkpoint", str(checkpoint),
-            "--best-checkpoint", str(tmp_path / "best.pt"),
-            "--watch-seconds", "0",
+            "--log",
+            str(log),
+            "--output",
+            str(output),
+            "--latest-checkpoint",
+            str(checkpoint),
+            "--best-checkpoint",
+            str(tmp_path / "best.pt"),
+            "--watch-seconds",
+            "0",
         ],
         cwd=SCRIPT.parents[1],
         capture_output=True,
@@ -103,11 +113,15 @@ def test_direct_script_does_not_shadow_stdlib_tokenize(tmp_path) -> None:
 
 def test_incremental_reader_only_appends_new_complete_lines(tmp_path) -> None:
     log = tmp_path / "train.log"
-    log.write_bytes(b"2026 | INFO | trainer | epoch=1 step=25 loss=3.0 tokens_per_second=10 progress=1%")
+    log.write_bytes(
+        b"2026 | INFO | trainer | epoch=1 step=25 loss=3.0 tokens_per_second=10 progress=1%"
+    )
     reader = MODULE.IncrementalLogReader(log, raw_tail_lines=10)
     assert reader.refresh()["training"] == []
     with log.open("ab") as stream:
-        stream.write(b"\n2026 | INFO | trainer | epoch=1 step=50 loss=2.8 tokens_per_second=11 progress=2%\n")
+        stream.write(
+            b"\n2026 | INFO | trainer | epoch=1 step=50 loss=2.8 tokens_per_second=11 progress=2%\n"
+        )
 
     parsed = reader.refresh()
 
@@ -138,7 +152,8 @@ def test_parser_preserves_exact_run_configuration_snapshot(tmp_path) -> None:
     }
     log.write_text(
         "2026 | INFO | app | run_configuration="
-        + json.dumps(snapshot, separators=(",", ":")) + "\n",
+        + json.dumps(snapshot, separators=(",", ":"))
+        + "\n",
         encoding="utf-8",
     )
 
@@ -215,17 +230,40 @@ def test_normalize_history_removes_abandoned_future_after_resume() -> None:
 def test_progress_analysis_reports_overall_and_domain_improvement() -> None:
     parsed = {
         "training": [
-            {"loss": 3.0, "avg": 3.1, "tokens_per_second": 10, "grad_norm": 2, "peak_memory_mb": 100},
-            {"loss": 2.0, "avg": 2.5, "tokens_per_second": 12, "grad_norm": 3, "peak_memory_mb": 110, "tokens": 1000},
+            {
+                "loss": 3.0,
+                "avg": 3.1,
+                "tokens_per_second": 10,
+                "grad_norm": 2,
+                "peak_memory_mb": 100,
+            },
+            {
+                "loss": 2.0,
+                "avg": 2.5,
+                "tokens_per_second": 12,
+                "grad_norm": 3,
+                "peak_memory_mb": 110,
+                "tokens": 1000,
+            },
         ],
         "validation": [
-            {"loss": 3.0, "perplexity": 20.0, "domains": {"chat": {"loss": 3.5, "perplexity": 25.0}}},
-            {"loss": 2.7, "perplexity": 15.0, "domains": {"chat": {"loss": 3.0, "perplexity": 20.0}}},
+            {
+                "loss": 3.0,
+                "perplexity": 20.0,
+                "domains": {"chat": {"loss": 3.5, "perplexity": 25.0}},
+            },
+            {
+                "loss": 2.7,
+                "perplexity": 15.0,
+                "domains": {"chat": {"loss": 3.0, "perplexity": 20.0}},
+            },
         ],
     }
     analysis = MODULE.analyze_progress(parsed)
     assert analysis["verdict"] == "improving"
-    assert analysis["overall_validation_loss"]["percent_improvement"] == pytest.approx(10.0)
+    assert analysis["overall_validation_loss"]["percent_improvement"] == pytest.approx(
+        10.0
+    )
     assert analysis["domains"]["chat"]["loss"]["absolute_improvement"] == 0.5
     assert analysis["overfitting"]["status"] == "no_current_signal"
     assert analysis["domain_ranking"][0]["name"] == "chat"
@@ -269,7 +307,9 @@ def test_progress_analysis_excludes_incompatible_validation_protocols() -> None:
     assert analysis["run_summary"]["excluded_incompatible_validations"] == 1
 
 
-def test_checkpoint_details_only_attaches_matching_validation(tmp_path, monkeypatch) -> None:
+def test_checkpoint_details_only_attaches_matching_validation(
+    tmp_path, monkeypatch
+) -> None:
     checkpoint = tmp_path / "best.pt"
     checkpoint.write_bytes(b"placeholder")
     monkeypatch.setattr(MODULE, "_checkpoint_step", lambda path: 20)
@@ -308,7 +348,9 @@ def test_invalid_evaluation_artifact_is_treated_as_missing(tmp_path) -> None:
 
 def test_report_output_cannot_be_loaded_as_its_own_evaluation(tmp_path) -> None:
     report = tmp_path / "report.json"
-    report.write_text('{"evaluations":{"generation_quality":{"summary":{"accuracy":1}}}}')
+    report.write_text(
+        '{"evaluations":{"generation_quality":{"summary":{"accuracy":1}}}}'
+    )
 
     assert MODULE.load_evaluation_artifact(report, forbidden_path=report) is None
 
@@ -368,26 +410,36 @@ def test_gpu_monitor_parses_nvidia_smi_and_handles_na(monkeypatch) -> None:
     assert gpu["fan_percent"] is None
 
 
-@pytest.mark.parametrize('accuracy', [True, False, '0.75', -0.1, 1.1, float('nan'), float('inf'), None])
+@pytest.mark.parametrize(
+    "accuracy", [True, False, "0.75", -0.1, 1.1, float("nan"), float("inf"), None]
+)
 def test_generation_accuracy_rejects_invalid_scores(accuracy) -> None:
-    artifact = {'summary': {'accuracy': accuracy}}
+    artifact = {"summary": {"accuracy": accuracy}}
     assert MODULE.generation_accuracy(artifact) is None
-    assert MODULE.evaluation_coverage(None, artifact)['generation_quality'].startswith('pending')
+    assert MODULE.evaluation_coverage(None, artifact)["generation_quality"].startswith(
+        "pending"
+    )
 
 
-@pytest.mark.parametrize('accuracy', [0.0, 0.75, 1.0])
+@pytest.mark.parametrize("accuracy", [0.0, 0.75, 1.0])
 def test_generation_accuracy_accepts_proportions(accuracy) -> None:
-    assert MODULE.generation_accuracy({'summary': {'accuracy': accuracy}}) == accuracy
+    assert MODULE.generation_accuracy({"summary": {"accuracy": accuracy}}) == accuracy
 
 
 def test_generation_quality_distinguishes_probes_and_empty_benchmarks() -> None:
-    assert MODULE.generation_accuracy({'summary': {'cases': 0, 'accuracy': 0}}) is None
-    coverage = MODULE.evaluation_coverage(None, {'responses': [{'prompt': 'Hello', 'response': 'Hi'}]})
-    assert coverage['generation_quality'] == 'available (qualitative probes; accuracy not measured)'
+    assert MODULE.generation_accuracy({"summary": {"cases": 0, "accuracy": 0}}) is None
+    coverage = MODULE.evaluation_coverage(
+        None, {"responses": [{"prompt": "Hello", "response": "Hi"}]}
+    )
+    assert (
+        coverage["generation_quality"]
+        == "available (qualitative probes; accuracy not measured)"
+    )
 
 
 def test_model_deployment_analysis_reports_hybrid_memory_alternatives():
     from utils.config import load_yaml
+
     analysis = MODULE.model_deployment_analysis(
         load_yaml("configs/model.hybrid.gpu.yaml"),
         {"max_sequence_length": 4096},
@@ -399,7 +451,10 @@ def test_model_deployment_analysis_reports_hybrid_memory_alternatives():
     assert analysis["full_attention_layers"] == 4
     assert analysis["memory_budget_gib"] == pytest.approx(4.0)
     assert len(analysis["deployment_matrix"]) == 12
-    assert analysis["deployment_matrix"][0]["estimated_total_bytes"] <= analysis["deployment_matrix"][-1]["estimated_total_bytes"]
+    assert (
+        analysis["deployment_matrix"][0]["estimated_total_bytes"]
+        <= analysis["deployment_matrix"][-1]["estimated_total_bytes"]
+    )
 
 
 def test_parser_captures_mtp_and_moe_auxiliary_losses(tmp_path):
@@ -479,12 +534,15 @@ def test_parser_captures_validation_events_and_active_state(tmp_path) -> None:
 
     # Now append completion
     with log.open("a", encoding="utf-8") as f:
-        f.write("2026-09-01 10:00:18,000 | INFO | trainer | validation epoch=1 step=100 loss=1.9 cross_entropy=1.85 perplexity=6.36 tokens=50000 batches=50\n")
-        f.write("2026-09-01 10:00:18,000 | INFO | trainer | validation_timing step=100 duration_seconds=13.0\n")
+        f.write(
+            "2026-09-01 10:00:18,000 | INFO | trainer | validation epoch=1 step=100 loss=1.9 cross_entropy=1.85 perplexity=6.36 tokens=50000 batches=50\n"
+        )
+        f.write(
+            "2026-09-01 10:00:18,000 | INFO | trainer | validation_timing step=100 duration_seconds=13.0\n"
+        )
 
     parsed_done = MODULE.parse_training_log(log)
     analysis_done = MODULE.analyze_progress(parsed_done)
     assert analysis_done["runtime"]["active_validation"]["running"] is False
     assert analysis_done["runtime"]["latest_validation_duration_seconds"] == 13.0
     assert analysis_done["runtime"]["average_validation_duration_seconds"] == 13.0
-

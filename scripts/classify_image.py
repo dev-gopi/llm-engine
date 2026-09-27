@@ -21,15 +21,21 @@ from vision.classifier import VisionClassifier
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
-    parser.add_argument("--config", type=Path, default=Path("configs/vision/training.production.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/vision/training.production.yaml")
+    )
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
+    )
     args = parser.parse_args()
     config = load_yaml(args.config)
     device = torch.device(args.device)
     model = VisionClassifier.from_config(config).to(device).eval()
-    info = load_checkpoint(args.checkpoint, model, map_location=device, restore_rng=False)
+    info = load_checkpoint(
+        args.checkpoint, model, map_location=device, restore_rng=False
+    )
     labels = info["metadata"].get("class_to_id", {})
     id_to_class = {identifier: name for name, identifier in labels.items()}
     image = ImageProcessor.from_config(config)(args.image).unsqueeze(0).to(device)

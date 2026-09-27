@@ -46,7 +46,8 @@ class DistributedTrainer:
         from training.multinode import topology_from_environment, validate_fsdp_topology
 
         validate_fsdp_topology(
-            topology_from_environment(), minimum_world_size=minimum_world_size,
+            topology_from_environment(),
+            minimum_world_size=minimum_world_size,
             required_nodes=required_nodes,
         )
 
@@ -60,11 +61,15 @@ class DistributedTrainer:
         if world_size < 1 or not 0 <= rank < world_size or local_rank < 0:
             raise ValueError("WORLD_SIZE, RANK, and LOCAL_RANK are inconsistent")
         if world_size > 1 and not dist.is_initialized():
-            resolved_backend = backend or ("nccl" if torch.cuda.is_available() else "gloo")
+            resolved_backend = backend or (
+                "nccl" if torch.cuda.is_available() else "gloo"
+            )
             dist.init_process_group(backend=resolved_backend, init_method="env://")
             logger.info(
                 "Initialized torch.distributed: backend=%s, rank=%d, world_size=%d",
-                resolved_backend, rank, world_size,
+                resolved_backend,
+                rank,
+                world_size,
             )
         if torch.cuda.is_available():
             if local_rank >= torch.cuda.device_count():
@@ -90,7 +95,9 @@ class DistributedTrainer:
         if mixed_precision not in {"none", "fp16", "bf16"}:
             raise ValueError("mixed_precision must be none, fp16, or bf16")
         if strategy not in {"none", "ddp", "fsdp", "fsdp_hybrid"}:
-            raise ValueError("distributed_strategy must be none, ddp, fsdp, or fsdp_hybrid")
+            raise ValueError(
+                "distributed_strategy must be none, ddp, fsdp, or fsdp_hybrid"
+            )
         model = model.to(context.device)
         if context.world_size > 1 and strategy == "none":
             raise ValueError(
@@ -108,8 +115,12 @@ class DistributedTrainer:
             from model.transformer_block import TransformerBlock
 
             dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(mixed_precision)
-            precision = None if dtype is None else MixedPrecision(
-                param_dtype=dtype, reduce_dtype=dtype, buffer_dtype=dtype
+            precision = (
+                None
+                if dtype is None
+                else MixedPrecision(
+                    param_dtype=dtype, reduce_dtype=dtype, buffer_dtype=dtype
+                )
             )
             sharding = (
                 ShardingStrategy.HYBRID_SHARD

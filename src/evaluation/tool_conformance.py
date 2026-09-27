@@ -1,4 +1,5 @@
 """Tool-calling lifecycle conformance checks independent of model quality."""
+
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +32,9 @@ class ToolConformanceResult:
 
 async def exercise_tool_lifecycle() -> ToolConformanceResult:
     audit: list[dict[str, Any]] = []
-    authorization = ToolAuthorization(frozenset({"echo"}), require_approval=True, timeout_seconds=0.05)
+    authorization = ToolAuthorization(
+        frozenset({"echo"}), require_approval=True, timeout_seconds=0.05
+    )
 
     def schema_ok(arguments: Mapping[str, Any]) -> bool:
         return isinstance(arguments.get("value"), str)
@@ -61,7 +64,9 @@ async def exercise_tool_lifecycle() -> ToolConformanceResult:
         timeout_enforced = True
 
     cancellation = asyncio.Event()
-    task = asyncio.create_task(execute_tool(slow_tool, timeout=1, cancellation=cancellation))
+    task = asyncio.create_task(
+        execute_tool(slow_tool, timeout=1, cancellation=cancellation)
+    )
     await asyncio.sleep(0)
     cancellation.set()
     cancellation_enforced = False
@@ -75,12 +80,16 @@ async def exercise_tool_lifecycle() -> ToolConformanceResult:
     oversized = "x" * 2048
     result_limit_enforced = result_limit_enforced and len(oversized.encode()) > 1024
 
-    runtime = BoundedAgentRuntime({"echo": lambda value: value}, max_steps=1, require_approval=False)
+    runtime = BoundedAgentRuntime(
+        {"echo": lambda value: value}, max_steps=1, require_approval=False
+    )
     runtime.plan([AgentStep("echo", {"value": "ok"})])
     runtime.run()
     iteration_limit_enforced = False
     try:
-        runtime.plan([AgentStep("echo", {"value": "a"}), AgentStep("echo", {"value": "b"})])
+        runtime.plan(
+            [AgentStep("echo", {"value": "a"}), AgentStep("echo", {"value": "b"})]
+        )
     except ValueError:
         iteration_limit_enforced = True
 

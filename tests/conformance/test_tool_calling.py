@@ -5,11 +5,28 @@ from serving.schemas import OpenAIChatCompletionRequest
 
 
 def tool(name="echo"):
-    return {"type":"function","function":{"name":name,"description":"Echo","parameters":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":False}}}
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": "Echo",
+            "parameters": {
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        },
+    }
 
 
 def base(**kwargs):
-    value={"model":"gopi-test","messages":[{"role":"user","content":"call echo"}],"tools":[tool()],"tool_choice":"auto"}
+    value = {
+        "model": "gopi-test",
+        "messages": [{"role": "user", "content": "call echo"}],
+        "tools": [tool()],
+        "tool_choice": "auto",
+    }
     value.update(kwargs)
     return OpenAIChatCompletionRequest.model_validate(value)
 
@@ -18,21 +35,36 @@ def test_tool_choice_none_auto_required_and_specific():
     assert base(tool_choice="none").tool_choice == "none"
     assert base(tool_choice="auto").tool_choice == "auto"
     assert base(tool_choice="required").tool_choice == "required"
-    assert base(tool_choice={"type":"function","function":{"name":"echo"}}).tool_choice.function.name == "echo"
+    assert (
+        base(
+            tool_choice={"type": "function", "function": {"name": "echo"}}
+        ).tool_choice.function.name
+        == "echo"
+    )
 
 
 def test_specific_tool_choice_unknown_and_required_without_tools_are_rejected():
     with pytest.raises(ValidationError):
-        base(tool_choice={"type":"function","function":{"name":"missing"}})
+        base(tool_choice={"type": "function", "function": {"name": "missing"}})
     with pytest.raises(ValidationError):
-        OpenAIChatCompletionRequest.model_validate({"model":"gopi-test","messages":[{"role":"user","content":"x"}],"tool_choice":"required"})
+        OpenAIChatCompletionRequest.model_validate(
+            {
+                "model": "gopi-test",
+                "messages": [{"role": "user", "content": "x"}],
+                "tool_choice": "required",
+            }
+        )
 
 
 def test_duplicate_tools_and_malformed_arguments_are_rejected_before_execution():
     with pytest.raises(ValidationError):
         base(tools=[tool(), tool()])
     with pytest.raises(ValidationError):
-        base(tools=[{"type":"function","function":{"name":"bad name","parameters":{}}}])
+        base(
+            tools=[
+                {"type": "function", "function": {"name": "bad name", "parameters": {}}}
+            ]
+        )
 
 
 def test_native_tool_protocol_parses_and_validates_arguments():
@@ -68,7 +100,7 @@ def test_native_tool_protocol_rejects_schema_invalid_arguments():
 def test_forced_single_tool_accepts_arguments_object_only():
     from serving.chat_protocol import parse_tool_calls
 
-    request = base(tool_choice={"type":"function","function":{"name":"echo"}})
+    request = base(tool_choice={"type": "function", "function": {"name": "echo"}})
     parsed = parse_tool_calls(
         '{"value":"forced"}',
         request.tools or [],
@@ -98,7 +130,9 @@ def test_coding_tool_instruction_requires_inspect_patch_verify_stages():
     from serving.schemas import OpenAITool
 
     instruction = build_tool_system_instruction(
-        [OpenAITool.model_validate(tool())], "auto", coding=True,
+        [OpenAITool.model_validate(tool())],
+        "auto",
+        coding=True,
     )
     assert "inspect relevant files" in instruction
     assert "write or patch" in instruction
@@ -109,5 +143,7 @@ def test_non_coding_tool_instruction_omits_coding_workflow():
     from serving.chat_protocol import build_tool_system_instruction
     from serving.schemas import OpenAITool
 
-    instruction = build_tool_system_instruction([OpenAITool.model_validate(tool())], "auto")
+    instruction = build_tool_system_instruction(
+        [OpenAITool.model_validate(tool())], "auto"
+    )
     assert "inspect relevant files" not in instruction

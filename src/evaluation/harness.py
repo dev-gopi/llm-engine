@@ -8,21 +8,17 @@ benchmarks (MMLU, GSM8K, ARC, HellaSwag, Winogrande, TruthfulQA, Lambada).
 
 from __future__ import annotations
 
-import copy
-import hashlib
 import json
 import math
 import os
-import random
 import re
 import tempfile
-import time
-from collections.abc import Callable, Mapping, Sequence
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from abc import ABC, abstractmethod
 
 import torch
 import torch.nn.functional as F
@@ -41,17 +37,19 @@ try:
     from lm_eval.api.instance import Instance
     from lm_eval.api.model import LM
     from lm_eval.api.registry import register_model
+
     HAS_LM_EVAL = True
 except ImportError:
     HAS_LM_EVAL = False
     LM = object
     Instance = object
-    register_model = lambda *names: (lambda cls: cls)
+    register_model = lambda *names: lambda cls: cls
 
 
 @dataclass(frozen=True)
 class HarnessRequest:
     """Request representation for harness model operations."""
+
     request_type: str
     args: tuple[Any, ...]
     index: int = 0
@@ -61,15 +59,21 @@ class BaseHarnessLM(ABC):
     """Protocol base class for evaluation harness language models."""
 
     @abstractmethod
-    def loglikelihood(self, requests: Sequence[tuple[str, str] | Any]) -> list[tuple[float, bool]]:
+    def loglikelihood(
+        self, requests: Sequence[tuple[str, str] | Any]
+    ) -> list[tuple[float, bool]]:
         pass
 
     @abstractmethod
-    def loglikelihood_rolling(self, requests: Sequence[tuple[str] | str | Any]) -> list[float]:
+    def loglikelihood_rolling(
+        self, requests: Sequence[tuple[str] | str | Any]
+    ) -> list[float]:
         pass
 
     @abstractmethod
-    def generate_until(self, requests: Sequence[tuple[str, dict[str, Any]] | Any]) -> list[str]:
+    def generate_until(
+        self, requests: Sequence[tuple[str, dict[str, Any]] | Any]
+    ) -> list[str]:
         pass
 
 
@@ -121,7 +125,10 @@ class HarnessModelAdapter(BaseHarnessLM):
         use_ema: bool = True,
     ) -> HarnessModelAdapter:
         """Helper to instantiate adapter directly from checkpoint files."""
-        from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
+        from model.vocabulary import (
+            adapt_config_to_tokenizer,
+            checkpoint_tokenizer_options,
+        )
         from training.checkpoint import load_checkpoint
         from utils.config import load_yaml
 
@@ -149,7 +156,9 @@ class HarnessModelAdapter(BaseHarnessLM):
         return (req,)
 
     @torch.inference_mode()
-    def loglikelihood(self, requests: Sequence[tuple[str, str] | Any]) -> list[tuple[float, bool]]:
+    def loglikelihood(
+        self, requests: Sequence[tuple[str, str] | Any]
+    ) -> list[tuple[float, bool]]:
         """Compute conditional loglikelihood of continuation given context.
 
         Args:
@@ -196,14 +205,14 @@ class HarnessModelAdapter(BaseHarnessLM):
             else:
                 context_ids = self.tokenizer.encode(context)
                 full_ids = self.tokenizer.encode(context + continuation)
-                continuation_ids = full_ids[len(context_ids):]
+                continuation_ids = full_ids[len(context_ids) :]
                 if not continuation_ids:
                     continuation_ids = self.tokenizer.encode(continuation)
                     full_ids = context_ids + continuation_ids
 
             if len(full_ids) > self.max_length:
                 if self.truncation:
-                    full_ids = full_ids[-self.max_length:]
+                    full_ids = full_ids[-self.max_length :]
                     cont_len = len(continuation_ids)
                     if cont_len >= self.max_length:
                         continuation_ids = full_ids
@@ -214,7 +223,7 @@ class HarnessModelAdapter(BaseHarnessLM):
                     # Truncate context from the left while keeping full continuation
                     cont_len = len(continuation_ids)
                     if cont_len >= self.max_length:
-                        full_ids = continuation_ids[-self.max_length:]
+                        full_ids = continuation_ids[-self.max_length :]
                         context_len = 0
                     else:
                         context_len = min(len(context_ids), self.max_length - cont_len)
@@ -227,7 +236,9 @@ class HarnessModelAdapter(BaseHarnessLM):
                 batch_results.append((0.0, True))
                 continue
 
-            input_tensor = torch.tensor([full_ids], dtype=torch.long, device=self.device)
+            input_tensor = torch.tensor(
+                [full_ids], dtype=torch.long, device=self.device
+            )
             logits = self.model(input_tensor)
             if isinstance(logits, tuple):
                 logits = logits[0]
@@ -247,7 +258,9 @@ class HarnessModelAdapter(BaseHarnessLM):
             target_labels = shift_labels[0, start_idx:end_idx]
 
             # Gather log probabilities for target tokens
-            gathered_lp = target_log_probs.gather(1, target_labels.unsqueeze(-1)).squeeze(-1)
+            gathered_lp = target_log_probs.gather(
+                1, target_labels.unsqueeze(-1)
+            ).squeeze(-1)
             total_lp = float(gathered_lp.sum().item())
 
             # Check greedy match
@@ -293,7 +306,9 @@ class HarnessModelAdapter(BaseHarnessLM):
                 if len(chunk) <= 1:
                     break
 
-                input_tensor = torch.tensor([chunk], dtype=torch.long, device=self.device)
+                input_tensor = torch.tensor(
+                    [chunk], dtype=torch.long, device=self.device
+                )
                 logits = self.model(input_tensor)
                 if isinstance(logits, tuple):
                     logits = logits[0]
@@ -306,9 +321,11 @@ class HarnessModelAdapter(BaseHarnessLM):
                 start_offset = 0 if i == 0 else (self.max_length - stride - 1)
                 start_offset = max(0, min(start_offset, shift_labels.shape[1] - 1))
 
-                gathered = log_probs[0, start_offset:].gather(
-                    1, shift_labels[0, start_offset:].unsqueeze(-1)
-                ).squeeze(-1)
+                gathered = (
+                    log_probs[0, start_offset:]
+                    .gather(1, shift_labels[0, start_offset:].unsqueeze(-1))
+                    .squeeze(-1)
+                )
 
                 total_logprob += float(gathered.sum().item())
 
@@ -350,7 +367,11 @@ class HarnessModelAdapter(BaseHarnessLM):
                 until = [until]
             until = [u for u in until if u]
 
-            max_tokens = int(gen_kwargs.get("max_gen_toks", gen_kwargs.get("max_tokens", self.max_gen_toks)))
+            max_tokens = int(
+                gen_kwargs.get(
+                    "max_gen_toks", gen_kwargs.get("max_tokens", self.max_gen_toks)
+                )
+            )
             temperature = float(gen_kwargs.get("temperature", 0.0))
             top_k = int(gen_kwargs.get("top_k", 0 if temperature == 0.0 else 50))
             top_p = float(gen_kwargs.get("top_p", 1.0 if temperature == 0.0 else 0.9))
@@ -384,6 +405,7 @@ MiniGPTLM = HarnessModelAdapter
 
 # Register with lm_eval registry if installed
 if HAS_LM_EVAL:
+
     @register_model("minigpt", "llm_engine")
     class OfficialMiniGPTLM(LM, HarnessModelAdapter):
         def __init__(self, *args, **kwargs):
@@ -394,9 +416,11 @@ if HAS_LM_EVAL:
 # Built-in Standard Benchmark Task Suite
 # =========================================================================
 
+
 @dataclass
 class HarnessDoc:
     """A standard benchmark document instance."""
+
     query: str
     target: str
     choices: tuple[str, ...] = ()
@@ -478,13 +502,20 @@ class HarnessTask:
             target = self.doc_to_target(doc)
 
             # Build requests: (prompt, " " + choice)
-            requests = [(prompt, f" {choice}" if not choice.startswith(" ") else choice) for choice in choices]
+            requests = [
+                (prompt, f" {choice}" if not choice.startswith(" ") else choice)
+                for choice in choices
+            ]
             ll_results = model.loglikelihood(requests)
 
             logprobs = [res[0] for res in ll_results]
             # Length-normalized logprobs
-            choice_lengths = [max(1, len(model.tokenizer.encode(req[1]))) for req in requests]
-            norm_logprobs = [lp / length for lp, length in zip(logprobs, choice_lengths, strict=True)]
+            choice_lengths = [
+                max(1, len(model.tokenizer.encode(req[1]))) for req in requests
+            ]
+            norm_logprobs = [
+                lp / length for lp, length in zip(logprobs, choice_lengths, strict=True)
+            ]
 
             pred_idx = int(torch.tensor(logprobs).argmax().item())
             pred_norm_idx = int(torch.tensor(norm_logprobs).argmax().item())
@@ -498,25 +529,27 @@ class HarnessTask:
             elif target.upper() in ["A", "B", "C", "D", "E", "F", "G", "H"]:
                 target_idx = ord(target.upper()) - ord("A")
 
-            is_correct = (pred_idx == target_idx)
-            is_correct_norm = (pred_norm_idx == target_idx)
+            is_correct = pred_idx == target_idx
+            is_correct_norm = pred_norm_idx == target_idx
 
             if is_correct:
                 correct += 1
             if is_correct_norm:
                 correct_norm += 1
 
-            results_list.append({
-                "prompt": prompt,
-                "choices": choices,
-                "target": target,
-                "target_index": target_idx,
-                "predicted_index": pred_idx,
-                "predicted_norm_index": pred_norm_idx,
-                "logprobs": logprobs,
-                "correct": is_correct,
-                "correct_norm": is_correct_norm,
-            })
+            results_list.append(
+                {
+                    "prompt": prompt,
+                    "choices": choices,
+                    "target": target,
+                    "target_index": target_idx,
+                    "predicted_index": pred_idx,
+                    "predicted_norm_index": pred_norm_idx,
+                    "logprobs": logprobs,
+                    "correct": is_correct,
+                    "correct_norm": is_correct_norm,
+                }
+            )
 
         acc = correct / total if total > 0 else 0.0
         acc_norm = correct_norm / total if total > 0 else 0.0
@@ -541,7 +574,9 @@ class HarnessTask:
         requests = []
         for doc in docs:
             prompt = self.fewshot_context(doc, num_fewshot, self.docs)
-            requests.append((prompt, {"until": ["\n\n", "Question:", "User:"], "max_gen_toks": 128}))
+            requests.append(
+                (prompt, {"until": ["\n\n", "Question:", "User:"], "max_gen_toks": 128})
+            )
 
         completions = model.generate_until(requests)
 
@@ -551,12 +586,14 @@ class HarnessTask:
             if is_match:
                 exact_matches += 1
 
-            results_list.append({
-                "prompt": doc.query,
-                "target": target,
-                "prediction": completion,
-                "match": is_match,
-            })
+            results_list.append(
+                {
+                    "prompt": doc.query,
+                    "target": target,
+                    "prediction": completion,
+                    "match": is_match,
+                }
+            )
 
         em_rate = exact_matches / total if total > 0 else 0.0
         return {
@@ -582,7 +619,11 @@ class HarnessTask:
             total_tokens += max(1, len(model.tokenizer.encode(self.doc_to_text(doc))))
 
         total_lp = sum(logprobs)
-        ppl = math.exp(-total_lp / max(1, total_tokens)) if total_tokens > 0 else float("inf")
+        ppl = (
+            math.exp(-total_lp / max(1, total_tokens))
+            if total_tokens > 0
+            else float("inf")
+        )
 
         return {
             "samples": len(docs),
@@ -594,6 +635,7 @@ class HarnessTask:
 
 class MMLUTask(HarnessTask):
     """Massive Multitask Language Understanding (MMLU) benchmark."""
+
     name = "mmlu"
     task_type = "multiple_choice"
     description = "MMLU multitask multiple choice reasoning benchmark."
@@ -608,6 +650,7 @@ class MMLUTask(HarnessTask):
 
 class GSM8KTask(HarnessTask):
     """Grade School Math 8K (GSM8K) reasoning generation benchmark."""
+
     name = "gsm8k"
     task_type = "generation"
     description = "GSM8K grade school mathematical multi-step reasoning."
@@ -644,6 +687,7 @@ class GSM8KTask(HarnessTask):
 
 class ARCHarnessTask(HarnessTask):
     """AI2 Reasoning Challenge (ARC) benchmark."""
+
     name = "arc_challenge"
     task_type = "multiple_choice"
     description = "AI2 Reasoning Challenge multiple-choice science questions."
@@ -657,6 +701,7 @@ class ARCHarnessTask(HarnessTask):
 
 class HellaSwagTask(HarnessTask):
     """HellaSwag commonsense natural language inference benchmark."""
+
     name = "hellaswag"
     task_type = "multiple_choice"
     description = "HellaSwag sentence continuation reasoning."
@@ -667,6 +712,7 @@ class HellaSwagTask(HarnessTask):
 
 class WinograndeTask(HarnessTask):
     """Winogrande adversarial coreference resolution benchmark."""
+
     name = "winogrande"
     task_type = "multiple_choice"
     description = "Winogrande coreference disambiguation."
@@ -677,6 +723,7 @@ class WinograndeTask(HarnessTask):
 
 class TruthfulQATask(HarnessTask):
     """TruthfulQA benchmark for factuality and truthfulness."""
+
     name = "truthfulqa"
     task_type = "multiple_choice"
     description = "TruthfulQA factuality and misconception evaluation."
@@ -690,6 +737,7 @@ class TruthfulQATask(HarnessTask):
 
 class LambadaTask(HarnessTask):
     """LAMBADA language modeling and word prediction benchmark."""
+
     name = "lambada"
     task_type = "perplexity"
     description = "LAMBADA word prediction and narrative perplexity."
@@ -698,6 +746,7 @@ class LambadaTask(HarnessTask):
 # =========================================================================
 # Task Registry & Benchmark Suite Loader
 # =========================================================================
+
 
 class TaskRegistry:
     """Registry managing available evaluation harness benchmark tasks."""
@@ -724,7 +773,9 @@ class TaskRegistry:
     def get(self, name: str, docs: Sequence[HarnessDoc] | None = None) -> HarnessTask:
         key = name.lower()
         if key not in self._tasks:
-            raise KeyError(f"Task '{name}' not found in registry. Available: {list(self._tasks.keys())}")
+            raise KeyError(
+                f"Task '{name}' not found in registry. Available: {list(self._tasks.keys())}"
+            )
         task_cls = self._tasks[key]
         if isinstance(task_cls, type):
             task_instance = task_cls(docs)
@@ -756,6 +807,7 @@ def register_task(
 # =========================================================================
 # Standalone Fixture Generator for Standard Benchmarks
 # =========================================================================
+
 
 def get_standard_fixtures(task_name: str) -> list[HarnessDoc]:
     """Provide verified reference benchmark samples for reproducible testing."""
@@ -854,9 +906,11 @@ def get_standard_fixtures(task_name: str) -> list[HarnessDoc]:
 # Evaluation Harness Orchestrator & Reporting
 # =========================================================================
 
+
 @dataclass
 class HarnessReport:
     """Structured report produced by EvaluationHarness execution."""
+
     created_at: str
     checkpoint: str
     device: str
@@ -880,7 +934,9 @@ class HarnessReport:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         rendered = json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n"
-        descriptor, temp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        descriptor, temp_path = tempfile.mkstemp(
+            prefix=f".{path.name}.", dir=path.parent
+        )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 stream.write(rendered)
@@ -919,7 +975,9 @@ class EvaluationHarness:
                 task = item
                 task_name = task.name
 
-            logger.info("Evaluating harness task: %s (samples: %d)", task_name, len(task.docs))
+            logger.info(
+                "Evaluating harness task: %s (samples: %d)", task_name, len(task.docs)
+            )
             eval_output = task.evaluate(
                 model_adapter, num_fewshot=num_fewshot, limit=limit
             )
@@ -928,7 +986,9 @@ class EvaluationHarness:
             if "accuracy" in eval_output:
                 task_accuracies.append(float(eval_output["accuracy"]))
 
-        mean_acc = sum(task_accuracies) / len(task_accuracies) if task_accuracies else 0.0
+        mean_acc = (
+            sum(task_accuracies) / len(task_accuracies) if task_accuracies else 0.0
+        )
         summary = {
             "tasks_evaluated": len(task_results),
             "mean_accuracy": mean_acc,

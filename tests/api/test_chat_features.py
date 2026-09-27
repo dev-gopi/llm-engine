@@ -37,20 +37,29 @@ def _tool():
 
 
 def test_multimodal_chat_schema_preserves_openai_content_parts():
-    request = OpenAIChatCompletionRequest.model_validate({
-        "model": "gopi-test",
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "What is shown?"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,YQ=="}},
+    request = OpenAIChatCompletionRequest.model_validate(
+        {
+            "model": "gopi-test",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is shown?"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,YQ=="},
+                        },
+                    ],
+                }
             ],
-        }],
-    })
+        }
+    )
     generation = request.generation_request("gopi-test")
     assert generation.prompt == "What is shown?\n[image]"
     assert generation._chat_messages[0]["content"][1]["type"] == "image_url"
-    assert generation._chat_messages[0]["content"][1]["image_url"]["url"].startswith("data:image/png")
+    assert generation._chat_messages[0]["content"][1]["image_url"]["url"].startswith(
+        "data:image/png"
+    )
 
 
 def test_chat_completion_returns_reasoning_and_standard_tool_calls():
@@ -109,8 +118,12 @@ def test_chat_completion_streams_reasoning_tool_call_and_finish_reason():
         supports_reasoning = True
 
         async def stream(self, request):
-            yield BackendStreamEvent(reasoning_token="Need tool", prompt_tokens=4, completion_tokens=1)
-            yield BackendStreamEvent(tool_calls=(call,), prompt_tokens=4, completion_tokens=2)
+            yield BackendStreamEvent(
+                reasoning_token="Need tool", prompt_tokens=4, completion_tokens=1
+            )
+            yield BackendStreamEvent(
+                tool_calls=(call,), prompt_tokens=4, completion_tokens=2
+            )
             yield BackendStreamEvent(
                 finish_reason=FinishReason.TOOL_CALLS,
                 prompt_tokens=4,
@@ -164,7 +177,10 @@ def test_required_tool_failure_is_explicit_not_silently_text_answer():
     assert response.status_code == 200
     body = response.json()
     assert body["choices"][0]["finish_reason"] == "error"
-    assert body["choices"][0]["message"]["refusal"] == "model did not produce the required tool call"
+    assert (
+        body["choices"][0]["message"]["refusal"]
+        == "model did not produce the required tool call"
+    )
     assert body["incomplete_details"] == {"reason": "tool_call_generation_failed"}
 
 
@@ -176,15 +192,21 @@ def test_native_backend_interpreter_combines_reasoning_and_forced_tool_protocol(
         def encode(value, *args, **kwargs):
             return value.split()
 
-    dummy = type("DummyBackend", (), {"generator": type("Generator", (), {"tokenizer": Tokenizer()})()})()
-    parsed = OpenAIChatCompletionRequest.model_validate({
-        "model": "gopi-test",
-        "messages": [{"role": "user", "content": "Weather?"}],
-        "tools": [_tool()],
-        "tool_choice": {"type": "function", "function": {"name": "weather"}},
-        "reasoning_effort": "medium",
-        "max_tokens": 32,
-    }).generation_request("gopi-test")
+    dummy = type(
+        "DummyBackend",
+        (),
+        {"generator": type("Generator", (), {"tokenizer": Tokenizer()})()},
+    )()
+    parsed = OpenAIChatCompletionRequest.model_validate(
+        {
+            "model": "gopi-test",
+            "messages": [{"role": "user", "content": "Weather?"}],
+            "tools": [_tool()],
+            "tool_choice": {"type": "function", "function": {"name": "weather"}},
+            "reasoning_effort": "medium",
+            "max_tokens": 32,
+        }
+    ).generation_request("gopi-test")
 
     result = ConfiguredModelBackend._interpret_generated_text(
         dummy,
@@ -205,30 +227,55 @@ def test_chat_logprobs_and_multiple_choices_nonstream_and_stream() -> None:
         async def generate(self, request):
             suffix = str(request.seed) if request.seed is not None else "none"
             return BackendGeneration(
-                text=f"choice-{suffix}", prompt_tokens=2, completion_tokens=1,
+                text=f"choice-{suffix}",
+                prompt_tokens=2,
+                completion_tokens=1,
                 finish_reason=FinishReason.STOP,
-                logprobs=({
-                    "token": "x", "token_id": 9, "logprob": -0.1,
-                    "bytes": [120],
-                    "top_logprobs": [{"token": "x", "token_id": 9, "logprob": -0.1, "bytes": [120]}],
-                },),
+                logprobs=(
+                    {
+                        "token": "x",
+                        "token_id": 9,
+                        "logprob": -0.1,
+                        "bytes": [120],
+                        "top_logprobs": [
+                            {
+                                "token": "x",
+                                "token_id": 9,
+                                "logprob": -0.1,
+                                "bytes": [120],
+                            }
+                        ],
+                    },
+                ),
             )
 
         async def stream(self, request):
             yield BackendStreamEvent(
-                token="x", token_id=9, prompt_tokens=2, completion_tokens=1,
+                token="x",
+                token_id=9,
+                prompt_tokens=2,
+                completion_tokens=1,
                 logprob={
-                    "token": "x", "token_id": 9, "logprob": -0.1,
-                    "bytes": [120], "top_logprobs": [],
+                    "token": "x",
+                    "token_id": 9,
+                    "logprob": -0.1,
+                    "bytes": [120],
+                    "top_logprobs": [],
                 },
             )
             yield BackendStreamEvent(
-                finish_reason=FinishReason.STOP, prompt_tokens=2, completion_tokens=1,
+                finish_reason=FinishReason.STOP,
+                prompt_tokens=2,
+                completion_tokens=1,
             )
 
     base = {
-        "model": "gopi-test", "messages": [{"role": "user", "content": "hello"}],
-        "n": 2, "seed": 10, "logprobs": True, "top_logprobs": 1,
+        "model": "gopi-test",
+        "messages": [{"role": "user", "content": "hello"}],
+        "n": 2,
+        "seed": 10,
+        "logprobs": True,
+        "top_logprobs": 1,
     }
     with ASGIClient(create_app(ChoiceBackend(), settings=_settings())) as client:
         response = client.post("/v1/chat/completions", json=base)
@@ -236,25 +283,42 @@ def test_chat_logprobs_and_multiple_choices_nonstream_and_stream() -> None:
     assert response.status_code == 200
     body = response.json()
     assert [choice["index"] for choice in body["choices"]] == [0, 1]
-    assert [choice["message"]["content"] for choice in body["choices"]] == ["choice-10", "choice-11"]
+    assert [choice["message"]["content"] for choice in body["choices"]] == [
+        "choice-10",
+        "choice-11",
+    ]
     assert body["choices"][0]["logprobs"]["content"][0]["token"] == "x"
     assert body["usage"]["completion_tokens"] == 2
 
-    events = [json.loads(line[6:]) for line in streamed.text.splitlines() if line.startswith("data: {")]
+    events = [
+        json.loads(line[6:])
+        for line in streamed.text.splitlines()
+        if line.startswith("data: {")
+    ]
     indexes = {event["choices"][0]["index"] for event in events}
     assert indexes == {0, 1}
-    assert any((event["choices"][0].get("logprobs") or {}).get("content") for event in events)
+    assert any(
+        (event["choices"][0].get("logprobs") or {}).get("content") for event in events
+    )
 
 
 def test_chat_top_logprobs_requires_logprobs_and_multichoice_rejects_session() -> None:
     import pytest
+
     with pytest.raises(ValueError, match="top_logprobs"):
-        OpenAIChatCompletionRequest.model_validate({
-            "model": "gopi-test", "messages": [{"role": "user", "content": "x"}],
-            "top_logprobs": 2,
-        })
+        OpenAIChatCompletionRequest.model_validate(
+            {
+                "model": "gopi-test",
+                "messages": [{"role": "user", "content": "x"}],
+                "top_logprobs": 2,
+            }
+        )
     with pytest.raises(ValueError, match="session_id"):
-        OpenAIChatCompletionRequest.model_validate({
-            "model": "gopi-test", "messages": [{"role": "user", "content": "x"}],
-            "n": 2, "session_id": "session-1",
-        })
+        OpenAIChatCompletionRequest.model_validate(
+            {
+                "model": "gopi-test",
+                "messages": [{"role": "user", "content": "x"}],
+                "n": 2,
+                "session_id": "session-1",
+            }
+        )

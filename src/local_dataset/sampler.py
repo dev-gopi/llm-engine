@@ -24,14 +24,26 @@ class CurriculumSchedule:
             raise ValueError("curriculum must start at epoch zero")
         if any(stage.start_epoch < 0 for stage in stages):
             raise ValueError("curriculum start_epoch must be non-negative")
-        if any(right.start_epoch <= left.start_epoch for left, right in zip(stages, stages[1:])):
-            raise ValueError("curriculum stages must have increasing start_epoch values")
+        if any(
+            right.start_epoch <= left.start_epoch
+            for left, right in zip(stages, stages[1:])
+        ):
+            raise ValueError(
+                "curriculum stages must have increasing start_epoch values"
+            )
         width = len(stages[0].weights)
         if not width or any(len(stage.weights) != width for stage in stages):
-            raise ValueError("curriculum stages must have equally sized non-empty weights")
-        if any(any(weight < 0 or not math.isfinite(weight) for weight in stage.weights) or not any(stage.weights)
-               for stage in stages):
-            raise ValueError("curriculum weights must be finite and include a positive value")
+            raise ValueError(
+                "curriculum stages must have equally sized non-empty weights"
+            )
+        if any(
+            any(weight < 0 or not math.isfinite(weight) for weight in stage.weights)
+            or not any(stage.weights)
+            for stage in stages
+        ):
+            raise ValueError(
+                "curriculum weights must be finite and include a positive value"
+            )
         self.stages = tuple(stages)
 
     @classmethod
@@ -43,20 +55,43 @@ class CurriculumSchedule:
             weights = entry.get("weights")
             if not isinstance(weights, list):
                 raise ValueError("curriculum stage weights must be a list")
-            stages.append(CurriculumStage(int(entry.get("start_epoch", -1)), tuple(float(value) for value in weights)))
+            stages.append(
+                CurriculumStage(
+                    int(entry.get("start_epoch", -1)),
+                    tuple(float(value) for value in weights),
+                )
+            )
         return cls(stages)
 
     def stage_for_epoch(self, epoch: int) -> tuple[int, CurriculumStage]:
         if epoch < 0:
             raise ValueError("epoch must be non-negative")
-        index = max(index for index, stage in enumerate(self.stages) if stage.start_epoch <= epoch)
+        index = max(
+            index
+            for index, stage in enumerate(self.stages)
+            if stage.start_epoch <= epoch
+        )
         return index, self.stages[index]
 
 
 class Sampler(TorchSampler[list[int]]):
     """Shuffle buckets while grouping similar sequence lengths."""
 
-    def __init__(self, lengths: Sequence[int], batch_size: int, *, shuffle: bool = True, drop_last: bool = False, seed: int = 0, bucket_size_multiplier: int = 50, rank: int = 0, world_size: int = 1, sampling_weights: Sequence[float] | None = None, sampling_groups: Sequence[tuple[int, int, float]] | None = None, num_samples: int | None = None) -> None:
+    def __init__(
+        self,
+        lengths: Sequence[int],
+        batch_size: int,
+        *,
+        shuffle: bool = True,
+        drop_last: bool = False,
+        seed: int = 0,
+        bucket_size_multiplier: int = 50,
+        rank: int = 0,
+        world_size: int = 1,
+        sampling_weights: Sequence[float] | None = None,
+        sampling_groups: Sequence[tuple[int, int, float]] | None = None,
+        num_samples: int | None = None,
+    ) -> None:
         if batch_size < 1 or bucket_size_multiplier < 1:
             raise ValueError("batch and bucket sizes must be positive")
         self.lengths = list(lengths)
@@ -76,18 +111,29 @@ class Sampler(TorchSampler[list[int]]):
         if sampling_weights is not None:
             if len(sampling_weights) != len(self.lengths):
                 raise ValueError("sampling_weights must match lengths")
-            if not sampling_weights or any(weight < 0 for weight in sampling_weights) or not any(sampling_weights):
+            if (
+                not sampling_weights
+                or any(weight < 0 for weight in sampling_weights)
+                or not any(sampling_weights)
+            ):
                 raise ValueError("sampling_weights must contain a positive weight")
             self.sampling_weights = list(sampling_weights)
         else:
             self.sampling_weights = None
         self.sampling_groups = list(sampling_groups or [])
         if self.sampling_groups and (
-            any(start < 0 or end <= start or end > len(self.lengths) or weight < 0 for start, end, weight in self.sampling_groups)
+            any(
+                start < 0 or end <= start or end > len(self.lengths) or weight < 0
+                for start, end, weight in self.sampling_groups
+            )
             or not any(weight for _, _, weight in self.sampling_groups)
         ):
-            raise ValueError("sampling_groups must contain valid ranges and a positive weight")
-        self.num_samples = len(self.lengths) if num_samples is None else int(num_samples)
+            raise ValueError(
+                "sampling_groups must contain valid ranges and a positive weight"
+            )
+        self.num_samples = (
+            len(self.lengths) if num_samples is None else int(num_samples)
+        )
         if self.num_samples < 1:
             raise ValueError("num_samples must be positive")
 
@@ -106,22 +152,34 @@ class Sampler(TorchSampler[list[int]]):
         if len(weights) != len(self.sampling_groups):
             raise ValueError("curriculum weights must match sampling_groups")
         normalized = [float(weight) for weight in weights]
-        if any(weight < 0 or not math.isfinite(weight) for weight in normalized) or not any(normalized):
-            raise ValueError("curriculum weights must be finite and include a positive value")
+        if any(
+            weight < 0 or not math.isfinite(weight) for weight in normalized
+        ) or not any(normalized):
+            raise ValueError(
+                "curriculum weights must be finite and include a positive value"
+            )
         self.sampling_groups = [
             (start, end, weight)
-            for (start, end, _), weight in zip(self.sampling_groups, normalized, strict=True)
+            for (start, end, _), weight in zip(
+                self.sampling_groups, normalized, strict=True
+            )
         ]
 
     def __iter__(self) -> Iterator[list[int]]:
         randomizer = random.Random(self.seed + self.epoch)
         if self.shuffle and self.sampling_groups:
             target = math.ceil(self.num_samples / self.world_size) * self.world_size
-            groups = randomizer.choices(self.sampling_groups, weights=[group[2] for group in self.sampling_groups], k=target)
+            groups = randomizer.choices(
+                self.sampling_groups,
+                weights=[group[2] for group in self.sampling_groups],
+                k=target,
+            )
             indices = [randomizer.randrange(start, end) for start, end, _ in groups]
         elif self.shuffle and self.sampling_weights is not None:
             target = math.ceil(self.num_samples / self.world_size) * self.world_size
-            indices = randomizer.choices(range(len(self.lengths)), weights=self.sampling_weights, k=target)
+            indices = randomizer.choices(
+                range(len(self.lengths)), weights=self.sampling_weights, k=target
+            )
         else:
             indices = list(range(len(self.lengths)))
         if self.shuffle and self.sampling_weights is None:
@@ -135,8 +193,13 @@ class Sampler(TorchSampler[list[int]]):
             indices = indices[self.rank :: self.world_size]
         batches: list[list[int]] = []
         for start in range(0, len(indices), self.bucket_size):
-            bucket = sorted(indices[start : start + self.bucket_size], key=self.lengths.__getitem__)
-            batches.extend(bucket[index : index + self.batch_size] for index in range(0, len(bucket), self.batch_size))
+            bucket = sorted(
+                indices[start : start + self.bucket_size], key=self.lengths.__getitem__
+            )
+            batches.extend(
+                bucket[index : index + self.batch_size]
+                for index in range(0, len(bucket), self.batch_size)
+            )
         if self.drop_last:
             batches = [batch for batch in batches if len(batch) == self.batch_size]
         if self.shuffle:
@@ -149,9 +212,22 @@ class Sampler(TorchSampler[list[int]]):
     @property
     def total_batches(self) -> int:
         """Return the full epoch length, independent of a resume offset."""
-        total = self.num_samples if self.shuffle and (self.sampling_weights is not None or self.sampling_groups) else len(self.lengths)
-        examples = total // self.world_size if self.drop_last else math.ceil(total / self.world_size)
-        batches = examples // self.batch_size if self.drop_last else math.ceil(examples / self.batch_size)
+        total = (
+            self.num_samples
+            if self.shuffle
+            and (self.sampling_weights is not None or self.sampling_groups)
+            else len(self.lengths)
+        )
+        examples = (
+            total // self.world_size
+            if self.drop_last
+            else math.ceil(total / self.world_size)
+        )
+        batches = (
+            examples // self.batch_size
+            if self.drop_last
+            else math.ceil(examples / self.batch_size)
+        )
         return batches
 
     def state_dict(self) -> dict[str, object]:

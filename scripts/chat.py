@@ -12,9 +12,10 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
+import time
+
 from dotenv import load_dotenv
 
-import time
 from inference.context import ConversationMemory, format_system_prompt
 from inference.generator import Generator
 from inference.prompt_safety import blocked_prompt_message
@@ -38,7 +39,9 @@ def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-config", type=Path, default=None)
-    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
+    parser.add_argument(
+        "--inference-config", type=Path, default=Path("configs/inference.yaml")
+    )
     parser.add_argument("--tokenizer", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--device", default=None)
@@ -47,7 +50,9 @@ def main() -> None:
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--top-k", type=int)
     parser.add_argument("--top-p", type=float)
-    parser.add_argument("--min-p", type=float, help="relative probability cutoff; 0 disables")
+    parser.add_argument(
+        "--min-p", type=float, help="relative probability cutoff; 0 disables"
+    )
     parser.add_argument("--min-tokens", type=int)
     parser.add_argument("--stop", action="append", help="stop string; may be repeated")
     parser.add_argument("--repetition-penalty", type=float)
@@ -56,20 +61,26 @@ def main() -> None:
     args = parser.parse_args()
     inference_config = load_yaml(args.inference_config)
     serving = inference_config.get("serving", {})
-    apply_cli_defaults(args, {
-        "model_config": serving.get("model_config"),
-        "tokenizer": serving.get("tokenizer_path"),
-        "checkpoint": serving.get("checkpoint_path"),
-        "device": serving.get("device"),
-    }, {
-        "model_config": Path("configs/model.gpu.yaml"),
-        "tokenizer": Path("data/tokenizer"),
-        "checkpoint": Path("checkpoints/finetuning/best.pt"),
-        "device": "auto",
-    })
+    apply_cli_defaults(
+        args,
+        {
+            "model_config": serving.get("model_config"),
+            "tokenizer": serving.get("tokenizer_path"),
+            "checkpoint": serving.get("checkpoint_path"),
+            "device": serving.get("device"),
+        },
+        {
+            "model_config": Path("configs/model.gpu.yaml"),
+            "tokenizer": Path("data/tokenizer"),
+            "checkpoint": Path("checkpoints/finetuning/best.pt"),
+            "device": "auto",
+        },
+    )
 
     if not args.checkpoint.is_file():
-        parser.error(f"checkpoint not found: {args.checkpoint}; check the path and mount the drive containing the completed run")
+        parser.error(
+            f"checkpoint not found: {args.checkpoint}; check the path and mount the drive containing the completed run"
+        )
 
     model_config = load_yaml(args.model_config)
     bot_name = str(inference_config.get("bot_name", "Gopi"))
@@ -82,21 +93,35 @@ def main() -> None:
     # Deserialize optimizer/EMA tensors on CPU; only inference weights go to GPU.
     model = MiniGPT.from_config(model_config, device="cpu")
     checkpoint_info = load_checkpoint(
-        args.checkpoint, model, use_ema=args.weights == "ema", restore_rng=False,
+        args.checkpoint,
+        model,
+        use_ema=args.weights == "ema",
+        restore_rng=False,
         low_memory=bool(serving.get("low_memory_loading", False)),
         **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
     model = prepare_model_for_inference(
-        model, device=device,
+        model,
+        device=device,
         weight_dtype=str(serving.get("weight_dtype", "float32")),
         quantization=str(serving.get("quantization", "none")),
     )
     generator = Generator(model, tokenizer, device=device)
 
-    max_tokens = args.max_tokens if args.max_tokens is not None else int(inference_config.get("max_tokens", 128))
-    configured_context = int(inference_config.get("context_memory", {}).get("max_tokens", 1536))
-    active_system_prompt = str(inference_config.get("system_prompt", "You are Gopi, a helpful AI assistant."))
-    include_safety_instruction = bool(inference_config.get("embed_safety_instruction", True))
+    max_tokens = (
+        args.max_tokens
+        if args.max_tokens is not None
+        else int(inference_config.get("max_tokens", 128))
+    )
+    configured_context = int(
+        inference_config.get("context_memory", {}).get("max_tokens", 1536)
+    )
+    active_system_prompt = str(
+        inference_config.get("system_prompt", "You are Gopi, a helpful AI assistant.")
+    )
+    include_safety_instruction = bool(
+        inference_config.get("embed_safety_instruction", True)
+    )
     response_format = (
         args.response_format
         or os.getenv("GOPI_RESPONSE_FORMAT")
@@ -104,7 +129,8 @@ def main() -> None:
     ).lower()
     try:
         formatted_system_prompt = format_system_prompt(
-            active_system_prompt, response_format,
+            active_system_prompt,
+            response_format,
             include_safety_instruction=include_safety_instruction,
         )
     except ValueError as error:
@@ -116,12 +142,18 @@ def main() -> None:
     )
 
     search_config = inference_config.get("web_search", {})
-    search_provider = os.getenv("GOPI_SEARCH_PROVIDER", str(search_config.get("provider", "searxng"))).lower()
+    search_provider = os.getenv(
+        "GOPI_SEARCH_PROVIDER", str(search_config.get("provider", "searxng"))
+    ).lower()
     search_api_key = os.getenv("GOPI_SEARCH_API_KEY", "")
 
     active_weights = "ema" if checkpoint_info["ema_applied"] else "model"
-    print(f"Loaded {args.checkpoint} (step {checkpoint_info['step']}, {active_weights} weights).")
-    print(f"Tokenizer: {args.tokenizer} ({tokenizer.vocab_size} tokens, {tokenizer.fingerprint[:12]}).")
+    print(
+        f"Loaded {args.checkpoint} (step {checkpoint_info['step']}, {active_weights} weights)."
+    )
+    print(
+        f"Tokenizer: {args.tokenizer} ({tokenizer.vocab_size} tokens, {tokenizer.fingerprint[:12]})."
+    )
     print("Gopi chat ready. Use /help to list commands.")
     while True:
         try:
@@ -165,10 +197,13 @@ def main() -> None:
                 continue
             try:
                 active_system_prompt = prompt
-                memory.set_system_prompt(format_system_prompt(
-                    active_system_prompt, response_format,
-                    include_safety_instruction=include_safety_instruction,
-                ))
+                memory.set_system_prompt(
+                    format_system_prompt(
+                        active_system_prompt,
+                        response_format,
+                        include_safety_instruction=include_safety_instruction,
+                    )
+                )
             except ValueError as error:
                 print(f"Could not set system prompt: {error}")
             else:
@@ -180,10 +215,13 @@ def main() -> None:
                 print("Usage: /format <plain|markdown>")
                 continue
             response_format = requested_format
-            memory.set_system_prompt(format_system_prompt(
-                active_system_prompt, response_format,
-                include_safety_instruction=include_safety_instruction,
-            ))
+            memory.set_system_prompt(
+                format_system_prompt(
+                    active_system_prompt,
+                    response_format,
+                    include_safety_instruction=include_safety_instruction,
+                )
+            )
             print(f"Response format set to {response_format}.")
             continue
         elif message.lower() == "/search" or message.lower().startswith("/search "):
@@ -201,7 +239,11 @@ def main() -> None:
                         timeout=timeout,
                         endpoint=os.getenv(
                             "GOPI_SEARXNG_URL",
-                            str(search_config.get("searxng_endpoint", "http://localhost:8080/search")),
+                            str(
+                                search_config.get(
+                                    "searxng_endpoint", "http://localhost:8080/search"
+                                )
+                            ),
                         ),
                     )
                 elif search_provider == "brave":
@@ -210,7 +252,12 @@ def main() -> None:
                         search_api_key,
                         max_results=max_results,
                         timeout=timeout,
-                        endpoint=str(search_config.get("brave_endpoint", "https://api.search.brave.com/res/v1/web/search")),
+                        endpoint=str(
+                            search_config.get(
+                                "brave_endpoint",
+                                "https://api.search.brave.com/res/v1/web/search",
+                            )
+                        ),
                     )
                 else:
                     raise ValueError(f"unsupported search provider: {search_provider}")
@@ -223,7 +270,9 @@ def main() -> None:
             message = build_search_prompt(
                 query,
                 search_results,
-                description_char_limit=int(search_config.get("description_char_limit", 200)),
+                description_char_limit=int(
+                    search_config.get("description_char_limit", 200)
+                ),
             )
         t_chat_start = time.perf_counter()
         result = generator.generate_chat(
@@ -231,22 +280,39 @@ def main() -> None:
             message,
             max_tokens=max_tokens,
             temperature=(
-                args.temperature if args.temperature is not None
-                else float(search_config.get("temperature", 0.2)) if search_results
+                args.temperature
+                if args.temperature is not None
+                else float(search_config.get("temperature", 0.2))
+                if search_results
                 else float(inference_config.get("temperature", 0.7))
             ),
-            top_k=(args.top_k if args.top_k is not None else
-                   int(search_config.get("top_k", 20)) if search_results else int(inference_config.get("top_k", 40))),
-            top_p=args.top_p if args.top_p is not None else float(inference_config.get("top_p", 1.0)),
-            min_p=args.min_p if args.min_p is not None else float(inference_config.get("min_p", 0.0)),
-            min_tokens=args.min_tokens if args.min_tokens is not None else int(inference_config.get("min_tokens", 1)),
-            stop=args.stop if args.stop is not None else inference_config.get("stop", []),
+            top_k=(
+                args.top_k
+                if args.top_k is not None
+                else int(search_config.get("top_k", 20))
+                if search_results
+                else int(inference_config.get("top_k", 40))
+            ),
+            top_p=args.top_p
+            if args.top_p is not None
+            else float(inference_config.get("top_p", 1.0)),
+            min_p=args.min_p
+            if args.min_p is not None
+            else float(inference_config.get("min_p", 0.0)),
+            min_tokens=args.min_tokens
+            if args.min_tokens is not None
+            else int(inference_config.get("min_tokens", 1)),
+            stop=args.stop
+            if args.stop is not None
+            else inference_config.get("stop", []),
             repetition_penalty=(
-                args.repetition_penalty if args.repetition_penalty is not None
+                args.repetition_penalty
+                if args.repetition_penalty is not None
                 else float(inference_config.get("repetition_penalty", 1.1))
             ),
             no_repeat_ngram_size=(
-                args.no_repeat_ngram_size if args.no_repeat_ngram_size is not None
+                args.no_repeat_ngram_size
+                if args.no_repeat_ngram_size is not None
                 else int(inference_config.get("no_repeat_ngram_size", 3))
             ),
         )

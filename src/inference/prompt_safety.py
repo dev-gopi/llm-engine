@@ -9,7 +9,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-PROMPT_INJECTION_REFUSAL = "I can't follow instructions that try to override or reveal my safety rules."
+PROMPT_INJECTION_REFUSAL = (
+    "I can't follow instructions that try to override or reveal my safety rules."
+)
 UNSAFE_REQUEST_REFUSAL = "I can't help with a request that could cause serious harm or violate someone's safety."
 
 
@@ -23,15 +25,23 @@ class SafetyProbe:
 def load_safety_probes(path: str | Path) -> list[SafetyProbe]:
     """Load a small versioned JSONL guardrail regression manifest."""
     probes: list[SafetyProbe] = []
-    for line_number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(
+        Path(path).read_text(encoding="utf-8").splitlines(), 1
+    ):
         if not line.strip():
             continue
         try:
             item = json.loads(line)
         except json.JSONDecodeError as error:
             raise ValueError(f"invalid safety JSONL at line {line_number}") from error
-        if not isinstance(item, dict) or not isinstance(item.get("category"), str) or not isinstance(item.get("prompt"), str):
-            raise ValueError(f"safety probe {line_number} requires string category and prompt")
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("category"), str)
+            or not isinstance(item.get("prompt"), str)
+        ):
+            raise ValueError(
+                f"safety probe {line_number} requires string category and prompt"
+            )
         expected = item.get("expected_refusal")
         if expected not in {None, "injection", "harmful"}:
             raise ValueError(f"safety probe {line_number} has invalid expected_refusal")
@@ -54,7 +64,20 @@ def evaluate_safety_probes(probes: Iterable[SafetyProbe]) -> dict[str, int | flo
         passed += blocked_prompt_message(probe.prompt) == expected
     return {"cases": len(probes), "passed": passed, "accuracy": passed / len(probes)}
 
-_LEET_TRANSLATION = str.maketrans({"@": "a", "4": "a", "3": "e", "1": "i", "!": "i", "0": "o", "5": "s", "$": "s", "7": "t"})
+
+_LEET_TRANSLATION = str.maketrans(
+    {
+        "@": "a",
+        "4": "a",
+        "3": "e",
+        "1": "i",
+        "!": "i",
+        "0": "o",
+        "5": "s",
+        "$": "s",
+        "7": "t",
+    }
+)
 
 _INJECTION_PATTERNS = (
     r"\b(?:ignore|disregard|forget|override)\b.{0,50}\b(?:previous|prior|above|system|developer|safety)\b.{0,30}\b(?:instructions?|prompts?|rules?|message)\b",
@@ -89,11 +112,17 @@ _HARMFUL_PATTERNS = (
 )
 
 
-_COMPILED_INJECTION_PATTERNS = tuple(re.compile(pattern, re.DOTALL) for pattern in _INJECTION_PATTERNS)
-_COMPILED_HARMFUL_PATTERNS = tuple(re.compile(pattern, re.DOTALL) for pattern in _HARMFUL_PATTERNS)
+_COMPILED_INJECTION_PATTERNS = tuple(
+    re.compile(pattern, re.DOTALL) for pattern in _INJECTION_PATTERNS
+)
+_COMPILED_HARMFUL_PATTERNS = tuple(
+    re.compile(pattern, re.DOTALL) for pattern in _HARMFUL_PATTERNS
+)
 
 
-def normalize_prompt_for_safety(prompt: str, *, max_detection_chars: int = 100_000) -> str:
+def normalize_prompt_for_safety(
+    prompt: str, *, max_detection_chars: int = 100_000
+) -> str:
     """Normalize common obfuscation without mutating the user-visible prompt."""
     if not isinstance(prompt, str):
         raise TypeError("prompt must be a string")

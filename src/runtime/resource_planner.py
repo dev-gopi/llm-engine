@@ -5,6 +5,7 @@ It can estimate whether a configuration fits a memory budget, but it never
 claims that an aggressive precision (for example Q1_0) preserves model quality
 without benchmark evidence for the concrete checkpoint.
 """
+
 from __future__ import annotations
 
 import math
@@ -59,11 +60,15 @@ class RuntimeMemoryEstimate:
         return asdict(self)
 
 
-def _precision_bits(name: str, table: Mapping[str, float], kind: str) -> tuple[str, float]:
+def _precision_bits(
+    name: str, table: Mapping[str, float], kind: str
+) -> tuple[str, float]:
     normalized = str(name).lower()
     if normalized not in table:
         choices = ", ".join(sorted(table))
-        raise ValueError(f"unsupported {kind} precision {name!r}; choose one of {choices}")
+        raise ValueError(
+            f"unsupported {kind} precision {name!r}; choose one of {choices}"
+        )
     return normalized, float(table[normalized])
 
 
@@ -94,7 +99,11 @@ def estimate_inference_memory(
         raise ValueError("context_length must be positive")
     if context > configured_context:
         raise ValueError("context_length cannot exceed model max_position")
-    if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size < 1:
+    if (
+        not isinstance(batch_size, int)
+        or isinstance(batch_size, bool)
+        or batch_size < 1
+    ):
         raise ValueError("batch_size must be a positive integer")
     if not math.isfinite(memory_margin) or not 0 <= memory_margin < 1:
         raise ValueError("memory_margin must satisfy 0 <= memory_margin < 1")
@@ -114,25 +123,33 @@ def estimate_inference_memory(
         * batch_size
     )
     linear_state_bytes = math.ceil(
-        model_size.linear_state_bytes_bf16_per_sequence
-        * (kv_bits / 16.0)
-        * batch_size
+        model_size.linear_state_bytes_bf16_per_sequence * (kv_bits / 16.0) * batch_size
     )
     runtime_state_bytes = kv_cache_bytes + linear_state_bytes
     subtotal = weight_bytes + runtime_state_bytes
-    estimated_total = math.ceil(subtotal / (1.0 - memory_margin)) if memory_margin < 1 else subtotal
-    fits = None if memory_budget_bytes is None else estimated_total <= memory_budget_bytes
+    estimated_total = (
+        math.ceil(subtotal / (1.0 - memory_margin)) if memory_margin < 1 else subtotal
+    )
+    fits = (
+        None if memory_budget_bytes is None else estimated_total <= memory_budget_bytes
+    )
 
     notes = [
         "memory is an analytical estimate, not a measured peak",
         "backend workspaces, CUDA graphs, fragmentation, and multimodal towers are not explicitly modeled",
     ]
     if weight_name == "q1_0":
-        notes.append("Q1_0 is a deployment-size estimate; checkpoint quality requires quantization-aware validation")
+        notes.append(
+            "Q1_0 is a deployment-size estimate; checkpoint quality requires quantization-aware validation"
+        )
     if kv_name in {"int8", "int4"}:
-        notes.append("low-bit KV memory assumes a backend that stores cache natively at the requested precision")
+        notes.append(
+            "low-bit KV memory assumes a backend that stores cache natively at the requested precision"
+        )
     if model_size.linear_attention_layers:
-        notes.append("linear-attention recurrent state is fixed-size with context length")
+        notes.append(
+            "linear-attention recurrent state is fixed-size with context length"
+        )
 
     return RuntimeMemoryEstimate(
         weight_precision=weight_name,
@@ -146,7 +163,7 @@ def estimate_inference_memory(
         linear_state_bytes=linear_state_bytes,
         runtime_state_bytes=runtime_state_bytes,
         estimated_total_bytes=estimated_total,
-        estimated_total_gib=estimated_total / (1024 ** 3),
+        estimated_total_gib=estimated_total / (1024**3),
         memory_margin=memory_margin,
         fits_budget=fits,
         budget_bytes=memory_budget_bytes,
@@ -176,5 +193,11 @@ def deployment_matrix(
         for weights in weight_precisions
         for kv in kv_precisions
     ]
-    rows.sort(key=lambda item: (item["estimated_total_bytes"], item["weight_precision"], item["kv_precision"]))
+    rows.sort(
+        key=lambda item: (
+            item["estimated_total_bytes"],
+            item["weight_precision"],
+            item["kv_precision"],
+        )
+    )
     return rows

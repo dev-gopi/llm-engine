@@ -21,55 +21,91 @@ class DiffusionPipeline:
         self.model = model
         self.scheduler = scheduler
 
-    def training_loss(self, images: Tensor, text_condition: Tensor | None = None,
-                      *, condition_dropout: float = 0.0,
-                      generator: torch.Generator | None = None,
-                      class_labels: Tensor | None = None,
-                      text_context: Tensor | None = None,
-                      text_context_mask: Tensor | None = None,
-                      min_snr_gamma: float | None = None) -> Tensor:
+    def training_loss(
+        self,
+        images: Tensor,
+        text_condition: Tensor | None = None,
+        *,
+        condition_dropout: float = 0.0,
+        generator: torch.Generator | None = None,
+        class_labels: Tensor | None = None,
+        text_context: Tensor | None = None,
+        text_context_mask: Tensor | None = None,
+        min_snr_gamma: float | None = None,
+    ) -> Tensor:
         if not 0 <= condition_dropout <= 1:
             raise ValueError("condition_dropout must be between zero and one")
-        if sum(value is not None for value in (text_condition, class_labels, text_context)) > 1:
+        if (
+            sum(
+                value is not None
+                for value in (text_condition, class_labels, text_context)
+            )
+            > 1
+        ):
             raise ValueError("provide only one conditioning input")
-        if min_snr_gamma is not None and (not math.isfinite(min_snr_gamma) or min_snr_gamma <= 0):
+        if min_snr_gamma is not None and (
+            not math.isfinite(min_snr_gamma) or min_snr_gamma <= 0
+        ):
             raise ValueError("min_snr_gamma must be finite and positive, or None")
         self._validate_class_labels(class_labels, images.shape[0])
         timesteps = torch.randint(
-            0, self.scheduler.timesteps, (images.shape[0],), device=images.device,
+            0,
+            self.scheduler.timesteps,
+            (images.shape[0],),
+            device=images.device,
             generator=generator,
         )
-        noise = torch.randn(images.shape, device=images.device, dtype=images.dtype,
-                            generator=generator)
+        noise = torch.randn(
+            images.shape, device=images.device, dtype=images.dtype, generator=generator
+        )
         noisy, target_noise = self.scheduler.add_noise(images, timesteps, noise)
         if text_condition is not None and condition_dropout:
-            keep = torch.rand(images.shape[0], device=images.device,
-                              generator=generator) >= condition_dropout
+            keep = (
+                torch.rand(images.shape[0], device=images.device, generator=generator)
+                >= condition_dropout
+            )
             text_condition = text_condition * keep[:, None]
         if class_labels is not None and condition_dropout:
             if self.model.null_class_id is None:
-                raise ValueError("class conditioning requires a class-conditional model")
-            keep = torch.rand(images.shape[0], device=images.device,
-                              generator=generator) >= condition_dropout
+                raise ValueError(
+                    "class conditioning requires a class-conditional model"
+                )
+            keep = (
+                torch.rand(images.shape[0], device=images.device, generator=generator)
+                >= condition_dropout
+            )
             class_labels = torch.where(
-                keep, class_labels,
+                keep,
+                class_labels,
                 torch.full_like(class_labels, self.model.null_class_id),
             )
         if text_context is not None and condition_dropout:
-            keep = torch.rand(images.shape[0], device=images.device,
-                              generator=generator) >= condition_dropout
+            keep = (
+                torch.rand(images.shape[0], device=images.device, generator=generator)
+                >= condition_dropout
+            )
             text_context = text_context * keep[:, None, None]
         predicted_noise = self.model(
-            noisy, timesteps, text_condition, class_labels,
-            text_context=text_context, text_context_mask=text_context_mask,
+            noisy,
+            timesteps,
+            text_condition,
+            class_labels,
+            text_context=text_context,
+            text_context_mask=text_context_mask,
         )
-        per_sample = F.mse_loss(
-            predicted_noise.float(), target_noise.float(), reduction="none"
-        ).flatten(1).mean(dim=1)
+        per_sample = (
+            F.mse_loss(predicted_noise.float(), target_noise.float(), reduction="none")
+            .flatten(1)
+            .mean(dim=1)
+        )
         if min_snr_gamma is not None:
-            alpha_bar = self.scheduler.alpha_bars.to(timesteps.device)[timesteps].float()
+            alpha_bar = self.scheduler.alpha_bars.to(timesteps.device)[
+                timesteps
+            ].float()
             snr = alpha_bar / (1.0 - alpha_bar).clamp_min(1e-8)
-            weights = torch.minimum(snr, torch.full_like(snr, min_snr_gamma)) / snr.clamp_min(1e-8)
+            weights = torch.minimum(
+                snr, torch.full_like(snr, min_snr_gamma)
+            ) / snr.clamp_min(1e-8)
             per_sample = per_sample * weights
         return per_sample.mean()
 
@@ -93,42 +129,77 @@ class DiffusionPipeline:
         negative_text_context_mask: Tensor | None = None,
     ) -> Tensor:
         if batch_size <= 0 or image_size <= 0 or image_size % 4:
-            raise ValueError("batch_size must be positive and image_size divisible by four")
+            raise ValueError(
+                "batch_size must be positive and image_size divisible by four"
+            )
         if not math.isfinite(guidance_scale) or guidance_scale < 0:
             raise ValueError("guidance_scale must be finite and non-negative")
-        if sum(value is not None for value in (text_condition, class_labels, text_context)) > 1:
+        if (
+            sum(
+                value is not None
+                for value in (text_condition, class_labels, text_context)
+            )
+            > 1
+        ):
             raise ValueError("provide only one conditioning input")
         if negative_text_condition is not None:
-            if text_condition is None or negative_text_condition.shape != text_condition.shape:
+            if (
+                text_condition is None
+                or negative_text_condition.shape != text_condition.shape
+            ):
                 raise ValueError("negative_text_condition must match text_condition")
         if negative_text_context is not None:
-            if text_context is None or negative_text_context.shape != text_context.shape:
+            if (
+                text_context is None
+                or negative_text_context.shape != text_context.shape
+            ):
                 raise ValueError("negative_text_context must match text_context")
-            if negative_text_context_mask is not None and negative_text_context_mask.shape != text_context_mask.shape:
-                raise ValueError("negative_text_context_mask must match text_context_mask")
+            if (
+                negative_text_context_mask is not None
+                and negative_text_context_mask.shape != text_context_mask.shape
+            ):
+                raise ValueError(
+                    "negative_text_context_mask must match text_context_mask"
+                )
         elif negative_text_context_mask is not None:
-            raise ValueError("negative_text_context_mask requires negative_text_context")
+            raise ValueError(
+                "negative_text_context_mask requires negative_text_context"
+            )
         self._validate_class_labels(class_labels, batch_size)
-        step_count = self.scheduler.timesteps if inference_steps is None else inference_steps
+        step_count = (
+            self.scheduler.timesteps if inference_steps is None else inference_steps
+        )
         if not 1 <= step_count <= self.scheduler.timesteps:
-            raise ValueError("inference_steps must be between one and scheduler timesteps")
+            raise ValueError(
+                "inference_steps must be between one and scheduler timesteps"
+            )
         if not math.isfinite(eta) or eta < 0:
             raise ValueError("eta must be finite and non-negative")
         guided = guidance_scale != 1.0
         null_condition = (
             negative_text_condition
             if guided and negative_text_condition is not None
-            else (torch.zeros_like(text_condition) if guided and text_condition is not None else None)
+            else (
+                torch.zeros_like(text_condition)
+                if guided and text_condition is not None
+                else None
+            )
         )
         null_context = (
             negative_text_context
             if guided and negative_text_context is not None
-            else (torch.zeros_like(text_context) if guided and text_context is not None else None)
+            else (
+                torch.zeros_like(text_context)
+                if guided and text_context is not None
+                else None
+            )
         )
         null_labels = None
         if guided and class_labels is not None:
             if self.model.null_class_id is None:
-                raise ValueError("class conditioning requires a class-conditional model")
+                raise ValueError(
+                    "class conditioning requires a class-conditional model"
+                )
             null_labels = torch.full_like(class_labels, self.model.null_class_id)
         sample = torch.randn(
             batch_size,
@@ -143,31 +214,58 @@ class DiffusionPipeline:
         self.model.eval()
         try:
             use_ddim = inference_steps is not None
-            schedule = torch.linspace(
-                self.scheduler.timesteps - 1, 0, step_count, dtype=torch.long
-            ).unique_consecutive().tolist()
+            schedule = (
+                torch.linspace(
+                    self.scheduler.timesteps - 1, 0, step_count, dtype=torch.long
+                )
+                .unique_consecutive()
+                .tolist()
+            )
             for index, timestep in enumerate(schedule):
-                steps = torch.full((batch_size,), timestep, dtype=torch.long, device=device)
+                steps = torch.full(
+                    (batch_size,), timestep, dtype=torch.long, device=device
+                )
                 predicted_noise = self.model(
-                    sample, steps, text_condition, class_labels,
-                    text_context=text_context, text_context_mask=text_context_mask,
+                    sample,
+                    steps,
+                    text_condition,
+                    class_labels,
+                    text_context=text_context,
+                    text_context_mask=text_context_mask,
                 )
                 if text_condition is not None and guidance_scale != 1.0:
                     unconditional = self.model(sample, steps, null_condition)
-                    predicted_noise = unconditional + guidance_scale * (predicted_noise - unconditional)
+                    predicted_noise = unconditional + guidance_scale * (
+                        predicted_noise - unconditional
+                    )
                 if class_labels is not None and guidance_scale != 1.0:
                     unconditional = self.model(sample, steps, class_labels=null_labels)
-                    predicted_noise = unconditional + guidance_scale * (predicted_noise - unconditional)
+                    predicted_noise = unconditional + guidance_scale * (
+                        predicted_noise - unconditional
+                    )
                 if text_context is not None and guidance_scale != 1.0:
                     unconditional = self.model(
-                        sample, steps, text_context=null_context,
-                        text_context_mask=(negative_text_context_mask if negative_text_context is not None else text_context_mask),
+                        sample,
+                        steps,
+                        text_context=null_context,
+                        text_context_mask=(
+                            negative_text_context_mask
+                            if negative_text_context is not None
+                            else text_context_mask
+                        ),
                     )
-                    predicted_noise = unconditional + guidance_scale * (predicted_noise - unconditional)
+                    predicted_noise = unconditional + guidance_scale * (
+                        predicted_noise - unconditional
+                    )
                 if use_ddim:
                     previous = schedule[index + 1] if index + 1 < len(schedule) else -1
                     sample = self.scheduler.ddim_step(
-                        predicted_noise, timestep, previous, sample, eta=eta, generator=generator
+                        predicted_noise,
+                        timestep,
+                        previous,
+                        sample,
+                        eta=eta,
+                        generator=generator,
                     )
                 else:
                     sample = self.scheduler.step(
@@ -181,8 +279,19 @@ class DiffusionPipeline:
         if labels is None:
             return
         if self.model.num_classes is None:
-            raise ValueError("class_labels require num_classes in the model configuration")
-        if labels.shape != (batch_size,) or labels.dtype not in (torch.int32, torch.int64):
-            raise ValueError("class_labels must be an integer tensor with shape [batch]")
-        if labels.numel() and (int(labels.min()) < 0 or int(labels.max()) >= self.model.num_classes):
-            raise ValueError("class_labels contain an ID outside the configured classes")
+            raise ValueError(
+                "class_labels require num_classes in the model configuration"
+            )
+        if labels.shape != (batch_size,) or labels.dtype not in (
+            torch.int32,
+            torch.int64,
+        ):
+            raise ValueError(
+                "class_labels must be an integer tensor with shape [batch]"
+            )
+        if labels.numel() and (
+            int(labels.min()) < 0 or int(labels.max()) >= self.model.num_classes
+        ):
+            raise ValueError(
+                "class_labels contain an ID outside the configured classes"
+            )

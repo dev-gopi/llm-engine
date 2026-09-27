@@ -46,7 +46,11 @@ class CausalLanguageModelLoss(nn.Module):
         self._validate_configuration(
             ignore_index, label_smoothing, z_loss_coefficient, reduction
         )
-        if not isinstance(chunk_size, int) or isinstance(chunk_size, bool) or chunk_size < 0:
+        if (
+            not isinstance(chunk_size, int)
+            or isinstance(chunk_size, bool)
+            or chunk_size < 0
+        ):
             raise ValueError("chunk_size must be a non-negative integer")
         self.chunk_size = chunk_size
         self.ignore_index = ignore_index
@@ -66,14 +70,18 @@ class CausalLanguageModelLoss(nn.Module):
         self._validate_inputs(logits, labels, loss_mask)
         if self.shift_labels:
             if logits.size(1) < 2:
-                raise ValueError("shifted causal loss requires a sequence length of at least two")
+                raise ValueError(
+                    "shifted causal loss requires a sequence length of at least two"
+                )
             logits = logits[:, :-1, :]
             labels = labels[:, 1:]
             if loss_mask is not None:
                 loss_mask = loss_mask[:, 1:]
 
         if loss_mask is not None:
-            labels = labels.masked_fill(~loss_mask.to(device=labels.device, dtype=torch.bool), self.ignore_index)
+            labels = labels.masked_fill(
+                ~loss_mask.to(device=labels.device, dtype=torch.bool), self.ignore_index
+            )
 
         vocabulary_size = logits.size(-1)
         flat_labels = labels.reshape(-1).to(device=logits.device, dtype=torch.long)
@@ -87,8 +95,13 @@ class CausalLanguageModelLoss(nn.Module):
             return details if return_details else zero
 
         valid_labels = flat_labels[valid_positions]
-        if valid_labels.min().item() < 0 or valid_labels.max().item() >= vocabulary_size:
-            raise ValueError(f"labels must be in [0, {vocabulary_size}) or equal ignore_index")
+        if (
+            valid_labels.min().item() < 0
+            or valid_labels.max().item() >= vocabulary_size
+        ):
+            raise ValueError(
+                f"labels must be in [0, {vocabulary_size}) or equal ignore_index"
+            )
         if self.chunk_size and token_count > self.chunk_size:
             # Gather and cast inside the checkpoint so backward retains neither
             # a full selected-logit copy nor vocabulary-sized softmax outputs.
@@ -97,10 +110,19 @@ class CausalLanguageModelLoss(nn.Module):
             z_loss_sum = logits.new_zeros((), dtype=torch.float32)
             for start in range(0, token_count, self.chunk_size):
                 end = start + self.chunk_size
-                args = (logits, rows[start:end], columns[start:end], valid_labels[start:end])
+                args = (
+                    logits,
+                    rows[start:end],
+                    columns[start:end],
+                    valid_labels[start:end],
+                )
                 if torch.is_grad_enabled() and logits.requires_grad:
-                    ce, z = checkpoint(self._selected_loss_sums, *args,
-                                       use_reentrant=False, preserve_rng_state=False)
+                    ce, z = checkpoint(
+                        self._selected_loss_sums,
+                        *args,
+                        use_reentrant=False,
+                        preserve_rng_state=False,
+                    )
                 else:
                     ce, z = self._selected_loss_sums(*args)
                 cross_entropy_sum = cross_entropy_sum + ce
@@ -130,10 +152,14 @@ class CausalLanguageModelLoss(nn.Module):
 
     def _loss_sums(self, logits: Tensor, labels: Tensor) -> tuple[Tensor, Tensor]:
         logits = logits.float()
-        ce = F.cross_entropy(logits, labels, reduction="sum",
-                             label_smoothing=self.label_smoothing)
-        z = (torch.logsumexp(logits, dim=-1).square().sum()
-             if self.z_loss_coefficient else ce.new_zeros(()))
+        ce = F.cross_entropy(
+            logits, labels, reduction="sum", label_smoothing=self.label_smoothing
+        )
+        z = (
+            torch.logsumexp(logits, dim=-1).square().sum()
+            if self.z_loss_coefficient
+            else ce.new_zeros(())
+        )
         return ce, z
 
     @classmethod
@@ -184,7 +210,9 @@ class CausalLanguageModelLoss(nn.Module):
         if logits.shape[:2] != labels.shape:
             raise ValueError("logits and labels batch/sequence dimensions must match")
         if logits.size(-1) < 2:
-            raise ValueError("logits vocabulary dimension must contain at least two tokens")
+            raise ValueError(
+                "logits vocabulary dimension must contain at least two tokens"
+            )
         if not logits.is_floating_point():
             raise TypeError("logits must use a floating-point dtype")
         if labels.dtype not in (torch.int32, torch.int64):
@@ -194,6 +222,7 @@ class CausalLanguageModelLoss(nn.Module):
                 raise TypeError("loss_mask must be a torch.Tensor")
             if loss_mask.shape != labels.shape:
                 raise ValueError("loss_mask shape must match labels")
+
 
 @dataclass(frozen=True)
 class MultiTokenPredictionLossOutput:
@@ -213,9 +242,15 @@ class MultiTokenPredictionLoss(nn.Module):
     prediction objective.
     """
 
-    def __init__(self, num_predictions: int, *, weight: float = 0.1, ignore_index: int = -100) -> None:
+    def __init__(
+        self, num_predictions: int, *, weight: float = 0.1, ignore_index: int = -100
+    ) -> None:
         super().__init__()
-        if not isinstance(num_predictions, int) or isinstance(num_predictions, bool) or num_predictions < 1:
+        if (
+            not isinstance(num_predictions, int)
+            or isinstance(num_predictions, bool)
+            or num_predictions < 1
+        ):
             raise ValueError("num_predictions must be a positive integer")
         if not math.isfinite(weight) or weight < 0:
             raise ValueError("weight must be finite and non-negative")
@@ -231,7 +266,9 @@ class MultiTokenPredictionLoss(nn.Module):
         loss_mask: Tensor | None = None,
     ) -> MultiTokenPredictionLossOutput:
         if len(mtp_logits) != self.num_predictions:
-            raise ValueError("number of MTP heads does not match the configured objective")
+            raise ValueError(
+                "number of MTP heads does not match the configured objective"
+            )
         if labels.ndim != 2:
             raise ValueError("labels must have shape [batch, sequence]")
         total = labels.new_zeros((), dtype=torch.float32)
@@ -239,18 +276,24 @@ class MultiTokenPredictionLoss(nn.Module):
         horizon_losses: list[float] = []
         for index, logits in enumerate(mtp_logits, start=2):
             if logits.ndim != 3 or logits.shape[:2] != labels.shape:
-                raise ValueError("MTP logits must have the same batch/sequence shape as labels")
+                raise ValueError(
+                    "MTP logits must have the same batch/sequence shape as labels"
+                )
             if logits.shape[1] <= index:
                 continue
             selected_logits = logits[:, :-index].reshape(-1, logits.size(-1)).float()
             selected_labels = labels[:, index:].reshape(-1).long()
             if loss_mask is not None:
                 selected_mask = loss_mask[:, index:].reshape(-1).bool()
-                selected_labels = selected_labels.masked_fill(~selected_mask, self.ignore_index)
+                selected_labels = selected_labels.masked_fill(
+                    ~selected_mask, self.ignore_index
+                )
             valid = selected_labels.ne(self.ignore_index)
             if not valid.any():
                 continue
-            ce = F.cross_entropy(selected_logits[valid], selected_labels[valid], reduction="mean")
+            ce = F.cross_entropy(
+                selected_logits[valid], selected_labels[valid], reduction="mean"
+            )
             total = total + ce
             count += int(valid.sum().item())
             horizon_losses.append(float(ce.detach()))

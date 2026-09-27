@@ -18,12 +18,20 @@ def test_unequal_masked_microbatches_match_full_batch_update(accumulation):
     split = copy.deepcopy(full)
     items = [
         {"input_ids": torch.tensor([1, 2, 3]), "loss_mask": torch.tensor([0, 0, 1])},
-        {"input_ids": torch.tensor([4, 5, 6, 7, 8, 9]),
-         "loss_mask": torch.tensor([0, 1, 1, 1, 1, 1])},
+        {
+            "input_ids": torch.tensor([4, 5, 6, 7, 8, 9]),
+            "loss_mask": torch.tensor([0, 1, 1, 1, 1, 1]),
+        },
     ]
-    full_trainer = Trainer(full, torch.optim.SGD(full.parameters(), lr=0.05), gradient_clip_norm=None)
-    split_trainer = Trainer(split, torch.optim.SGD(split.parameters(), lr=0.05),
-                            gradient_clip_norm=None, gradient_accumulation_steps=accumulation)
+    full_trainer = Trainer(
+        full, torch.optim.SGD(full.parameters(), lr=0.05), gradient_clip_norm=None
+    )
+    split_trainer = Trainer(
+        split,
+        torch.optim.SGD(split.parameters(), lr=0.05),
+        gradient_clip_norm=None,
+        gradient_accumulation_steps=accumulation,
+    )
     full_trainer.train_step(Collator(0)(items))
     for item in items:
         split_trainer.train_step(Collator(0)([item]))
@@ -39,9 +47,16 @@ def test_empty_supervision_window_does_not_decay_weights_or_advance_schedule():
     scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=3)
     trainer = Trainer(model, optimizer, scheduler=scheduler)
     before = copy.deepcopy(model.state_dict())
-    trainer.train_step(Collator(0)([{
-        "input_ids": torch.tensor([1, 2, 3]), "loss_mask": torch.tensor([0, 0, 0]),
-    }]))
+    trainer.train_step(
+        Collator(0)(
+            [
+                {
+                    "input_ids": torch.tensor([1, 2, 3]),
+                    "loss_mask": torch.tensor([0, 0, 0]),
+                }
+            ]
+        )
+    )
     assert trainer.global_step == 0
     assert scheduler.last_epoch == 0
     for name, value in model.state_dict().items():
@@ -50,10 +65,12 @@ def test_empty_supervision_window_does_not_decay_weights_or_advance_schedule():
 
 def test_dataset_batch_trains_model_optimizer_scheduler_and_ema() -> None:
     model = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2, max_pos=8)
-    batch = Collator(pad_token_id=0)([
-        torch.tensor([1, 2, 3, 4]),
-        torch.tensor([5, 6, 7]),
-    ])
+    batch = Collator(pad_token_id=0)(
+        [
+            torch.tensor([1, 2, 3, 4]),
+            torch.tensor([5, 6, 7]),
+        ]
+    )
     optimizer = build_adamw(model, learning_rate=1e-3)
     scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=3)
     ema = EMA(model, decay=0.9)
@@ -82,10 +99,12 @@ def test_trainer_tracks_observability_metrics() -> None:
     model = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
     trainer = Trainer(model, optimizer)
-    batch = Collator(0)([
-        torch.tensor([1, 2, 3, 4]),
-        torch.tensor([5, 6, 7]),
-    ])
+    batch = Collator(0)(
+        [
+            torch.tensor([1, 2, 3, 4]),
+            torch.tensor([5, 6, 7]),
+        ]
+    )
 
     trainer.train_step(batch)
 
@@ -132,27 +151,42 @@ def test_trainer_validates_grad_scaler_configuration() -> None:
 
 def test_token_metrics_follow_configured_shift_and_ignore_index():
     from model.loss import CausalLanguageModelLoss
+
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
-    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3),
-                      loss_fn=CausalLanguageModelLoss(shift_labels=False, ignore_index=-1))
-    trainer.train_step({"input_ids": torch.tensor([[1, 2, 3]]),
-                        "labels": torch.tensor([[4, -1, 5]]),
-                        "loss_mask": torch.tensor([[1, 1, 0]])})
+    trainer = Trainer(
+        model,
+        build_adamw(model, learning_rate=1e-3),
+        loss_fn=CausalLanguageModelLoss(shift_labels=False, ignore_index=-1),
+    )
+    trainer.train_step(
+        {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "labels": torch.tensor([[4, -1, 5]]),
+            "loss_mask": torch.tensor([[1, 1, 0]]),
+        }
+    )
     assert trainer.tokens_processed == 1
 
 
 def test_nonfinite_loss_resets_discarded_accumulation_window():
     class ToggleLoss:
         fail = False
+
         def __call__(self, logits, targets, *, loss_mask=None):
             from model.loss import CausalLanguageModelLoss
+
             if self.fail:
                 return logits.sum() * float("nan")
             return CausalLanguageModelLoss()(logits, targets)
+
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     objective = ToggleLoss()
-    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3),
-                      loss_fn=objective, gradient_accumulation_steps=2)
+    trainer = Trainer(
+        model,
+        build_adamw(model, learning_rate=1e-3),
+        loss_fn=objective,
+        gradient_accumulation_steps=2,
+    )
     batch = Collator(0)([torch.tensor([1, 2, 3])])
     trainer.train_step(batch)
     objective.fail = True
@@ -168,6 +202,7 @@ def test_nonfinite_loss_resets_discarded_accumulation_window():
 
 def test_checkpoint_resume_matches_uninterrupted_updates(tmp_path):
     from training.checkpoint import load_checkpoint, save_checkpoint
+
     torch.manual_seed(123)
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -176,16 +211,26 @@ def test_checkpoint_resume_matches_uninterrupted_updates(tmp_path):
     batch = Collator(0)([torch.tensor([1, 2, 3, 4])])
     for _ in range(3):
         trainer.train_step(batch)
-    path = save_checkpoint(tmp_path / 'resume.pt', model, optimizer=optimizer,
-                           scheduler=scheduler, trainer=trainer.state_dict(), step=trainer.global_step)
+    path = save_checkpoint(
+        tmp_path / "resume.pt",
+        model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        trainer=trainer.state_dict(),
+        step=trainer.global_step,
+    )
     expected_losses = [trainer.train_step(batch) for _ in range(3)]
     restored = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     restored_optimizer = build_adamw(restored, learning_rate=1e-3)
     restored_scheduler = Scheduler(restored_optimizer, warmup_steps=0, total_steps=6)
     resumed = Trainer(restored, restored_optimizer, scheduler=restored_scheduler)
-    state = load_checkpoint(path, restored, optimizer=restored_optimizer, scheduler=restored_scheduler)
-    resumed.load_state_dict(state['trainer'])
-    assert [resumed.train_step(batch) for _ in range(3)] == pytest.approx(expected_losses)
+    state = load_checkpoint(
+        path, restored, optimizer=restored_optimizer, scheduler=restored_scheduler
+    )
+    resumed.load_state_dict(state["trainer"])
+    assert [resumed.train_step(batch) for _ in range(3)] == pytest.approx(
+        expected_losses
+    )
     assert resumed.global_step == trainer.global_step == 6
     for name, value in model.state_dict().items():
         torch.testing.assert_close(restored.state_dict()[name], value, rtol=0, atol=0)

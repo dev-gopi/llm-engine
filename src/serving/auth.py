@@ -1,4 +1,5 @@
 """OIDC/JWT authentication, tenant binding, RBAC and tenant quotas."""
+
 from __future__ import annotations
 
 import time
@@ -56,7 +57,10 @@ class OIDCAuthenticator:
             key = self.config.hs256_secret
         else:
             raise RuntimeError("OIDC requires jwks_url or hs256_secret")
-        options = {"verify_aud": self.config.audience is not None, "verify_iss": self.config.issuer is not None}
+        options = {
+            "verify_aud": self.config.audience is not None,
+            "verify_iss": self.config.issuer is not None,
+        }
         claims = jwt.decode(
             token,
             key=key,
@@ -75,12 +79,23 @@ class OIDCAuthenticator:
         else:
             roles = tuple(str(x) for x in raw_roles)
         raw_scopes = claims.get(self.config.scopes_claim, "")
-        scopes = tuple(raw_scopes.split()) if isinstance(raw_scopes, str) else tuple(str(x) for x in raw_scopes)
-        return AuthPrincipal(subject=subject, tenant_id=tenant, roles=roles or ("user",), scopes=scopes, claims=dict(claims))
+        scopes = (
+            tuple(raw_scopes.split())
+            if isinstance(raw_scopes, str)
+            else tuple(str(x) for x in raw_scopes)
+        )
+        return AuthPrincipal(
+            subject=subject,
+            tenant_id=tenant,
+            roles=roles or ("user",),
+            scopes=scopes,
+            claims=dict(claims),
+        )
 
 
 class TenantQuotaLimiter:
     """Fixed-window per-tenant request quota; zero disables the limit."""
+
     def __init__(self, requests_per_minute: int = 0) -> None:
         if requests_per_minute < 0:
             raise ValueError("requests_per_minute cannot be negative")
@@ -103,6 +118,7 @@ class TenantQuotaLimiter:
 
 class RBACPolicy:
     """Small role hierarchy used by admin/tenant control-plane endpoints."""
+
     hierarchy = {
         "user": 10,
         "developer": 20,
@@ -113,7 +129,16 @@ class RBACPolicy:
     @classmethod
     def allowed(cls, principal: AuthPrincipal, required: str) -> bool:
         target = cls.hierarchy.get(required, 10**9)
-        return max((cls.hierarchy.get(role, 0) for role in principal.roles), default=0) >= target
+        return (
+            max((cls.hierarchy.get(role, 0) for role in principal.roles), default=0)
+            >= target
+        )
 
 
-__all__ = ["AuthPrincipal", "OIDCConfig", "OIDCAuthenticator", "TenantQuotaLimiter", "RBACPolicy"]
+__all__ = [
+    "AuthPrincipal",
+    "OIDCAuthenticator",
+    "OIDCConfig",
+    "RBACPolicy",
+    "TenantQuotaLimiter",
+]

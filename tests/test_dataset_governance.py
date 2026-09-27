@@ -43,9 +43,12 @@ def write_dataset(tmp_path, **overrides):
 def test_reviewed_manifest_passes_governance_audit(tmp_path) -> None:
     data_path, manifest_path = write_dataset(tmp_path)
     assert load_dataset_manifest(manifest_path)["name"] == "Example"
-    assert audit_dataset_files(
-        [data_path, data_path], stage="pretraining", commercial_use=True
-    ) == []
+    assert (
+        audit_dataset_files(
+            [data_path, data_path], stage="pretraining", commercial_use=True
+        )
+        == []
+    )
 
 
 def test_governance_reports_missing_unreviewed_and_disallowed_use(tmp_path) -> None:
@@ -89,8 +92,17 @@ def test_manifest_schema_rejects_incomplete_license(tmp_path) -> None:
 def test_dataset_audit_cli_returns_machine_readable_failure(tmp_path) -> None:
     data_path = tmp_path / "unreviewed" / "train.jsonl"
     completed = subprocess.run(
-        [sys.executable, "scripts/audit_datasets.py", str(data_path), "--stage", "pretraining"],
-        cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True, check=False,
+        [
+            sys.executable,
+            "scripts/audit_datasets.py",
+            str(data_path),
+            "--stage",
+            "pretraining",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert completed.returncode == 1
     payload = json.loads(completed.stdout)
@@ -103,8 +115,18 @@ def test_dataset_audit_cli_prioritizes_internal_datasets_package(tmp_path) -> No
     root = Path(__file__).resolve().parents[1]
     environment = {**os.environ, "PYTHONPATH": str(root / "src")}
     completed = subprocess.run(
-        [sys.executable, "scripts/audit_datasets.py", str(data_path), "--stage", "pretraining"],
-        cwd=root, env=environment, text=True, capture_output=True, check=False,
+        [
+            sys.executable,
+            "scripts/audit_datasets.py",
+            str(data_path),
+            "--stage",
+            "pretraining",
+        ],
+        cwd=root,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert completed.returncode == 1
     assert json.loads(completed.stdout)["findings"][0]["code"] == "missing_manifest"
@@ -119,8 +141,16 @@ def test_dataset_audit_cli_inherits_governance_stage_from_config(tmp_path) -> No
         encoding="utf-8",
     )
     completed = subprocess.run(
-        [sys.executable, "scripts/audit_datasets.py", "--training-config", str(config_path)],
-        cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True, check=False,
+        [
+            sys.executable,
+            "scripts/audit_datasets.py",
+            "--training-config",
+            str(config_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert json.loads(completed.stdout)["status"] == "passed"
@@ -134,22 +164,40 @@ def test_expanded_sft_sources_have_stage_compatible_manifests() -> None:
 
     findings = audit_dataset_files(config["train_files"], stage="sft")
 
-    assert not {
-        "missing_manifest", "invalid_manifest", "stage_not_allowed"
-    } & {finding.code for finding in findings}
+    assert not {"missing_manifest", "invalid_manifest", "stage_not_allowed"} & {
+        finding.code for finding in findings
+    }
 
 
-def test_versioned_mixture_streams_records_and_retains_source_quality_metrics(tmp_path) -> None:
+def test_versioned_mixture_streams_records_and_retains_source_quality_metrics(
+    tmp_path,
+) -> None:
     first = tmp_path / "web.jsonl"
     second = tmp_path / "code.jsonl"
     first.write_text('{"text": "web one"}\n{"text": "web two"}\n', encoding="utf-8")
     second.write_text('{"text": "code one"}\n', encoding="utf-8")
-    config = {"dataset_mixture": [
-        {"name": "web", "domain": "web", "version": "v1", "paths": [str(first)], "weight": 2,
-         "license": "MIT", "quality_metrics": {"deduplication_rate": 0.2}},
-        {"name": "code", "domain": "code", "version": "v3", "paths": [str(second)], "weight": 1,
-         "license": "Apache-2.0", "quality_metrics": {"deduplication_rate": 0.1}},
-    ]}
+    config = {
+        "dataset_mixture": [
+            {
+                "name": "web",
+                "domain": "web",
+                "version": "v1",
+                "paths": [str(first)],
+                "weight": 2,
+                "license": "MIT",
+                "quality_metrics": {"deduplication_rate": 0.2},
+            },
+            {
+                "name": "code",
+                "domain": "code",
+                "version": "v3",
+                "paths": [str(second)],
+                "weight": 1,
+                "license": "Apache-2.0",
+                "quality_metrics": {"deduplication_rate": 0.1},
+            },
+        ]
+    }
     sources = load_mixture_sources(config)
     assert sources[0].version == "v1"
     assert sources[1].quality_metrics["deduplication_rate"] == 0.1
@@ -160,20 +208,30 @@ def test_versioned_mixture_streams_records_and_retains_source_quality_metrics(tm
 
 def test_active_pretraining_profile_declares_all_target_mixture_domains() -> None:
     root = Path(__file__).resolve().parents[1]
-    config = yaml.safe_load((root / "configs/pretraining.gpu.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load(
+        (root / "configs/pretraining.gpu.yaml").read_text(encoding="utf-8")
+    )
     sources = load_mixture_sources(config)
     assert {source.domain for source in sources} == {"web", "code", "math", "reasoning"}
-    assert all(source.license_identifier and source.quality_metrics for source in sources)
+    assert all(
+        source.license_identifier and source.quality_metrics for source in sources
+    )
 
 
-def write_capability_manifest(tmp_path, *, domain="web", quality_status="passed", overlap_count=0):
+def write_capability_manifest(
+    tmp_path, *, domain="web", quality_status="passed", overlap_count=0
+):
     manifest = {
         "schema_version": 2,
         "name": "Capability Example",
         "source": "example/capability",
         "version": "2026-09-21-v1",
         "domain": domain,
-        "license": {"identifier": "MIT", "review_status": "reviewed", "commercial_use": "allowed"},
+        "license": {
+            "identifier": "MIT",
+            "review_status": "reviewed",
+            "commercial_use": "allowed",
+        },
         "allowed_stages": ["pretraining"],
         "privacy_review": "reviewed",
         "provenance": {
@@ -184,7 +242,11 @@ def write_capability_manifest(tmp_path, *, domain="web", quality_status="passed"
         },
         "quality": {
             "status": quality_status,
-            "metrics": {"records": 100, "duplicate_rate": 0.0, "pii_redaction_rate": 0.01},
+            "metrics": {
+                "records": 100,
+                "duplicate_rate": 0.0,
+                "pii_redaction_rate": 0.01,
+            },
         },
         "contamination_audit": {
             "status": "passed" if overlap_count == 0 else "failed",
@@ -203,53 +265,89 @@ def test_schema_v2_capability_manifest_passes_strict_audit(tmp_path) -> None:
     manifest = write_capability_manifest(tmp_path)
     from local_dataset.governance import audit_manifest_files
 
-    assert audit_manifest_files(
-        [manifest],
-        stage="pretraining",
-        required_domains=["web"],
-        expected_domains={manifest: "web"},
-    ) == []
+    assert (
+        audit_manifest_files(
+            [manifest],
+            stage="pretraining",
+            required_domains=["web"],
+            expected_domains={manifest: "web"},
+        )
+        == []
+    )
 
 
-def test_schema_v2_capability_manifest_requires_provenance_quality_and_contamination(tmp_path) -> None:
-    manifest = write_capability_manifest(tmp_path, quality_status="pending", overlap_count=2)
+def test_schema_v2_capability_manifest_requires_provenance_quality_and_contamination(
+    tmp_path,
+) -> None:
+    manifest = write_capability_manifest(
+        tmp_path, quality_status="pending", overlap_count=2
+    )
     payload = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     del payload["provenance"]
     manifest.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     from local_dataset.governance import audit_manifest_files
 
-    codes = {item.code for item in audit_manifest_files(
-        [manifest], stage="pretraining", required_domains=["web"], expected_domains={manifest: "web"}
-    )}
+    codes = {
+        item.code
+        for item in audit_manifest_files(
+            [manifest],
+            stage="pretraining",
+            required_domains=["web"],
+            expected_domains={manifest: "web"},
+        )
+    }
     assert "invalid_manifest" in codes
 
 
-def test_capability_manifest_audit_reports_missing_domains_and_review_gates(tmp_path) -> None:
-    manifest = write_capability_manifest(tmp_path, domain="code", quality_status="pending")
+def test_capability_manifest_audit_reports_missing_domains_and_review_gates(
+    tmp_path,
+) -> None:
+    manifest = write_capability_manifest(
+        tmp_path, domain="code", quality_status="pending"
+    )
     from local_dataset.governance import audit_manifest_files
 
-    codes = {item.code for item in audit_manifest_files(
-        [manifest],
-        stage="pretraining",
-        required_domains=["web", "code"],
-        expected_domains={manifest: "code"},
-    )}
+    codes = {
+        item.code
+        for item in audit_manifest_files(
+            [manifest],
+            stage="pretraining",
+            required_domains=["web", "code"],
+            expected_domains={manifest: "code"},
+        )
+    }
     assert "quality_audit_not_passed" in codes
     assert "required_domain_missing" in codes
     assert "web" in " ".join(
-        item.message for item in audit_manifest_files(
-            [manifest], stage="pretraining", required_domains=["web"], expected_domains={manifest: "code"}
+        item.message
+        for item in audit_manifest_files(
+            [manifest],
+            stage="pretraining",
+            required_domains=["web"],
+            expected_domains={manifest: "code"},
         )
     )
 
 
-def test_data_003_config_declares_ten_capability_domains_but_does_not_activate_them() -> None:
+def test_data_003_config_declares_ten_capability_domains_but_does_not_activate_them() -> (
+    None
+):
     root = Path(__file__).resolve().parents[1]
-    config = yaml.safe_load((root / "configs/pretraining.gpu.yaml").read_text(encoding="utf-8"))
+    config = yaml.safe_load(
+        (root / "configs/pretraining.gpu.yaml").read_text(encoding="utf-8")
+    )
     catalog = config["capability_corpus"]
     assert catalog["activation"] == "blocked_until_audit"
     assert set(catalog["required_domains"]) == {
-        "web", "documentation", "code", "mathematics", "science",
-        "multilingual", "conversation", "instruction", "reasoning", "tool-use",
+        "web",
+        "documentation",
+        "code",
+        "mathematics",
+        "science",
+        "multilingual",
+        "conversation",
+        "instruction",
+        "reasoning",
+        "tool-use",
     }
     assert len(catalog["sources"]) == 10

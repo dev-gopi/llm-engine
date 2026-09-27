@@ -16,7 +16,9 @@ class MeaningEncoder:
         rows = []
         for text in texts:
             normalized = text.lower()
-            if "capital" in normalized and ("france" in normalized or "french" in normalized):
+            if "capital" in normalized and (
+                "france" in normalized or "french" in normalized
+            ):
                 rows.append([1.0, 0.0, 0.0])
             elif "weather" in normalized:
                 rows.append([0.0, 1.0, 0.0])
@@ -115,7 +117,9 @@ def test_dynamic_and_nondeterministic_requests_bypass_cache():
     assert not cache.eligible(deterministic("hello", session_id="session-1"))
     assert not cache.eligible(deterministic("hello", rag=True))
     assert not cache.eligible(deterministic("hello", web_search=True))
-    assert not cache.eligible(deterministic("hello", attachments=[{"name": "a.txt", "content": "x"}]))
+    assert not cache.eligible(
+        deterministic("hello", attachments=[{"name": "a.txt", "content": "x"}])
+    )
     assert cache.lookup(GenerateRequest(prompt="hello", temperature=0.7)) is None
     assert cache.metrics()["bypasses"] == 1
 
@@ -157,7 +161,9 @@ def test_runtime_stampede_protection_generates_once_for_identical_requests():
 
     backend, results, metrics = asyncio.run(scenario())
     assert backend.generate_calls == 1
-    assert [result.text for result in results] == ["answer:What is the capital of France?"] * 4
+    assert [result.text for result in results] == [
+        "answer:What is the capital of France?"
+    ] * 4
     assert metrics["semantic_cache_exact_hits"] == 3
 
 
@@ -175,14 +181,21 @@ def test_runtime_stream_replays_cached_response_without_backend_stream_call():
 
     backend, first, second = asyncio.run(scenario())
     assert backend.stream_calls == 1
-    assert "".join(event.token for event in first) == "answer:What is the capital of France?"
-    assert "".join(event.token for event in second) == "answer:What is the capital of France?"
+    assert (
+        "".join(event.token for event in first)
+        == "answer:What is the capital of France?"
+    )
+    assert (
+        "".join(event.token for event in second)
+        == "answer:What is the capital of France?"
+    )
     assert second[-1].finish_reason == FinishReason.STOP
 
 
 def test_api_admin_can_inspect_and_purge_semantic_cache():
-    from serving.api import ServingSettings, create_app
     import httpx
+
+    from serving.api import ServingSettings, create_app
 
     async def scenario():
         backend = CountingBackend()
@@ -202,8 +215,12 @@ def test_api_admin_can_inspect_and_purge_semantic_cache():
         )
         async with app.router.lifespan_context(app):
             transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                await client.post("/v1/generate", json={"prompt": "cache me", "temperature": 0.0})
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                await client.post(
+                    "/v1/generate", json={"prompt": "cache me", "temperature": 0.0}
+                )
                 headers = {"X-Admin-API-Key": "admin-secret"}
                 status = await client.get("/admin/cache/semantic", headers=headers)
                 purged = await client.delete("/admin/cache/semantic", headers=headers)

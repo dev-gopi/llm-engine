@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
 import torch
-import torch.nn as nn
 
 from evaluation.harness import (
     ARCHarnessTask,
@@ -19,16 +17,11 @@ from evaluation.harness import (
     HarnessModelAdapter,
     HarnessReport,
     HellaSwagTask,
-    LambadaTask,
-    MiniGPTHarnessAdapter,
     MMLUTask,
     TaskRegistry,
     TruthfulQATask,
     WinograndeTask,
     get_standard_fixtures,
-    get_task,
-    list_tasks,
-    register_task,
 )
 from model.config import normalize_model_config
 from model.gpt import MiniGPT
@@ -69,27 +62,33 @@ def sample_tokenizer() -> Tokenizer:
         "<|user|>": 5,
         "<|assistant|>": 6,
     }
-    return Tokenizer(vocab, merges=(), special_tokens=special, tokenizer_type="character")
+    return Tokenizer(
+        vocab, merges=(), special_tokens=special, tokenizer_type="character"
+    )
 
 
 @pytest.fixture
 def small_model(sample_tokenizer: Tokenizer) -> MiniGPT:
-    config = normalize_model_config({
-        "vocab_size": sample_tokenizer.vocab_size,
-        "hidden_size": 32,
-        "layers": 2,
-        "heads": 2,
-        "kv_heads": 1,
-        "max_position": 64,
-        "ffn_hidden_size": 64,
-    })
+    config = normalize_model_config(
+        {
+            "vocab_size": sample_tokenizer.vocab_size,
+            "hidden_size": 32,
+            "layers": 2,
+            "heads": 2,
+            "kv_heads": 1,
+            "max_position": 64,
+            "ffn_hidden_size": 64,
+        }
+    )
     return MiniGPT.from_config(config, device="cpu")
 
 
 def test_harness_adapter_loglikelihood_computes_probabilities_and_greedy_flag(
     small_model: MiniGPT, sample_tokenizer: Tokenizer
 ):
-    adapter = HarnessModelAdapter(small_model, sample_tokenizer, device="cpu", batch_size=2)
+    adapter = HarnessModelAdapter(
+        small_model, sample_tokenizer, device="cpu", batch_size=2
+    )
     requests = [
         ("The capital of France is", " Paris"),
         ("The capital of France is", " London"),
@@ -99,14 +98,18 @@ def test_harness_adapter_loglikelihood_computes_probabilities_and_greedy_flag(
     assert len(results) == 3
     for logprob, is_greedy in results:
         assert isinstance(logprob, float)
-        assert logprob <= 0.0 or torch.isclose(torch.tensor(logprob), torch.tensor(0.0), atol=1e-3)
+        assert logprob <= 0.0 or torch.isclose(
+            torch.tensor(logprob), torch.tensor(0.0), atol=1e-3
+        )
         assert isinstance(is_greedy, bool)
 
 
 def test_harness_adapter_loglikelihood_rolling_computes_sequence_logprobs(
     small_model: MiniGPT, sample_tokenizer: Tokenizer
 ):
-    adapter = HarnessModelAdapter(small_model, sample_tokenizer, device="cpu", max_length=16)
+    adapter = HarnessModelAdapter(
+        small_model, sample_tokenizer, device="cpu", max_length=16
+    )
     long_text = "The capital of France is Paris " * 5
     results = adapter.loglikelihood_rolling([long_text, "Short text"])
     assert len(results) == 2
@@ -130,7 +133,9 @@ def test_harness_adapter_generate_until_respects_stop_sequences(
     assert "Paris" not in completions[0]
 
 
-def test_mmlu_task_multiple_choice_scoring(small_model: MiniGPT, sample_tokenizer: Tokenizer):
+def test_mmlu_task_multiple_choice_scoring(
+    small_model: MiniGPT, sample_tokenizer: Tokenizer
+):
     docs = [
         HarnessDoc(
             query="What is the capital of France?",
@@ -243,21 +248,29 @@ def test_fewshot_context_formatting():
     assert "Q3" in prompt
 
 
-def test_harness_adapter_truncation_handling(small_model: MiniGPT, sample_tokenizer: Tokenizer):
+def test_harness_adapter_truncation_handling(
+    small_model: MiniGPT, sample_tokenizer: Tokenizer
+):
     # max_length is 16
-    adapter = HarnessModelAdapter(small_model, sample_tokenizer, device="cpu", max_length=16, truncation=True)
+    adapter = HarnessModelAdapter(
+        small_model, sample_tokenizer, device="cpu", max_length=16, truncation=True
+    )
     long_prefix = "The capital of France is Paris " * 10
     results = adapter.loglikelihood([(long_prefix, " Paris")])
     assert len(results) == 1
     assert isinstance(results[0][0], float)
 
-    adapter_no_trunc = HarnessModelAdapter(small_model, sample_tokenizer, device="cpu", max_length=16, truncation=False)
+    adapter_no_trunc = HarnessModelAdapter(
+        small_model, sample_tokenizer, device="cpu", max_length=16, truncation=False
+    )
     results_no_trunc = adapter_no_trunc.loglikelihood([(long_prefix, " Paris")])
     assert len(results_no_trunc) == 1
     assert isinstance(results_no_trunc[0][0], float)
 
 
-def test_harness_adapter_instance_unpacking(small_model: MiniGPT, sample_tokenizer: Tokenizer):
+def test_harness_adapter_instance_unpacking(
+    small_model: MiniGPT, sample_tokenizer: Tokenizer
+):
     class MockInstance:
         def __init__(self, args):
             self.args = args
@@ -278,7 +291,6 @@ def test_harness_adapter_instance_unpacking(small_model: MiniGPT, sample_tokeniz
 
 def test_evaluate_harness_cli_list_tasks(capsys):
     from scripts.evaluate_harness import main
-    import sys
 
     old_argv = sys.argv
     try:
@@ -290,4 +302,3 @@ def test_evaluate_harness_cli_list_tasks(capsys):
         assert "gsm8k" in captured.out
     finally:
         sys.argv = old_argv
-

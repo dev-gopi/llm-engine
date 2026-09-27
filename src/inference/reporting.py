@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 import json
-import math
-import os
 import sqlite3
 import statistics
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 import torch
 
-from inference.context import ConversationMemory, format_system_prompt
 from inference.generator import Generator
 from inference.rag import SQLiteRagIndex
 from model.gpt import MiniGPT
@@ -120,54 +118,64 @@ class SystemInferenceReport:
 
     def to_markdown(self) -> str:
         lines = [
-            f"# Engine Inference & Operations Report",
+            "# Engine Inference & Operations Report",
             f"**Generated at:** `{self.timestamp}`\n",
         ]
         if self.generation:
-            lines.extend([
-                "## 1. Generation & Inference Performance",
-                f"- **Model:** `{self.generation.model_name}` ({self.generation.device})",
-                f"- **Samples Evaluated:** {self.generation.samples_evaluated}",
-                f"- **Tokens Generated:** {self.generation.total_tokens_generated}",
-                f"- **Average Throughput:** `{self.generation.avg_tokens_per_second:.2f} tokens/s`",
-                f"- **Time to First Token (TTFT avg / p95):** `{self.generation.avg_ttft_seconds * 1000:.1f} ms` / `{self.generation.p95_ttft_seconds * 1000:.1f} ms`",
-            ])
+            lines.extend(
+                [
+                    "## 1. Generation & Inference Performance",
+                    f"- **Model:** `{self.generation.model_name}` ({self.generation.device})",
+                    f"- **Samples Evaluated:** {self.generation.samples_evaluated}",
+                    f"- **Tokens Generated:** {self.generation.total_tokens_generated}",
+                    f"- **Average Throughput:** `{self.generation.avg_tokens_per_second:.2f} tokens/s`",
+                    f"- **Time to First Token (TTFT avg / p95):** `{self.generation.avg_ttft_seconds * 1000:.1f} ms` / `{self.generation.p95_ttft_seconds * 1000:.1f} ms`",
+                ]
+            )
             if self.generation.peak_vram_mb:
-                lines.append(f"- **Peak VRAM:** `{self.generation.peak_vram_mb:.1f} MB`")
+                lines.append(
+                    f"- **Peak VRAM:** `{self.generation.peak_vram_mb:.1f} MB`"
+                )
             lines.append("")
 
         if self.serving:
-            lines.extend([
-                "## 2. Serving & Deployment Configuration",
-                f"- **Server Status:** `{'Online' if self.serving.online else 'Offline / Standalone'}`",
-                f"- **Endpoint Checked:** `{self.serving.endpoint or 'N/A'}`",
-                f"- **Paged KV Cache:** {self.serving.paged_kv_pages} pages (size {self.serving.paged_kv_page_size})",
-                f"- **Prefix Cache Capacity:** {self.serving.prefix_cache_capacity} entries",
-                f"- **Rate Limit:** `{self.serving.requests_per_minute} req/min`",
-                f"- **Estimated Weight Memory:** `{self.serving.estimated_weight_memory_mb:.1f} MB`",
-                f"- **Estimated KV Cache Memory:** `{self.serving.estimated_kv_cache_memory_mb:.1f} MB`",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## 2. Serving & Deployment Configuration",
+                    f"- **Server Status:** `{'Online' if self.serving.online else 'Offline / Standalone'}`",
+                    f"- **Endpoint Checked:** `{self.serving.endpoint or 'N/A'}`",
+                    f"- **Paged KV Cache:** {self.serving.paged_kv_pages} pages (size {self.serving.paged_kv_page_size})",
+                    f"- **Prefix Cache Capacity:** {self.serving.prefix_cache_capacity} entries",
+                    f"- **Rate Limit:** `{self.serving.requests_per_minute} req/min`",
+                    f"- **Estimated Weight Memory:** `{self.serving.estimated_weight_memory_mb:.1f} MB`",
+                    f"- **Estimated KV Cache Memory:** `{self.serving.estimated_kv_cache_memory_mb:.1f} MB`",
+                    "",
+                ]
+            )
 
         if self.chat:
-            lines.extend([
-                "## 3. Chat & Session Activity",
-                f"- **Session Database:** `{self.chat.database_path}`",
-                f"- **Total Recorded Sessions:** {self.chat.total_sessions}",
-                f"- **Total Stored Messages:** {self.chat.total_messages}",
-                f"- **Avg Messages per Session:** `{self.chat.avg_messages_per_session:.1f}`",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## 3. Chat & Session Activity",
+                    f"- **Session Database:** `{self.chat.database_path}`",
+                    f"- **Total Recorded Sessions:** {self.chat.total_sessions}",
+                    f"- **Total Stored Messages:** {self.chat.total_messages}",
+                    f"- **Avg Messages per Session:** `{self.chat.avg_messages_per_session:.1f}`",
+                    "",
+                ]
+            )
 
         if self.rag:
-            lines.extend([
-                "## 4. RAG Knowledge Base",
-                f"- **Index Path:** `{self.rag.database_path}`",
-                f"- **Total Indexed Chunks:** {self.rag.total_chunks:,}",
-                f"- **Avg Search Latency:** `{self.rag.avg_query_latency_ms:.2f} ms`",
-                f"- **Queries Benchmarked:** {self.rag.sample_queries_tested}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## 4. RAG Knowledge Base",
+                    f"- **Index Path:** `{self.rag.database_path}`",
+                    f"- **Total Indexed Chunks:** {self.rag.total_chunks:,}",
+                    f"- **Avg Search Latency:** `{self.rag.avg_query_latency_ms:.2f} ms`",
+                    f"- **Queries Benchmarked:** {self.rag.sample_queries_tested}",
+                    "",
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -185,7 +193,11 @@ def collect_generation_report(
 ) -> GenerationReport:
     """Run generation probes and collect latency, throughput, and memory stats."""
     model_cfg = load_yaml(model_config_path)
-    inf_cfg = load_yaml(inference_config_path) if Path(inference_config_path).is_file() else {}
+    inf_cfg = (
+        load_yaml(inference_config_path)
+        if Path(inference_config_path).is_file()
+        else {}
+    )
     bot_name = str(inf_cfg.get("bot_name", "Gopi"))
 
     tok = Tokenizer.load(tokenizer_path)
@@ -205,11 +217,14 @@ def collect_generation_report(
     model.eval()
 
     generator = Generator(model, tok, device=dev)
-    test_prompts = list(prompts or [
-        "Explain machine learning in simple terms.",
-        "What is the function of an operating system?",
-        "Write a brief python function to compute factorial.",
-    ])
+    test_prompts = list(
+        prompts
+        or [
+            "Explain machine learning in simple terms.",
+            "What is the function of an operating system?",
+            "Write a brief python function to compute factorial.",
+        ]
+    )
 
     samples: list[dict[str, Any]] = []
     ttfts: list[float] = []
@@ -241,16 +256,18 @@ def collect_generation_report(
 
         ttfts.append(ttft)
         tps_list.append(tps)
-        samples.append({
-            "prompt": p,
-            "generated_text": res.text.strip(),
-            "prompt_tokens": res.prompt_tokens,
-            "tokens": token_count,
-            "duration_s": round(duration, 4),
-            "ttft_s": round(ttft, 4),
-            "tokens_per_second": round(tps, 2),
-            "finish_reason": res.finish_reason,
-        })
+        samples.append(
+            {
+                "prompt": p,
+                "generated_text": res.text.strip(),
+                "prompt_tokens": res.prompt_tokens,
+                "tokens": token_count,
+                "duration_s": round(duration, 4),
+                "ttft_s": round(ttft, 4),
+                "tokens_per_second": round(tps, 2),
+                "finish_reason": res.finish_reason,
+            }
+        )
 
     peak_vram = None
     if torch.cuda.is_available() and str(dev).startswith("cuda"):
@@ -278,10 +295,16 @@ def collect_serving_report(
     endpoint: str = "http://localhost:8000",
 ) -> ServingReport:
     """Collect serving architecture parameters, memory estimates, and endpoint status."""
-    inf_cfg = load_yaml(inference_config_path) if Path(inference_config_path).is_file() else {}
+    inf_cfg = (
+        load_yaml(inference_config_path)
+        if Path(inference_config_path).is_file()
+        else {}
+    )
     serving_cfg = inf_cfg.get("serving", {})
     model_cfg_path = serving_cfg.get("model_config", "configs/model.gpu.yaml")
-    checkpoint_path = serving_cfg.get("checkpoint_path", "checkpoints/finetuning/best.pt")
+    checkpoint_path = serving_cfg.get(
+        "checkpoint_path", "checkpoints/finetuning/best.pt"
+    )
 
     # Sizing estimation
     weight_mb = 0.0
@@ -289,7 +312,9 @@ def collect_serving_report(
     if Path(model_cfg_path).is_file():
         m_cfg = load_yaml(model_cfg_path)
         try:
-            mem = estimate_inference_memory(m_cfg, max_batch_size=int(serving_cfg.get("max_concurrency", 1)))
+            mem = estimate_inference_memory(
+                m_cfg, max_batch_size=int(serving_cfg.get("max_concurrency", 1))
+            )
             weight_mb = mem.get("parameters_mb", 0.0)
             kv_mb = mem.get("kv_cache_mb", 0.0)
         except Exception:
@@ -299,7 +324,9 @@ def collect_serving_report(
     online = False
     status_msg = "configured"
     try:
-        req = Request(f"{endpoint.rstrip('/')}/readyz", headers={"User-Agent": "gopi-reporter"})
+        req = Request(
+            f"{endpoint.rstrip('/')}/readyz", headers={"User-Agent": "gopi-reporter"}
+        )
         with urlopen(req, timeout=2.0) as response:
             if response.status == 200:
                 online = True
@@ -351,7 +378,12 @@ def collect_chat_report(
     try:
         with sqlite3.connect(db_file) as conn:
             cursor = conn.cursor()
-            tables = [r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+            tables = [
+                r[0]
+                for r in cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            ]
             if "sessions" not in tables:
                 return ChatReport(
                     total_sessions=0,
@@ -362,21 +394,31 @@ def collect_chat_report(
                     recent_sessions=[],
                 )
 
-            col_names = {r[1] for r in cursor.execute("PRAGMA table_info(sessions)").fetchall()}
-            total_sessions = cursor.execute("SELECT count(*) FROM sessions").fetchone()[0]
+            col_names = {
+                r[1] for r in cursor.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            total_sessions = cursor.execute("SELECT count(*) FROM sessions").fetchone()[
+                0
+            ]
             recent: list[dict[str, Any]] = []
             total_msgs = 0
 
             if "message_count" in col_names and "updated_at" in col_names:
                 # Legacy / test schema: explicit message_count column
                 total_msgs = sum(
-                    r[0] for r in cursor.execute("SELECT message_count FROM sessions").fetchall()
+                    r[0]
+                    for r in cursor.execute(
+                        "SELECT message_count FROM sessions"
+                    ).fetchall()
                 )
                 rows = cursor.execute(
                     "SELECT session_id, message_count, updated_at FROM sessions "
                     "ORDER BY updated_at DESC LIMIT 10"
                 ).fetchall()
-                recent = [{"session_id": r[0], "message_count": r[1], "updated_at": r[2]} for r in rows]
+                recent = [
+                    {"session_id": r[0], "message_count": r[1], "updated_at": r[2]}
+                    for r in rows
+                ]
             else:
                 # Production schema: id (TEXT), messages (JSON list), updated (unix float)
                 all_msgs = cursor.execute("SELECT messages FROM sessions").fetchall()
@@ -395,10 +437,18 @@ def collect_chat_report(
                     except (json.JSONDecodeError, TypeError):
                         n_msgs = 0
                     try:
-                        updated_iso = datetime.fromtimestamp(float(r[2]), tz=timezone.utc).isoformat()
+                        updated_iso = datetime.fromtimestamp(
+                            float(r[2]), tz=timezone.utc
+                        ).isoformat()
                     except (TypeError, ValueError, OSError):
                         updated_iso = None
-                    recent.append({"session_id": r[0], "message_count": n_msgs, "updated_at": updated_iso})
+                    recent.append(
+                        {
+                            "session_id": r[0],
+                            "message_count": n_msgs,
+                            "updated_at": updated_iso,
+                        }
+                    )
 
             avg_msgs = total_msgs / max(total_sessions, 1)
             return ChatReport(
@@ -420,7 +470,6 @@ def collect_chat_report(
         )
 
 
-
 def collect_rag_report(
     *,
     database_path: str | Path = "data/rag/index.sqlite",
@@ -438,11 +487,14 @@ def collect_rag_report(
             sample_results=[],
         )
 
-    queries = list(sample_queries or [
-        "transformer attention mechanism",
-        "artificial intelligence neural network",
-        "python programming language",
-    ])
+    queries = list(
+        sample_queries
+        or [
+            "transformer attention mechanism",
+            "artificial intelligence neural network",
+            "python programming language",
+        ]
+    )
 
     try:
         rag = SQLiteRagIndex(db_file)
@@ -457,14 +509,20 @@ def collect_rag_report(
             elapsed_ms = (time.perf_counter() - start) * 1000.0
             latencies.append(elapsed_ms)
 
-            sample_results.append({
-                "query": q,
-                "latency_ms": round(elapsed_ms, 2),
-                "hits": [
-                    {"title": r.title, "score": round(r.score, 3), "snippet": r.description[:80]}
-                    for r in results
-                ],
-            })
+            sample_results.append(
+                {
+                    "query": q,
+                    "latency_ms": round(elapsed_ms, 2),
+                    "hits": [
+                        {
+                            "title": r.title,
+                            "score": round(r.score, 3),
+                            "snippet": r.description[:80],
+                        }
+                        for r in results
+                    ],
+                }
+            )
 
         avg_lat = statistics.mean(latencies) if latencies else 0.0
         return RagReport(
@@ -616,7 +674,9 @@ def record_generation_sample(
 
     gen["samples_evaluated"] = len(samples)
     gen["total_tokens_generated"] = total_tokens
-    gen["avg_tokens_per_second"] = round(statistics.mean(tps_list), 2) if tps_list else 0.0
+    gen["avg_tokens_per_second"] = (
+        round(statistics.mean(tps_list), 2) if tps_list else 0.0
+    )
     gen["avg_ttft_seconds"] = round(statistics.mean(ttft_list), 4) if ttft_list else 0.0
     if ttft_list:
         sorted_ttft = sorted(ttft_list)
@@ -638,11 +698,11 @@ def record_generation_sample(
     if auto_export_html:
         try:
             from serving.report_router import DASHBOARD_HTML
+
             html_content = DASHBOARD_HTML.replace(
                 "let currentReportData = null;",
-                f"let currentReportData = {json_str};\n    window.addEventListener('DOMContentLoaded', () => {{ renderReport(currentReportData); }});"
+                f"let currentReportData = {json_str};\n    window.addEventListener('DOMContentLoaded', () => {{ renderReport(currentReportData); }});",
             )
             json_path.with_suffix(".html").write_text(html_content, encoding="utf-8")
         except Exception:
             pass
-

@@ -1,4 +1,5 @@
 """Make repository and src imports work when a script is executed by path."""
+
 from __future__ import annotations
 
 import sys

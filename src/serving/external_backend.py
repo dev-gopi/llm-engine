@@ -6,6 +6,7 @@ quantization kernels and device placement remain the responsibility of the
 specialized runtime, while Gopi retains its API, auth, monitoring and client
 interface.
 """
+
 from __future__ import annotations
 
 import json
@@ -107,11 +108,17 @@ class OpenAICompatibleBackend:
 
     def _payload(self, request: GenerateRequest, *, stream: bool) -> dict[str, Any]:
         if request.chat_tools and not self.supports_tool_calling:
-            raise InvalidGenerationRequestError("external backend is not configured for tool calling")
+            raise InvalidGenerationRequestError(
+                "external backend is not configured for tool calling"
+            )
         if request.reasoning_effort != "none" and not self.supports_reasoning:
-            raise InvalidGenerationRequestError("external backend is not configured for reasoning")
+            raise InvalidGenerationRequestError(
+                "external backend is not configured for reasoning"
+            )
         if has_image_input(request._chat_messages) and not self.supports_vision:
-            raise InvalidGenerationRequestError("external backend is not configured for vision input")
+            raise InvalidGenerationRequestError(
+                "external backend is not configured for vision input"
+            )
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": self._messages(request),
@@ -142,7 +149,9 @@ class OpenAICompatibleBackend:
         if request.reasoning_effort != "none":
             payload["reasoning_effort"] = request.reasoning_effort
         if request.chat_tools:
-            payload["tools"] = [tool.model_dump(mode="json") for tool in request.chat_tools]
+            payload["tools"] = [
+                tool.model_dump(mode="json") for tool in request.chat_tools
+            ]
             payload["tool_choice"] = (
                 request.tool_choice
                 if isinstance(request.tool_choice, str)
@@ -163,36 +172,64 @@ class OpenAICompatibleBackend:
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         client = self._require_client()
         try:
-            response = await client.post("/v1/chat/completions", json=self._payload(request, stream=False))
+            response = await client.post(
+                "/v1/chat/completions", json=self._payload(request, stream=False)
+            )
             response.raise_for_status()
             body = response.json()
             choice = body["choices"][0]
             message = choice.get("message", {})
             content = message.get("content") or ""
-            reasoning_content = message.get("reasoning_content") or message.get("reasoning")
+            reasoning_content = message.get("reasoning_content") or message.get(
+                "reasoning"
+            )
             raw_tool_calls = message.get("tool_calls") or []
-            tool_calls = tuple(OpenAIToolCall.model_validate(item) for item in raw_tool_calls)
+            tool_calls = tuple(
+                OpenAIToolCall.model_validate(item) for item in raw_tool_calls
+            )
             usage = body.get("usage", {})
             raw_logprobs = (choice.get("logprobs") or {}).get("content") or []
-        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise BackendUnavailableError(f"external inference request failed: {error}") from error
+        except (
+            httpx.HTTPError,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            raise BackendUnavailableError(
+                f"external inference request failed: {error}"
+            ) from error
         if not isinstance(content, str):
-            raise InvalidGenerationRequestError("external backend returned non-text message content")
+            raise InvalidGenerationRequestError(
+                "external backend returned non-text message content"
+            )
         if reasoning_content is not None and not isinstance(reasoning_content, str):
-            raise InvalidGenerationRequestError("external backend returned invalid reasoning content")
+            raise InvalidGenerationRequestError(
+                "external backend returned invalid reasoning content"
+            )
         return BackendGeneration(
             text=content,
             prompt_tokens=int(usage.get("prompt_tokens", 0) or 0),
             completion_tokens=int(usage.get("completion_tokens", 0) or 0),
             finish_reason=_finish_reason(choice.get("finish_reason")),
-            cached_tokens=int((usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0),
-            reasoning_tokens=int((usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0),
+            cached_tokens=int(
+                (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
+            ),
+            reasoning_tokens=int(
+                (usage.get("completion_tokens_details") or {}).get(
+                    "reasoning_tokens", 0
+                )
+                or 0
+            ),
             reasoning_content=reasoning_content,
             tool_calls=tool_calls,
             logprobs=tuple(item for item in raw_logprobs if isinstance(item, dict)),
         )
 
-    async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
+    async def stream(
+        self, request: GenerateRequest
+    ) -> AsyncIterator[BackendStreamEvent]:
         client = self._require_client()
         prompt_tokens = 0
         completion_tokens = 0
@@ -216,16 +253,33 @@ class OpenAICompatibleBackend:
                     except (json.JSONDecodeError, IndexError, TypeError):
                         continue
                     usage = event.get("usage") or {}
-                    prompt_tokens = int(usage.get("prompt_tokens", prompt_tokens) or prompt_tokens)
-                    completion_tokens = int(usage.get("completion_tokens", completion_tokens) or completion_tokens)
+                    prompt_tokens = int(
+                        usage.get("prompt_tokens", prompt_tokens) or prompt_tokens
+                    )
+                    completion_tokens = int(
+                        usage.get("completion_tokens", completion_tokens)
+                        or completion_tokens
+                    )
                     delta = choice.get("delta") or {}
                     token = delta.get("content") or ""
                     raw_logprobs = (choice.get("logprobs") or {}).get("content") or []
-                    token_logprob = raw_logprobs[0] if raw_logprobs and isinstance(raw_logprobs[0], dict) else None
+                    token_logprob = (
+                        raw_logprobs[0]
+                        if raw_logprobs and isinstance(raw_logprobs[0], dict)
+                        else None
+                    )
                     if isinstance(token, str) and token:
-                        completion_tokens = max(completion_tokens, completion_tokens + 1)
-                        yield BackendStreamEvent(token=token, prompt_tokens=prompt_tokens, logprob=token_logprob)
-                    reasoning_token = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                        completion_tokens = max(
+                            completion_tokens, completion_tokens + 1
+                        )
+                        yield BackendStreamEvent(
+                            token=token,
+                            prompt_tokens=prompt_tokens,
+                            logprob=token_logprob,
+                        )
+                    reasoning_token = (
+                        delta.get("reasoning_content") or delta.get("reasoning") or ""
+                    )
                     if isinstance(reasoning_token, str) and reasoning_token:
                         yield BackendStreamEvent(
                             reasoning_token=reasoning_token,
@@ -236,11 +290,14 @@ class OpenAICompatibleBackend:
                         if not isinstance(raw_call, dict):
                             continue
                         index = int(raw_call.get("index", 0) or 0)
-                        target = tool_fragments.setdefault(index, {
-                            "id": "",
-                            "type": "function",
-                            "function": {"name": "", "arguments": ""},
-                        })
+                        target = tool_fragments.setdefault(
+                            index,
+                            {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            },
+                        )
                         if isinstance(raw_call.get("id"), str):
                             target["id"] += raw_call["id"]
                         function = raw_call.get("function") or {}
@@ -251,7 +308,9 @@ class OpenAICompatibleBackend:
                     if choice.get("finish_reason") is not None:
                         finish_reason = _finish_reason(choice["finish_reason"])
         except httpx.HTTPError as error:
-            raise BackendUnavailableError(f"external inference stream failed: {error}") from error
+            raise BackendUnavailableError(
+                f"external inference stream failed: {error}"
+            ) from error
         complete_calls: tuple[OpenAIToolCall, ...] = ()
         if tool_fragments:
             try:

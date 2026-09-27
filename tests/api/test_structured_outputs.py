@@ -9,19 +9,57 @@ from schema.structured_outputs import (
 
 
 def test_nested_arrays_and_required_fields_validate():
-    spec=make_spec(name="order", schema={"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"],"additionalProperties":False}}},"required":["items"],"additionalProperties":False}, strict=True)
-    assert validate_structured_output('{"items":[{"id":1}]}', spec)["items"][0]["id"] == 1
+    spec = make_spec(
+        name="order",
+        schema={
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"id": {"type": "integer"}},
+                        "required": ["id"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["items"],
+            "additionalProperties": False,
+        },
+        strict=True,
+    )
+    assert (
+        validate_structured_output('{"items":[{"id":1}]}', spec)["items"][0]["id"] == 1
+    )
+
 
 def test_additional_properties_are_rejected():
-    spec=make_spec(name="x",schema={"type":"object","properties":{"a":{"type":"string"}},"required":["a"],"additionalProperties":False},strict=True)
-    with pytest.raises(StructuredOutputValidationError): validate_structured_output('{"a":"ok","b":1}',spec)
+    spec = make_spec(
+        name="x",
+        schema={
+            "type": "object",
+            "properties": {"a": {"type": "string"}},
+            "required": ["a"],
+            "additionalProperties": False,
+        },
+        strict=True,
+    )
+    with pytest.raises(StructuredOutputValidationError):
+        validate_structured_output('{"a":"ok","b":1}', spec)
+
 
 def test_malformed_schema_is_rejected():
-    with pytest.raises(StructuredSchemaError): make_spec(name="x",schema={"type":"wat"})
+    with pytest.raises(StructuredSchemaError):
+        make_spec(name="x", schema={"type": "wat"})
+
 
 def test_malformed_generation_is_rejected():
-    spec=make_spec(name="x",schema={"type":"object"})
-    with pytest.raises(StructuredOutputValidationError): validate_structured_output('{bad',spec)
+    spec = make_spec(name="x", schema={"type": "object"})
+    with pytest.raises(StructuredOutputValidationError):
+        validate_structured_output("{bad", spec)
+
+
 from serving.api import ServingSettings, create_app
 from serving.runtime import BackendGeneration
 from serving.schemas import FinishReason
@@ -29,32 +67,106 @@ from tests.asgi_client import ASGIClient
 
 
 class JsonBackend:
-    ready=True
-    def __init__(self,text): self.text=text
-    async def generate(self,request): return BackendGeneration(self.text,3,2,FinishReason.STOP)
-    async def stream(self,request):
+    ready = True
+
+    def __init__(self, text):
+        self.text = text
+
+    async def generate(self, request):
+        return BackendGeneration(self.text, 3, 2, FinishReason.STOP)
+
+    async def stream(self, request):
         if False:
             yield None
 
-def _settings(): return ServingSettings(model_name="gopi-test",bot_name="Gopi",allowed_hosts=("testserver","test","localhost","127.0.0.1"))
+
+def _settings():
+    return ServingSettings(
+        model_name="gopi-test",
+        bot_name="Gopi",
+        allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"),
+    )
+
 
 def test_chat_structured_success_is_schema_conforming():
-    app=create_app(JsonBackend('{"a":"ok"}'),settings=_settings())
+    app = create_app(JsonBackend('{"a":"ok"}'), settings=_settings())
     with ASGIClient(app) as c:
-        r=c.post('/v1/chat/completions',json={"model":"gopi-test","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":{"name":"x","strict":True,"schema":{"type":"object","properties":{"a":{"type":"string"}},"required":["a"],"additionalProperties":False}}}})
-    assert r.status_code==200 and r.json()["choices"][0]["message"]["content"]=='{"a":"ok"}'
+        r = c.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gopi-test",
+                "messages": [{"role": "user", "content": "x"}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "x",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {"a": {"type": "string"}},
+                            "required": ["a"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+        )
+    assert (
+        r.status_code == 200
+        and r.json()["choices"][0]["message"]["content"] == '{"a":"ok"}'
+    )
+
 
 def test_chat_structured_invalid_generation_is_incomplete():
-    app=create_app(JsonBackend('{"a":1,"b":2}'),settings=_settings())
+    app = create_app(JsonBackend('{"a":1,"b":2}'), settings=_settings())
     with ASGIClient(app) as c:
-        r=c.post('/v1/chat/completions',json={"model":"gopi-test","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":{"name":"x","strict":True,"schema":{"type":"object","properties":{"a":{"type":"string"}},"required":["a"],"additionalProperties":False}}}})
-    assert r.status_code==200 and r.json()["incomplete_details"]["reason"]=='structured_output_validation_failed'
+        r = c.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gopi-test",
+                "messages": [{"role": "user", "content": "x"}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "x",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {"a": {"type": "string"}},
+                            "required": ["a"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            },
+        )
+    assert (
+        r.status_code == 200
+        and r.json()["incomplete_details"]["reason"]
+        == "structured_output_validation_failed"
+    )
+
 
 def test_chat_structured_malformed_schema_is_rejected():
-    app=create_app(JsonBackend('{}'),settings=_settings())
+    app = create_app(JsonBackend("{}"), settings=_settings())
     with ASGIClient(app) as c:
-        r=c.post('/v1/chat/completions',json={"model":"gopi-test","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":{"name":"x","strict":True,"schema":{"type":"wat"}}}})
-    assert r.status_code==422
+        r = c.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gopi-test",
+                "messages": [{"role": "user", "content": "x"}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "x",
+                        "strict": True,
+                        "schema": {"type": "wat"},
+                    },
+                },
+            },
+        )
+    assert r.status_code == 422
+
 
 def test_recursive_local_ref_schema_is_supported():
     spec = make_spec(
@@ -101,4 +213,3 @@ def test_recursive_dynamic_ref_schema_is_supported():
         '{"value":1,"next":{"value":2,"next":null}}', spec
     )
     assert value["next"]["value"] == 2
-

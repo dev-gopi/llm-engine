@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import sys
 
-
 _SOURCE_DIRECTORY = os.path.realpath(os.path.dirname(__file__))
 
 

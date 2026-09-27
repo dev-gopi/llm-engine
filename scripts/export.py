@@ -36,7 +36,11 @@ def _sha256(path: Path) -> str:
 
 
 def write_export_manifest(
-    artifact: Path, *, config: dict, tokenizer: Tokenizer, export_format: str,
+    artifact: Path,
+    *,
+    config: dict,
+    tokenizer: Tokenizer,
+    export_format: str,
     weight_dtype: str,
 ) -> Path:
     """Write a deterministic content-addressed deployment manifest.
@@ -49,7 +53,8 @@ def write_export_manifest(
     tokenizer_root = root / "tokenizer"
     tokenizer_files = {
         file.relative_to(root).as_posix(): _sha256(file)
-        for file in sorted(tokenizer_root.rglob("*")) if file.is_file()
+        for file in sorted(tokenizer_root.rglob("*"))
+        if file.is_file()
     }
     manifest = {
         "schema_version": 1,
@@ -57,11 +62,17 @@ def write_export_manifest(
         "export_format": export_format,
         "weight_dtype": weight_dtype,
         "artifacts": {artifact.name: _sha256(artifact)},
-        "model_config": {"path": model_config.name, "sha256": _sha256(model_config), "values": config},
+        "model_config": {
+            "path": model_config.name,
+            "sha256": _sha256(model_config),
+            "values": config,
+        },
         "tokenizer": {"fingerprint": tokenizer.fingerprint, "files": tokenizer_files},
     }
     destination = root / "manifest.json"
-    destination.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    destination.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return destination
 
 
@@ -77,8 +88,13 @@ def _export_int4_safetensors(model: MiniGPT, output: Path) -> None:
         else:
             tensors[name] = value.detach().cpu().contiguous()
     save_file(
-        tensors, output,
-        metadata={"format": "llm-engine.int4.v1", "architecture": "MiniGPT", "int4_manifest": json.dumps(manifest)},
+        tensors,
+        output,
+        metadata={
+            "format": "llm-engine.int4.v1",
+            "architecture": "MiniGPT",
+            "int4_manifest": json.dumps(manifest),
+        },
     )
 
 
@@ -110,15 +126,25 @@ def _export_q1_safetensors(model: MiniGPT, output: Path) -> None:
 
 
 def export_model(
-    model: MiniGPT, output: Path, export_format: str, *, sequence_length: int = 16,
+    model: MiniGPT,
+    output: Path,
+    export_format: str,
+    *,
+    sequence_length: int = 16,
     weight_dtype: str = "float32",
 ) -> Path:
     """Export float weights or self-describing packed low-bit safetensors."""
     output.parent.mkdir(parents=True, exist_ok=True)
     model = model.cpu().eval()
-    dtypes = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
+    dtypes = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }
     if weight_dtype not in {*dtypes, "int4", "q1_0"}:
-        raise ValueError("weight_dtype must be float32, float16, bfloat16, int4, or q1_0")
+        raise ValueError(
+            "weight_dtype must be float32, float16, bfloat16, int4, or q1_0"
+        )
     if weight_dtype in {"int4", "q1_0"}:
         if export_format != "safetensors":
             raise ValueError("packed low-bit export is supported only for safetensors")
@@ -133,7 +159,10 @@ def export_model(
         save_model(model, output, metadata={"format": "pt", "architecture": "MiniGPT"})
     elif export_format == "gguf":
         export_gguf(
-            model.state_dict(), output, architecture="minigpt", model_name="gopi",
+            model.state_dict(),
+            output,
+            architecture="minigpt",
+            model_name="gopi",
             metadata={"llm-engine.export.weight_dtype": weight_dtype},
         )
     elif export_format == "torch_export":
@@ -141,8 +170,15 @@ def export_model(
         torch.export.save(exported, output)
     elif export_format == "onnx":
         torch.onnx.export(
-            model, example, output, input_names=["input_ids"], output_names=["logits"],
-            dynamic_axes={"input_ids": {0: "batch", 1: "sequence"}, "logits": {0: "batch", 1: "sequence"}},
+            model,
+            example,
+            output,
+            input_names=["input_ids"],
+            output_names=["logits"],
+            dynamic_axes={
+                "input_ids": {0: "batch", 1: "sequence"},
+                "logits": {0: "batch", 1: "sequence"},
+            },
             opset_version=17,
         )
     else:
@@ -152,20 +188,41 @@ def export_model(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument(
+        "--model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
-    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt"))
-    parser.add_argument("--format", choices=("safetensors", "gguf", "torch_export", "onnx"), default="safetensors")
+    parser.add_argument(
+        "--checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt")
+    )
+    parser.add_argument(
+        "--format",
+        choices=("safetensors", "gguf", "torch_export", "onnx"),
+        default="safetensors",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sequence-length", type=int, default=16)
     parser.add_argument(
-        "--weight-dtype", choices=("float32", "float16", "bfloat16", "int4", "q1_0"), default="float32",
+        "--weight-dtype",
+        choices=("float32", "float16", "bfloat16", "int4", "q1_0"),
+        default="float32",
         help="persist float weights, packed INT4, or experimental group-wise binary Q1_0 safetensors",
     )
-    parser.add_argument("--merge-lora", action="store_true", help="fold a loaded LoRA adapter into base weights")
+    parser.add_argument(
+        "--merge-lora",
+        action="store_true",
+        help="fold a loaded LoRA adapter into base weights",
+    )
     args = parser.parse_args()
-    suffixes = {"safetensors": ".safetensors", "gguf": ".gguf", "torch_export": ".pt2", "onnx": ".onnx"}
-    output = args.output or Path("exports") / args.format / f"gopi{suffixes[args.format]}"
+    suffixes = {
+        "safetensors": ".safetensors",
+        "gguf": ".gguf",
+        "torch_export": ".pt2",
+        "onnx": ".onnx",
+    }
+    output = (
+        args.output or Path("exports") / args.format / f"gopi{suffixes[args.format]}"
+    )
     if not args.tokenizer.exists():
         parser.error(f"tokenizer does not exist: {args.tokenizer}")
     tokenizer = Tokenizer.load(args.tokenizer)
@@ -175,46 +232,89 @@ def main() -> None:
         parser.error(str(error))
     model = MiniGPT.from_config(config, device="cpu")
     load_checkpoint(
-        args.checkpoint, model, use_ema=True,
+        args.checkpoint,
+        model,
+        use_ema=True,
         **checkpoint_tokenizer_options(tokenizer),
     )
     if args.merge_lora:
         merge_and_unload(model)
     artifact = export_model(
-        model, output, args.format, sequence_length=args.sequence_length,
+        model,
+        output,
+        args.format,
+        sequence_length=args.sequence_length,
         weight_dtype=args.weight_dtype,
     )
     destination_config = artifact.parent / "model.yaml"
-    destination_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    destination_config.write_text(
+        yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+    )
     destination_tokenizer = artifact.parent / "tokenizer"
     if destination_tokenizer.exists():
         shutil.rmtree(destination_tokenizer)
     shutil.copytree(args.tokenizer, destination_tokenizer)
     manifest = write_export_manifest(
-        artifact, config=config, tokenizer=tokenizer, export_format=args.format,
+        artifact,
+        config=config,
+        tokenizer=tokenizer,
+        export_format=args.format,
         weight_dtype=args.weight_dtype,
     )
-    print(json.dumps({
-        "artifact": str(artifact), "model_config": str(destination_config),
-        "manifest": str(manifest), "weight_dtype": args.weight_dtype,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "artifact": str(artifact),
+                "model_config": str(destination_config),
+                "manifest": str(manifest),
+                "weight_dtype": args.weight_dtype,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
     main()
 
 
-def export_interoperable_quantized_manifest(output: Path, *, config: dict, fmt: str, calibration_file: Path, bits: int = 4, quality: dict | None = None, latency: dict | None = None, memory: dict | None = None) -> Path:
+def export_interoperable_quantized_manifest(
+    output: Path,
+    *,
+    config: dict,
+    fmt: str,
+    calibration_file: Path,
+    bits: int = 4,
+    quality: dict | None = None,
+    latency: dict | None = None,
+    memory: dict | None = None,
+) -> Path:
     """Write a verified GPTQ/AWQ/GGUF interchange manifest beside an artifact.
 
     Actual third-party conversion is intentionally delegated to the format's
     runtime; this manifest is the engine-side compatibility and provenance gate.
     """
     from inference.quantization import build_quantized_manifest
-    digest=_sha256(calibration_file)
-    tokens=sum(len(line.split()) for line in calibration_file.read_text(encoding="utf-8").splitlines() if line.strip())
-    manifest=build_quantized_manifest(fmt=fmt, config=config, calibration_sha256=digest, calibration_tokens=tokens, bits=bits, quality=quality, latency=latency, memory=memory)
-    destination=output.with_suffix(output.suffix + ".manifest.json")
+
+    digest = _sha256(calibration_file)
+    tokens = sum(
+        len(line.split())
+        for line in calibration_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
+    manifest = build_quantized_manifest(
+        fmt=fmt,
+        config=config,
+        calibration_sha256=digest,
+        calibration_tokens=tokens,
+        bits=bits,
+        quality=quality,
+        latency=latency,
+        memory=memory,
+    )
+    destination = output.with_suffix(output.suffix + ".manifest.json")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(manifest, indent=2, sort_keys=True)+"\n", encoding="utf-8")
+    destination.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return destination

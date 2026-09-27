@@ -1,6 +1,9 @@
 import pytest
 
-from media_generation.production import optimizer_steps_per_epoch, validate_generation_config
+from media_generation.production import (
+    optimizer_steps_per_epoch,
+    validate_generation_config,
+)
 from video_generation.io import _sample_indices
 
 
@@ -35,11 +38,13 @@ def test_generation_config_rejects_bad_video_divisibility():
     with pytest.raises(ValueError, match="divisible"):
         validate_generation_config(config, kind="video")
 
-from media_generation.presets import apply_style, resolve_preset
-from audio_generation.longform import crossfade_chunks, plan_windows
-from video_generation.longform import blend_video_segments
-from media_generation.quality import audio_diagnostics, video_diagnostics
+
 import torch
+
+from audio_generation.longform import crossfade_chunks, plan_windows
+from media_generation.presets import apply_style, resolve_preset
+from media_generation.quality import audio_diagnostics, video_diagnostics
+from video_generation.longform import blend_video_segments
 
 
 def test_inference_presets_and_style_helpers():
@@ -69,6 +74,7 @@ def test_media_quality_diagnostics():
     v = video_diagnostics(torch.zeros(3, 2, 4, 4))
     assert v["temporal_abs_delta"] == 0
 
+
 from media_generation.assets import AssetStore
 from media_generation.jobs import MediaJobStore
 from media_generation.storyboard import build_storyboard
@@ -77,7 +83,11 @@ from media_generation.tooling import MEDIA_TOOL_SCHEMAS
 
 def test_asset_store_is_content_addressed_and_safe(tmp_path):
     store = AssetStore(tmp_path, max_bytes=1024)
-    record = store.put(b"\x89PNG\r\n\x1a\n" + b"fake", mime_type="image/png", filename="../../unsafe.png")
+    record = store.put(
+        b"\x89PNG\r\n\x1a\n" + b"fake",
+        mime_type="image/png",
+        filename="../../unsafe.png",
+    )
     assert record.id.startswith("asset_")
     assert store.resolve(record.id).parent == tmp_path.resolve()
     assert store.get(record.id).sha256 == record.sha256
@@ -107,6 +117,7 @@ def test_storyboard_camera_and_scene_validation():
 def test_media_agent_tool_schemas_are_strict():
     assert MEDIA_TOOL_SCHEMAS["generate_audio"]["additionalProperties"] is False
     assert "camera" in MEDIA_TOOL_SCHEMAS["generate_video"]["properties"]
+
 
 def test_job_store_idempotency(tmp_path):
     store = MediaJobStore(tmp_path / "jobs.sqlite3")

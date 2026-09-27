@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Security, status, Body
+from fastapi import Body, FastAPI, HTTPException, Request, Security, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
@@ -35,7 +35,17 @@ from api.chat_completions import parse_response_format
 from api.embeddings import EmbeddingsRequest, EmbeddingsResponse, create_embeddings
 from api.responses import ResponsesOutput, ResponsesRequest, ResponsesResponse
 from embeddings import EmbeddingService
+from media_generation.assets import AssetStore
 from model.lifecycle import ModelLifecycleManager
+from omni_platform.errors import OmniError
+from omni_platform.multimodal_input import (
+    latest_text,
+    prepare_responses_input,
+    synthesize_response_audio,
+)
+from omni_platform.native_multimodal import NativeLatentImageProvider
+from omni_platform.providers import ProviderContext
+from omni_platform.speech import HuggingFaceASRProvider, HuggingFaceTTSProvider
 from runtime.cancellation import CancellationRegistry
 from runtime.capabilities import (
     discover_capabilities,
@@ -46,10 +56,26 @@ from runtime.resource_planner import deployment_matrix, estimate_inference_memor
 from utils.config import load_yaml
 from utils.logger import get_logger
 
+from .auth import (
+    AuthPrincipal,
+    OIDCAuthenticator,
+    OIDCConfig,
+    RBACPolicy,
+    TenantQuotaLimiter,
+)
 from .backend import backend_from_environment
+from .distributed_state import RedisIdempotencyStore, RedisRateLimiter
+from .idempotency import IdempotencyStore
+from .lora_registry import LoRAAdapterRegistry
+from .media_generation import create_media_router
+from .omni import create_omni_speech_router, create_omni_video_router
+from .openai_platform import PlatformStore, create_openai_platform_router
+from .production_semantic_cache import ProductionSemanticCache, TenantQuotaManager
 from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
-from .distributed_state import RedisRateLimiter, RedisIdempotencyStore
-from .semantic_cache import SemanticCacheConfig, SemanticResponseCache
+from .realtime import router as realtime_router
+from .redis_platform_store import RedisPlatformStore
+from .redis_semantic_cache import RedisCacheConfig, RedisSemanticCacheBackend
+from .report_router import router as report_router
 from .runtime import (
     BackendGeneration,
     BackendUnavailableError,
@@ -82,28 +108,12 @@ from .schemas import (
     WorkspaceAgentRequest,
     WorkspaceAgentResponse,
 )
-from .media_generation import create_media_router
-from .omni import create_omni_speech_router, create_omni_video_router
-from omni_platform.multimodal_input import latest_text, prepare_responses_input, synthesize_response_audio
-from omni_platform.errors import OmniError
-from omni_platform.speech import HuggingFaceASRProvider, HuggingFaceTTSProvider
-from omni_platform.native_multimodal import NativeLatentImageProvider
-from omni_platform.providers import ProviderContext
-from media_generation.assets import AssetStore
-from .report_router import router as report_router
-from .websocket import router as websocket_router
-from .realtime import router as realtime_router
-from .workspace import WorkspaceService
-from .auth import AuthPrincipal, OIDCAuthenticator, OIDCConfig, RBACPolicy, TenantQuotaLimiter
-from .lora_registry import LoRAAdapterRegistry
-from .idempotency import IdempotencyStore
-from .openai_platform import PlatformStore, create_openai_platform_router
-from .redis_platform_store import RedisPlatformStore
-from .production_semantic_cache import ProductionSemanticCache, TenantQuotaManager
-from .redis_semantic_cache import RedisCacheConfig, RedisSemanticCacheBackend
+from .semantic_cache import SemanticCacheConfig, SemanticResponseCache
 from .semantic_cache_policy import CacheQuota, ThresholdPolicy
 from .telemetry import configure_opentelemetry, maybe_span
 from .webhooks import WebhookConfig, WebhookDelivery
+from .websocket import router as websocket_router
+from .workspace import WorkspaceService
 
 SERVICE_NAME = "gopi-llm"
 SERVICE_VERSION = "0.1.0"
@@ -158,7 +168,9 @@ def _add_security_headers(response: Response, *, is_https: bool) -> None:
         "connect-src 'self' http: https: ws: wss:"
     )
     if is_https:
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
 
 
 @dataclass(frozen=True)
@@ -213,7 +225,11 @@ class ServingSettings:
             raise ValueError("max_concurrency must be positive")
         if self.queue_timeout_seconds <= 0 or self.generation_timeout_seconds <= 0:
             raise ValueError("serving timeouts must be positive")
-        if self.requests_per_minute < 0 or self.continuous_streams < 0 or self.tenant_requests_per_minute < 0:
+        if (
+            self.requests_per_minute < 0
+            or self.continuous_streams < 0
+            or self.tenant_requests_per_minute < 0
+        ):
             raise ValueError("rate and stream limits cannot be negative")
         if self.semantic_cache_tenant_max_entries < 0:
             raise ValueError("semantic_cache_tenant_max_entries cannot be negative")
@@ -222,14 +238,18 @@ class ServingSettings:
         if self.semantic_cache_capacity < 1:
             raise ValueError("semantic_cache_capacity must be positive")
         if not 0.0 <= self.semantic_cache_similarity_threshold <= 1.0:
-            raise ValueError("semantic_cache_similarity_threshold must be between 0 and 1")
+            raise ValueError(
+                "semantic_cache_similarity_threshold must be between 0 and 1"
+            )
         if self.semantic_cache_ttl_seconds <= 0:
             raise ValueError("semantic_cache_ttl_seconds must be positive")
         if not self.semantic_cache_namespace.strip():
             raise ValueError("semantic_cache_namespace cannot be empty")
         if not self.model_name.strip() or not self.bot_name.strip():
             raise ValueError("model_name and bot_name cannot be empty")
-        if not self.allowed_hosts or any(not host.strip() for host in self.allowed_hosts):
+        if not self.allowed_hosts or any(
+            not host.strip() for host in self.allowed_hosts
+        ):
             raise ValueError("allowed_hosts must contain non-empty host names")
 
     @classmethod
@@ -250,14 +270,20 @@ class ServingSettings:
         )
         allowed_hosts = tuple(
             host.strip()
-            for host in os.getenv("GOPI_ALLOWED_HOSTS", "127.0.0.1,localhost,test,testserver").split(",")
+            for host in os.getenv(
+                "GOPI_ALLOWED_HOSTS", "127.0.0.1,localhost,test,testserver"
+            ).split(",")
             if host.strip()
         )
         return cls(
-            model_name=os.getenv("GOPI_MODEL_NAME", str(serving.get("model_name", "gopi"))),
+            model_name=os.getenv(
+                "GOPI_MODEL_NAME", str(serving.get("model_name", "gopi"))
+            ),
             bot_name=os.getenv("GOPI_BOT_NAME", str(config.get("bot_name", "Gopi"))),
             max_concurrency=int(
-                os.getenv("GOPI_MAX_CONCURRENCY", str(serving.get("max_concurrency", 4)))
+                os.getenv(
+                    "GOPI_MAX_CONCURRENCY", str(serving.get("max_concurrency", 4))
+                )
             ),
             queue_timeout_seconds=float(
                 os.getenv(
@@ -274,11 +300,25 @@ class ServingSettings:
             cors_origins=origins,
             api_key=os.getenv("GOPI_API_KEY") or None,
             admin_api_key=os.getenv("GOPI_ADMIN_API_KEY") or None,
-            requests_per_minute=int(os.getenv("GOPI_REQUESTS_PER_MINUTE", str(serving.get("requests_per_minute", 0)))),
-            rate_limit_store_path=os.getenv("GOPI_RATE_LIMIT_STORE") or serving.get("rate_limit_store_path"),
-            distributed_state_redis_url=os.getenv("GOPI_DISTRIBUTED_STATE_REDIS_URL") or serving.get("distributed_state_redis_url"),
-            distributed_state_prefix=os.getenv("GOPI_DISTRIBUTED_STATE_PREFIX", str(serving.get("distributed_state_prefix", "llm-engine:state"))),
-            continuous_streams=int(os.getenv("GOPI_CONTINUOUS_STREAMS", str(serving.get("continuous_streams", 0)))),
+            requests_per_minute=int(
+                os.getenv(
+                    "GOPI_REQUESTS_PER_MINUTE",
+                    str(serving.get("requests_per_minute", 0)),
+                )
+            ),
+            rate_limit_store_path=os.getenv("GOPI_RATE_LIMIT_STORE")
+            or serving.get("rate_limit_store_path"),
+            distributed_state_redis_url=os.getenv("GOPI_DISTRIBUTED_STATE_REDIS_URL")
+            or serving.get("distributed_state_redis_url"),
+            distributed_state_prefix=os.getenv(
+                "GOPI_DISTRIBUTED_STATE_PREFIX",
+                str(serving.get("distributed_state_prefix", "llm-engine:state")),
+            ),
+            continuous_streams=int(
+                os.getenv(
+                    "GOPI_CONTINUOUS_STREAMS", str(serving.get("continuous_streams", 0))
+                )
+            ),
             allowed_hosts=allowed_hosts,
             docs_enabled=_environment_flag("GOPI_DOCS_ENABLED", True),
             protect_metrics=_environment_flag("GOPI_PROTECT_METRICS", False),
@@ -289,51 +329,108 @@ class ServingSettings:
             workspace_root=os.getenv(
                 "GOPI_WORKSPACE_ROOT", str(serving.get("workspace_root", "."))
             ),
-            audit_log_capacity=int(os.getenv(
-                "GOPI_AUDIT_LOG_CAPACITY", str(serving.get("audit_log_capacity", 256))
-            )),
+            audit_log_capacity=int(
+                os.getenv(
+                    "GOPI_AUDIT_LOG_CAPACITY",
+                    str(serving.get("audit_log_capacity", 256)),
+                )
+            ),
             session_memory_enabled=_environment_flag(
                 "GOPI_SESSION_MEMORY_ENABLED",
                 bool(serving.get("session_memory_enabled", False)),
             ),
-            embedding_model_name=os.getenv("GOPI_EMBEDDING_MODEL_NAME", str(serving.get("embedding_model_name", "gopi-embedding-hash"))),
+            embedding_model_name=os.getenv(
+                "GOPI_EMBEDDING_MODEL_NAME",
+                str(serving.get("embedding_model_name", "gopi-embedding-hash")),
+            ),
             semantic_cache_enabled=_environment_flag(
                 "GOPI_SEMANTIC_CACHE_ENABLED",
                 bool(serving.get("semantic_cache_enabled", False)),
             ),
-            semantic_cache_capacity=int(os.getenv(
-                "GOPI_SEMANTIC_CACHE_CAPACITY", str(serving.get("semantic_cache_capacity", 512))
-            )),
-            semantic_cache_similarity_threshold=float(os.getenv(
-                "GOPI_SEMANTIC_CACHE_THRESHOLD", str(serving.get("semantic_cache_similarity_threshold", 0.985))
-            )),
-            semantic_cache_ttl_seconds=float(os.getenv(
-                "GOPI_SEMANTIC_CACHE_TTL_SECONDS", str(serving.get("semantic_cache_ttl_seconds", 3600.0))
-            )),
-            semantic_cache_namespace=os.getenv(
-                "GOPI_SEMANTIC_CACHE_NAMESPACE", str(serving.get("semantic_cache_namespace", "default"))
+            semantic_cache_capacity=int(
+                os.getenv(
+                    "GOPI_SEMANTIC_CACHE_CAPACITY",
+                    str(serving.get("semantic_cache_capacity", 512)),
+                )
             ),
-            semantic_cache_store_path=os.getenv("GOPI_SEMANTIC_CACHE_STORE") or serving.get("semantic_cache_store_path"),
+            semantic_cache_similarity_threshold=float(
+                os.getenv(
+                    "GOPI_SEMANTIC_CACHE_THRESHOLD",
+                    str(serving.get("semantic_cache_similarity_threshold", 0.985)),
+                )
+            ),
+            semantic_cache_ttl_seconds=float(
+                os.getenv(
+                    "GOPI_SEMANTIC_CACHE_TTL_SECONDS",
+                    str(serving.get("semantic_cache_ttl_seconds", 3600.0)),
+                )
+            ),
+            semantic_cache_namespace=os.getenv(
+                "GOPI_SEMANTIC_CACHE_NAMESPACE",
+                str(serving.get("semantic_cache_namespace", "default")),
+            ),
+            semantic_cache_store_path=os.getenv("GOPI_SEMANTIC_CACHE_STORE")
+            or serving.get("semantic_cache_store_path"),
             semantic_cache_allow_nondeterministic=_environment_flag(
                 "GOPI_SEMANTIC_CACHE_ALLOW_NONDETERMINISTIC",
                 bool(serving.get("semantic_cache_allow_nondeterministic", False)),
             ),
-            semantic_cache_redis_url=os.getenv("GOPI_SEMANTIC_CACHE_REDIS_URL") or serving.get("semantic_cache_redis_url"),
-            semantic_cache_redis_prefix=os.getenv("GOPI_SEMANTIC_CACHE_REDIS_PREFIX", str(serving.get("semantic_cache_redis_prefix", "llm-engine:semantic-cache"))),
-            semantic_cache_tenant_max_entries=int(os.getenv("GOPI_SEMANTIC_CACHE_TENANT_MAX_ENTRIES", str(serving.get("semantic_cache_tenant_max_entries", 0)))),
-            oidc_enabled=_environment_flag("GOPI_OIDC_ENABLED", bool(serving.get("oidc_enabled", False))),
+            semantic_cache_redis_url=os.getenv("GOPI_SEMANTIC_CACHE_REDIS_URL")
+            or serving.get("semantic_cache_redis_url"),
+            semantic_cache_redis_prefix=os.getenv(
+                "GOPI_SEMANTIC_CACHE_REDIS_PREFIX",
+                str(
+                    serving.get(
+                        "semantic_cache_redis_prefix", "llm-engine:semantic-cache"
+                    )
+                ),
+            ),
+            semantic_cache_tenant_max_entries=int(
+                os.getenv(
+                    "GOPI_SEMANTIC_CACHE_TENANT_MAX_ENTRIES",
+                    str(serving.get("semantic_cache_tenant_max_entries", 0)),
+                )
+            ),
+            oidc_enabled=_environment_flag(
+                "GOPI_OIDC_ENABLED", bool(serving.get("oidc_enabled", False))
+            ),
             oidc_issuer=os.getenv("GOPI_OIDC_ISSUER") or serving.get("oidc_issuer"),
-            oidc_audience=os.getenv("GOPI_OIDC_AUDIENCE") or serving.get("oidc_audience"),
-            oidc_jwks_url=os.getenv("GOPI_OIDC_JWKS_URL") or serving.get("oidc_jwks_url"),
-            oidc_hs256_secret=os.getenv("GOPI_OIDC_HS256_SECRET") or serving.get("oidc_hs256_secret"),
-            tenant_requests_per_minute=int(os.getenv("GOPI_TENANT_REQUESTS_PER_MINUTE", str(serving.get("tenant_requests_per_minute", 0)))),
-            otel_enabled=_environment_flag("GOPI_OTEL_ENABLED", bool(serving.get("otel_enabled", False))),
-            otel_endpoint=os.getenv("GOPI_OTEL_ENDPOINT") or serving.get("otel_endpoint"),
-            platform_db_path=os.getenv("GOPI_PLATFORM_DB", str(serving.get("platform_db_path", "data/cache/openai-platform.sqlite3"))),
-            platform_files_dir=os.getenv("GOPI_PLATFORM_FILES_DIR", str(serving.get("platform_files_dir", "data/cache/openai-files"))),
-            lora_adapter_root=os.getenv("GOPI_LORA_ADAPTER_ROOT", str(serving.get("lora_adapter_root", "adapters"))),
+            oidc_audience=os.getenv("GOPI_OIDC_AUDIENCE")
+            or serving.get("oidc_audience"),
+            oidc_jwks_url=os.getenv("GOPI_OIDC_JWKS_URL")
+            or serving.get("oidc_jwks_url"),
+            oidc_hs256_secret=os.getenv("GOPI_OIDC_HS256_SECRET")
+            or serving.get("oidc_hs256_secret"),
+            tenant_requests_per_minute=int(
+                os.getenv(
+                    "GOPI_TENANT_REQUESTS_PER_MINUTE",
+                    str(serving.get("tenant_requests_per_minute", 0)),
+                )
+            ),
+            otel_enabled=_environment_flag(
+                "GOPI_OTEL_ENABLED", bool(serving.get("otel_enabled", False))
+            ),
+            otel_endpoint=os.getenv("GOPI_OTEL_ENDPOINT")
+            or serving.get("otel_endpoint"),
+            platform_db_path=os.getenv(
+                "GOPI_PLATFORM_DB",
+                str(
+                    serving.get(
+                        "platform_db_path", "data/cache/openai-platform.sqlite3"
+                    )
+                ),
+            ),
+            platform_files_dir=os.getenv(
+                "GOPI_PLATFORM_FILES_DIR",
+                str(serving.get("platform_files_dir", "data/cache/openai-files")),
+            ),
+            lora_adapter_root=os.getenv(
+                "GOPI_LORA_ADAPTER_ROOT",
+                str(serving.get("lora_adapter_root", "adapters")),
+            ),
             webhook_url=os.getenv("GOPI_WEBHOOK_URL") or serving.get("webhook_url"),
-            webhook_secret=os.getenv("GOPI_WEBHOOK_SECRET") or serving.get("webhook_secret"),
+            webhook_secret=os.getenv("GOPI_WEBHOOK_SECRET")
+            or serving.get("webhook_secret"),
         )
 
 
@@ -343,14 +440,18 @@ class AuditLog:
     def __init__(self, capacity: int) -> None:
         self._events: deque[dict[str, str | int]] = deque(maxlen=capacity)
 
-    def record(self, *, request_id: str, method: str, path: str, status_code: int) -> None:
-        self._events.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "request_id": request_id,
-            "method": method,
-            "path": path,
-            "status_code": status_code,
-        })
+    def record(
+        self, *, request_id: str, method: str, path: str, status_code: int
+    ) -> None:
+        self._events.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "request_id": request_id,
+                "method": method,
+                "path": path,
+                "status_code": status_code,
+            }
+        )
 
     def events(self) -> list[dict[str, str | int]]:
         return [dict(event) for event in self._events]
@@ -358,7 +459,11 @@ class AuditLog:
 
 def _session_context_usage(store, session_id: str, *, reserve_tokens: int) -> dict:
     """Return tokenizer-measured session capacity without exposing its content."""
-    if not isinstance(reserve_tokens, int) or isinstance(reserve_tokens, bool) or reserve_tokens < 0:
+    if (
+        not isinstance(reserve_tokens, int)
+        or isinstance(reserve_tokens, bool)
+        or reserve_tokens < 0
+    ):
         raise ValueError("reserve_tokens must be a non-negative integer")
     if reserve_tokens >= store.max_tokens:
         raise ValueError("reserve_tokens must be smaller than the context window")
@@ -370,8 +475,7 @@ def _session_context_usage(store, session_id: str, *, reserve_tokens: int) -> di
         if not items:
             return 0
         text = "".join(
-            f"<|{message.role}|>\n{message.content}\n<|end|>\n"
-            for message in items
+            f"<|{message.role}|>\n{message.content}\n<|end|>\n" for message in items
         )
         return len(tokenizer.encode(text, add_bos=False, allowed_special="all"))
 
@@ -389,11 +493,17 @@ def _session_context_usage(store, session_id: str, *, reserve_tokens: int) -> di
         "files": 0,
         "tool_results": 0,
     }
-    used_tokens = len(tokenizer.encode(
-        "".join(f"<|{message.role}|>\n{message.content}\n<|end|>\n" for message in messages)
-        + "<|assistant|>\n",
-        add_bos=True, allowed_special="all",
-    ))
+    used_tokens = len(
+        tokenizer.encode(
+            "".join(
+                f"<|{message.role}|>\n{message.content}\n<|end|>\n"
+                for message in messages
+            )
+            + "<|assistant|>\n",
+            add_bos=True,
+            allowed_special="all",
+        )
+    )
     available = max(0, store.max_tokens - used_tokens - reserve_tokens)
     return {
         "session_id": session_id,
@@ -414,7 +524,14 @@ def _validate_session_id_value(session_id: str) -> None:
         )
 
 
-async def _generate_with_disconnect(runtime: ServingRuntime, request: Request, generation_request: GenerateRequest, *, request_id: str | None = None, registry: CancellationRegistry | None = None):
+async def _generate_with_disconnect(
+    runtime: ServingRuntime,
+    request: Request,
+    generation_request: GenerateRequest,
+    *,
+    request_id: str | None = None,
+    registry: CancellationRegistry | None = None,
+):
     task = asyncio.create_task(runtime.generate(generation_request))
     if request_id and registry:
         registry.register(request_id, task)
@@ -442,15 +559,19 @@ def _openai_logprobs_payload(records) -> dict | None:
     return {"content": list(records), "refusal": None}
 
 
-def _bind_generation_identity(request: GenerateRequest, http_request: Request) -> GenerateRequest:
+def _bind_generation_identity(
+    request: GenerateRequest, http_request: Request
+) -> GenerateRequest:
     principal = getattr(http_request.state, "principal", None)
     if principal is None:
         return request
-    return request.model_copy(update={
-        "tenant_id": principal.tenant_id,
-        "user_id": principal.subject,
-        "route": request.route or http_request.url.path,
-    })
+    return request.model_copy(
+        update={
+            "tenant_id": principal.tenant_id,
+            "user_id": principal.subject,
+            "route": request.route or http_request.url.path,
+        }
+    )
 
 
 def _choice_generation_request(base: GenerateRequest, index: int) -> GenerateRequest:
@@ -482,45 +603,78 @@ def create_app(
     semantic_cache = None
     production_semantic_cache = None
     if settings.semantic_cache_enabled and settings.semantic_cache_redis_url:
-        redis_backend = RedisSemanticCacheBackend(RedisCacheConfig(
-            url=settings.semantic_cache_redis_url, key_prefix=settings.semantic_cache_redis_prefix,
-            quota=CacheQuota(max_entries=settings.semantic_cache_tenant_max_entries),
-        ))
+        redis_backend = RedisSemanticCacheBackend(
+            RedisCacheConfig(
+                url=settings.semantic_cache_redis_url,
+                key_prefix=settings.semantic_cache_redis_prefix,
+                quota=CacheQuota(
+                    max_entries=settings.semantic_cache_tenant_max_entries
+                ),
+            )
+        )
         production_semantic_cache = ProductionSemanticCache(
             redis_backend=redis_backend,
-            quota_manager=TenantQuotaManager(CacheQuota(max_entries=settings.semantic_cache_tenant_max_entries)),
-            threshold_policy=ThresholdPolicy(default=settings.semantic_cache_similarity_threshold),
+            quota_manager=TenantQuotaManager(
+                CacheQuota(max_entries=settings.semantic_cache_tenant_max_entries)
+            ),
+            threshold_policy=ThresholdPolicy(
+                default=settings.semantic_cache_similarity_threshold
+            ),
             stale_while_revalidate_seconds=settings.semantic_cache_ttl_seconds,
             embedding_service=embedding_service,
         )
     elif settings.semantic_cache_enabled:
         semantic_cache = SemanticResponseCache(
             SemanticCacheConfig(
-                enabled=True, capacity=settings.semantic_cache_capacity,
+                enabled=True,
+                capacity=settings.semantic_cache_capacity,
                 similarity_threshold=settings.semantic_cache_similarity_threshold,
-                ttl_seconds=settings.semantic_cache_ttl_seconds, namespace=settings.semantic_cache_namespace,
+                ttl_seconds=settings.semantic_cache_ttl_seconds,
+                namespace=settings.semantic_cache_namespace,
                 sqlite_path=settings.semantic_cache_store_path,
                 allow_nondeterministic=settings.semantic_cache_allow_nondeterministic,
-            ), embedding_service=embedding_service,
+            ),
+            embedding_service=embedding_service,
         )
     runtime = ServingRuntime(
         backend if backend is not None else backend_from_environment(),
-        max_concurrency=settings.max_concurrency, queue_timeout_seconds=settings.queue_timeout_seconds,
-        generation_timeout_seconds=settings.generation_timeout_seconds, continuous_streams=settings.continuous_streams,
-        semantic_cache=semantic_cache, production_semantic_cache=production_semantic_cache,
+        max_concurrency=settings.max_concurrency,
+        queue_timeout_seconds=settings.queue_timeout_seconds,
+        generation_timeout_seconds=settings.generation_timeout_seconds,
+        continuous_streams=settings.continuous_streams,
+        semantic_cache=semantic_cache,
+        production_semantic_cache=production_semantic_cache,
     )
     cancellation_registry = CancellationRegistry()
     lifecycle = ModelLifecycleManager(runtime.backend)
-    oidc = OIDCAuthenticator(OIDCConfig(
-        enabled=settings.oidc_enabled, issuer=settings.oidc_issuer, audience=settings.oidc_audience,
-        jwks_url=settings.oidc_jwks_url, hs256_secret=settings.oidc_hs256_secret,
-        algorithms=(("HS256",) if settings.oidc_hs256_secret and not settings.oidc_jwks_url else ("RS256",)),
-    )) if settings.oidc_enabled else None
+    oidc = (
+        OIDCAuthenticator(
+            OIDCConfig(
+                enabled=settings.oidc_enabled,
+                issuer=settings.oidc_issuer,
+                audience=settings.oidc_audience,
+                jwks_url=settings.oidc_jwks_url,
+                hs256_secret=settings.oidc_hs256_secret,
+                algorithms=(
+                    ("HS256",)
+                    if settings.oidc_hs256_secret and not settings.oidc_jwks_url
+                    else ("RS256",)
+                ),
+            )
+        )
+        if settings.oidc_enabled
+        else None
+    )
     tenant_quota = TenantQuotaLimiter(settings.tenant_requests_per_minute)
-    tracer = configure_opentelemetry(enabled=settings.otel_enabled, service_name=SERVICE_NAME, endpoint=settings.otel_endpoint)
+    tracer = configure_opentelemetry(
+        enabled=settings.otel_enabled,
+        service_name=SERVICE_NAME,
+        endpoint=settings.otel_endpoint,
+    )
     platform_store = (
         RedisPlatformStore(
-            settings.distributed_state_redis_url, settings.platform_files_dir,
+            settings.distributed_state_redis_url,
+            settings.platform_files_dir,
             key_prefix=f"{settings.distributed_state_prefix}:platform",
         )
         if settings.distributed_state_redis_url
@@ -532,10 +686,17 @@ def create_app(
             key_prefix=f"{settings.distributed_state_prefix}:idempotency",
         )
         if settings.distributed_state_redis_url
-        else IdempotencyStore(Path(settings.platform_db_path).with_name("idempotency.sqlite3"))
+        else IdempotencyStore(
+            Path(settings.platform_db_path).with_name("idempotency.sqlite3")
+        )
     )
     lora_registry = LoRAAdapterRegistry()
-    webhook_delivery = WebhookDelivery(WebhookConfig(settings.webhook_url, settings.webhook_secret)) if settings.webhook_url and settings.webhook_secret else None
+    webhook_delivery = (
+        WebhookDelivery(WebhookConfig(settings.webhook_url, settings.webhook_secret))
+        if settings.webhook_url and settings.webhook_secret
+        else None
+    )
+
     def application_model_config() -> dict:
         candidate = getattr(runtime.backend, "backend", runtime.backend)
         path = getattr(candidate, "model_config", None)
@@ -544,7 +705,9 @@ def create_app(
     application_capabilities = lambda: discover_capabilities(
         runtime.backend,
         model_config=application_model_config(),
-        validation_evidence=load_capability_evidence(os.getenv("GOPI_CAPABILITY_EVIDENCE", "reports/capability_evidence.json")),
+        validation_evidence=load_capability_evidence(
+            os.getenv("GOPI_CAPABILITY_EVIDENCE", "reports/capability_evidence.json")
+        ),
     )
 
     @asynccontextmanager
@@ -584,11 +747,14 @@ def create_app(
     application.state.workspace = workspace
     rate_limiter = (
         RedisRateLimiter(
-            settings.distributed_state_redis_url, settings.requests_per_minute,
+            settings.distributed_state_redis_url,
+            settings.requests_per_minute,
             key_prefix=f"{settings.distributed_state_prefix}:rate",
         )
         if settings.distributed_state_redis_url
-        else SQLiteRateLimiter(settings.rate_limit_store_path, settings.requests_per_minute)
+        else SQLiteRateLimiter(
+            settings.rate_limit_store_path, settings.requests_per_minute
+        )
         if settings.rate_limit_store_path
         else InMemoryRateLimiter(settings.requests_per_minute)
     )
@@ -603,7 +769,9 @@ def create_app(
     application.state.lora_registry = lora_registry
     application.state.webhook_delivery = webhook_delivery
 
-    application.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.allowed_hosts))
+    application.add_middleware(
+        TrustedHostMiddleware, allowed_hosts=list(settings.allowed_hosts)
+    )
 
     if settings.cors_origins:
         application.add_middleware(
@@ -611,21 +779,29 @@ def create_app(
             allow_origins=list(settings.cors_origins),
             allow_credentials=False,
             allow_methods=["GET", "POST", "DELETE"],
-            allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Admin-API-Key", "X-Tenant-ID", "Idempotency-Key"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "X-Request-ID",
+                "X-Admin-API-Key",
+                "X-Tenant-ID",
+                "Idempotency-Key",
+            ],
             expose_headers=["X-Request-ID"],
         )
 
     @application.middleware("http")
     async def request_id_middleware(request: Request, call_next):
         supplied = request.headers.get("X-Request-ID", "")
-        request_id = supplied if REQUEST_ID_PATTERN.fullmatch(supplied) else uuid.uuid4().hex
+        request_id = (
+            supplied if REQUEST_ID_PATTERN.fullmatch(supplied) else uuid.uuid4().hex
+        )
         request.state.request_id = request_id
         # CORS preflight requests must reach CORSMiddleware without bearer auth;
         # the actual DELETE/POST/GET request remains protected normally.
         protected_path = request.method != "OPTIONS" and (
-            request.url.path.startswith("/v1/") or (
-                settings.protect_metrics and request.url.path == "/metrics"
-            )
+            request.url.path.startswith("/v1/")
+            or (settings.protect_metrics and request.url.path == "/metrics")
         )
         if protected_path:
             bearer = request.headers.get("Authorization", "").removeprefix("Bearer ")
@@ -634,51 +810,112 @@ def create_app(
                 try:
                     principal = oidc.authenticate(bearer)
                 except Exception:
-                    response = _error_response(request, "unauthorized", "valid OIDC bearer token required", 401)
+                    response = _error_response(
+                        request, "unauthorized", "valid OIDC bearer token required", 401
+                    )
                     response.headers["X-Request-ID"] = request_id
-                    _add_security_headers(response, is_https=request.url.scheme == "https")
+                    _add_security_headers(
+                        response, is_https=request.url.scheme == "https"
+                    )
                     return response
             elif settings.api_key:
                 if not secrets.compare_digest(bearer, settings.api_key):
-                    response = _error_response(request, "unauthorized", "valid bearer token required", 401)
+                    response = _error_response(
+                        request, "unauthorized", "valid bearer token required", 401
+                    )
                     response.headers["X-Request-ID"] = request_id
-                    _add_security_headers(response, is_https=request.url.scheme == "https")
-                    audit_log.record(request_id=request_id, method=request.method, path=request.url.path, status_code=response.status_code)
+                    _add_security_headers(
+                        response, is_https=request.url.scheme == "https"
+                    )
+                    audit_log.record(
+                        request_id=request_id,
+                        method=request.method,
+                        path=request.url.path,
+                        status_code=response.status_code,
+                    )
                     return response
-                principal = AuthPrincipal(subject="api-key", tenant_id=request.headers.get("X-Tenant-ID", "default"), roles=("developer",))
+                principal = AuthPrincipal(
+                    subject="api-key",
+                    tenant_id=request.headers.get("X-Tenant-ID", "default"),
+                    roles=("developer",),
+                )
             else:
-                principal = AuthPrincipal(subject="anonymous", tenant_id=request.headers.get("X-Tenant-ID", "default"), roles=("user",))
+                principal = AuthPrincipal(
+                    subject="anonymous",
+                    tenant_id=request.headers.get("X-Tenant-ID", "default"),
+                    roles=("user",),
+                )
             request.state.principal = principal
             request.state.tenant_id = principal.tenant_id
             if not tenant_quota.allow(principal.tenant_id):
-                response = _error_response(request, "tenant_rate_limit_exceeded", "tenant request quota exceeded", 429)
+                response = _error_response(
+                    request,
+                    "tenant_rate_limit_exceeded",
+                    "tenant request quota exceeded",
+                    429,
+                )
                 response.headers["X-Request-ID"] = request_id
                 _add_security_headers(response, is_https=request.url.scheme == "https")
                 return response
             if settings.requests_per_minute > 0:
-                identity = principal.subject if principal.subject != "anonymous" else (request.client.host if request.client else "unknown")
+                identity = (
+                    principal.subject
+                    if principal.subject != "anonymous"
+                    else (request.client.host if request.client else "unknown")
+                )
                 if not await rate_limiter.allow(identity):
-                    response = _error_response(request, "rate_limit_exceeded", "request rate limit exceeded", 429)
+                    response = _error_response(
+                        request,
+                        "rate_limit_exceeded",
+                        "request rate limit exceeded",
+                        429,
+                    )
                     response.headers["X-Request-ID"] = request_id
-                    _add_security_headers(response, is_https=request.url.scheme == "https")
-                    audit_log.record(request_id=request_id, method=request.method, path=request.url.path, status_code=response.status_code)
+                    _add_security_headers(
+                        response, is_https=request.url.scheme == "https"
+                    )
+                    audit_log.record(
+                        request_id=request_id,
+                        method=request.method,
+                        path=request.url.path,
+                        status_code=response.status_code,
+                    )
                     return response
-        with maybe_span(tracer, "http.request", method=request.method, route=request.url.path, tenant=getattr(request.state, "tenant_id", None)):
+        with maybe_span(
+            tracer,
+            "http.request",
+            method=request.method,
+            route=request.url.path,
+            tenant=getattr(request.state, "tenant_id", None),
+        ):
             response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         _add_security_headers(response, is_https=request.url.scheme == "https")
         if protected_path:
-            audit_log.record(request_id=request_id, method=request.method,
-                             path=request.url.path, status_code=response.status_code)
+            audit_log.record(
+                request_id=request_id,
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+            )
         return response
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, error: RequestValidationError):
         first = error.errors()[0] if error.errors() else {}
         location = first.get("loc", ())
-        field = ".".join(str(part) for part in location if part not in {"body", "query", "path", "header"}) or "request"
+        field = (
+            ".".join(
+                str(part)
+                for part in location
+                if part not in {"body", "query", "path", "header"}
+            )
+            or "request"
+        )
         message = str(first.get("msg", "invalid request")).removeprefix("Value error, ")
-        return _error_response(request, "validation_error", f"Invalid {field}: {message}.", 422)
+        return _error_response(
+            request, "validation_error", f"Invalid {field}: {message}.", 422
+        )
 
     @application.exception_handler(ServingError)
     async def serving_error_handler(request: Request, error: ServingError):
@@ -694,7 +931,10 @@ def create_app(
     async def unexpected_error_handler(request: Request, error: Exception):
         logger.exception("unhandled serving error", exc_info=error)
         return _error_response(
-            request, "internal_error", "internal server error", status.HTTP_500_INTERNAL_SERVER_ERROR
+            request,
+            "internal_error",
+            "internal server error",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     def _require_admin(request: Request):
@@ -703,11 +943,20 @@ def create_app(
         if principal is not None and RBACPolicy.allowed(principal, "admin"):
             return None
         admin_key = settings.admin_api_key
-        supplied = request.headers.get("X-Admin-API-Key") or request.headers.get("Authorization", "").removeprefix("Bearer ")
+        supplied = request.headers.get("X-Admin-API-Key") or request.headers.get(
+            "Authorization", ""
+        ).removeprefix("Bearer ")
         if not admin_key:
-            return _error_response(request, "admin_auth_not_configured", "configure GOPI_ADMIN_API_KEY or OIDC admin role before enabling admin operations", 503)
+            return _error_response(
+                request,
+                "admin_auth_not_configured",
+                "configure GOPI_ADMIN_API_KEY or OIDC admin role before enabling admin operations",
+                503,
+            )
         if not supplied or not secrets.compare_digest(supplied, admin_key):
-            return _error_response(request, "admin_unauthorized", "valid admin credentials required", 403)
+            return _error_response(
+                request, "admin_unauthorized", "valid admin credentials required", 403
+            )
         return None
 
     def _record_admin_lifecycle(request: Request, status_code: int) -> None:
@@ -741,9 +990,16 @@ def create_app(
             return payload
         return JSONResponse(status_code=503, content=payload.model_dump(mode="json"))
 
-    @application.get("/ready", response_model=HealthResponse, responses={503: {"model": HealthResponse}}, tags=["health"])
+    @application.get(
+        "/ready",
+        response_model=HealthResponse,
+        responses={503: {"model": HealthResponse}},
+        tags=["health"],
+    )
     async def readiness_alias():
-        payload = _health(settings, runtime, status_value="ready" if runtime.ready else "not_ready")
+        payload = _health(
+            settings, runtime, status_value="ready" if runtime.ready else "not_ready"
+        )
         if runtime.ready:
             return payload
         return JSONResponse(status_code=503, content=payload.model_dump(mode="json"))
@@ -756,42 +1012,81 @@ def create_app(
     async def semantic_cache_status(request: Request):
         denied = _require_admin(request)
         if denied is not None:
-            _record_admin_lifecycle(request, denied.status_code); return denied
-        enabled = runtime.semantic_cache is not None or runtime.production_semantic_cache is not None
-        payload = {"enabled": enabled, "distributed": runtime.production_semantic_cache is not None}
-        if runtime.semantic_cache is not None: payload.update(runtime.semantic_cache.metrics())
-        if runtime.production_semantic_cache is not None: payload.update(runtime.production_semantic_cache.metrics())
-        _record_admin_lifecycle(request, 200); return payload
+            _record_admin_lifecycle(request, denied.status_code)
+            return denied
+        enabled = (
+            runtime.semantic_cache is not None
+            or runtime.production_semantic_cache is not None
+        )
+        payload = {
+            "enabled": enabled,
+            "distributed": runtime.production_semantic_cache is not None,
+        }
+        if runtime.semantic_cache is not None:
+            payload.update(runtime.semantic_cache.metrics())
+        if runtime.production_semantic_cache is not None:
+            payload.update(runtime.production_semantic_cache.metrics())
+        _record_admin_lifecycle(request, 200)
+        return payload
 
     @application.delete("/admin/cache/semantic", tags=["operations"])
-    async def semantic_cache_purge(request: Request, tenant: str = "default", exact_key: str | None = None):
+    async def semantic_cache_purge(
+        request: Request, tenant: str = "default", exact_key: str | None = None
+    ):
         denied = _require_admin(request)
         if denied is not None:
-            _record_admin_lifecycle(request, denied.status_code); return denied
+            _record_admin_lifecycle(request, denied.status_code)
+            return denied
         if runtime.production_semantic_cache is not None:
-            purged = await runtime.production_semantic_cache.purge(tenant, exact_key=exact_key)
+            purged = await runtime.production_semantic_cache.purge(
+                tenant, exact_key=exact_key
+            )
         else:
-            purged = runtime.semantic_cache.purge() if runtime.semantic_cache is not None else 0
+            purged = (
+                runtime.semantic_cache.purge()
+                if runtime.semantic_cache is not None
+                else 0
+            )
         _record_admin_lifecycle(request, 200)
-        return {"enabled": runtime.semantic_cache is not None or runtime.production_semantic_cache is not None, "purged": purged, "tenant": tenant}
+        return {
+            "enabled": runtime.semantic_cache is not None
+            or runtime.production_semantic_cache is not None,
+            "purged": purged,
+            "tenant": tenant,
+        }
 
     @application.post("/admin/cache/semantic/warm", tags=["operations"])
     async def semantic_cache_warm(request: Request, body: dict = Body(...)):
         denied = _require_admin(request)
-        if denied is not None: return denied
+        if denied is not None:
+            return denied
         if runtime.production_semantic_cache is None:
             raise HTTPException(409, "distributed semantic cache is not configured")
         tenant = str(body.get("tenant") or "default")
         entries = []
         for item in body.get("entries", []):
-            entries.append((str(item["key"]), dict(item["payload"]), float(item.get("ttl_seconds", settings.semantic_cache_ttl_seconds))))
-        return {"tenant": tenant, "warmed": await runtime.production_semantic_cache.warm(tenant, entries)}
+            entries.append(
+                (
+                    str(item["key"]),
+                    dict(item["payload"]),
+                    float(item.get("ttl_seconds", settings.semantic_cache_ttl_seconds)),
+                )
+            )
+        return {
+            "tenant": tenant,
+            "warmed": await runtime.production_semantic_cache.warm(tenant, entries),
+        }
 
     @application.delete("/admin/cache/semantic/negative", tags=["operations"])
     async def semantic_cache_negative_clear(request: Request, key: str | None = None):
         denied = _require_admin(request)
-        if denied is not None: return denied
-        cleared = runtime.production_semantic_cache.clear_negative(key) if runtime.production_semantic_cache is not None else 0
+        if denied is not None:
+            return denied
+        cleared = (
+            runtime.production_semantic_cache.clear_negative(key)
+            if runtime.production_semantic_cache is not None
+            else 0
+        )
         return {"cleared": cleared}
 
     @application.post(
@@ -805,7 +1100,9 @@ def create_app(
         },
         tags=["generation"],
     )
-    async def generate(request: GenerateRequest, http_request: Request) -> GenerateResponse:
+    async def generate(
+        request: GenerateRequest, http_request: Request
+    ) -> GenerateResponse:
         request = _bind_generation_identity(request, http_request)
         result = await runtime.generate(request)
         prompt_tokens = result.prompt_tokens
@@ -836,13 +1133,17 @@ def create_app(
     )
     async def list_openai_models() -> OpenAIModelList:
         capabilities = application_capabilities()
-        return OpenAIModelList(data=[OpenAIModel(
-            id=settings.model_name,
-            created=0,
-            capabilities=capabilities.as_dict(),
-            architecture=capabilities.architecture,
-            context_length=capabilities.context_length,
-        )])
+        return OpenAIModelList(
+            data=[
+                OpenAIModel(
+                    id=settings.model_name,
+                    created=0,
+                    capabilities=capabilities.as_dict(),
+                    architecture=capabilities.architecture,
+                    context_length=capabilities.context_length,
+                )
+            ]
+        )
 
     @application.post(
         "/v1/embeddings",
@@ -864,13 +1165,17 @@ def create_app(
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def embedding_models():
-        return {"data": [{
-            "id": settings.embedding_model_name,
-            "object": "model",
-            "embedding_dimension": embedding_service.dimension,
-            "dedicated": True,
-            "backend": type(embedding_service.encoder).__name__,
-        }]}
+        return {
+            "data": [
+                {
+                    "id": settings.embedding_model_name,
+                    "object": "model",
+                    "embedding_dimension": embedding_service.dimension,
+                    "dedicated": True,
+                    "backend": type(embedding_service.encoder).__name__,
+                }
+            ]
+        }
 
     @application.get(
         "/v1/models/{model_id}/capabilities",
@@ -892,24 +1197,38 @@ def create_app(
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def model_resources(
-        model_id: str, request: Request, context_length: int | None = None,
-        batch_size: int = 1, weight_precision: str = "bf16",
-        kv_precision: str = "bf16", memory_gib: float | None = None,
+        model_id: str,
+        request: Request,
+        context_length: int | None = None,
+        batch_size: int = 1,
+        weight_precision: str = "bf16",
+        kv_precision: str = "bf16",
+        memory_gib: float | None = None,
     ):
         if model_id != settings.model_name:
             return _error_response(request, "model_not_found", "unknown model", 404)
         config = application_model_config()
         if not config:
-            return _error_response(request, "resource_plan_unavailable", "model configuration is unavailable", 503)
+            return _error_response(
+                request,
+                "resource_plan_unavailable",
+                "model configuration is unavailable",
+                503,
+            )
         try:
-            budget = None if memory_gib is None else int(float(memory_gib) * 1024 ** 3)
+            budget = None if memory_gib is None else int(float(memory_gib) * 1024**3)
             estimate = estimate_inference_memory(
-                config, context_length=context_length, batch_size=batch_size,
-                weight_precision=weight_precision, kv_precision=kv_precision,
+                config,
+                context_length=context_length,
+                batch_size=batch_size,
+                weight_precision=weight_precision,
+                kv_precision=kv_precision,
                 memory_budget_bytes=budget,
             )
             matrix = deployment_matrix(
-                config, context_length=estimate.context_length, batch_size=batch_size,
+                config,
+                context_length=estimate.context_length,
+                batch_size=batch_size,
                 memory_budget_bytes=budget,
             )
         except (TypeError, ValueError) as error:
@@ -926,9 +1245,13 @@ def create_app(
         tags=["openai-compatible"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
-    async def openai_chat_completions(request: OpenAIChatCompletionRequest, http_request: Request):
+    async def openai_chat_completions(
+        request: OpenAIChatCompletionRequest, http_request: Request
+    ):
         try:
-            generation_request = _bind_generation_identity(request.generation_request(settings.model_name), http_request)
+            generation_request = _bind_generation_identity(
+                request.generation_request(settings.model_name), http_request
+            )
         except ValueError as error:
             raise InvalidGenerationRequestError(str(error)) from error
         completion_id = f"chatcmpl-{uuid.uuid4().hex}"
@@ -936,11 +1259,16 @@ def create_app(
 
         if request.n > 1:
             if request.stream:
+
                 async def multi_events():
-                    cancellation_registry.register(completion_id, asyncio.current_task())
+                    cancellation_registry.register(
+                        completion_id, asyncio.current_task()
+                    )
                     try:
                         for choice_index in range(request.n):
-                            choice_request = _choice_generation_request(generation_request, choice_index)
+                            choice_request = _choice_generation_request(
+                                generation_request, choice_index
+                            )
                             yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': settings.model_name, 'choices': [{'index': choice_index, 'delta': {'role': 'assistant'}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
                             finish_reason = "stop"
                             async for event in runtime.stream(choice_request):
@@ -953,50 +1281,79 @@ def create_app(
                                     delta["content"] = event.token
                                 if event.tool_calls:
                                     delta["tool_calls"] = [
-                                        {"index": tool_index, **call.model_dump(mode="json")}
-                                        for tool_index, call in enumerate(event.tool_calls)
+                                        {
+                                            "index": tool_index,
+                                            **call.model_dump(mode="json"),
+                                        }
+                                        for tool_index, call in enumerate(
+                                            event.tool_calls
+                                        )
                                     ]
                                 if event.finish_reason is not None:
                                     finish_reason = event.finish_reason.value
                                 if delta or event.logprob is not None:
                                     choice = {
-                                        "index": choice_index, "delta": delta, "finish_reason": None,
+                                        "index": choice_index,
+                                        "delta": delta,
+                                        "finish_reason": None,
                                     }
                                     if request.logprobs:
                                         choice["logprobs"] = _openai_logprobs_payload(
-                                            [event.logprob] if event.logprob is not None else []
+                                            [event.logprob]
+                                            if event.logprob is not None
+                                            else []
                                         )
                                     yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': settings.model_name, 'choices': [choice]}, ensure_ascii=False)}\n\n"
                             yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': settings.model_name, 'choices': [{'index': choice_index, 'delta': {}, 'finish_reason': finish_reason}]}, ensure_ascii=False)}\n\n"
                         yield "data: [DONE]\n\n"
                     finally:
                         cancellation_registry.unregister(completion_id)
+
                 return StreamingResponse(multi_events(), media_type="text/event-stream")
 
             results = []
             for choice_index in range(request.n):
-                choice_request = _choice_generation_request(generation_request, choice_index)
+                choice_request = _choice_generation_request(
+                    generation_request, choice_index
+                )
                 result = await _generate_with_disconnect(
-                    runtime, http_request, choice_request, request_id=completion_id, registry=cancellation_registry
+                    runtime,
+                    http_request,
+                    choice_request,
+                    request_id=completion_id,
+                    registry=cancellation_registry,
                 )
                 message = {
                     "role": "assistant",
-                    "content": (result.text or None) if result.tool_calls else result.text,
+                    "content": (result.text or None)
+                    if result.tool_calls
+                    else result.text,
                 }
                 if result.reasoning_content:
                     message["reasoning_content"] = result.reasoning_content
                 if result.tool_calls:
-                    message["tool_calls"] = [call.model_dump(mode="json") for call in result.tool_calls]
+                    message["tool_calls"] = [
+                        call.model_dump(mode="json") for call in result.tool_calls
+                    ]
                 if result.structured_output_valid is False:
-                    message = {"role": "assistant", "content": None, "refusal": result.structured_output_error}
+                    message = {
+                        "role": "assistant",
+                        "content": None,
+                        "refusal": result.structured_output_error,
+                    }
                 elif result.tool_call_error and not result.tool_calls:
                     message["refusal"] = result.tool_call_error
                 choice = {
                     "index": choice_index,
                     "message": message,
                     "finish_reason": (
-                        "length" if result.structured_output_valid is False
-                        else ("error" if result.tool_call_error and not result.tool_calls else result.finish_reason.value)
+                        "length"
+                        if result.structured_output_valid is False
+                        else (
+                            "error"
+                            if result.tool_call_error and not result.tool_calls
+                            else result.finish_reason.value
+                        )
                     ),
                 }
                 if request.logprobs:
@@ -1007,30 +1364,42 @@ def create_app(
             cached_tokens = sum(item.cached_tokens for _, item in results)
             reasoning_tokens = sum(item.reasoning_tokens for _, item in results)
             return {
-                "id": completion_id, "object": "chat.completion", "created": created,
-                "model": settings.model_name, "choices": [choice for choice, _ in results],
+                "id": completion_id,
+                "object": "chat.completion",
+                "created": created,
+                "model": settings.model_name,
+                "choices": [choice for choice, _ in results],
                 "usage": {
-                    "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
                     "total_tokens": prompt_tokens + completion_tokens,
-                    "cached_tokens": cached_tokens, "reasoning_tokens": reasoning_tokens,
+                    "cached_tokens": cached_tokens,
+                    "reasoning_tokens": reasoning_tokens,
                 },
                 "incomplete_details": None,
             }
 
         if request.stream:
+
             async def events():
                 cancellation_registry.register(completion_id, asyncio.current_task())
                 structured_parts: list[str] = []
-                is_structured = isinstance(generation_request.response_format, dict) and generation_request.response_format.get("type") == "json_schema"
+                is_structured = (
+                    isinstance(generation_request.response_format, dict)
+                    and generation_request.response_format.get("type") == "json_schema"
+                )
                 start = {
                     "id": completion_id,
                     "object": "chat.completion.chunk",
                     "created": created,
                     "model": settings.model_name,
-                    "choices": [{
-                        "index": 0, "delta": {"role": "assistant"},
-                        "finish_reason": None,
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant"},
+                            "finish_reason": None,
+                        }
+                    ],
                 }
                 yield f"data: {json.dumps(start, ensure_ascii=False)}\n\n"
                 finish_reason = "stop"
@@ -1043,11 +1412,15 @@ def create_app(
                             "object": "chat.completion.chunk",
                             "created": created,
                             "model": settings.model_name,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {"reasoning_content": event.reasoning_token},
-                                "finish_reason": None,
-                            }],
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "reasoning_content": event.reasoning_token
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
                         }
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     if event.token:
@@ -1055,7 +1428,8 @@ def create_app(
                             structured_parts.append(event.token)
                             continue
                         choice = {
-                            "index": 0, "delta": {"content": event.token},
+                            "index": 0,
+                            "delta": {"content": event.token},
                             "finish_reason": None,
                         }
                         if request.logprobs:
@@ -1076,19 +1450,23 @@ def create_app(
                             "object": "chat.completion.chunk",
                             "created": created,
                             "model": settings.model_name,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {
-                                    "tool_calls": [
-                                        {
-                                            "index": index,
-                                            **call.model_dump(mode="json"),
-                                        }
-                                        for index, call in enumerate(event.tool_calls)
-                                    ]
-                                },
-                                "finish_reason": None,
-                            }],
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "tool_calls": [
+                                            {
+                                                "index": index,
+                                                **call.model_dump(mode="json"),
+                                            }
+                                            for index, call in enumerate(
+                                                event.tool_calls
+                                            )
+                                        ]
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
                         }
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     if event.finish_reason is not None:
@@ -1099,24 +1477,60 @@ def create_app(
                         make_spec,
                         validate_structured_output,
                     )
+
                     payload = generation_request.response_format["json_schema"]
                     try:
-                        spec = make_spec(name=str(payload.get("name", "response")), schema=payload["schema"], strict=bool(payload.get("strict", False)))
-                        validate_structured_output("".join(structured_parts).strip(), spec)
-                        chunk = {"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": settings.model_name, "choices": [{"index": 0, "delta": {"content": "".join(structured_parts).strip()}, "finish_reason": None}]}
+                        spec = make_spec(
+                            name=str(payload.get("name", "response")),
+                            schema=payload["schema"],
+                            strict=bool(payload.get("strict", False)),
+                        )
+                        validate_structured_output(
+                            "".join(structured_parts).strip(), spec
+                        )
+                        chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": settings.model_name,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "content": "".join(structured_parts).strip()
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     except StructuredOutputError as exc:
-                        chunk = {"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": settings.model_name, "choices": [{"index": 0, "delta": {"refusal": str(exc)}, "finish_reason": "length"}]}
+                        chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": settings.model_name,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"refusal": str(exc)},
+                                    "finish_reason": "length",
+                                }
+                            ],
+                        }
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                 done = {
                     "id": completion_id,
                     "object": "chat.completion.chunk",
                     "created": created,
                     "model": settings.model_name,
-                    "choices": [{
-                        "index": 0, "delta": {},
-                        "finish_reason": finish_reason,
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": finish_reason,
+                        }
+                    ],
                 }
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
@@ -1130,7 +1544,13 @@ def create_app(
 
             return StreamingResponse(safe_events(), media_type="text/event-stream")
 
-        result = await _generate_with_disconnect(runtime, http_request, generation_request, request_id=completion_id, registry=cancellation_registry)
+        result = await _generate_with_disconnect(
+            runtime,
+            http_request,
+            generation_request,
+            request_id=completion_id,
+            registry=cancellation_registry,
+        )
         structured_incomplete = result.structured_output_valid is False
         if not structured_incomplete:
             spec = parse_response_format(request.response_format)
@@ -1139,6 +1559,7 @@ def create_app(
                     StructuredOutputError,
                     validate_structured_output,
                 )
+
                 try:
                     validate_structured_output(result.text, spec)
                 except StructuredOutputError as exc:
@@ -1169,7 +1590,9 @@ def create_app(
         if result.reasoning_content:
             message["reasoning_content"] = result.reasoning_content
         if result.tool_calls:
-            message["tool_calls"] = [call.model_dump(mode="json") for call in result.tool_calls]
+            message["tool_calls"] = [
+                call.model_dump(mode="json") for call in result.tool_calls
+            ]
         if structured_incomplete:
             message = {
                 "role": "assistant",
@@ -1183,16 +1606,26 @@ def create_app(
             "object": "chat.completion",
             "created": created,
             "model": settings.model_name,
-            "choices": [{
-                "index": 0,
-                "message": message,
-                "finish_reason": (
-                    "length"
-                    if structured_incomplete
-                    else ("error" if tool_call_incomplete else result.finish_reason.value)
-                ),
-                **({"logprobs": _openai_logprobs_payload(result.logprobs)} if request.logprobs else {}),
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": message,
+                    "finish_reason": (
+                        "length"
+                        if structured_incomplete
+                        else (
+                            "error"
+                            if tool_call_incomplete
+                            else result.finish_reason.value
+                        )
+                    ),
+                    **(
+                        {"logprobs": _openai_logprobs_payload(result.logprobs)}
+                        if request.logprobs
+                        else {}
+                    ),
+                }
+            ],
             "usage": {
                 "prompt_tokens": result.prompt_tokens,
                 "completion_tokens": result.completion_tokens,
@@ -1200,7 +1633,9 @@ def create_app(
                 "cached_tokens": result.cached_tokens,
                 "reasoning_tokens": result.reasoning_tokens,
             },
-            "incomplete_details": ({"reason": incomplete_reason} if incomplete_reason else None),
+            "incomplete_details": (
+                {"reason": incomplete_reason} if incomplete_reason else None
+            ),
         }
 
     @application.post(
@@ -1222,30 +1657,65 @@ def create_app(
                 request.input,
                 asr=asr_provider,
             )
-            if "audio" in request.modalities and (tts_provider is None or not tts_provider.is_available()):
-                raise HTTPException(status_code=503, detail={"code": "provider_unavailable", "message": "audio output requires a configured and ready text-to-speech provider"})
+            if "audio" in request.modalities and (
+                tts_provider is None or not tts_provider.is_available()
+            ):
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "provider_unavailable",
+                        "message": "audio output requires a configured and ready text-to-speech provider",
+                    },
+                )
         except OmniError as exc:
-            raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "message": exc.message}) from exc
+            raise HTTPException(
+                status_code=exc.http_status,
+                detail={"code": exc.code, "message": exc.message},
+            ) from exc
         messages = prepared.messages
         latest = latest_text(messages)
         if not latest:
-            raise InvalidGenerationRequestError("input must contain non-empty text or supported media")
+            raise InvalidGenerationRequestError(
+                "input must contain non-empty text or supported media"
+            )
 
         generation_request = GenerateRequest(
-            prompt=latest, max_tokens=request.max_output_tokens, temperature=request.temperature,
-            top_k=request.top_k, top_p=request.top_p, min_p=request.min_p, seed=request.seed,
-            stop=([request.stop] if isinstance(request.stop, str) else list(request.stop or [])),
-            response_format=(request.response_format.model_dump(by_alias=True, mode="json") if request.response_format else None), reasoning_effort=request.reasoning_effort,
-            session_id=request.session_id, mode=request.mode, repetition_penalty=request.repetition_penalty,
-            no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
-            rag=request.rag, web_search=request.web_search, mcp=request.mcp, mcp_server=request.mcp_server,
-            chat_tools=[OpenAITool.model_validate(tool) for tool in request.tools], tool_choice=request.tool_choice,
+            prompt=latest,
+            max_tokens=request.max_output_tokens,
+            temperature=request.temperature,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            min_p=request.min_p,
+            seed=request.seed,
+            stop=(
+                [request.stop]
+                if isinstance(request.stop, str)
+                else list(request.stop or [])
+            ),
+            response_format=(
+                request.response_format.model_dump(by_alias=True, mode="json")
+                if request.response_format
+                else None
+            ),
+            reasoning_effort=request.reasoning_effort,
+            session_id=request.session_id,
+            mode=request.mode,
+            repetition_penalty=request.repetition_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            min_tokens=request.min_tokens,
+            rag=request.rag,
+            web_search=request.web_search,
+            mcp=request.mcp,
+            mcp_server=request.mcp_server,
+            chat_tools=[OpenAITool.model_validate(tool) for tool in request.tools],
+            tool_choice=request.tool_choice,
         )
         generation_request = _bind_generation_identity(generation_request, http_request)
         generation_request._chat_messages = messages
         response_id = f"resp_{uuid.uuid4().hex}"
         created = int(time.time())
         if request.stream:
+
             async def events():
                 cancellation_registry.register(response_id, asyncio.current_task())
                 try:
@@ -1258,34 +1728,60 @@ def create_app(
                     async for event in runtime.stream(generation_request):
                         if await http_request.is_disconnected():
                             raise asyncio.CancelledError("client disconnected")
-                        payload = {"type": "response.output_text.delta", "delta": event.token, "response_id": response_id}
+                        payload = {
+                            "type": "response.output_text.delta",
+                            "delta": event.token,
+                            "response_id": response_id,
+                        }
                         if event.token:
                             text_chunks.append(event.token)
                             if "text" not in request.modalities:
                                 payload = None
                         if event.reasoning_token:
-                            payload = {"type": "response.reasoning.delta", "delta": event.reasoning_token, "response_id": response_id}
+                            payload = {
+                                "type": "response.reasoning.delta",
+                                "delta": event.reasoning_token,
+                                "response_id": response_id,
+                            }
                         if event.tool_calls:
                             payload = {
                                 "type": "response.tool_calls.delta",
-                                "tool_calls": [call.model_dump(mode="json") for call in event.tool_calls],
+                                "tool_calls": [
+                                    call.model_dump(mode="json")
+                                    for call in event.tool_calls
+                                ],
                                 "response_id": response_id,
                             }
                         if event.finish_reason is not None:
-                            payload = {"type": "response.completed", "response_id": response_id, "finish_reason": event.finish_reason.value}
+                            payload = {
+                                "type": "response.completed",
+                                "response_id": response_id,
+                                "finish_reason": event.finish_reason.value,
+                            }
                         if payload is not None:
                             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                     if "audio" in request.modalities and text_chunks:
                         audio = await synthesize_response_audio(
-                            "".join(text_chunks), tts=tts_provider, request_id=f"{response_id}_audio"
+                            "".join(text_chunks),
+                            tts=tts_provider,
+                            request_id=f"{response_id}_audio",
                         )
                         yield f"data: {json.dumps({'type': 'response.audio.completed', 'response_id': response_id, 'audio': audio}, ensure_ascii=False)}\n\n"
                     yield "data: [DONE]\n\n"
                 finally:
                     cancellation_registry.unregister(response_id)
+
             return StreamingResponse(events(), media_type="text/event-stream")
-        result = await _generate_with_disconnect(runtime, http_request, generation_request, request_id=response_id, registry=cancellation_registry)
-        status_value = "completed" if result.structured_output_valid is not False else "incomplete"
+        result = await _generate_with_disconnect(
+            runtime,
+            http_request,
+            generation_request,
+            request_id=response_id,
+            registry=cancellation_registry,
+        )
+        status_value = (
+            "completed" if result.structured_output_valid is not False else "incomplete"
+        )
         generated_text = result.text if status_value == "completed" else ""
         output_text = generated_text if "text" in request.modalities else ""
         audio_output = None
@@ -1295,34 +1791,74 @@ def create_app(
                     generated_text, tts=tts_provider, request_id=f"{response_id}_audio"
                 )
             except OmniError as exc:
-                raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "message": exc.message}) from exc
+                raise HTTPException(
+                    status_code=exc.http_status,
+                    detail={"code": exc.code, "message": exc.message},
+                ) from exc
         return ResponsesResponse(
-            id=response_id, created=created, model=settings.model_name, status=status_value,
+            id=response_id,
+            created=created,
+            model=settings.model_name,
+            status=status_value,
             output=[ResponsesOutput(content=output_text)] if output_text else [],
-            usage={"prompt_tokens": result.prompt_tokens, "completion_tokens": result.completion_tokens,
-                   "total_tokens": result.prompt_tokens + result.completion_tokens,
-                   "cached_tokens": result.cached_tokens, "reasoning_tokens": result.reasoning_tokens},
-            error=({"code": "structured_output_incomplete", "message": result.structured_output_error} if result.structured_output_valid is False else None),
+            usage={
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.prompt_tokens + result.completion_tokens,
+                "cached_tokens": result.cached_tokens,
+                "reasoning_tokens": result.reasoning_tokens,
+            },
+            error=(
+                {
+                    "code": "structured_output_incomplete",
+                    "message": result.structured_output_error,
+                }
+                if result.structured_output_valid is False
+                else None
+            ),
             input_metadata=prepared.metadata or None,
             audio=audio_output,
         )
 
-    @application.post("/v1/requests/{request_id}/cancel", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    @application.post(
+        "/v1/requests/{request_id}/cancel",
+        tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
     async def cancel_request(request_id: str):
         if not REQUEST_ID_PATTERN.fullmatch(request_id):
-            return JSONResponse(status_code=400, content={"error": {"code": "invalid_request_id", "message": "invalid request id"}})
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": {
+                        "code": "invalid_request_id",
+                        "message": "invalid request id",
+                    }
+                },
+            )
         cancelled = cancellation_registry.cancel(request_id)
         return {"request_id": request_id, "cancelled": cancelled}
 
-    @application.get("/admin/models", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    @application.get(
+        "/admin/models", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)]
+    )
     async def admin_model_status(request: Request):
         denied = _require_admin(request)
         if denied is not None:
             return denied
         state = lifecycle.state
-        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
+        return {
+            "model": settings.model_name,
+            "status": state.status,
+            "ready": state.ready,
+            "version": state.version,
+        }
 
-    @application.post("/admin/models/load", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    @application.post(
+        "/admin/models/load",
+        tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
     async def admin_model_load(request: Request):
         denied = _require_admin(request)
         if denied is not None:
@@ -1333,9 +1869,18 @@ def create_app(
             _record_admin_lifecycle(request, 409)
             return _error_response(request, "model_load_failed", str(error), 409)
         _record_admin_lifecycle(request, 200)
-        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
+        return {
+            "model": settings.model_name,
+            "status": state.status,
+            "ready": state.ready,
+            "version": state.version,
+        }
 
-    @application.post("/admin/models/unload", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    @application.post(
+        "/admin/models/unload",
+        tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
     async def admin_model_unload(request: Request):
         denied = _require_admin(request)
         if denied is not None:
@@ -1346,9 +1891,18 @@ def create_app(
             _record_admin_lifecycle(request, 409)
             return _error_response(request, "model_unload_failed", str(error), 409)
         _record_admin_lifecycle(request, 200)
-        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
+        return {
+            "model": settings.model_name,
+            "status": state.status,
+            "ready": state.ready,
+            "version": state.version,
+        }
 
-    @application.post("/admin/models/reload", tags=["operations"], dependencies=[Security(OPENAPI_BEARER)])
+    @application.post(
+        "/admin/models/reload",
+        tags=["operations"],
+        dependencies=[Security(OPENAPI_BEARER)],
+    )
     async def admin_model_reload(request: Request):
         denied = _require_admin(request)
         if denied is not None:
@@ -1359,7 +1913,12 @@ def create_app(
             _record_admin_lifecycle(request, 409)
             return _error_response(request, "model_reload_failed", str(error), 409)
         _record_admin_lifecycle(request, 200)
-        return {"model": settings.model_name, "status": state.status, "ready": state.ready, "version": state.version}
+        return {
+            "model": settings.model_name,
+            "status": state.status,
+            "ready": state.ready,
+            "version": state.version,
+        }
 
     @application.get(
         "/v1/audit/events",
@@ -1369,7 +1928,10 @@ def create_app(
     async def audit_events(request: Request):
         if not settings.api_key:
             return _error_response(
-                request, "audit_disabled", "configure GOPI_API_KEY to read audit events", 403
+                request,
+                "audit_disabled",
+                "configure GOPI_API_KEY to read audit events",
+                403,
             )
         return {"events": audit_log.events()}
 
@@ -1377,57 +1939,82 @@ def create_app(
         """Expose stored conversations only under an explicit admin boundary."""
         if not settings.session_memory_enabled:
             return _error_response(
-                request, "session_memory_disabled",
-                "enable GOPI_SESSION_MEMORY_ENABLED to access session memory", 403,
+                request,
+                "session_memory_disabled",
+                "enable GOPI_SESSION_MEMORY_ENABLED to access session memory",
+                403,
             )
         if not settings.api_key:
             return _error_response(
-                request, "session_memory_auth_not_configured",
+                request,
+                "session_memory_auth_not_configured",
                 "server conversation history is unavailable because GOPI_API_KEY is not configured; "
-                "set GOPI_API_KEY and restart the server before using server-side history or training deletion.", 503,
+                "set GOPI_API_KEY and restart the server before using server-side history or training deletion.",
+                503,
             )
         store = getattr(runtime.backend, "sessions", None)
         if store is None:
             return _error_response(
-                request, "session_memory_unavailable", "backend has no persistent session store", 409,
+                request,
+                "session_memory_unavailable",
+                "backend has no persistent session store",
+                409,
             )
         return store
 
     @application.get(
-        "/v1/sessions/{session_id}/context", tags=["operations"],
+        "/v1/sessions/{session_id}/context",
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
-    async def session_context_info(session_id: str, request: Request, reserve_tokens: int = 128):
+    async def session_context_info(
+        session_id: str, request: Request, reserve_tokens: int = 128
+    ):
         store = session_store_or_error(request)
         if isinstance(store, JSONResponse):
             return store
         _validate_session_id_value(session_id)
         try:
-            return _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
+            return _session_context_usage(
+                store, session_id, reserve_tokens=reserve_tokens
+            )
         except ValueError as error:
             raise InvalidGenerationRequestError(str(error)) from error
 
     @application.post(
-        "/v1/sessions/{session_id}/context/compact", tags=["operations"],
+        "/v1/sessions/{session_id}/context/compact",
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
-    async def compact_session_context(session_id: str, request: Request, reserve_tokens: int = 128):
+    async def compact_session_context(
+        session_id: str, request: Request, reserve_tokens: int = 128
+    ):
         store = session_store_or_error(request)
         if isinstance(store, JSONResponse):
             return store
         _validate_session_id_value(session_id)
         try:
-            before = _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
+            before = _session_context_usage(
+                store, session_id, reserve_tokens=reserve_tokens
+            )
             memory = store.load(session_id)
             memory.render(add_generation_prompt=True, reserve_tokens=reserve_tokens)
             store.save(session_id, memory)
-            after = _session_context_usage(store, session_id, reserve_tokens=reserve_tokens)
+            after = _session_context_usage(
+                store, session_id, reserve_tokens=reserve_tokens
+            )
         except ValueError as error:
             raise InvalidGenerationRequestError(str(error)) from error
-        return {"compacted": before["used_tokens"] != after["used_tokens"], "before": before, "after": after}
+        return {
+            "compacted": before["used_tokens"] != after["used_tokens"],
+            "before": before,
+            "after": after,
+        }
 
     @application.get(
-        "/v1/sessions", response_model=SessionListResponse, tags=["operations"],
+        "/v1/sessions",
+        response_model=SessionListResponse,
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def list_sessions(request: Request, limit: int = 100):
@@ -1440,7 +2027,9 @@ def create_app(
             raise InvalidGenerationRequestError(str(error)) from error
 
     @application.get(
-        "/v1/sessions/{session_id}/memory", response_model=SessionMemoryResponse, tags=["operations"],
+        "/v1/sessions/{session_id}/memory",
+        response_model=SessionMemoryResponse,
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def retrieve_session_memory(session_id: str, request: Request):
@@ -1455,7 +2044,9 @@ def create_app(
         return {"session_id": session_id, "messages": messages}
 
     @application.delete(
-        "/v1/sessions/{session_id}/memory", response_model=SessionDeleteResponse, tags=["operations"],
+        "/v1/sessions/{session_id}/memory",
+        response_model=SessionDeleteResponse,
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def delete_session_memory(session_id: str, request: Request):
@@ -1467,7 +2058,9 @@ def create_app(
         return {"session_id": session_id, "deleted": True}
 
     @application.get(
-        "/v1/sessions/{session_id}/training/review", response_model=TrainingReviewResponse, tags=["operations"],
+        "/v1/sessions/{session_id}/training/review",
+        response_model=TrainingReviewResponse,
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def review_session_training(session_id: str, request: Request):
@@ -1477,14 +2070,20 @@ def create_app(
         _validate_session_id_value(session_id)
         review = store.review_last(session_id)
         if review is None:
-            raise InvalidGenerationRequestError("no completed assistant response is available for review")
+            raise InvalidGenerationRequestError(
+                "no completed assistant response is available for review"
+            )
         return {"session_id": session_id, **review}
 
     @application.post(
-        "/v1/sessions/{session_id}/training/approve", response_model=TrainingApprovalResponse, tags=["operations"],
+        "/v1/sessions/{session_id}/training/approve",
+        response_model=TrainingApprovalResponse,
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
-    async def approve_session_training(session_id: str, payload: TrainingApprovalRequest, request: Request):
+    async def approve_session_training(
+        session_id: str, payload: TrainingApprovalRequest, request: Request
+    ):
         store = session_store_or_error(request)
         if isinstance(store, JSONResponse):
             return store
@@ -1492,13 +2091,16 @@ def create_app(
         if not payload.approved:
             return {"session_id": session_id, "approved": False, "example_count": 0}
         try:
-            count = store.approve_last(session_id, corrected_response=payload.corrected_response)
+            count = store.approve_last(
+                session_id, corrected_response=payload.corrected_response
+            )
         except ValueError as error:
             raise InvalidGenerationRequestError(str(error)) from error
         return {"session_id": session_id, "approved": True, "example_count": count}
 
     @application.get(
-        "/v1/sessions/{session_id}/training/export", tags=["operations"],
+        "/v1/sessions/{session_id}/training/export",
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def export_session_training(session_id: str, request: Request):
@@ -1511,12 +2113,17 @@ def create_app(
         except ValueError as error:
             raise InvalidGenerationRequestError(str(error)) from error
         return Response(
-            content=content, media_type="application/x-ndjson",
-            headers={"Content-Disposition": f'attachment; filename="reviewed-chat-{session_id}.jsonl"'},
+            content=content,
+            media_type="application/x-ndjson",
+            headers={
+                "Content-Disposition": f'attachment; filename="reviewed-chat-{session_id}.jsonl"'
+            },
         )
 
     @application.delete(
-        "/v1/sessions/{session_id}/training", response_model=TrainingDeleteResponse, tags=["operations"],
+        "/v1/sessions/{session_id}/training",
+        response_model=TrainingDeleteResponse,
+        tags=["operations"],
         dependencies=[Security(OPENAPI_BEARER)],
     )
     async def delete_session_training(session_id: str, request: Request):
@@ -1524,7 +2131,10 @@ def create_app(
         if isinstance(store, JSONResponse):
             return store
         _validate_session_id_value(session_id)
-        return {"session_id": session_id, "deleted_count": store.delete_training(session_id)}
+        return {
+            "session_id": session_id,
+            "deleted_count": store.delete_training(session_id),
+        }
 
     @application.post(
         "/v1/workspace/actions",
@@ -1561,11 +2171,11 @@ def create_app(
     @application.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> FileResponse:
         return FileResponse(
-        favicon_path,
-        media_type="image/x-icon",
-        filename="favicon.ico",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+            favicon_path,
+            media_type="image/x-icon",
+            filename="favicon.ico",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     if ui_directory.is_dir():
         ui_assets = {
@@ -1590,96 +2200,165 @@ def create_app(
     @application.get("/admin/lora/adapters", tags=["operations"])
     async def list_lora_adapters(request: Request, tenant_id: str = "default"):
         denied = _require_admin(request)
-        if denied is not None: return denied
+        if denied is not None:
+            return denied
         records = []
         active = lora_registry.active(tenant_id)
         for record in lora_registry.list(tenant_id):
-            records.append({"adapter_id": record.adapter_id, "tenant_id": record.tenant_id, "version": record.version, "active": active == record})
+            records.append(
+                {
+                    "adapter_id": record.adapter_id,
+                    "tenant_id": record.tenant_id,
+                    "version": record.version,
+                    "active": active == record,
+                }
+            )
         return {"tenant_id": tenant_id, "data": records}
 
     @application.post("/admin/lora/adapters", tags=["operations"])
     async def publish_lora_adapter(request: Request, body: dict = Body(...)):
         denied = _require_admin(request)
-        if denied is not None: return denied
+        if denied is not None:
+            return denied
         tenant_id = str(body.get("tenant_id") or "default")
-        adapter_id = str(body.get("adapter_id") or "").strip(); version = str(body.get("version") or "").strip()
+        adapter_id = str(body.get("adapter_id") or "").strip()
+        version = str(body.get("version") or "").strip()
         checkpoint_path = str(body.get("checkpoint_path") or "").strip()
-        if not adapter_id or not version or not checkpoint_path: raise HTTPException(422, "adapter_id, version and checkpoint_path are required")
-        root = Path(settings.lora_adapter_root).resolve(); candidate = (root / checkpoint_path).resolve() if not Path(checkpoint_path).is_absolute() else Path(checkpoint_path).resolve()
-        if root not in candidate.parents and candidate != root: raise HTTPException(403, "adapter path is outside GOPI_LORA_ADAPTER_ROOT")
-        if not candidate.is_file(): raise HTTPException(404, "adapter checkpoint not found")
+        if not adapter_id or not version or not checkpoint_path:
+            raise HTTPException(
+                422, "adapter_id, version and checkpoint_path are required"
+            )
+        root = Path(settings.lora_adapter_root).resolve()
+        candidate = (
+            (root / checkpoint_path).resolve()
+            if not Path(checkpoint_path).is_absolute()
+            else Path(checkpoint_path).resolve()
+        )
+        if root not in candidate.parents and candidate != root:
+            raise HTTPException(403, "adapter path is outside GOPI_LORA_ADAPTER_ROOT")
+        if not candidate.is_file():
+            raise HTTPException(404, "adapter checkpoint not found")
         import torch
+
         payload = torch.load(candidate, map_location="cpu", weights_only=True)
-        state = payload.get("model", payload.get("adapter", payload)) if isinstance(payload, dict) else payload
-        if not isinstance(state, dict): raise HTTPException(422, "adapter checkpoint does not contain a state mapping")
+        state = (
+            payload.get("model", payload.get("adapter", payload))
+            if isinstance(payload, dict)
+            else payload
+        )
+        if not isinstance(state, dict):
+            raise HTTPException(
+                422, "adapter checkpoint does not contain a state mapping"
+            )
         record = lora_registry.publish(tenant_id, adapter_id, version, state)
-        return {"adapter_id": record.adapter_id, "tenant_id": record.tenant_id, "version": record.version}
+        return {
+            "adapter_id": record.adapter_id,
+            "tenant_id": record.tenant_id,
+            "version": record.version,
+        }
 
     @application.post("/admin/lora/adapters/{adapter_id}/activate", tags=["operations"])
-    async def activate_lora_adapter(adapter_id: str, request: Request, tenant_id: str = "default"):
+    async def activate_lora_adapter(
+        adapter_id: str, request: Request, tenant_id: str = "default"
+    ):
         denied = _require_admin(request)
-        if denied is not None: return denied
-        try: record = lora_registry.activate(tenant_id, adapter_id)
-        except KeyError as exc: raise HTTPException(404, "adapter not found") from exc
-        candidate = getattr(runtime.backend, "backend", runtime.backend); generator = getattr(candidate, "generator", None)
-        if generator is None or not hasattr(generator, "swap_lora_adapter"): raise HTTPException(409, "active backend does not support LoRA swapping")
+        if denied is not None:
+            return denied
+        try:
+            record = lora_registry.activate(tenant_id, adapter_id)
+        except KeyError as exc:
+            raise HTTPException(404, "adapter not found") from exc
+        candidate = getattr(runtime.backend, "backend", runtime.backend)
+        generator = getattr(candidate, "generator", None)
+        if generator is None or not hasattr(generator, "swap_lora_adapter"):
+            raise HTTPException(409, "active backend does not support LoRA swapping")
         generator.swap_lora_adapter(record.state)
         return {"adapter_id": adapter_id, "tenant_id": tenant_id, "active": True}
 
     @application.post("/admin/lora/deactivate", tags=["operations"])
     async def deactivate_lora_adapter(request: Request, tenant_id: str = "default"):
         denied = _require_admin(request)
-        if denied is not None: return denied
-        candidate = getattr(runtime.backend, "backend", runtime.backend); generator = getattr(candidate, "generator", None)
-        if generator is not None and hasattr(generator, "swap_lora_adapter"): generator.swap_lora_adapter(None)
+        if denied is not None:
+            return denied
+        candidate = getattr(runtime.backend, "backend", runtime.backend)
+        generator = getattr(candidate, "generator", None)
+        if generator is not None and hasattr(generator, "swap_lora_adapter"):
+            generator.swap_lora_adapter(None)
         lora_registry.deactivate(tenant_id)
         return {"tenant_id": tenant_id, "active": False}
 
     @application.delete("/admin/lora/adapters/{adapter_id}", tags=["operations"])
-    async def remove_lora_adapter(adapter_id: str, request: Request, tenant_id: str = "default"):
+    async def remove_lora_adapter(
+        adapter_id: str, request: Request, tenant_id: str = "default"
+    ):
         denied = _require_admin(request)
-        if denied is not None: return denied
-        try: lora_registry.remove(tenant_id, adapter_id)
-        except RuntimeError as exc: raise HTTPException(409, str(exc)) from exc
+        if denied is not None:
+            return denied
+        try:
+            lora_registry.remove(tenant_id, adapter_id)
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
         return {"adapter_id": adapter_id, "tenant_id": tenant_id, "deleted": True}
 
     @application.post("/admin/webhooks/test", tags=["operations"])
     async def test_webhook(request: Request, body: dict = Body(default_factory=dict)):
         denied = _require_admin(request)
-        if denied is not None: return denied
-        if webhook_delivery is None: raise HTTPException(503, "webhook delivery is not configured")
-        delivered = await webhook_delivery.deliver({"type": "test", "created": int(time.time()), "data": body})
+        if denied is not None:
+            return denied
+        if webhook_delivery is None:
+            raise HTTPException(503, "webhook delivery is not configured")
+        delivered = await webhook_delivery.deliver(
+            {"type": "test", "created": int(time.time()), "data": body}
+        )
         return {"delivered": delivered}
 
     async def _image_submitter(body, request):
         endpoint = os.getenv("GOPI_IMAGE_GENERATION_URL")
         if endpoint:
             import httpx
-            async with httpx.AsyncClient(timeout=float(os.getenv("GOPI_IMAGE_GENERATION_TIMEOUT_SECONDS", "120"))) as client:
-                response = await client.post(endpoint, json=body.model_dump(exclude_none=True))
+
+            async with httpx.AsyncClient(
+                timeout=float(os.getenv("GOPI_IMAGE_GENERATION_TIMEOUT_SECONDS", "120"))
+            ) as client:
+                response = await client.post(
+                    endpoint, json=body.model_dump(exclude_none=True)
+                )
             if response.status_code >= 400:
-                raise HTTPException(response.status_code, "image generation provider failed")
+                raise HTTPException(
+                    response.status_code, "image generation provider failed"
+                )
             payload = response.json()
             if isinstance(payload, dict) and "data" in payload:
                 return payload
             if isinstance(payload, dict) and payload.get("url"):
                 return {"created": int(time.time()), "data": [{"url": payload["url"]}]}
             if isinstance(payload, dict) and payload.get("b64_json"):
-                return {"created": int(time.time()), "data": [{"b64_json": payload["b64_json"]}]}
+                return {
+                    "created": int(time.time()),
+                    "data": [{"b64_json": payload["b64_json"]}],
+                }
             raise HTTPException(502, "image provider returned an unsupported response")
 
         native = NativeLatentImageProvider.from_env()
         if native is None or not native.is_available():
-            raise HTTPException(503, "configure GOPI_IMAGE_GENERATION_URL or native latent image checkpoints")
+            raise HTTPException(
+                503,
+                "configure GOPI_IMAGE_GENERATION_URL or native latent image checkpoints",
+            )
         result = await asyncio.to_thread(
-            native.generate_image, body.model_dump(exclude_none=True),
+            native.generate_image,
+            body.model_dump(exclude_none=True),
             ProviderContext(request_id=f"img_{uuid.uuid4().hex}"),
         )
-        store = AssetStore(os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets"))
+        store = AssetStore(
+            os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets")
+        )
         data = []
         for artifact in result.artifacts:
             raw = artifact.path.read_bytes()
-            record = store.put(raw, mime_type=artifact.mime_type, filename=artifact.path.name)
+            record = store.put(
+                raw, mime_type=artifact.mime_type, filename=artifact.path.name
+            )
             if body.response_format == "b64_json":
                 data.append({"b64_json": base64.b64encode(raw).decode("ascii")})
             else:
@@ -1691,10 +2370,14 @@ def create_app(
         if webhook_delivery is not None:
             await webhook_delivery.deliver(event)
 
-    application.include_router(create_openai_platform_router(
-        platform_store, image_submitter=_image_submitter,
-        idempotency_store=idempotency_store, event_dispatch=_dispatch_platform_event,
-    ))
+    application.include_router(
+        create_openai_platform_router(
+            platform_store,
+            image_submitter=_image_submitter,
+            idempotency_store=idempotency_store,
+            event_dispatch=_dispatch_platform_event,
+        )
+    )
 
     application.include_router(create_media_router())
     application.include_router(create_omni_speech_router())
@@ -1731,7 +2414,9 @@ def _error_response(
             request_id=getattr(request.state, "request_id", None),
         )
     )
-    return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
+    return JSONResponse(
+        status_code=status_code, content=payload.model_dump(mode="json")
+    )
 
 
 app = create_app()

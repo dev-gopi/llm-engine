@@ -36,7 +36,9 @@ def extract_text(value: Any) -> Iterator[str]:
     if isinstance(value, dict):
         if isinstance(value.get("messages"), list):
             for message in value["messages"]:
-                if isinstance(message, dict) and isinstance(message.get("content"), str):
+                if isinstance(message, dict) and isinstance(
+                    message.get("content"), str
+                ):
                     yield message["content"]
             return
         if isinstance(value.get("text"), str):
@@ -46,7 +48,8 @@ def extract_text(value: Any) -> Iterator[str]:
             yield value["utterance"]
             return
         preference_fields = [
-            value[key] for key in ("prompt", "chosen", "rejected")
+            value[key]
+            for key in ("prompt", "chosen", "rejected")
             if isinstance(value.get(key), str)
         ]
         if preference_fields:
@@ -132,7 +135,9 @@ def _corpus_readers(patterns: Iterable[str]) -> list[Iterator[str]]:
     return readers
 
 
-def iter_corpus(patterns: Iterable[str], *, sampling: str = "sequential") -> Iterator[str]:
+def iter_corpus(
+    patterns: Iterable[str], *, sampling: str = "sequential"
+) -> Iterator[str]:
     readers = _corpus_readers(patterns)
     if sampling == "sequential":
         for reader in readers:
@@ -154,7 +159,9 @@ def iter_corpus(patterns: Iterable[str], *, sampling: str = "sequential") -> Ite
         # Always read next from the source that has contributed the fewest
         # UTF-8 bytes. Unlike equal fixed quotas, this also redistributes the
         # remaining budget when a small source is exhausted.
-        pending_by_size = [(0, source_id, reader) for source_id, reader in enumerate(readers)]
+        pending_by_size = [
+            (0, source_id, reader) for source_id, reader in enumerate(readers)
+        ]
         heapq.heapify(pending_by_size)
         while pending_by_size:
             contributed_bytes, source_id, reader = heapq.heappop(pending_by_size)
@@ -197,7 +204,9 @@ def train_command(args: argparse.Namespace) -> None:
         ),
     )
 
-    def report(completed: int, target: int, pair: tuple[str, str], frequency: int) -> None:
+    def report(
+        completed: int, target: int, pair: tuple[str, str], frequency: int
+    ) -> None:
         print(
             f"merges={completed}/{target} frequency={frequency} pair={pair!r}",
             file=sys.stderr,
@@ -227,8 +236,15 @@ def train_command(args: argparse.Namespace) -> None:
 
 def inspect_command(args: argparse.Namespace) -> None:
     tokenizer = Tokenizer.load(args.tokenizer)
-    identifiers = tokenizer.encode(args.text, add_bos=args.add_bos, add_eos=args.add_eos)
-    print(json.dumps({"ids": identifiers, "decoded": tokenizer.decode(identifiers)}, ensure_ascii=False))
+    identifiers = tokenizer.encode(
+        args.text, add_bos=args.add_bos, add_eos=args.add_eos
+    )
+    print(
+        json.dumps(
+            {"ids": identifiers, "decoded": tokenizer.decode(identifiers)},
+            ensure_ascii=False,
+        )
+    )
 
 
 _EXTENSION_WORD = regex.compile(r"\p{L}[\p{L}\p{M}\p{N}_'’\-]{2,}")
@@ -290,7 +306,9 @@ def get_extension_configs(
     if not isinstance(extension_configs, list) or not all(
         isinstance(item, dict) for item in extension_configs
     ):
-        raise ValueError("tokenizer extensions configuration must be a list of mappings")
+        raise ValueError(
+            "tokenizer extensions configuration must be a list of mappings"
+        )
 
     names = [item.get("name") for item in extension_configs]
     if config.get("extensions") is not None and any(
@@ -302,7 +320,9 @@ def get_extension_configs(
 
     if requested_name is None:
         return extension_configs
-    selected = [item for item in extension_configs if item.get("name") == requested_name]
+    selected = [
+        item for item in extension_configs if item.get("name") == requested_name
+    ]
     if not selected:
         raise ValueError(f"unknown tokenizer extension: {requested_name}")
     return selected
@@ -314,7 +334,9 @@ def extend_command(args: argparse.Namespace) -> None:
 
     for extension_config in extension_configs:
         tokenizer_path = args.tokenizer or Path(
-            extension_config.get("base_tokenizer", config.get("output_dir", "data/tokenizer"))
+            extension_config.get(
+                "base_tokenizer", config.get("output_dir", "data/tokenizer")
+            )
         )
         tokenizer = Tokenizer.load(tokenizer_path)
         requested = list(args.token or ())
@@ -326,48 +348,78 @@ def extend_command(args: argparse.Namespace) -> None:
             )
         sources = args.source or extension_config.get("sources", ())
         if sources:
-            requested.extend(discover_extension_tokens(
-                tokenizer,
-                iter_corpus(sources, sampling=str(extension_config.get("source_sampling", "balanced_bytes"))),
-                max_new_tokens=int(extension_config.get("max_new_tokens", 2000)),
-                min_frequency=int(extension_config.get("min_frequency", 5)),
-                min_existing_tokens=int(extension_config.get("min_existing_tokens", 3)),
-                max_scan_bytes=extension_config.get("max_scan_bytes"),
-            ))
+            requested.extend(
+                discover_extension_tokens(
+                    tokenizer,
+                    iter_corpus(
+                        sources,
+                        sampling=str(
+                            extension_config.get("source_sampling", "balanced_bytes")
+                        ),
+                    ),
+                    max_new_tokens=int(extension_config.get("max_new_tokens", 2000)),
+                    min_frequency=int(extension_config.get("min_frequency", 5)),
+                    min_existing_tokens=int(
+                        extension_config.get("min_existing_tokens", 3)
+                    ),
+                    max_scan_bytes=extension_config.get("max_scan_bytes"),
+                )
+            )
         if not requested:
             raise ValueError("provide tokens directly or configure extension.sources")
         extended = tokenizer.extend(requested)
-        tokenizer_dir = tokenizer_path.parent if tokenizer_path.name == "tokenizer.json" else tokenizer_path
-        output = args.output or Path(extension_config.get(
-            "output_dir", tokenizer_dir.with_name(f"{tokenizer_dir.name}-extended")
-        ))
+        tokenizer_dir = (
+            tokenizer_path.parent
+            if tokenizer_path.name == "tokenizer.json"
+            else tokenizer_path
+        )
+        output = args.output or Path(
+            extension_config.get(
+                "output_dir", tokenizer_dir.with_name(f"{tokenizer_dir.name}-extended")
+            )
+        )
         artifact = extended.save(output)
-        print(json.dumps({
-            "name": extension_config.get("name"),
-            "artifact": str(artifact),
-            "base_fingerprint": tokenizer.fingerprint,
-            "fingerprint": extended.fingerprint,
-            "old_vocab_size": tokenizer.vocab_size,
-            "new_vocab_size": extended.vocab_size,
-            "added_vocab_size": extended.vocab_size - tokenizer.vocab_size,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "name": extension_config.get("name"),
+                    "artifact": str(artifact),
+                    "base_fingerprint": tokenizer.fingerprint,
+                    "fingerprint": extended.fingerprint,
+                    "old_vocab_size": tokenizer.vocab_size,
+                    "new_vocab_size": extended.vocab_size,
+                    "added_vocab_size": extended.vocab_size - tokenizer.vocab_size,
+                },
+                indent=2,
+            )
+        )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    train_parser = subparsers.add_parser("train", help="train and save tokenizer artifacts")
-    train_parser.add_argument("--config", type=Path, default=Path("configs/tokenizer.yaml"))
-    train_parser.add_argument("--source", action="append", help="override source glob; repeatable")
+    train_parser = subparsers.add_parser(
+        "train", help="train and save tokenizer artifacts"
+    )
+    train_parser.add_argument(
+        "--config", type=Path, default=Path("configs/tokenizer.yaml")
+    )
+    train_parser.add_argument(
+        "--source", action="append", help="override source glob; repeatable"
+    )
     train_parser.add_argument("--output", type=Path)
     train_parser.add_argument("--vocab-size", type=int)
     train_parser.add_argument("--max-training-bytes", type=int)
     train_parser.set_defaults(handler=train_command)
 
-    inspect_parser = subparsers.add_parser("inspect", help="encode and decode sample text")
+    inspect_parser = subparsers.add_parser(
+        "inspect", help="encode and decode sample text"
+    )
     inspect_parser.add_argument("text")
-    inspect_parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
+    inspect_parser.add_argument(
+        "--tokenizer", type=Path, default=Path("data/tokenizer")
+    )
     inspect_parser.add_argument("--add-bos", action="store_true")
     inspect_parser.add_argument("--add-eos", action="store_true")
     inspect_parser.set_defaults(handler=inspect_command)
@@ -376,16 +428,25 @@ def parse_args() -> argparse.Namespace:
         "extend", help="append tokens while preserving all existing token IDs"
     )
     extend_parser.add_argument(
-        "--config", type=Path, required=True,
+        "--config",
+        type=Path,
+        required=True,
         help="configuration containing an extension section",
     )
     extend_parser.add_argument("--extension", help="run only the named extension")
     extend_parser.add_argument("--tokenizer", type=Path)
-    extend_parser.add_argument("--source", action="append", help="dataset glob to scan; repeatable")
-    extend_parser.add_argument("--token", action="append", help="token text; repeatable")
-    extend_parser.add_argument("--tokens-file", type=Path, help="UTF-8 file with one token per line")
     extend_parser.add_argument(
-        "--output", type=Path,
+        "--source", action="append", help="dataset glob to scan; repeatable"
+    )
+    extend_parser.add_argument(
+        "--token", action="append", help="token text; repeatable"
+    )
+    extend_parser.add_argument(
+        "--tokens-file", type=Path, help="UTF-8 file with one token per line"
+    )
+    extend_parser.add_argument(
+        "--output",
+        type=Path,
         help="output directory (defaults to <tokenizer>-extended; pass the input path for in-place)",
     )
     extend_parser.set_defaults(handler=extend_command)

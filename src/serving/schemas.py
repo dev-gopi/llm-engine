@@ -67,7 +67,12 @@ class GenerateRequest(StrictSchema):
 
     response_format: str | dict[str, Any] | None = None
     grammar: str | None = Field(default=None, max_length=65_536)
-    grammar_start: str = Field(default="start", min_length=1, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    grammar_start: str = Field(
+        default="start",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
     web_search: bool = False
     rag: bool = False
@@ -124,11 +129,19 @@ class GenerateRequest(StrictSchema):
     cache_fingerprint: str | None = Field(default=None, max_length=256)
     # Optional production-cache context. These fields are part of cache identity
     # only; they do not alter generation semantics and remain backward compatible.
-    tenant_id: str = Field(default="default", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
-    user_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
-    route: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$")
+    tenant_id: str = Field(
+        default="default", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
+    )
+    user_id: str | None = Field(
+        default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
+    )
+    route: str | None = Field(
+        default=None, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$"
+    )
     model_id: str | None = Field(default=None, max_length=256)
-    task: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    task: str | None = Field(
+        default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
+    )
 
     stop: list[str] = Field(default_factory=list, max_length=16)
 
@@ -145,7 +158,9 @@ class GenerateRequest(StrictSchema):
         if value is None or isinstance(value, dict):
             return value
         if value not in {"plain", "markdown"}:
-            raise ValueError("response format must be plain, markdown, or a structured response object")
+            raise ValueError(
+                "response format must be plain, markdown, or a structured response object"
+            )
         return value
 
     @field_validator("stop")
@@ -168,7 +183,9 @@ class GenerateRequest(StrictSchema):
     @model_validator(mode="after")
     def validate_grammar(self):
         if self.grammar and isinstance(self.response_format, dict):
-            raise ValueError("grammar and structured response_format cannot be combined")
+            raise ValueError(
+                "grammar and structured response_format cannot be combined"
+            )
         return self
 
     @model_validator(mode="after")
@@ -182,7 +199,9 @@ class GenerateRequest(StrictSchema):
         if self.decoding_strategy == "speculative" and not self.draft_model_id:
             raise ValueError("speculative decoding requires draft_model_id")
         if self.decoding_strategy != "sample" and self.logprobs:
-            raise ValueError("beam/speculative decoding do not currently support logprobs")
+            raise ValueError(
+                "beam/speculative decoding do not currently support logprobs"
+            )
         return self
 
     @field_validator("tools")
@@ -235,7 +254,9 @@ class OpenAIToolFunction(StrictSchema):
         try:
             validator_for(schema).check_schema(schema)
         except jsonschema_exceptions.SchemaError as exc:
-            raise ValueError(f"invalid function parameter schema: {exc.message}") from exc
+            raise ValueError(
+                f"invalid function parameter schema: {exc.message}"
+            ) from exc
         if schema.get("type") not in {None, "object"}:
             raise ValueError("function parameters must describe a JSON object")
         return value
@@ -277,10 +298,7 @@ class OpenAIToolChoiceObject(StrictSchema):
     function: OpenAIToolChoiceFunction
 
 
-OpenAIToolChoice = (
-    Literal["none", "auto", "required"]
-    | OpenAIToolChoiceObject
-)
+OpenAIToolChoice = Literal["none", "auto", "required"] | OpenAIToolChoiceObject
 
 
 class OpenAIChatTextPart(StrictSchema):
@@ -367,7 +385,9 @@ class OpenAIChatMessage(BaseModel):
     @model_validator(mode="after")
     def validate_role_payload(self):
         if isinstance(self.content, list) and self.role != "user":
-            raise ValueError("multimodal content parts are only accepted on user messages")
+            raise ValueError(
+                "multimodal content parts are only accepted on user messages"
+            )
         if self.role in {"system", "user", "tool"} and self.content is None:
             raise ValueError(f"{self.role} messages require content")
         if self.role == "tool" and not self.tool_call_id:
@@ -401,10 +421,12 @@ class OpenAIJSONSchema(BaseModel):
             raise ValueError(str(exc)) from exc
         return self
 
+
 class OpenAIResponseFormat(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["text", "json_object", "json_schema"]
     json_schema: OpenAIJSONSchema | None = None
+
 
 class OpenAIChatCompletionRequest(BaseModel):
     """OpenAI-compatible chat request plus explicit Gopi serving extensions."""
@@ -420,7 +442,12 @@ class OpenAIChatCompletionRequest(BaseModel):
     stream: bool = False
     response_format: OpenAIResponseFormat | None = None
     grammar: str | None = Field(default=None, max_length=65_536)
-    grammar_start: str = Field(default="start", min_length=1, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    grammar_start: str = Field(
+        default="start",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
 
     # Gopi serving extensions. They make the browser UI and OpenAI-compatible
@@ -505,8 +532,13 @@ class OpenAIChatCompletionRequest(BaseModel):
         names = {tool.function.name for tool in (self.tools or [])}
         if self.tool_choice == "required" and not names:
             raise ValueError("tool_choice=required requires at least one tool")
-        if isinstance(self.tool_choice, OpenAIToolChoiceObject) and self.tool_choice.function.name not in names:
-            raise ValueError(f"tool_choice references unknown tool: {self.tool_choice.function.name}")
+        if (
+            isinstance(self.tool_choice, OpenAIToolChoiceObject)
+            and self.tool_choice.function.name not in names
+        ):
+            raise ValueError(
+                f"tool_choice references unknown tool: {self.tool_choice.function.name}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -514,11 +546,15 @@ class OpenAIChatCompletionRequest(BaseModel):
         if self.top_logprobs and not self.logprobs:
             raise ValueError("top_logprobs requires logprobs=true")
         if self.n > 1 and self.session_id is not None:
-            raise ValueError("n > 1 cannot be combined with session_id because only one assistant turn can be committed")
+            raise ValueError(
+                "n > 1 cannot be combined with session_id because only one assistant turn can be committed"
+            )
         if self.decoding_strategy == "speculative" and not self.draft_model_id:
             raise ValueError("speculative decoding requires draft_model_id")
         if self.decoding_strategy != "sample" and self.logprobs:
-            raise ValueError("beam/speculative decoding do not currently support logprobs")
+            raise ValueError(
+                "beam/speculative decoding do not currently support logprobs"
+            )
         return self
 
     @field_validator("messages")
@@ -531,14 +567,10 @@ class OpenAIChatCompletionRequest(BaseModel):
             # Tool continuation requests can technically contain no user
             # message, so accept assistant/tool conversations when a tool
             # result is present.
-            has_tool_result = any(
-                message.role == "tool" for message in messages
-            )
+            has_tool_result = any(message.role == "tool" for message in messages)
 
             if not has_tool_result:
-                raise ValueError(
-                    "messages must contain at least one user message"
-                )
+                raise ValueError("messages must contain at least one user message")
 
         return messages
 
@@ -559,9 +591,7 @@ class OpenAIChatCompletionRequest(BaseModel):
                 raise ValueError("stop sequences cannot be empty")
 
             if len(item) > 1_024:
-                raise ValueError(
-                    "stop sequences cannot exceed 1024 characters"
-                )
+                raise ValueError("stop sequences cannot exceed 1024 characters")
 
             if item not in normalized:
                 normalized.append(item)
@@ -612,17 +642,9 @@ class OpenAIChatCompletionRequest(BaseModel):
             if selected not in tool_names:
                 raise ValueError(f"tool_choice references unknown tool: {selected}")
 
-        maximum = (
-            self.max_completion_tokens
-            or self.max_tokens
-            or 128
-        )
+        maximum = self.max_completion_tokens or self.max_tokens or 128
 
-        stops = (
-            [self.stop]
-            if isinstance(self.stop, str)
-            else list(self.stop or [])
-        )
+        stops = [self.stop] if isinstance(self.stop, str) else list(self.stop or [])
 
         latest_user = next(
             (
@@ -646,9 +668,7 @@ class OpenAIChatCompletionRequest(BaseModel):
             )
 
         if not latest_user:
-            raise ValueError(
-                "messages must contain usable message content"
-            )
+            raise ValueError("messages must contain usable message content")
 
         request = GenerateRequest(
             prompt=latest_user,
@@ -662,18 +682,26 @@ class OpenAIChatCompletionRequest(BaseModel):
             repetition_penalty=self.repetition_penalty,
             presence_penalty=self.presence_penalty,
             frequency_penalty=self.frequency_penalty,
-            logprobs=self.logprobs, top_logprobs=self.top_logprobs,
+            logprobs=self.logprobs,
+            top_logprobs=self.top_logprobs,
             no_repeat_ngram_size=self.no_repeat_ngram_size,
             min_tokens=self.min_tokens,
             seed=self.seed,
-            decoding_strategy=self.decoding_strategy, num_beams=self.num_beams,
-            length_penalty=self.length_penalty, draft_model_id=self.draft_model_id,
+            decoding_strategy=self.decoding_strategy,
+            num_beams=self.num_beams,
+            length_penalty=self.length_penalty,
+            draft_model_id=self.draft_model_id,
             speculative_draft_tokens=self.speculative_draft_tokens,
             stop=stops,
             chat_tools=self.tools or [],
             tool_choice=self.tool_choice,
-            response_format=(self.response_format.model_dump(by_alias=True, mode="json") if self.response_format else None),
-            grammar=self.grammar, grammar_start=self.grammar_start,
+            response_format=(
+                self.response_format.model_dump(by_alias=True, mode="json")
+                if self.response_format
+                else None
+            ),
+            grammar=self.grammar,
+            grammar_start=self.grammar_start,
             reasoning_effort=self.reasoning_effort,
             web_search=self.web_search,
             rag=self.rag,
@@ -688,13 +716,16 @@ class OpenAIChatCompletionRequest(BaseModel):
                 "content": (
                     message.content
                     if isinstance(message.content, str)
-                    else [part.model_dump(mode="json") for part in (message.content or [])]
+                    else [
+                        part.model_dump(mode="json") for part in (message.content or [])
+                    ]
                 ),
                 **(
-                    {"tool_calls": [
-                        tool.model_dump(mode="json")
-                        for tool in message.tool_calls
-                    ]}
+                    {
+                        "tool_calls": [
+                            tool.model_dump(mode="json") for tool in message.tool_calls
+                        ]
+                    }
                     if message.tool_calls
                     else {}
                 ),

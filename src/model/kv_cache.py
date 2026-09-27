@@ -10,9 +10,13 @@ class StaticLayerKVCache:
 
     def __init__(self, key: Tensor, value: Tensor, *, capacity: int) -> None:
         if key.ndim != 4 or key.shape != value.shape:
-            raise ValueError("initial keys and values must have equal four-dimensional shapes")
+            raise ValueError(
+                "initial keys and values must have equal four-dimensional shapes"
+            )
         if capacity < key.shape[2]:
-            raise ValueError("cache capacity cannot be smaller than its initial sequence")
+            raise ValueError(
+                "cache capacity cannot be smaller than its initial sequence"
+            )
         shape = (*key.shape[:2], capacity, key.shape[3])
         self.key = key.new_empty(shape)
         self.value = value.new_empty(shape)
@@ -22,14 +26,16 @@ class StaticLayerKVCache:
 
     def append(self, key: Tensor, value: Tensor) -> tuple[Tensor, Tensor]:
         if key.ndim != 4 or key.shape != value.shape:
-            raise ValueError("appended keys and values must have equal four-dimensional shapes")
+            raise ValueError(
+                "appended keys and values must have equal four-dimensional shapes"
+            )
         if key.shape[:2] != self.key.shape[:2] or key.shape[3] != self.key.shape[3]:
             raise ValueError("appended keys and values do not match cache dimensions")
         stop = self.length + key.shape[2]
         if stop > self.key.shape[2]:
             raise ValueError("key/value cache capacity exceeded")
-        self.key[:, :, self.length:stop].copy_(key)
-        self.value[:, :, self.length:stop].copy_(value)
+        self.key[:, :, self.length : stop].copy_(key)
+        self.value[:, :, self.length : stop].copy_(value)
         self.length = stop
         return self.current()
 

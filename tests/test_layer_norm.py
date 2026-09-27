@@ -26,8 +26,12 @@ def test_layer_norm_matches_pytorch_reference():
 def test_layer_norm_zero_mean_and_unit_variance():
     module = LayerNorm(64, eps=1e-7, bias=False)
     output = module(torch.randn(4, 8, 64) * 5 + 10)
-    torch.testing.assert_close(output.mean(dim=-1), torch.zeros(4, 8), atol=1e-6, rtol=0)
-    torch.testing.assert_close(output.var(dim=-1, unbiased=False), torch.ones(4, 8), atol=1e-5, rtol=0)
+    torch.testing.assert_close(
+        output.mean(dim=-1), torch.zeros(4, 8), atol=1e-6, rtol=0
+    )
+    torch.testing.assert_close(
+        output.var(dim=-1, unbiased=False), torch.ones(4, 8), atol=1e-5, rtol=0
+    )
 
 
 def test_rms_norm_matches_manual_reference():
@@ -131,7 +135,10 @@ def test_rms_norm_small_fp16_values_do_not_overflow_reciprocal_scale():
     module = RMSNorm(8, eps=1e-12, dtype=torch.float16)
     inputs = torch.full((2, 8), 1e-6, dtype=torch.float16, requires_grad=True)
     actual = module(inputs)
-    expected = (inputs.float() * torch.rsqrt(inputs.float().square().mean(-1, keepdim=True) + module.eps)).half()
+    expected = (
+        inputs.float()
+        * torch.rsqrt(inputs.float().square().mean(-1, keepdim=True) + module.eps)
+    ).half()
     assert torch.isfinite(actual).all()
     torch.testing.assert_close(actual, expected)
     # Scale the objective to keep the mathematically large derivative within FP16.

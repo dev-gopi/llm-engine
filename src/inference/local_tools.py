@@ -64,12 +64,19 @@ def validate_json_schema(value: Any, schema: Mapping[str, Any]) -> None:
     """Validate the safe JSON-schema subset used by local and MCP tools."""
     expected = schema.get("type")
     valid_types = {
-        "object": dict, "array": list, "string": str, "integer": int,
-        "number": (int, float), "boolean": bool, "null": type(None),
+        "object": dict,
+        "array": list,
+        "string": str,
+        "integer": int,
+        "number": (int, float),
+        "boolean": bool,
+        "null": type(None),
     }
     if expected in valid_types:
         accepted = valid_types[expected]
-        if not isinstance(value, accepted) or (expected in {"integer", "number"} and isinstance(value, bool)):
+        if not isinstance(value, accepted) or (
+            expected in {"integer", "number"} and isinstance(value, bool)
+        ):
             raise ToolCallError(f"expected {expected}")
     if "enum" in schema and value not in schema["enum"]:
         raise ToolCallError("value is not an allowed enum member")
@@ -78,7 +85,9 @@ def validate_json_schema(value: Any, schema: Mapping[str, Any]) -> None:
         if not isinstance(properties, Mapping):
             raise ToolCallError("object schema properties must be an object")
         required = schema.get("required", [])
-        if not isinstance(required, list) or any(not isinstance(key, str) for key in required):
+        if not isinstance(required, list) or any(
+            not isinstance(key, str) for key in required
+        ):
             raise ToolCallError("object schema required must be a string list")
         missing = [key for key in required if key not in value]
         if missing:
@@ -114,7 +123,10 @@ def calculate(expression: str) -> int | float:
                 raise ValueError("number is outside the supported range")
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _BINARY_OPERATORS:
-            left, right = evaluate(node.left, depth + 1), evaluate(node.right, depth + 1)
+            left, right = (
+                evaluate(node.left, depth + 1),
+                evaluate(node.right, depth + 1),
+            )
             if isinstance(node.op, ast.Pow) and (abs(right) > 100 or abs(left) > 1e6):
                 raise ValueError("exponent is outside the supported range")
             try:
@@ -136,28 +148,60 @@ def tool_context(prompt: str, tools: list[str], *, now: datetime | None = None) 
     results: list[str] = []
     if "calculator" in tools:
         lowered = prompt.lower()
-        prefix_length = 10 if lowered.startswith("/calculate") else 5 if lowered.startswith("/calc") else 0
-        expression = prompt[prefix_length:].strip() if prefix_length else _find_expression(prompt)
+        prefix_length = (
+            10
+            if lowered.startswith("/calculate")
+            else 5
+            if lowered.startswith("/calc")
+            else 0
+        )
+        expression = (
+            prompt[prefix_length:].strip()
+            if prefix_length
+            else _find_expression(prompt)
+        )
         if expression:
             results.append(f"Calculator result: {calculate(expression)}")
     if "datetime" in tools:
-        current = (now or datetime.now().astimezone())
-        results.append(f"Current local date and time: {current.isoformat(timespec='seconds')} ({current.tzname()})")
+        current = now or datetime.now().astimezone()
+        results.append(
+            f"Current local date and time: {current.isoformat(timespec='seconds')} ({current.tzname()})"
+        )
     if not results:
         return prompt
-    return f"{prompt}\n\nTrusted tool results (use these to answer):\n" + "\n".join(results)
+    return f"{prompt}\n\nTrusted tool results (use these to answer):\n" + "\n".join(
+        results
+    )
 
 
-def direct_tool_answer(prompt: str, tools: list[str], *, now: datetime | None = None) -> str | None:
+def direct_tool_answer(
+    prompt: str, tools: list[str], *, now: datetime | None = None
+) -> str | None:
     """Return exact answers for deterministic tool requests without model generation."""
     normalized = prompt.strip()
     lowered = normalized.lower()
     calculator_shortcut = lowered.startswith(("/calculate ", "/calc "))
     if calculator_shortcut or "calculator" in tools:
-        prefix_length = 10 if lowered.startswith("/calculate") else 5 if lowered.startswith("/calc") else 0
-        expression = normalized[prefix_length:].strip() if prefix_length else _find_expression(normalized)
+        prefix_length = (
+            10
+            if lowered.startswith("/calculate")
+            else 5
+            if lowered.startswith("/calc")
+            else 0
+        )
+        expression = (
+            normalized[prefix_length:].strip()
+            if prefix_length
+            else _find_expression(normalized)
+        )
         # Markdown copy/paste may escape arithmetic symbols and leave sentence punctuation.
-        expression = expression.replace("\\*", "*").replace("\\+", "+").replace("\\-", "-").replace("\\/", "/").rstrip(".")
+        expression = (
+            expression.replace("\\*", "*")
+            .replace("\\+", "+")
+            .replace("\\-", "-")
+            .replace("\\/", "/")
+            .rstrip(".")
+        )
         if expression:
             try:
                 return f"{expression} = {calculate(expression)}"
@@ -177,6 +221,7 @@ def _find_expression(prompt: str) -> str:
     expressions = [candidate.strip().rstrip(".") for candidate in candidates]
     expressions = [value for value in expressions if re.search(r"[+\-*/%]", value)]
     return max(expressions, key=len, default="")
+
 
 @dataclass(frozen=True)
 class ToolApprovalPolicy:

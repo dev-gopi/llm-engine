@@ -58,12 +58,22 @@ class TopKSampler:
             filtered = torch.full_like(filtered, float("-inf")).scatter(
                 1, sorted_indices, sorted_logits
             )
-        return torch.multinomial(filtered.softmax(dim=-1), 1, generator=generator).squeeze(1)
+        return torch.multinomial(
+            filtered.softmax(dim=-1), 1, generator=generator
+        ).squeeze(1)
+
 
 class TokenConstraint:
     """Interface for token-time constraints used before sampling."""
 
-    def filter_logits(self, logits: Tensor, generated_ids: list[int], tokenizer, *, candidate_k: int = 256) -> Tensor:
+    def filter_logits(
+        self,
+        logits: Tensor,
+        generated_ids: list[int],
+        tokenizer,
+        *,
+        candidate_k: int = 256,
+    ) -> Tensor:
         return logits
 
     def validate(self, text: str) -> bool:
@@ -78,18 +88,31 @@ class PrefixGrammarConstraint(TokenConstraint):
     independent of a particular grammar implementation.
     """
 
-    def __init__(self, allowed_next: callable, *, final_validator: callable | None = None) -> None:
+    def __init__(
+        self, allowed_next: callable, *, final_validator: callable | None = None
+    ) -> None:
         self.allowed_next = allowed_next
         self.final_validator = final_validator
 
-    def filter_logits(self, logits: Tensor, generated_ids: list[int], tokenizer, *, candidate_k: int = 256) -> Tensor:
+    def filter_logits(
+        self,
+        logits: Tensor,
+        generated_ids: list[int],
+        tokenizer,
+        *,
+        candidate_k: int = 256,
+    ) -> Tensor:
         if logits.ndim != 2 or logits.size(0) != 1:
-            raise ValueError("token constraints currently require logits with batch size 1")
+            raise ValueError(
+                "token constraints currently require logits with batch size 1"
+            )
         prefix = tokenizer.decode(generated_ids, skip_special_tokens=False)
         allowed = set(self.allowed_next(prefix))
         if not allowed:
             raise ValueError("grammar produced no allowed token strings")
-        values, ids = torch.topk(logits, min(max(1, candidate_k), logits.size(-1)), dim=-1)
+        values, ids = torch.topk(
+            logits, min(max(1, candidate_k), logits.size(-1)), dim=-1
+        )
         mask = torch.full_like(logits, float("-inf"))
         for token_id in ids[0].tolist():
             piece = tokenizer.decode([int(token_id)], skip_special_tokens=False)
@@ -108,9 +131,11 @@ class PrefixGrammarConstraint(TokenConstraint):
         return mask
 
     def validate(self, text: str) -> bool:
-        return bool(self.final_validator(text)) if self.final_validator is not None else True
-
-
+        return (
+            bool(self.final_validator(text))
+            if self.final_validator is not None
+            else True
+        )
 
 
 class EBNFConstraint(TokenConstraint):
@@ -118,19 +143,32 @@ class EBNFConstraint(TokenConstraint):
 
     def __init__(self, grammar: str, *, start: str = "start") -> None:
         from schema.grammar import GrammarConstraint, GrammarSpec
+
         self.grammar = GrammarConstraint(GrammarSpec(grammar=grammar, start=start))
 
-    def filter_logits(self, logits: Tensor, generated_ids: list[int], tokenizer, *, candidate_k: int = 256) -> Tensor:
+    def filter_logits(
+        self,
+        logits: Tensor,
+        generated_ids: list[int],
+        tokenizer,
+        *,
+        candidate_k: int = 256,
+    ) -> Tensor:
         if logits.ndim != 2 or logits.size(0) != 1:
-            raise ValueError("grammar constraints currently require logits with batch size 1")
+            raise ValueError(
+                "grammar constraints currently require logits with batch size 1"
+            )
         prefix = tokenizer.decode(generated_ids, skip_special_tokens=False)
-        _values, ids = torch.topk(logits, min(max(1, candidate_k), logits.size(-1)), dim=-1)
+        _values, ids = torch.topk(
+            logits, min(max(1, candidate_k), logits.size(-1)), dim=-1
+        )
         mask = torch.full_like(logits, float("-inf"))
         candidates = []
         mapping = {}
         for token_id in ids[0].tolist():
             piece = tokenizer.decode([int(token_id)], skip_special_tokens=False)
-            candidates.append(piece); mapping.setdefault(piece, []).append(int(token_id))
+            candidates.append(piece)
+            mapping.setdefault(piece, []).append(int(token_id))
         for piece in self.grammar.filter_candidates(prefix, candidates):
             for token_id in mapping.get(piece, []):
                 mask[0, token_id] = logits[0, token_id]
@@ -179,13 +217,22 @@ class JSONSchemaConstraint(TokenConstraint):
                 in_string = True
             elif char in "{[":
                 stack.append(char)
-            elif char == "}" and (not stack or stack.pop() != "{") or char == "]" and (not stack or stack.pop() != "["):
+            elif (
+                char == "}"
+                and (not stack or stack.pop() != "{")
+                or char == "]"
+                and (not stack or stack.pop() != "[")
+            ):
                 return False
         if escaped or in_string:
             return not escaped
         # A closing structural token cannot immediately follow a colon or comma.
         stripped = text.rstrip()
-        if stripped.endswith((":", ",")) or stripped.endswith((":}", ",}")) or stripped.endswith((":]", ",]")):
+        if (
+            stripped.endswith((":", ","))
+            or stripped.endswith((":}", ",}"))
+            or stripped.endswith((":]", ",]"))
+        ):
             return False
         return not escaped
 
@@ -211,6 +258,7 @@ class JSONSchemaConstraint(TokenConstraint):
 
     def validate(self, text: str) -> bool:
         import json
+
         try:
             value = json.loads(text)
         except (TypeError, ValueError):
@@ -222,18 +270,34 @@ class JSONSchemaConstraint(TokenConstraint):
             if any(key not in value for key in required):
                 return False
             for key, property_schema in self.schema.get("properties", {}).items():
-                if key in value and isinstance(property_schema, dict) and not self._schema_type_valid(value[key], property_schema):
+                if (
+                    key in value
+                    and isinstance(property_schema, dict)
+                    and not self._schema_type_valid(value[key], property_schema)
+                ):
                     return False
         return True
 
-    def filter_logits(self, logits: Tensor, generated_ids: list[int], tokenizer, *, candidate_k: int = 256) -> Tensor:
+    def filter_logits(
+        self,
+        logits: Tensor,
+        generated_ids: list[int],
+        tokenizer,
+        *,
+        candidate_k: int = 256,
+    ) -> Tensor:
         if logits.ndim != 2 or logits.size(0) != 1:
-            raise ValueError("JSON constraints currently require logits with batch size 1")
+            raise ValueError(
+                "JSON constraints currently require logits with batch size 1"
+            )
         prefix = tokenizer.decode(generated_ids, skip_special_tokens=False)
         eos_id = tokenizer.token_to_id("<|eos|>")
-        values, ids = torch.topk(logits, min(max(1, candidate_k), logits.size(-1)), dim=-1)
+        values, ids = torch.topk(
+            logits, min(max(1, candidate_k), logits.size(-1)), dim=-1
+        )
         mask = torch.full_like(logits, float("-inf"))
         import json
+
         for token_id in ids[0].tolist():
             piece = tokenizer.decode([int(token_id)], skip_special_tokens=False)
             candidate = prefix + piece

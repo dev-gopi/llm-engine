@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from local_dataset.collator import Collator
 from inference.chat_session import (
     ChatSession,
     build_chat_sft_example,
@@ -12,6 +11,7 @@ from inference.chat_session import (
     validate_reasoning_trace,
 )
 from inference.generator import GenerationResult
+from local_dataset.collator import Collator
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
@@ -19,10 +19,15 @@ from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 def backend():
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: i for i, piece in enumerate(pieces)}
-    tokenizer = Tokenizer(vocab, special_tokens={p: vocab[p] for p in DEFAULT_SPECIAL_TOKENS})
-    return SimpleNamespace(tokenizer=tokenizer, generator=SimpleNamespace(max_positions=256),
-                           generation_config={"max_tokens": 16},
-                           generate=lambda *a, **k: GenerationResult("Hello!", (1,), 1, "stop"))
+    tokenizer = Tokenizer(
+        vocab, special_tokens={p: vocab[p] for p in DEFAULT_SPECIAL_TOKENS}
+    )
+    return SimpleNamespace(
+        tokenizer=tokenizer,
+        generator=SimpleNamespace(max_positions=256),
+        generation_config={"max_tokens": 16},
+        generate=lambda *a, **k: GenerationResult("Hello!", (1,), 1, "stop"),
+    )
 
 
 def test_history_survives_restart_and_requires_explicit_export_approval(tmp_path):
@@ -69,6 +74,7 @@ def test_failed_generation_does_not_persist_partial_turn(tmp_path):
 
 def test_history_is_used_and_training_export_is_loadable(tmp_path):
     from local_dataset.loader import TextDataset
+
     b = backend()
     session = ChatSession(b, tmp_path / "chat.sqlite", "a")
     session.chat("My name is Alice")
@@ -76,7 +82,10 @@ def test_history_is_used_and_training_export_is_loadable(tmp_path):
 
     def respond(prompt, **options):
         prompts.append(prompt)
-        assert len(b.tokenizer.encode(prompt, add_bos=True, allowed_special="all")) + 16 < 256
+        assert (
+            len(b.tokenizer.encode(prompt, add_bos=True, allowed_special="all")) + 16
+            < 256
+        )
         return GenerationResult("Alice", (1,), 1, "stop")
 
     b.generate = respond
@@ -123,7 +132,9 @@ def test_canonical_chat_template_masks_every_non_assistant_token() -> None:
 
     assert batch["loss_mask"].sum().item() > 0
     assert torch.equal(batch["labels"].eq(-100), ~batch["loss_mask"])
-    supervised = b.tokenizer.decode(batch["input_ids"][0][batch["loss_mask"][0]].tolist())
+    supervised = b.tokenizer.decode(
+        batch["input_ids"][0][batch["loss_mask"][0]].tolist()
+    )
     assert "Hello!" in supervised
     assert "Be concise." not in supervised
     assert "Say hello." not in supervised
@@ -139,7 +150,7 @@ def test_canonical_chat_template_preserves_and_masks_tool_turns() -> None:
     ]
 
     rendered = format_chat_messages(messages)
-    assert "<|tool|>\n{\"result\": 4}\n<|end|>" in rendered
+    assert '<|tool|>\n{"result": 4}\n<|end|>' in rendered
     example = build_chat_sft_example(b.tokenizer, messages)
     supervised = b.tokenizer.decode(example["input_ids"][example["loss_mask"]].tolist())
     assert "I will use the calculator." in supervised

@@ -39,15 +39,21 @@ class VideoCaptionDataset(Dataset):
                 if not line.strip():
                     continue
                 record = json.loads(line)
-                if not isinstance(record.get("video"), str) or not isinstance(record.get("text"), str):
-                    raise ValueError(f"invalid video manifest record at line {line_number}")
+                if not isinstance(record.get("video"), str) or not isinstance(
+                    record.get("text"), str
+                ):
+                    raise ValueError(
+                        f"invalid video manifest record at line {line_number}"
+                    )
                 if not record["text"].strip():
                     raise ValueError(f"empty video caption at line {line_number}")
                 path = Path(record["video"])
                 if not path.is_absolute():
                     path = self.manifest.parent / path
                 if validate_files and not path.is_file():
-                    raise FileNotFoundError(f"video file not found at line {line_number}: {path}")
+                    raise FileNotFoundError(
+                        f"video file not found at line {line_number}: {path}"
+                    )
                 self.records.append(record)
         if not self.records:
             raise ValueError("video manifest is empty")
@@ -60,7 +66,10 @@ class VideoCaptionDataset(Dataset):
         path = Path(record["video"])
         if not path.is_absolute():
             path = self.manifest.parent / path
-        flip = self.horizontal_flip_probability > 0 and random.random() < self.horizontal_flip_probability
+        flip = (
+            self.horizontal_flip_probability > 0
+            and random.random() < self.horizontal_flip_probability
+        )
         return load_video(
             path,
             frames=self.frames,

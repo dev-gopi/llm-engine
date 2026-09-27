@@ -21,29 +21,61 @@ async def run(args) -> tuple[dict, bool]:
     prompts = ["word " * randomizer.choice(sizes) for _ in range(args.requests)]
 
     async with httpx.AsyncClient(base_url=args.url, timeout=args.timeout) as client:
+
         async def one(index: int, prompt: str) -> LoadSample:
             async with semaphore:
                 started = time.perf_counter()
                 try:
-                    timeout = args.cancel_after if args.cancel_every and index % args.cancel_every == 0 else args.timeout
-                    response = await asyncio.wait_for(client.post(
-                        "/v1/generate",
-                        headers={"Authorization": f"Bearer {args.api_key}"} if args.api_key else {},
-                        json={"prompt": prompt, "max_tokens": args.max_tokens, "seed": args.seed + index},
-                    ), timeout=timeout)
-                    payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    timeout = (
+                        args.cancel_after
+                        if args.cancel_every and index % args.cancel_every == 0
+                        else args.timeout
+                    )
+                    response = await asyncio.wait_for(
+                        client.post(
+                            "/v1/generate",
+                            headers={"Authorization": f"Bearer {args.api_key}"}
+                            if args.api_key
+                            else {},
+                            json={
+                                "prompt": prompt,
+                                "max_tokens": args.max_tokens,
+                                "seed": args.seed + index,
+                            },
+                        ),
+                        timeout=timeout,
+                    )
+                    payload = (
+                        response.json()
+                        if response.headers.get("content-type", "").startswith(
+                            "application/json"
+                        )
+                        else {}
+                    )
                     usage = payload.get("usage", {})
-                    return LoadSample(time.perf_counter() - started, response.status_code,
-                                      int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0)))
+                    return LoadSample(
+                        time.perf_counter() - started,
+                        response.status_code,
+                        int(usage.get("prompt_tokens", 0)),
+                        int(usage.get("completion_tokens", 0)),
+                    )
                 except asyncio.TimeoutError:
-                    return LoadSample(time.perf_counter() - started, None, cancelled=True)
+                    return LoadSample(
+                        time.perf_counter() - started, None, cancelled=True
+                    )
                 except Exception as error:
-                    return LoadSample(time.perf_counter() - started, None, error=type(error).__name__)
+                    return LoadSample(
+                        time.perf_counter() - started, None, error=type(error).__name__
+                    )
 
         started = time.perf_counter()
-        samples = await asyncio.gather(*(one(index, prompt) for index, prompt in enumerate(prompts, 1)))
+        samples = await asyncio.gather(
+            *(one(index, prompt) for index, prompt in enumerate(prompts, 1))
+        )
         report = summarize(list(samples), time.perf_counter() - started)
-    passed = release_gate(report, max_p95_seconds=args.max_p95, max_failure_rate=args.max_failure_rate)
+    passed = release_gate(
+        report, max_p95_seconds=args.max_p95, max_failure_rate=args.max_failure_rate
+    )
     report["release_gate_passed"] = passed
     return report, passed
 

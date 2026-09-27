@@ -12,7 +12,11 @@ from fastapi.responses import JSONResponse
 
 from api.responses import ResponsesRequest
 from media_generation.assets import AssetStore
-from omni_platform.multimodal_input import PreparedMultimodalInput, latest_text, prepare_responses_input
+from omni_platform.multimodal_input import (
+    PreparedMultimodalInput,
+    latest_text,
+    prepare_responses_input,
+)
 from omni_platform.observability import Metrics
 from omni_platform.scheduler import GPUScheduler, ResourceRequest
 from omni_platform.speech import EnergyVAD, HuggingFaceASRProvider
@@ -77,12 +81,12 @@ def test_metrics_prometheus_output() -> None:
 
 
 def test_gpu_scheduler_cpu_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("omni_platform.scheduler.gpu_report", lambda: [])
+    monkeypatch.setattr("omni_platform.scheduler.gpu_report", list)
     assert GPUScheduler().select(ResourceRequest(allow_cpu=True)) == "cpu"
 
 
 def test_gpu_scheduler_rejects_missing_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("omni_platform.scheduler.gpu_report", lambda: [])
+    monkeypatch.setattr("omni_platform.scheduler.gpu_report", list)
     with pytest.raises(Exception):
         GPUScheduler().select(ResourceRequest(allow_cpu=False))
 
@@ -99,25 +103,32 @@ def test_omni_requires_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     with ASGIClient(app) as client:
         assert client.get("/v1/platform/capabilities/verify").status_code == 401
         result = client.get(
-            "/v1/platform/capabilities/verify", headers={"Authorization": "Bearer secret"}
+            "/v1/platform/capabilities/verify",
+            headers={"Authorization": "Bearer secret"},
         )
         assert result.status_code == 200
         assert result.json()["capabilities"]["speech_to_text"] is False
 
 
-def test_tts_endpoint_conservative_without_model(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tts_endpoint_conservative_without_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("GOPI_API_KEY", "secret")
     monkeypatch.delenv("GOPI_TTS_MODEL", raising=False)
     app = FastAPI()
     app.include_router(create_omni_speech_router())
     with ASGIClient(app) as client:
         result = client.post(
-            "/v1/audio/speech", headers={"Authorization": "Bearer secret"}, json={"input": "hello"}
+            "/v1/audio/speech",
+            headers={"Authorization": "Bearer secret"},
+            json={"input": "hello"},
         )
         assert result.status_code == 503
 
 
-def test_video_understanding_preserves_serving_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_video_understanding_preserves_serving_error_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class NativeVisionBackend:
         supports_vision = True
         multimodal_generator = object()
@@ -129,7 +140,9 @@ def test_video_understanding_preserves_serving_error_status(monkeypatch: pytest.
             raise BackendUnavailableError("generation backend is not loaded")
 
     async def prepared_input(*args, **kwargs):
-        return PreparedMultimodalInput(messages=[{"role": "user", "content": "describe video"}])
+        return PreparedMultimodalInput(
+            messages=[{"role": "user", "content": "describe video"}]
+        )
 
     monkeypatch.setenv("GOPI_API_KEY", "secret")
     monkeypatch.setattr("serving.omni.prepare_responses_input", prepared_input)
@@ -150,54 +163,73 @@ def test_video_understanding_preserves_serving_error_status(monkeypatch: pytest.
     assert result.json()["detail"] == "generation backend is not loaded"
 
 
-
-
 def test_responses_accepts_typed_multimodal_input() -> None:
-    request = ResponsesRequest.model_validate({
-        "model": "gopi",
-        "input": [{
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": "Describe this"},
-                {"type": "input_image", "image_url": "data:image/png;base64,iVBORw0KGgo="},
+    request = ResponsesRequest.model_validate(
+        {
+            "model": "gopi",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Describe this"},
+                        {
+                            "type": "input_image",
+                            "image_url": "data:image/png;base64,iVBORw0KGgo=",
+                        },
+                    ],
+                }
             ],
-        }],
-    })
+        }
+    )
     assert request.input[0].content[0].type == "input_text"
     assert request.input[0].content[1].type == "input_image"
 
 
 def test_responses_image_requires_exactly_one_source() -> None:
     with pytest.raises(ValueError):
-        ResponsesRequest.model_validate({
-            "model": "gopi",
-            "input": [{
-                "role": "user",
-                "content": [{
-                    "type": "input_image",
-                    "image_url": "data:image/png;base64,iVBORw0KGgo=",
-                    "asset_id": "asset_0123456789abcdef0123456789abcdef",
-                }],
-            }],
-        })
+        ResponsesRequest.model_validate(
+            {
+                "model": "gopi",
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_image",
+                                "image_url": "data:image/png;base64,iVBORw0KGgo=",
+                                "asset_id": "asset_0123456789abcdef0123456789abcdef",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
 
 
 def test_prepare_image_asset_and_audio_transcript(tmp_path: Path) -> None:
     store = AssetStore(tmp_path / "assets")
-    image = store.put(b"\x89PNG\r\n\x1a\n" + b"payload", mime_type="image/png", filename="x.png")
+    image = store.put(
+        b"\x89PNG\r\n\x1a\n" + b"payload", mime_type="image/png", filename="x.png"
+    )
     audio = store.put(_wav_bytes(), mime_type="audio/wav", filename="x.wav")
-    request = ResponsesRequest.model_validate({
-        "model": "gopi",
-        "input": [{
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": "What is here?"},
-                {"type": "input_image", "asset_id": image.id},
-                {"type": "input_audio", "asset_id": audio.id},
+    request = ResponsesRequest.model_validate(
+        {
+            "model": "gopi",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "What is here?"},
+                        {"type": "input_image", "asset_id": image.id},
+                        {"type": "input_audio", "asset_id": audio.id},
+                    ],
+                }
             ],
-        }],
-    })
-    prepared = asyncio.run(prepare_responses_input(request.input, asset_store=store, asr=FakeASR()))
+        }
+    )
+    prepared = asyncio.run(
+        prepare_responses_input(request.input, asset_store=store, asr=FakeASR())
+    )
     content = prepared.messages[0]["content"]
     assert content[0]["text"] == "What is here?"
     assert content[1]["type"] == "image_url"
@@ -209,5 +241,7 @@ def test_prepare_image_asset_and_audio_transcript(tmp_path: Path) -> None:
 
 
 def test_audio_only_output_modality_is_supported() -> None:
-    request = ResponsesRequest.model_validate({"model": "gopi", "input": "hi", "modalities": ["audio"]})
+    request = ResponsesRequest.model_validate(
+        {"model": "gopi", "input": "hi", "modalities": ["audio"]}
+    )
     assert request.modalities == ["audio"]

@@ -8,8 +8,13 @@ from serving.workspace import WorkspaceService
 
 def action(action_type, **values):
     defaults = {
-        "path": "", "query": "", "content": "", "expected_sha256": None,
-        "apply": False, "preset": "unit", "operation": "status",
+        "path": "",
+        "query": "",
+        "content": "",
+        "expected_sha256": None,
+        "apply": False,
+        "preset": "unit",
+        "operation": "status",
     }
     defaults.update(values)
     return SimpleNamespace(type=action_type, **defaults)
@@ -27,7 +32,6 @@ def test_workspace_read_search_and_path_boundary(tmp_path):
     assert workspace.search("ANSWER")["matches"][0]["line"] == 1
     with pytest.raises(ValueError, match="escapes"):
         workspace.read("../outside.txt")
-
 
 
 def test_workspace_search_does_not_follow_symlink_outside_root(tmp_path):
@@ -75,18 +79,14 @@ def test_workspace_patch_is_checked_before_apply(tmp_path):
 
 def test_workspace_patch_supports_reviewed_file_creation_and_deletion(tmp_path):
     workspace = WorkspaceService(tmp_path)
-    create_patch = (
-        "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+created\n"
-    )
+    create_patch = "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+created\n"
     preview = workspace.apply_patch(create_patch, apply=False)
     assert preview["paths"] == ["new.txt"]
     assert not (tmp_path / "new.txt").exists()
     workspace.apply_patch(create_patch, apply=True)
     assert (tmp_path / "new.txt").read_text(encoding="utf-8") == "created\n"
 
-    delete_patch = (
-        "--- a/new.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-created\n"
-    )
+    delete_patch = "--- a/new.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-created\n"
     preview = workspace.apply_patch(delete_patch, apply=False)
     assert preview["paths"] == ["new.txt"]
     workspace.apply_patch(delete_patch, apply=True)
@@ -97,7 +97,9 @@ def test_workspace_only_exposes_allowlisted_commands(tmp_path, monkeypatch):
     workspace = WorkspaceService(tmp_path)
     calls = []
     monkeypatch.setattr(
-        workspace, "_run", lambda command, **kwargs: calls.append(command) or {"returncode": 0}
+        workspace,
+        "_run",
+        lambda command, **kwargs: calls.append(command) or {"returncode": 0},
     )
 
     workspace.run_test("unit")
@@ -110,7 +112,7 @@ def test_workspace_only_exposes_allowlisted_commands(tmp_path, monkeypatch):
 
 def test_workspace_executes_a_bounded_sequence(tmp_path):
     (tmp_path / "a.txt").write_text("needle\n", encoding="utf-8")
-    results = WorkspaceService(tmp_path).execute([
-        action("read", path="a.txt"), action("search", query="needle")
-    ])
+    results = WorkspaceService(tmp_path).execute(
+        [action("read", path="a.txt"), action("search", query="needle")]
+    )
     assert [item["type"] for item in results] == ["read", "search"]

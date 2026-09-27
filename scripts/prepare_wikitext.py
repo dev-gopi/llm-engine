@@ -18,6 +18,8 @@ import pyarrow.parquet as pq
 from local_dataset.preprocessor import clean
 
 ARTICLE_TITLE = re.compile(r"^\s*=\s+[^=].*?\s+=\s*$")
+
+
 def normalize_line(value: str) -> str:
     text = clean(value)
     text = re.sub(r"\s*@-@\s*", "-", text)
@@ -50,7 +52,10 @@ def iter_chunks(text: str, max_characters: int) -> Iterator[str]:
         return
     remaining = text
     while len(remaining) > max_characters:
-        cut = max(remaining.rfind("\n", 0, max_characters + 1), remaining.rfind(" ", 0, max_characters + 1))
+        cut = max(
+            remaining.rfind("\n", 0, max_characters + 1),
+            remaining.rfind(" ", 0, max_characters + 1),
+        )
         if cut < max_characters // 2:
             cut = max_characters
         chunk = remaining[:cut].strip()
@@ -81,21 +86,36 @@ def process_split(
             if len(article) < min_characters:
                 continue
             for chunk_index, chunk in enumerate(iter_chunks(article, max_characters)):
-                stream.write(json.dumps({
-                    "id": f"wikitext-103-{split}-{documents}-chunk-{chunk_index}",
-                    "text": chunk,
-                    "source": "Salesforce/wikitext:wikitext-103-raw-v1",
-                }, ensure_ascii=False) + "\n")
+                stream.write(
+                    json.dumps(
+                        {
+                            "id": f"wikitext-103-{split}-{documents}-chunk-{chunk_index}",
+                            "text": chunk,
+                            "source": "Salesforce/wikitext:wikitext-103-raw-v1",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
                 chunks += 1
             documents += 1
             characters += len(article)
-    return {"documents": documents, "chunks": chunks, "characters": characters, "bytes": destination.stat().st_size}
+    return {
+        "documents": documents,
+        "chunks": chunks,
+        "characters": characters,
+        "bytes": destination.stat().st_size,
+    }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--raw-dir", type=Path, default=Path("data/raw/wikitext-103-raw-v1"))
-    parser.add_argument("--output-dir", type=Path, default=Path("data/processed/wikitext_103"))
+    parser.add_argument(
+        "--raw-dir", type=Path, default=Path("data/raw/wikitext-103-raw-v1")
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=Path("data/processed/wikitext_103")
+    )
     parser.add_argument("--min-characters", type=int, default=100)
     parser.add_argument("--max-characters", type=int, default=1_600)
     args = parser.parse_args()
@@ -105,7 +125,11 @@ def main() -> None:
         parser.error("--max-characters must be at least 128")
     summary = {
         split: process_split(
-            args.raw_dir, args.output_dir, split, args.min_characters, args.max_characters
+            args.raw_dir,
+            args.output_dir,
+            split,
+            args.min_characters,
+            args.max_characters,
         )
         for split in ("train", "validation", "test")
     }

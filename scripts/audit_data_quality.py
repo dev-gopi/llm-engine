@@ -29,7 +29,17 @@ def record_text(value: Any) -> str:
     if isinstance(value, list):
         return "\n".join(filter(None, (record_text(item) for item in value)))
     if isinstance(value, dict):
-        preferred = ("messages", "prompt", "chosen", "response", "instruction", "input", "output", "text", "content")
+        preferred = (
+            "messages",
+            "prompt",
+            "chosen",
+            "response",
+            "instruction",
+            "input",
+            "output",
+            "text",
+            "content",
+        )
         parts = [record_text(value[key]) for key in preferred if key in value]
         return "\n".join(filter(None, parts))
     return ""
@@ -47,30 +57,70 @@ def analyze_record(value: dict, tokenizer: Tokenizer, max_length: int) -> dict:
         raise ValueError("record must be an object")
     messages = value.get("messages")
     if isinstance(value.get("prompt"), str) and isinstance(value.get("chosen"), str):
-        messages = [{"role": "user", "content": value["prompt"]},
-                    {"role": "assistant", "content": value["chosen"]}]
+        messages = [
+            {"role": "user", "content": value["prompt"]},
+            {"role": "assistant", "content": value["chosen"]},
+        ]
     if isinstance(messages, list):
         ids, mask = TextDataset._encode_chat(messages, tokenizer, True, True)
-        prompts = [m["content"] for m in messages if isinstance(m, dict)
-                   and m.get("role") == "user" and isinstance(m.get("content"), str)]
-        assistants = [m["content"] for m in messages if isinstance(m, dict)
-                      and m.get("role") == "assistant" and isinstance(m.get("content"), str)]
-        invalid_chat = any(not isinstance(m, dict) or m.get("role") not in {"system", "user", "assistant"}
-                           or not isinstance(m.get("content"), str) or not m["content"].strip() for m in messages)
-        return {"tokens": len(ids), "supervised_tokens": sum(mask[1:max_length]),
-                "truncated": len(ids) > max_length, "chat": True,
-                "invalid_chat": invalid_chat or not assistants or messages[-1].get("role") != "assistant",
-                "missing_system": not any(isinstance(m, dict) and m.get("role") == "system" for m in messages),
-                "prompts": prompts}
+        prompts = [
+            m["content"]
+            for m in messages
+            if isinstance(m, dict)
+            and m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+        ]
+        assistants = [
+            m["content"]
+            for m in messages
+            if isinstance(m, dict)
+            and m.get("role") == "assistant"
+            and isinstance(m.get("content"), str)
+        ]
+        invalid_chat = any(
+            not isinstance(m, dict)
+            or m.get("role") not in {"system", "user", "assistant"}
+            or not isinstance(m.get("content"), str)
+            or not m["content"].strip()
+            for m in messages
+        )
+        return {
+            "tokens": len(ids),
+            "supervised_tokens": sum(mask[1:max_length]),
+            "truncated": len(ids) > max_length,
+            "chat": True,
+            "invalid_chat": invalid_chat
+            or not assistants
+            or messages[-1].get("role") != "assistant",
+            "missing_system": not any(
+                isinstance(m, dict) and m.get("role") == "system" for m in messages
+            ),
+            "prompts": prompts,
+        }
     if value.get("prepacked"):
         dataset = TextDataset([value], tokenizer, max_length=max_length)
         example = dataset[0]
-        return {"tokens": len(example["input_ids"]), "supervised_tokens": int(example["loss_mask"][1:].sum()),
-                "truncated": False, "chat": False, "invalid_chat": False, "missing_system": False, "prompts": []}
-    ids = tokenizer.encode(record_to_text(value), add_bos=True, add_eos=True, allowed_special="all")
-    return {"tokens": len(ids), "supervised_tokens": min(len(ids), max_length) - 1,
-            "truncated": len(ids) > max_length, "chat": False,
-            "invalid_chat": False, "missing_system": False, "prompts": []}
+        return {
+            "tokens": len(example["input_ids"]),
+            "supervised_tokens": int(example["loss_mask"][1:].sum()),
+            "truncated": False,
+            "chat": False,
+            "invalid_chat": False,
+            "missing_system": False,
+            "prompts": [],
+        }
+    ids = tokenizer.encode(
+        record_to_text(value), add_bos=True, add_eos=True, allowed_special="all"
+    )
+    return {
+        "tokens": len(ids),
+        "supervised_tokens": min(len(ids), max_length) - 1,
+        "truncated": len(ids) > max_length,
+        "chat": False,
+        "invalid_chat": False,
+        "missing_system": False,
+        "prompts": [],
+    }
 
 
 def script_label(text: str) -> str:
@@ -113,10 +163,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", type=Path)
     parser.add_argument("--training-config", type=Path)
-    parser.add_argument("--tokenizer", type=Path, help="defaults to training config runtime tokenizer")
-    parser.add_argument("--cases", type=Path, action="append", default=[], help="check normalized exact benchmark prompt overlap")
+    parser.add_argument(
+        "--tokenizer", type=Path, help="defaults to training config runtime tokenizer"
+    )
+    parser.add_argument(
+        "--cases",
+        type=Path,
+        action="append",
+        default=[],
+        help="check normalized exact benchmark prompt overlap",
+    )
     parser.add_argument("--max-records-per-file", type=int, default=10_000)
-    parser.add_argument("--output", type=Path, default=Path("reports/data_quality.json"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("reports/data_quality.json")
+    )
     args = parser.parse_args()
     paths = list(args.paths)
     max_length = 512
@@ -134,13 +194,21 @@ def main() -> None:
         parser.error("provide dataset paths or --training-config")
     if args.max_records_per_file < 1:
         parser.error("--max-records-per-file must be positive")
-    tokenizer_path = args.tokenizer or Path(config.get("runtime", {}).get("tokenizer", "data/tokenizer"))
+    tokenizer_path = args.tokenizer or Path(
+        config.get("runtime", {}).get("tokenizer", "data/tokenizer")
+    )
     if not tokenizer_path.exists():
-        parser.error(f"tokenizer unavailable: {tokenizer_path}; mount the completed run's drive (do not substitute another tokenizer)")
+        parser.error(
+            f"tokenizer unavailable: {tokenizer_path}; mount the completed run's drive (do not substitute another tokenizer)"
+        )
     tokenizer = Tokenizer.load(tokenizer_path)
     benchmark_keys = set()
     for path in args.cases:
-        benchmark_keys.update(prompt_key(json.loads(line)["prompt"]) for line in path.read_text().splitlines() if line.strip())
+        benchmark_keys.update(
+            prompt_key(json.loads(line)["prompt"])
+            for line in path.read_text().splitlines()
+            if line.strip()
+        )
     seen: set[str] = set()
     split_records = {"train": set(), "validation": set()}
     split_prompts = {"train": set(), "validation": set()}
@@ -153,7 +221,13 @@ def main() -> None:
         if not path.is_file():
             missing.append(str(path))
             continue
-        split = "train" if str(path) in train_paths else "validation" if str(path) in validation_paths else "unspecified"
+        split = (
+            "train"
+            if str(path) in train_paths
+            else "validation"
+            if str(path) in validation_paths
+            else "unspecified"
+        )
         stats = Counter()
         file_lengths = []
         file_seen = set()
@@ -168,8 +242,14 @@ def main() -> None:
                     stats["invalid_json"] += 1
                     continue
                 text = record_text(value).strip()
-                if isinstance(value, dict) and value.get("prepacked") and "token_ids" in value:
-                    text = json.dumps([value.get("tokenizer_fingerprint"), value["token_ids"]])
+                if (
+                    isinstance(value, dict)
+                    and value.get("prepacked")
+                    and "token_ids" in value
+                ):
+                    text = json.dumps(
+                        [value.get("tokenizer_fingerprint"), value["token_ids"]]
+                    )
                 if not text:
                     empty += 1
                     stats["empty"] += 1
@@ -204,18 +284,41 @@ def main() -> None:
                 if split in split_records:
                     split_records[split].add(digest)
                     split_prompts[split].update(keys)
-        per_file.append({"path": str(path), "split": split, "bytes": path.stat().st_size,
-                         "scan_limit": args.max_records_per_file, **dict(stats),
-                         "token_length_p95": percentile(file_lengths, 0.95)})
-        print(f"Audited {path}: {stats['sampled']} records", file=sys.stderr, flush=True)
+        per_file.append(
+            {
+                "path": str(path),
+                "split": split,
+                "bytes": path.stat().st_size,
+                "scan_limit": args.max_records_per_file,
+                **dict(stats),
+                "token_length_p95": percentile(file_lengths, 0.95),
+            }
+        )
+        print(
+            f"Audited {path}: {stats['sampled']} records", file=sys.stderr, flush=True
+        )
     overlap = len(split_records["train"] & split_records["validation"])
     prompt_overlap = len(split_prompts["train"] & split_prompts["validation"])
     result = {
-        "status": "warning" if missing or invalid or unusable or empty or duplicates or truncated or overlap or prompt_overlap
-                  or any(row.get("invalid_chat", 0) or row.get("zero_target_records", 0)
-                         or row.get("benchmark_prompt_matches", 0) for row in per_file) else "passed",
+        "status": "warning"
+        if missing
+        or invalid
+        or unusable
+        or empty
+        or duplicates
+        or truncated
+        or overlap
+        or prompt_overlap
+        or any(
+            row.get("invalid_chat", 0)
+            or row.get("zero_target_records", 0)
+            or row.get("benchmark_prompt_matches", 0)
+            for row in per_file
+        )
+        else "passed",
         "sampling": "First N lines per file, bounded diagnostic; not a complete or random corpus audit. No semantic near-duplicate detection.",
-        "tokenizer": str(tokenizer_path), "tokenizer_fingerprint": tokenizer.fingerprint,
+        "tokenizer": str(tokenizer_path),
+        "tokenizer_fingerprint": tokenizer.fingerprint,
         "train_validation_record_overlap": overlap,
         "train_validation_prompt_overlap": prompt_overlap,
         "files": per_file,

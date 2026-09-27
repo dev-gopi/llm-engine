@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import torch
 
 from tokenizer.encoder import Tokenizer
-
 
 CALIBRATION_VERSION = 1
 
@@ -39,7 +38,9 @@ class RewardCalibration:
         if not math.isfinite(self.std) or self.std <= 0:
             raise ValueError("reward calibration std must be positive and finite")
         if not math.isfinite(self.temperature) or self.temperature <= 0:
-            raise ValueError("reward calibration temperature must be positive and finite")
+            raise ValueError(
+                "reward calibration temperature must be positive and finite"
+            )
         if self.clip is not None and (not math.isfinite(self.clip) or self.clip <= 0):
             raise ValueError("reward calibration clip must be positive and finite")
 
@@ -62,7 +63,7 @@ class RewardCalibration:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "RewardCalibration":
+    def from_dict(cls, payload: dict) -> RewardCalibration:
         return cls(
             mean=float(payload.get("mean", 0.0)),
             std=float(payload.get("std", 1.0)),
@@ -72,7 +73,7 @@ class RewardCalibration:
         )
 
     @classmethod
-    def load(cls, path: str | Path) -> "RewardCalibration":
+    def load(cls, path: str | Path) -> RewardCalibration:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("reward calibration file must contain a JSON object")
@@ -84,7 +85,9 @@ class RewardCalibration:
         payload = self.to_dict()
         if metadata:
             payload["metadata"] = dict(metadata)
-        destination.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        destination.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         return destination
 
 
@@ -96,7 +99,9 @@ def fit_reward_calibration(
 ) -> tuple[RewardCalibration, dict[str, float | int]]:
     """Fit normalization and a scalar pairwise temperature on held-out pairs."""
     if len(chosen_rewards) != len(rejected_rewards) or not chosen_rewards:
-        raise ValueError("chosen/rejected rewards must be non-empty and have equal length")
+        raise ValueError(
+            "chosen/rejected rewards must be non-empty and have equal length"
+        )
     chosen = torch.tensor(chosen_rewards, dtype=torch.float64)
     rejected = torch.tensor(rejected_rewards, dtype=torch.float64)
     if not bool(torch.isfinite(chosen).all() and torch.isfinite(rejected).all()):
@@ -110,12 +115,16 @@ def fit_reward_calibration(
     # A bounded log-spaced search is deterministic, dependency-free and robust
     # for the small calibration sets commonly used with local reward models.
     candidates = torch.logspace(-2, 2, 161, dtype=torch.float64)
-    losses = torch.stack([
-        torch.nn.functional.softplus(-(deltas / temperature)).mean()
-        for temperature in candidates
-    ])
+    losses = torch.stack(
+        [
+            torch.nn.functional.softplus(-(deltas / temperature)).mean()
+            for temperature in candidates
+        ]
+    )
     temperature = float(candidates[int(torch.argmin(losses))])
-    calibration = RewardCalibration(mean=mean, std=std, temperature=temperature, clip=clip)
+    calibration = RewardCalibration(
+        mean=mean, std=std, temperature=temperature, clip=clip
+    )
     raw_accuracy = float((deltas > 0).double().mean())
     ties = float((deltas == 0).double().mean())
     probability = torch.sigmoid(deltas / temperature)
@@ -173,26 +182,44 @@ class RewardScorer:
         return ids
 
     @torch.inference_mode()
-    def score_many(self, pairs: Iterable[tuple[str, str]], *, batch_size: int = 8, normalized: bool = False) -> list[float]:
+    def score_many(
+        self,
+        pairs: Iterable[tuple[str, str]],
+        *,
+        batch_size: int = 8,
+        normalized: bool = False,
+    ) -> list[float]:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
         encoded = [self.encode(prompt, completion) for prompt, completion in pairs]
         scores: list[float] = []
         for start in range(0, len(encoded), batch_size):
-            items = encoded[start:start + batch_size]
+            items = encoded[start : start + batch_size]
             width = max(len(item) for item in items)
-            ids = torch.full((len(items), width), self.pad_id, dtype=torch.long, device=self.device)
-            mask = torch.zeros((len(items), width), dtype=torch.bool, device=self.device)
+            ids = torch.full(
+                (len(items), width), self.pad_id, dtype=torch.long, device=self.device
+            )
+            mask = torch.zeros(
+                (len(items), width), dtype=torch.bool, device=self.device
+            )
             for row, item in enumerate(items):
-                ids[row, :len(item)] = torch.tensor(item, dtype=torch.long, device=self.device)
-                mask[row, :len(item)] = True
-            values = self.model(ids, attention_mask=mask).detach().float().cpu().tolist()
+                ids[row, : len(item)] = torch.tensor(
+                    item, dtype=torch.long, device=self.device
+                )
+                mask[row, : len(item)] = True
+            values = (
+                self.model(ids, attention_mask=mask).detach().float().cpu().tolist()
+            )
             scores.extend(float(value) for value in values)
         if normalized:
             if self.calibration is None:
-                raise ValueError("normalized reward scoring requires calibration metadata")
+                raise ValueError(
+                    "normalized reward scoring requires calibration metadata"
+                )
             return [self.calibration.normalize(value) for value in scores]
         return scores
 
     def score(self, prompt: str, completion: str, *, normalized: bool = False) -> float:
-        return self.score_many([(prompt, completion)], batch_size=1, normalized=normalized)[0]
+        return self.score_many(
+            [(prompt, completion)], batch_size=1, normalized=normalized
+        )[0]

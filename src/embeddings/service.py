@@ -4,6 +4,7 @@ The embedding API is intentionally separate from the generative model.  A
 production deployment can inject a neural encoder, while the deterministic
 hash encoder remains useful for local development and contract tests.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -36,7 +37,11 @@ class EmbeddingService:
         self.dimension = dimension
 
     def encode(
-        self, texts: Sequence[str], *, normalize: bool = False, dimensions: int | None = None
+        self,
+        texts: Sequence[str],
+        *,
+        normalize: bool = False,
+        dimensions: int | None = None,
     ) -> EmbeddingResult:
         if not texts:
             raise ValueError("input must contain at least one text")

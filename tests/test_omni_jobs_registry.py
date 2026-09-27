@@ -18,11 +18,20 @@ def test_generation_job_state_machine():
 
 def test_model_registry_only_ready_models_advertise_capabilities():
     registry = OmniModelRegistry()
-    registry.register(OmniModelRecord(
-        id="video-x", family="gopi", provider="local", task="text-to-video",
-        input_modalities=("text",), output_modalities=("video",),
-        capabilities={"video_generation": True}, status="configured",
-    ))
+    registry.register(
+        OmniModelRecord(
+            id="video-x",
+            family="gopi",
+            provider="local",
+            task="text-to-video",
+            input_modalities=("text",),
+            output_modalities=("video",),
+            capabilities={"video_generation": True},
+            status="configured",
+        )
+    )
     assert "video_generation" not in registry.capabilities()
-    registry.update_status("video-x", status="ready", loaded=True, device="cuda:0", precision="bf16")
+    registry.update_status(
+        "video-x", status="ready", loaded=True, device="cuda:0", precision="bf16"
+    )
     assert "video_generation" in registry.capabilities()

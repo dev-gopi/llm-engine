@@ -4,12 +4,13 @@ The module intentionally depends only on torch.distributed so it can be reused b
 training and inference.  Groups are created in a deterministic global order on
 all ranks, which is required by ``dist.new_group`` and avoids topology deadlocks.
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
-from typing import Iterable
 
 import torch.distributed as dist
 
@@ -33,7 +34,14 @@ class ParallelDegrees:
         return reduce(mul, self.__dict__.values(), 1)
 
     def as_tuple(self) -> tuple[int, ...]:
-        return (self.data, self.pipeline, self.tensor, self.expert, self.context, self.sequence)
+        return (
+            self.data,
+            self.pipeline,
+            self.tensor,
+            self.expert,
+            self.context,
+            self.sequence,
+        )
 
 
 _AXIS = ("data", "pipeline", "tensor", "expert", "context", "sequence")
@@ -44,7 +52,9 @@ class ParallelMesh:
 
     def __init__(self, degrees: ParallelDegrees, *, world_group=None) -> None:
         if not dist.is_available() or not dist.is_initialized():
-            raise RuntimeError("parallel mesh requires an initialized torch.distributed process group")
+            raise RuntimeError(
+                "parallel mesh requires an initialized torch.distributed process group"
+            )
         self.degrees = degrees
         self.world_group = dist.group.WORLD if world_group is None else world_group
         self.world_size = dist.get_world_size(self.world_group)
@@ -92,7 +102,9 @@ class ParallelMesh:
         buckets: dict[tuple[int, ...], list[int]] = {}
         for rank in range(self.world_size):
             coord = self.coordinate(rank)
-            key = tuple(coord[name] for index, name in enumerate(_AXIS) if index != target)
+            key = tuple(
+                coord[name] for index, name in enumerate(_AXIS) if index != target
+            )
             buckets.setdefault(key, []).append(rank)
         return tuple(tuple(value) for _, value in sorted(buckets.items()))
 
@@ -109,7 +121,7 @@ class ParallelMesh:
         return int(getattr(self.degrees, axis))
 
     def barrier(self, axes: Iterable[str] | None = None) -> None:
-        for axis in (axes or _AXIS):
+        for axis in axes or _AXIS:
             if self.degree(axis) > 1:
                 dist.barrier(group=self.group(axis))
 

@@ -1,4 +1,5 @@
 """Queue abstraction with local development and optional Redis production backends."""
+
 from __future__ import annotations
 
 import json
@@ -29,7 +30,9 @@ class InProcessJobQueue:
     """Bounded priority queue appropriate for local development and tests."""
 
     def __init__(self, maxsize: int = 64) -> None:
-        self._queue: queue.PriorityQueue[tuple[int, int, QueueMessage]] = queue.PriorityQueue(maxsize=maxsize)
+        self._queue: queue.PriorityQueue[tuple[int, int, QueueMessage]] = (
+            queue.PriorityQueue(maxsize=maxsize)
+        )
         self._seq = 0
         self.dead_letters: list[tuple[QueueMessage, str]] = []
 
@@ -85,7 +88,9 @@ class RedisJobQueue:
     def get(self, *, timeout: float = 1.0) -> QueueMessage | None:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            ids = self.client.zrangebyscore(self.ready_key, "-inf", time.time(), start=0, num=1)
+            ids = self.client.zrangebyscore(
+                self.ready_key, "-inf", time.time(), start=0, num=1
+            )
             if ids:
                 message_id = ids[0]
                 # Remove atomically enough for a single Redis instance; workers race on zrem result.
@@ -98,4 +103,7 @@ class RedisJobQueue:
         return None
 
     def dead_letter(self, message: QueueMessage, reason: str) -> None:
-        self.client.rpush(self.dead_key, json.dumps({"message": asdict(message), "reason": reason}, sort_keys=True))
+        self.client.rpush(
+            self.dead_key,
+            json.dumps({"message": asdict(message), "reason": reason}, sort_keys=True),
+        )

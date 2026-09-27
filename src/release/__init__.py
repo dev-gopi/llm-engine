@@ -6,4 +6,11 @@ from .artifacts import (
 )
 from .pipeline import EvaluationReleasePipeline, ReleaseResult
 
-__all__ = ["DatasetCard", "EvaluationReleasePipeline", "ModelCard", "ReleaseResult", "ReproducibilityManifest", "build_reproducibility_manifest"]
+__all__ = [
+    "DatasetCard",
+    "EvaluationReleasePipeline",
+    "ModelCard",
+    "ReleaseResult",
+    "ReproducibilityManifest",
+    "build_reproducibility_manifest",
+]

@@ -13,8 +13,15 @@ def test_gguf_launcher_builds_explicit_resource_command(tmp_path):
     model = tmp_path / "model.gguf"
     model.write_bytes(b"GGUF")
     args = Namespace(
-        llama_server="llama-server", model=str(model), host="127.0.0.1", port=8080,
-        context=8192, parallel=2, gpu_layers=20, cache_type_k="q8_0", cache_type_v="q8_0",
+        llama_server="llama-server",
+        model=str(model),
+        host="127.0.0.1",
+        port=8080,
+        context=8192,
+        parallel=2,
+        gpu_layers=20,
+        cache_type_k="q8_0",
+        cache_type_v="q8_0",
         flash_attention=True,
     )
     cmd = MODULE.command(args)

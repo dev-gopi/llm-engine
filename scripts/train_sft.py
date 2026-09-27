@@ -28,6 +28,7 @@ def _inject_default_sft_profile(argv: list[str]) -> list[str]:
 def main() -> None:
     sys.argv = _inject_default_sft_profile(sys.argv)
     from train import main as train_main
+
     train_main()
 
 

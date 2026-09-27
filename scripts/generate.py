@@ -9,7 +9,9 @@ script_directory = os.path.dirname(os.path.realpath(__file__))
 # The script directory can occur more than once (for example through
 # PYTHONPATH). Remove every copy so scripts/tokenize.py cannot shadow the
 # standard-library tokenize module imported by PyTorch.
-sys.path[:] = [entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory]
+sys.path[:] = [
+    entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory
+]
 
 import argparse
 import asyncio
@@ -39,49 +41,73 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", nargs="?", help="text to generate a response for")
     parser.add_argument(
-        "--prompt", dest="prompt_option",
+        "--prompt",
+        dest="prompt_option",
         help="text to generate a response for (alternative to the positional prompt)",
     )
     parser.add_argument("--model-config", type=Path, default=None)
-    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
+    parser.add_argument(
+        "--inference-config", type=Path, default=Path("configs/inference.yaml")
+    )
     parser.add_argument("--tokenizer", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument(
-        "--max-tokens", "--max-new-tokens", dest="max_tokens", type=int,
+        "--max-tokens",
+        "--max-new-tokens",
+        dest="max_tokens",
+        type=int,
         help="maximum number of tokens to generate",
     )
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--top-k", type=int)
     parser.add_argument("--top-p", type=float)
-    parser.add_argument("--min-p", type=float, help="relative probability cutoff; 0 disables")
+    parser.add_argument(
+        "--min-p", type=float, help="relative probability cutoff; 0 disables"
+    )
     parser.add_argument("--min-tokens", type=int)
     parser.add_argument("--stop", action="append", help="stop string; may be repeated")
     parser.add_argument("--repetition-penalty", type=float)
     parser.add_argument("--no-repeat-ngram-size", type=int)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--raw", action="store_true", help="Do not wrap prompt in chat template")
+    parser.add_argument(
+        "--raw", action="store_true", help="Do not wrap prompt in chat template"
+    )
     parser.add_argument("--response-format", choices=("plain", "markdown"))
-    parser.add_argument("--search", action="store_true", help="Search the web before generating")
-    parser.add_argument("--mcp", action="store_true", help="Allow an allowlisted MCP tool call before generating")
-    parser.add_argument("--mcp-server", help="Restrict MCP routing to one configured server")
+    parser.add_argument(
+        "--search", action="store_true", help="Search the web before generating"
+    )
+    parser.add_argument(
+        "--mcp",
+        action="store_true",
+        help="Allow an allowlisted MCP tool call before generating",
+    )
+    parser.add_argument(
+        "--mcp-server", help="Restrict MCP routing to one configured server"
+    )
     parser.add_argument("--mcp-config", type=Path, default=Path("configs/mcp.yaml"))
     args = parser.parse_args()
     inference_config = load_yaml(args.inference_config)
     serving = inference_config.get("serving", {})
-    apply_cli_defaults(args, {
-        "model_config": serving.get("model_config"),
-        "tokenizer": serving.get("tokenizer_path"),
-        "checkpoint": serving.get("checkpoint_path"),
-        "device": serving.get("device"),
-    }, {
-        "model_config": Path("configs/model.gpu.yaml"),
-        "tokenizer": Path("data/tokenizer"),
-        "checkpoint": Path("checkpoints/finetuning/best.pt"),
-        "device": "auto",
-    })
+    apply_cli_defaults(
+        args,
+        {
+            "model_config": serving.get("model_config"),
+            "tokenizer": serving.get("tokenizer_path"),
+            "checkpoint": serving.get("checkpoint_path"),
+            "device": serving.get("device"),
+        },
+        {
+            "model_config": Path("configs/model.gpu.yaml"),
+            "tokenizer": Path("data/tokenizer"),
+            "checkpoint": Path("checkpoints/finetuning/best.pt"),
+            "device": "auto",
+        },
+    )
     if args.prompt is not None and args.prompt_option is not None:
-        parser.error("provide the prompt either positionally or with --prompt, not both")
+        parser.error(
+            "provide the prompt either positionally or with --prompt, not both"
+        )
     args.prompt = args.prompt_option if args.prompt_option is not None else args.prompt
     if args.prompt is None:
         parser.error("a prompt is required (positionally or with --prompt)")
@@ -99,31 +125,49 @@ def main() -> None:
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device="cpu")
     load_checkpoint(
-        checkpoint_path, model, use_ema=True, restore_rng=False,
+        checkpoint_path,
+        model,
+        use_ema=True,
+        restore_rng=False,
         low_memory=bool(serving.get("low_memory_loading", False)),
         **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
     model = prepare_model_for_inference(
-        model, device=device,
+        model,
+        device=device,
         weight_dtype=str(serving.get("weight_dtype", "float32")),
         quantization=str(serving.get("quantization", "none")),
     )
 
-    response_format = args.response_format or str(inference_config.get("response_format", "plain"))
+    response_format = args.response_format or str(
+        inference_config.get("response_format", "plain")
+    )
     system_prompt = format_system_prompt(
-        str(inference_config.get("system_prompt", "You are Gopi, a helpful, honest, and friendly AI assistant.")),
+        str(
+            inference_config.get(
+                "system_prompt",
+                "You are Gopi, a helpful, honest, and friendly AI assistant.",
+            )
+        ),
         response_format,
-        include_safety_instruction=bool(inference_config.get("embed_safety_instruction", True)),
+        include_safety_instruction=bool(
+            inference_config.get("embed_safety_instruction", True)
+        ),
     )
     prompt = args.prompt
     search_results = []
-    slash_search = prompt.strip().lower() == "/search" or prompt.strip().lower().startswith("/search ")
+    slash_search = (
+        prompt.strip().lower() == "/search"
+        or prompt.strip().lower().startswith("/search ")
+    )
     if args.search or slash_search:
         query = prompt.strip()[7:].strip() if slash_search else prompt.strip()
         if not query:
             parser.error("search query cannot be empty")
         search_config = inference_config.get("web_search", {})
-        provider = os.getenv("GOPI_SEARCH_PROVIDER", str(search_config.get("provider", "searxng"))).lower()
+        provider = os.getenv(
+            "GOPI_SEARCH_PROVIDER", str(search_config.get("provider", "searxng"))
+        ).lower()
         common = {
             "max_results": int(search_config.get("max_results", 3)),
             "timeout": float(search_config.get("timeout_seconds", 10.0)),
@@ -131,14 +175,26 @@ def main() -> None:
         if provider == "searxng":
             search_results = search_searxng(
                 query,
-                endpoint=os.getenv("GOPI_SEARXNG_URL", str(search_config.get("searxng_endpoint", "http://localhost:8080/search"))),
+                endpoint=os.getenv(
+                    "GOPI_SEARXNG_URL",
+                    str(
+                        search_config.get(
+                            "searxng_endpoint", "http://localhost:8080/search"
+                        )
+                    ),
+                ),
                 **common,
             )
         elif provider == "brave":
             search_results = search_brave(
                 query,
                 os.getenv("GOPI_SEARCH_API_KEY", ""),
-                endpoint=str(search_config.get("brave_endpoint", "https://api.search.brave.com/res/v1/web/search")),
+                endpoint=str(
+                    search_config.get(
+                        "brave_endpoint",
+                        "https://api.search.brave.com/res/v1/web/search",
+                    )
+                ),
                 **common,
             )
         else:
@@ -148,15 +204,21 @@ def main() -> None:
         prompt = build_search_prompt(
             query,
             search_results,
-            description_char_limit=int(search_config.get("description_char_limit", 200)),
+            description_char_limit=int(
+                search_config.get("description_char_limit", 200)
+            ),
         )
 
     if args.raw:
         rendered_prompt = prompt
     else:
         from local_dataset.preprocessor import format_messages
+
         rendered_prompt = format_messages(
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
             add_generation_prompt=True,
         )
 
@@ -190,29 +252,50 @@ def main() -> None:
             rendered_prompt = prompt
         else:
             rendered_prompt = format_messages(
-                [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
                 add_generation_prompt=True,
             )
 
     print(f"Rendered Prompt: {rendered_prompt!r}")
-    prompt_token_ids = tokenizer.encode(rendered_prompt, add_bos=True, allowed_special="all")
+    prompt_token_ids = tokenizer.encode(
+        rendered_prompt, add_bos=True, allowed_special="all"
+    )
     print(f"Prompt Token IDs (first 30): {prompt_token_ids[:30]}")
 
     result = generator.generate(
         rendered_prompt,
-        max_tokens=args.max_tokens if args.max_tokens is not None else int(inference_config.get("max_tokens", 128)),
-        temperature=(args.temperature if args.temperature is not None else float(inference_config.get("temperature", 0.8))),
-        top_k=args.top_k if args.top_k is not None else int(inference_config.get("top_k", 40)),
-        top_p=args.top_p if args.top_p is not None else float(inference_config.get("top_p", 1.0)),
-        min_p=args.min_p if args.min_p is not None else float(inference_config.get("min_p", 0.0)),
-        min_tokens=args.min_tokens if args.min_tokens is not None else int(inference_config.get("min_tokens", 1)),
+        max_tokens=args.max_tokens
+        if args.max_tokens is not None
+        else int(inference_config.get("max_tokens", 128)),
+        temperature=(
+            args.temperature
+            if args.temperature is not None
+            else float(inference_config.get("temperature", 0.8))
+        ),
+        top_k=args.top_k
+        if args.top_k is not None
+        else int(inference_config.get("top_k", 40)),
+        top_p=args.top_p
+        if args.top_p is not None
+        else float(inference_config.get("top_p", 1.0)),
+        min_p=args.min_p
+        if args.min_p is not None
+        else float(inference_config.get("min_p", 0.0)),
+        min_tokens=args.min_tokens
+        if args.min_tokens is not None
+        else int(inference_config.get("min_tokens", 1)),
         stop=args.stop if args.stop is not None else inference_config.get("stop", []),
         repetition_penalty=(
-            args.repetition_penalty if args.repetition_penalty is not None
+            args.repetition_penalty
+            if args.repetition_penalty is not None
             else float(inference_config.get("repetition_penalty", 1.1))
         ),
         no_repeat_ngram_size=(
-            args.no_repeat_ngram_size if args.no_repeat_ngram_size is not None
+            args.no_repeat_ngram_size
+            if args.no_repeat_ngram_size is not None
             else int(inference_config.get("no_repeat_ngram_size", 3))
         ),
         seed=args.seed,

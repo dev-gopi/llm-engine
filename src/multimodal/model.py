@@ -27,8 +27,13 @@ class VisionLanguageModel(nn.Module):
         freeze_language: bool = True,
     ) -> None:
         super().__init__()
-        if visual_tokens <= 0 or visual_tokens > vision_encoder.patch_embedding.num_patches:
-            raise ValueError("visual_tokens must fit within the available image patches")
+        if (
+            visual_tokens <= 0
+            or visual_tokens > vision_encoder.patch_embedding.num_patches
+        ):
+            raise ValueError(
+                "visual_tokens must fit within the available image patches"
+            )
         self.vision_encoder = vision_encoder
         self.language_model = language_model
         self.visual_tokens = visual_tokens
@@ -73,30 +78,44 @@ class VisionLanguageModel(nn.Module):
     def build_input_embeddings(
         self, images: Tensor, prompt_ids: Tensor, response_ids: Tensor | None = None
     ) -> tuple[Tensor, Tensor]:
-        if prompt_ids.ndim != 2 or (response_ids is not None and response_ids.ndim != 2):
-            raise ValueError("prompt_ids and response_ids must have shape [batch, sequence]")
+        if prompt_ids.ndim != 2 or (
+            response_ids is not None and response_ids.ndim != 2
+        ):
+            raise ValueError(
+                "prompt_ids and response_ids must have shape [batch, sequence]"
+            )
         if images.shape[0] != prompt_ids.shape[0]:
             raise ValueError("image and prompt batch sizes must match")
         visual = self.encode_images(images)
         prompt = self.language_model.tok(prompt_ids)
         pieces = [prompt, visual]
-        loss_mask = [torch.zeros(prompt.shape[:2], dtype=torch.bool, device=prompt.device)]
-        loss_mask.append(torch.zeros(visual.shape[:2], dtype=torch.bool, device=visual.device))
+        loss_mask = [
+            torch.zeros(prompt.shape[:2], dtype=torch.bool, device=prompt.device)
+        ]
+        loss_mask.append(
+            torch.zeros(visual.shape[:2], dtype=torch.bool, device=visual.device)
+        )
         if response_ids is not None:
             if response_ids.shape[0] != images.shape[0]:
                 raise ValueError("image and response batch sizes must match")
             response = self.language_model.tok(response_ids)
             pieces.append(response)
-            loss_mask.append(torch.ones(response.shape[:2], dtype=torch.bool, device=response.device))
+            loss_mask.append(
+                torch.ones(response.shape[:2], dtype=torch.bool, device=response.device)
+            )
         embeddings = torch.cat(pieces, dim=1)
         if embeddings.shape[1] > self.language_model.max_positions:
-            raise ValueError("combined visual and text sequence exceeds model context length")
+            raise ValueError(
+                "combined visual and text sequence exceeds model context length"
+            )
         return embeddings, torch.cat(loss_mask, dim=1)
 
     def forward(
         self, images: Tensor, prompt_ids: Tensor, response_ids: Tensor | None = None
     ) -> tuple[Tensor, Tensor]:
-        embeddings, loss_mask = self.build_input_embeddings(images, prompt_ids, response_ids)
+        embeddings, loss_mask = self.build_input_embeddings(
+            images, prompt_ids, response_ids
+        )
         logits = self._language_forward_from_embeddings(embeddings)
         return logits, loss_mask
 
@@ -107,17 +126,23 @@ class VisionLanguageModel(nn.Module):
             and self.language_model.pos is not None
         ):
             batch, length = hidden_states.shape[:2]
-            dummy_ids = torch.zeros((batch, length), dtype=torch.long, device=hidden_states.device)
+            dummy_ids = torch.zeros(
+                (batch, length), dtype=torch.long, device=hidden_states.device
+            )
             hidden_states = hidden_states + self.language_model.pos(dummy_ids)
         hidden_states = self.language_model.embedding_dropout(hidden_states)
         rotary = None
         if self.language_model.rotary_emb is not None:
-            rotary = self.language_model.rotary_emb(hidden_states, seq_len=hidden_states.shape[1])
+            rotary = self.language_model.rotary_emb(
+                hidden_states, seq_len=hidden_states.shape[1]
+            )
         for block in self.language_model.blocks:
             if self.language_model.gradient_checkpointing and self.training:
+
                 def create_custom_forward(target_block: nn.Module):
                     def custom_forward(*inputs: Tensor) -> Tensor:
                         return target_block(inputs[0], rotary_pos_emb=rotary)
+
                     return custom_forward
 
                 hidden_states = torch.utils.checkpoint.checkpoint(
@@ -145,7 +170,9 @@ class ImageTextSFTExample:
     sample_id: str = ""
 
 
-def collate_image_text_sft(examples: list[ImageTextSFTExample], *, pad_token_id: int = 0) -> dict[str, Tensor]:
+def collate_image_text_sft(
+    examples: list[ImageTextSFTExample], *, pad_token_id: int = 0
+) -> dict[str, Tensor]:
     """Pad image-text SFT examples and build an assistant-only loss mask."""
     if not examples:
         raise ValueError("examples must not be empty")
@@ -153,7 +180,9 @@ def collate_image_text_sft(examples: list[ImageTextSFTExample], *, pad_token_id:
     prompt_width = max(int(example.prompt_ids.numel()) for example in examples)
     response_width = max(int(example.response_ids.numel()) for example in examples)
     prompt = torch.full((len(examples), prompt_width), pad_token_id, dtype=torch.long)
-    response = torch.full((len(examples), response_width), pad_token_id, dtype=torch.long)
+    response = torch.full(
+        (len(examples), response_width), pad_token_id, dtype=torch.long
+    )
     prompt_mask = torch.zeros_like(prompt, dtype=torch.bool)
     response_mask = torch.zeros_like(response, dtype=torch.bool)
     for row, example in enumerate(examples):
@@ -173,9 +202,15 @@ def collate_image_text_sft(examples: list[ImageTextSFTExample], *, pad_token_id:
     }
 
 
-def multimodal_sft_metrics(logits: Tensor, response_ids: Tensor, response_loss_mask: Tensor) -> dict[str, float]:
+def multimodal_sft_metrics(
+    logits: Tensor, response_ids: Tensor, response_loss_mask: Tensor
+) -> dict[str, float]:
     """Compute token accuracy/perplexity for the response portion only."""
-    if logits.ndim != 3 or response_ids.ndim != 2 or response_loss_mask.shape != response_ids.shape:
+    if (
+        logits.ndim != 3
+        or response_ids.ndim != 2
+        or response_loss_mask.shape != response_ids.shape
+    ):
         raise ValueError("invalid multimodal SFT evaluation tensors")
     # logits contain prompt + visual + response positions; compare response token
     # t against the preceding position, excluding the first response token.
@@ -193,7 +228,11 @@ def multimodal_sft_metrics(logits: Tensor, response_ids: Tensor, response_loss_m
         return {"token_accuracy": 0.0, "perplexity": float("inf"), "tokens": 0.0}
     loss = torch.nn.functional.cross_entropy(selected.float(), labels, reduction="mean")
     accuracy = (selected.argmax(dim=-1) == labels).float().mean()
-    return {"token_accuracy": float(accuracy), "perplexity": float(torch.exp(loss)), "tokens": float(labels.numel())}
+    return {
+        "token_accuracy": float(accuracy),
+        "perplexity": float(torch.exp(loss)),
+        "tokens": float(labels.numel()),
+    }
 
 
 def validate_modality_contracts(contracts) -> None:
@@ -204,7 +243,9 @@ def validate_modality_contracts(contracts) -> None:
     for contract in contracts:
         modality = str(getattr(contract, "modality", "")).lower()
         version = str(getattr(contract, "version", getattr(contract, "encoder_id", "")))
-        dimension = int(getattr(contract, "embedding_dim", getattr(contract, "feature_dim", 0)))
+        dimension = int(
+            getattr(contract, "embedding_dim", getattr(contract, "feature_dim", 0))
+        )
         if modality in seen:
             raise ValueError(f"duplicate modality contract: {modality}")
         if modality not in {"image", "audio", "video"}:

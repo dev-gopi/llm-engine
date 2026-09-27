@@ -29,13 +29,16 @@ def aggregate_domain_metrics(
         raise ValueError(f"validation weights missing domains: {sorted(missing)}")
     selected = {name: float(weights[name]) for name in domains}
     if any(weight < 0 for weight in selected.values()) or not any(selected.values()):
-        raise ValueError("validation weights must contain a positive non-negative weight")
+        raise ValueError(
+            "validation weights must contain a positive non-negative weight"
+        )
     total_weight = sum(selected.values())
     aggregate: dict[str, float | int] = {}
     for key in ("loss", "cross_entropy", "z_loss"):
-        aggregate[key] = sum(
-            float(domains[name][key]) * weight for name, weight in selected.items()
-        ) / total_weight
+        aggregate[key] = (
+            sum(float(domains[name][key]) * weight for name, weight in selected.items())
+            / total_weight
+        )
     aggregate["perplexity"] = math.exp(min(float(aggregate["cross_entropy"]), 80.0))
     aggregate["tokens"] = sum(int(metrics["tokens"]) for metrics in domains.values())
     aggregate["batches"] = sum(int(metrics["batches"]) for metrics in domains.values())
@@ -54,7 +57,9 @@ class Evaluator:
     ) -> None:
         self.model = model
         self.device = torch.device(device)
-        self.loss_fn = loss_fn or CausalLanguageModelLoss(shift_labels=True, reduction="mean")
+        self.loss_fn = loss_fn or CausalLanguageModelLoss(
+            shift_labels=True, reduction="mean"
+        )
         self.ema = ema
         if mixed_precision not in {"none", "fp16", "bf16"}:
             raise ValueError("mixed_precision must be none, fp16, or bf16")
@@ -64,7 +69,11 @@ class Evaluator:
                 self.device.type,
             )
             mixed_precision = "none"
-        if mixed_precision == "bf16" and self.device.type == "cuda" and not torch.cuda.is_bf16_supported():
+        if (
+            mixed_precision == "bf16"
+            and self.device.type == "cuda"
+            and not torch.cuda.is_bf16_supported()
+        ):
             raise ValueError("BF16 evaluation requires a BF16-capable CUDA device")
         if mixed_precision != "none" and self.device.type not in {"cpu", "cuda"}:
             logger.warning(
@@ -73,7 +82,9 @@ class Evaluator:
             )
             mixed_precision = "none"
         self.mixed_precision = mixed_precision
-        self.autocast_dtype = torch.float16 if mixed_precision == "fp16" else torch.bfloat16
+        self.autocast_dtype = (
+            torch.float16 if mixed_precision == "fp16" else torch.bfloat16
+        )
 
     @torch.inference_mode()
     def evaluate(
@@ -94,14 +105,22 @@ class Evaluator:
             raise ValueError("max_batches must be positive")
         if progress_every < 0:
             raise ValueError("progress_every must be non-negative")
-        context = self.ema.average_parameters(self.model, backup_device="cpu") if self.ema else nullcontext()
+        context = (
+            self.ema.average_parameters(self.model, backup_device="cpu")
+            if self.ema
+            else nullcontext()
+        )
         with context:
             return self._evaluate(
-                dataloader, max_batches=max_batches,
-                progress_every=progress_every, label=label,
+                dataloader,
+                max_batches=max_batches,
+                progress_every=progress_every,
+                label=label,
             )
 
-    def _evaluate(self, dataloader, *, max_batches=None, progress_every=0, label="validation"):
+    def _evaluate(
+        self, dataloader, *, max_batches=None, progress_every=0, label="validation"
+    ):
         was_training = self.model.training
         self.model.eval()
         started = time.perf_counter()
@@ -127,7 +146,9 @@ class Evaluator:
                 attention_mask = batch.get("attention_mask")
                 loss_mask = batch.get("loss_mask")
                 if attention_mask is not None:
-                    attention_mask = attention_mask.to(self.device, non_blocking=non_blocking)
+                    attention_mask = attention_mask.to(
+                        self.device, non_blocking=non_blocking
+                    )
                 if loss_mask is not None:
                     loss_mask = loss_mask.to(self.device, non_blocking=non_blocking)
                 with torch.autocast(
@@ -135,14 +156,24 @@ class Evaluator:
                     dtype=self.autocast_dtype,
                     enabled=self.mixed_precision != "none",
                 ):
-                    output = self.model(inputs, attention_mask=attention_mask) if attention_mask is not None else self.model(inputs)
+                    output = (
+                        self.model(inputs, attention_mask=attention_mask)
+                        if attention_mask is not None
+                        else self.model(inputs)
+                    )
                     logits = output[0] if isinstance(output, tuple) else output
-                    details = self.loss_fn(logits, labels, loss_mask=loss_mask, return_details=True)
+                    details = self.loss_fn(
+                        logits, labels, loss_mask=loss_mask, return_details=True
+                    )
                 if not isinstance(details, LanguageModelLossOutput):
                     raise RuntimeError("loss function did not return detailed metrics")
                 weight = details.token_count if self.loss_fn.reduction == "mean" else 1
-                totals[:3].add_(torch.stack((details.loss, details.cross_entropy,
-                                             details.z_loss)).to(metric_dtype), alpha=weight)
+                totals[:3].add_(
+                    torch.stack(
+                        (details.loss, details.cross_entropy, details.z_loss)
+                    ).to(metric_dtype),
+                    alpha=weight,
+                )
                 token_count += details.token_count
                 if (
                     progress_every
@@ -152,12 +183,14 @@ class Evaluator:
                     elapsed = time.perf_counter() - started
                     eta = (
                         elapsed * (target_batches - batch_count) / batch_count
-                        if target_batches is not None else float("nan")
+                        if target_batches is not None
+                        else float("nan")
                     )
                     logger.info(
                         "validation_progress name=%s batches=%d/%s elapsed_seconds=%.1f "
                         "eta_seconds=%s",
-                        label, batch_count,
+                        label,
+                        batch_count,
                         target_batches if target_batches is not None else "?",
                         elapsed,
                         f"{max(0.0, eta):.1f}" if math.isfinite(eta) else "nan",

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Launch llama.cpp's ``llama-server`` with a GGUF model using safe arguments."""
+
 from __future__ import annotations
 
 import argparse
@@ -16,11 +17,23 @@ def command(args: argparse.Namespace) -> list[str]:
     if model.suffix.lower() != ".gguf":
         raise ValueError("model must be a .gguf file")
     if args.context < 1 or args.parallel < 1 or args.gpu_layers < 0:
-        raise ValueError("context/parallel must be positive and gpu-layers non-negative")
+        raise ValueError(
+            "context/parallel must be positive and gpu-layers non-negative"
+        )
     result = [
-        executable, "--model", str(model), "--host", args.host, "--port", str(args.port),
-        "--ctx-size", str(args.context), "--parallel", str(args.parallel),
-        "--n-gpu-layers", str(args.gpu_layers),
+        executable,
+        "--model",
+        str(model),
+        "--host",
+        args.host,
+        "--port",
+        str(args.port),
+        "--ctx-size",
+        str(args.context),
+        "--parallel",
+        str(args.parallel),
+        "--n-gpu-layers",
+        str(args.gpu_layers),
     ]
     if args.flash_attention:
         result.append("--flash-attn")
@@ -42,7 +55,9 @@ def main() -> None:
     parser.add_argument("--gpu-layers", type=int, default=0)
     parser.add_argument("--cache-type-k", default="q8_0")
     parser.add_argument("--cache-type-v", default="q8_0")
-    parser.add_argument("--flash-attention", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--flash-attention", action=argparse.BooleanOptionalAction, default=True
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     cmd = command(args)

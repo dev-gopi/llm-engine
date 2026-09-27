@@ -4,7 +4,9 @@ from torch import Tensor, nn
 
 
 class VisionProjector(nn.Module):
-    def __init__(self, vision_size: int, language_size: int, dropout: float = 0.0) -> None:
+    def __init__(
+        self, vision_size: int, language_size: int, dropout: float = 0.0
+    ) -> None:
         super().__init__()
         if vision_size <= 0 or language_size <= 0:
             raise ValueError("vision_size and language_size must be positive")

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
-from typing import Any
 
 import torch
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -16,10 +14,6 @@ from inference.generator import Generator
 from inference.rag import SQLiteRagIndex
 from inference.reporting import (
     build_system_inference_report,
-    collect_chat_report,
-    collect_generation_report,
-    collect_rag_report,
-    collect_serving_report,
 )
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
@@ -814,7 +808,9 @@ def quick_generate(req: QuickGenerateRequest) -> JSONResponse:
     """Live interactive text generation endpoint with TTFT & TPS measurement."""
     ckpt_path = Path("checkpoints/finetuning/best.pt")
     if not ckpt_path.is_file():
-        return JSONResponse(status_code=404, content={"error": f"Checkpoint not found at {ckpt_path}"})
+        return JSONResponse(
+            status_code=404, content={"error": f"Checkpoint not found at {ckpt_path}"}
+        )
 
     try:
         model_cfg = load_yaml("configs/model.gpu.yaml")
@@ -841,21 +837,25 @@ def quick_generate(req: QuickGenerateRequest) -> JSONResponse:
         ttft = max(time.perf_counter() - t_prefill, 1e-6)
 
         t_start = time.perf_counter()
-        result = gen.generate(req.prompt, max_tokens=req.max_tokens, temperature=req.temperature)
+        result = gen.generate(
+            req.prompt, max_tokens=req.max_tokens, temperature=req.temperature
+        )
         duration = max(time.perf_counter() - t_start, 1e-6)
         token_count = len(result.token_ids)
         tps = token_count / duration
 
-        return JSONResponse(content={
-            "prompt": req.prompt,
-            "text": result.text.strip(),
-            "tokens": token_count,
-            "prompt_tokens": result.prompt_tokens,
-            "duration_s": round(duration, 4),
-            "ttft_s": round(ttft, 4),
-            "tokens_per_second": round(tps, 2),
-            "finish_reason": result.finish_reason,
-        })
+        return JSONResponse(
+            content={
+                "prompt": req.prompt,
+                "text": result.text.strip(),
+                "tokens": token_count,
+                "prompt_tokens": result.prompt_tokens,
+                "duration_s": round(duration, 4),
+                "ttft_s": round(ttft, 4),
+                "tokens_per_second": round(tps, 2),
+                "finish_reason": result.finish_reason,
+            }
+        )
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
@@ -865,7 +865,9 @@ def quick_rag_search(req: QuickSearchRequest) -> JSONResponse:
     """Live interactive RAG SQLite search endpoint."""
     rag_path = Path("data/rag/index.sqlite")
     if not rag_path.is_file():
-        return JSONResponse(status_code=404, content={"error": f"RAG index not found at {rag_path}"})
+        return JSONResponse(
+            status_code=404, content={"error": f"RAG index not found at {rag_path}"}
+        )
 
     try:
         rag = SQLiteRagIndex(rag_path)
@@ -874,13 +876,19 @@ def quick_rag_search(req: QuickSearchRequest) -> JSONResponse:
         latency_ms = (time.perf_counter() - start) * 1000.0
 
         hits = [
-            {"title": r.title, "score": round(r.score, 3), "snippet": r.description[:120]}
+            {
+                "title": r.title,
+                "score": round(r.score, 3),
+                "snippet": r.description[:120],
+            }
             for r in results
         ]
-        return JSONResponse(content={
-            "query": req.query,
-            "latency_ms": round(latency_ms, 2),
-            "hits": hits,
-        })
+        return JSONResponse(
+            content={
+                "query": req.query,
+                "latency_ms": round(latency_ms, 2),
+                "hits": hits,
+            }
+        )
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

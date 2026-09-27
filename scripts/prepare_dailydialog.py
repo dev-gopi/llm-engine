@@ -22,7 +22,10 @@ def prepare(source: Path, destination: Path, maximum_pairs: int, bot_name: str) 
         for index in range(len(turns) - 1):
             user_turn = turns[index]
             assistant_turn = turns[index + 1]
-            if user_turn.get("speaker") != "user" or assistant_turn.get("speaker") != "system":
+            if (
+                user_turn.get("speaker") != "user"
+                or assistant_turn.get("speaker") != "system"
+            ):
                 continue
 
             user_text = user_turn.get("utterance", "").strip()
@@ -67,7 +70,9 @@ def prepare(source: Path, destination: Path, maximum_pairs: int, bot_name: str) 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=Path, default=Path("data/raw/dailydialog/data.zip"))
+    parser.add_argument(
+        "--source", type=Path, default=Path("data/raw/dailydialog/data.zip")
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -78,7 +83,9 @@ def main() -> None:
     args = parser.parse_args()
 
     count = prepare(args.source, args.output, args.maximum_pairs, args.bot_name)
-    print(json.dumps({"conversation_pairs": count, "output": str(args.output)}, indent=2))
+    print(
+        json.dumps({"conversation_pairs": count, "output": str(args.output)}, indent=2)
+    )
 
 
 if __name__ == "__main__":

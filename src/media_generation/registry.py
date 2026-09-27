@@ -1,4 +1,5 @@
 """Named media-model registry for production serving."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -29,7 +30,9 @@ def load_registry(path: str | Path) -> dict[str, MediaModelSpec]:
         if not isinstance(item, dict):
             raise ValueError("media registry entries must be objects")
         capabilities = item.get("capabilities", []) or []
-        if not isinstance(capabilities, list) or any(not isinstance(value, str) for value in capabilities):
+        if not isinstance(capabilities, list) or any(
+            not isinstance(value, str) for value in capabilities
+        ):
             raise ValueError("media model capabilities must be a string list")
         metadata = item.get("metadata", {}) or {}
         if not isinstance(metadata, dict):

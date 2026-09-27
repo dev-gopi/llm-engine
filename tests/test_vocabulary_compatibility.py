@@ -50,14 +50,19 @@ def test_reasoning_extension_adds_atomic_thinking_tokens_append_only():
     base = make_tokenizer()
     extended = extend_tokenizer_for_reasoning(base)
 
-    assert tuple(token for token in THINKING_TOKENS if token in extended.vocab) == THINKING_TOKENS
+    assert (
+        tuple(token for token in THINKING_TOKENS if token in extended.vocab)
+        == THINKING_TOKENS
+    )
     assert base.fingerprint in extended.compatible_base_fingerprints
 
 
 def test_agent_protocol_extension_preserves_base_ids_and_marks_tokens_special():
     base = make_tokenizer()
     extended = extend_tokenizer_for_agent_protocol(base)
-    assert all(extended.vocab[token] == identifier for token, identifier in base.vocab.items())
+    assert all(
+        extended.vocab[token] == identifier for token, identifier in base.vocab.items()
+    )
     assert all(token in extended.special_tokens for token in AGENT_PROTOCOL_TOKENS)
     assert base.fingerprint in extended.compatible_base_fingerprints
 
@@ -65,13 +70,25 @@ def test_agent_protocol_extension_preserves_base_ids_and_marks_tokens_special():
 def test_inference_rejects_untrained_tokenizer_extension(tmp_path):
     from model.gpt import MiniGPT
     from training.checkpoint import load_checkpoint, save_checkpoint
+
     base = make_tokenizer()
     extended = base.extend(["নতুন", "नया"])
     model = MiniGPT(vocab_size=base.vocab_size, dim=8, layers=1, heads=2, max_pos=8)
-    path = save_checkpoint(tmp_path / "base.pt", model,
-                           metadata={"tokenizer_fingerprint": base.fingerprint})
-    target = MiniGPT(vocab_size=extended.vocab_size, dim=8, layers=1, heads=2, max_pos=8)
+    path = save_checkpoint(
+        tmp_path / "base.pt",
+        model,
+        metadata={"tokenizer_fingerprint": base.fingerprint},
+    )
+    target = MiniGPT(
+        vocab_size=extended.vocab_size, dim=8, layers=1, heads=2, max_pos=8
+    )
     with pytest.raises(ValueError, match="fingerprint"):
-        load_checkpoint(path, target, restore_rng=False,
-                        **checkpoint_tokenizer_options(extended, allow_extension=False))
-    load_checkpoint(path, target, restore_rng=False, **checkpoint_tokenizer_options(extended))
+        load_checkpoint(
+            path,
+            target,
+            restore_rng=False,
+            **checkpoint_tokenizer_options(extended, allow_extension=False),
+        )
+    load_checkpoint(
+        path, target, restore_rng=False, **checkpoint_tokenizer_options(extended)
+    )

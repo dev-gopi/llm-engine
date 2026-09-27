@@ -9,8 +9,12 @@ from tokenizer.encoder import Tokenizer
 
 THINKING_TOKENS = ("<thinking>", "</thinking>")
 AGENT_PROTOCOL_TOKENS = (
-    "<|system|>", "<|user|>", "<|assistant|>", "<|tool|>",
-    "<|thinking|>", "<|end|>",
+    "<|system|>",
+    "<|user|>",
+    "<|assistant|>",
+    "<|tool|>",
+    "<|thinking|>",
+    "<|end|>",
 )
 
 
@@ -46,12 +50,17 @@ def adapt_config_to_tokenizer(
     )
 
 
-def checkpoint_tokenizer_options(tokenizer: Tokenizer, *, allow_extension: bool = True) -> dict[str, Any]:
+def checkpoint_tokenizer_options(
+    tokenizer: Tokenizer, *, allow_extension: bool = True
+) -> dict[str, Any]:
     """Arguments for loading either this tokenizer's checkpoint or its base."""
     return {
         "expected_tokenizer_fingerprint": tokenizer.fingerprint,
-        "compatible_tokenizer_fingerprints": tokenizer.compatible_base_fingerprints if allow_extension else (),
-        "allow_vocab_extension": allow_extension and bool(tokenizer.compatible_base_fingerprints),
+        "compatible_tokenizer_fingerprints": tokenizer.compatible_base_fingerprints
+        if allow_extension
+        else (),
+        "allow_vocab_extension": allow_extension
+        and bool(tokenizer.compatible_base_fingerprints),
     }
 
 

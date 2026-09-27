@@ -1,4 +1,5 @@
 """Deterministic multimodal routing based on explicit modality and requested operation."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

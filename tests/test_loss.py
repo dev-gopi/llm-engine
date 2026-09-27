@@ -14,7 +14,9 @@ def test_shifted_loss_matches_pytorch_reference():
     torch.manual_seed(40)
     logits = torch.randn(2, 6, 13)
     labels = torch.randint(0, 13, (2, 6))
-    expected = F.cross_entropy(logits[:, :-1].reshape(-1, 13), labels[:, 1:].reshape(-1))
+    expected = F.cross_entropy(
+        logits[:, :-1].reshape(-1, 13), labels[:, 1:].reshape(-1)
+    )
     actual = CausalLanguageModelLoss()(logits, labels)
     torch.testing.assert_close(actual, expected)
 
@@ -49,9 +51,9 @@ def test_label_smoothing_matches_reference():
     expected = F.cross_entropy(
         logits.reshape(-1, 9), labels.reshape(-1), label_smoothing=0.1
     )
-    actual = CausalLanguageModelLoss(
-        shift_labels=False, label_smoothing=0.1
-    )(logits, labels)
+    actual = CausalLanguageModelLoss(shift_labels=False, label_smoothing=0.1)(
+        logits, labels
+    )
     torch.testing.assert_close(actual, expected)
 
 
@@ -72,8 +74,12 @@ def test_z_loss_matches_explicit_formula():
 def test_sum_reduction_returns_token_sum():
     logits = torch.randn(2, 4, 9)
     labels = torch.randint(0, 9, (2, 4))
-    expected = F.cross_entropy(logits.reshape(-1, 9), labels.reshape(-1), reduction="sum")
-    actual = CausalLanguageModelLoss(shift_labels=False, reduction="sum")(logits, labels)
+    expected = F.cross_entropy(
+        logits.reshape(-1, 9), labels.reshape(-1), reduction="sum"
+    )
+    actual = CausalLanguageModelLoss(shift_labels=False, reduction="sum")(
+        logits, labels
+    )
     torch.testing.assert_close(actual, expected)
 
 
@@ -177,7 +183,9 @@ def test_invalid_inputs_and_labels():
 
 def test_shift_requires_two_tokens():
     with pytest.raises(ValueError, match="at least two"):
-        CausalLanguageModelLoss()(torch.randn(2, 1, 9), torch.ones(2, 1, dtype=torch.long))
+        CausalLanguageModelLoss()(
+            torch.randn(2, 1, 9), torch.ones(2, 1, dtype=torch.long)
+        )
 
 
 @pytest.mark.parametrize("masked", [False, True])
@@ -189,7 +197,8 @@ def test_shifted_loss_gradients_match_reference(masked):
         labels[0, 2:] = -100
     actual = CausalLanguageModelLoss(label_smoothing=0.1)(logits, labels)
     expected = F.cross_entropy(
-        reference[:, :-1].reshape(-1, 11), labels[:, 1:].reshape(-1),
+        reference[:, :-1].reshape(-1, 11),
+        labels[:, 1:].reshape(-1),
         label_smoothing=0.1,
     )
     actual.backward()
@@ -217,12 +226,18 @@ def test_chunked_loss_matches_values_and_gradients(reduction, shift, dtype):
     labels[0, 2] = -100
     mask = torch.ones_like(labels, dtype=torch.bool)
     mask[1, 3:5] = False
-    options = dict(reduction=reduction, shift_labels=shift,
-                   label_smoothing=0.1, z_loss_coefficient=0.001)
+    options = dict(
+        reduction=reduction,
+        shift_labels=shift,
+        label_smoothing=0.1,
+        z_loss_coefficient=0.001,
+    )
     actual = CausalLanguageModelLoss(**options, chunk_size=3)(
-        logits, labels, loss_mask=mask, return_details=True)
+        logits, labels, loss_mask=mask, return_details=True
+    )
     expected = CausalLanguageModelLoss(**options)(
-        reference, labels, loss_mask=mask, return_details=True)
+        reference, labels, loss_mask=mask, return_details=True
+    )
     assert actual.token_count == expected.token_count
     for name in ("loss", "cross_entropy", "z_loss"):
         torch.testing.assert_close(getattr(actual, name), getattr(expected, name))
@@ -231,7 +246,8 @@ def test_chunked_loss_matches_values_and_gradients(reduction, shift, dtype):
     torch.testing.assert_close(logits.grad, reference.grad)
     with torch.inference_mode():
         evaluated = CausalLanguageModelLoss(**options, chunk_size=3)(
-            logits, labels, loss_mask=mask)
+            logits, labels, loss_mask=mask
+        )
     torch.testing.assert_close(evaluated, expected.loss)
 
 
@@ -241,11 +257,13 @@ def test_chunked_loss_retains_less_intermediate_storage():
 
     def saved_bytes(chunk_size):
         storages = {}
+
         def pack(tensor):
             storage = tensor.untyped_storage()
             if storage.data_ptr() != logits.untyped_storage().data_ptr():
                 storages[storage.data_ptr()] = storage.nbytes()
             return tensor
+
         with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
             loss = CausalLanguageModelLoss(chunk_size=chunk_size)(logits, labels)
         assert loss.requires_grad
@@ -261,17 +279,23 @@ def test_invalid_loss_chunk_size(value):
 
 
 def test_loss_chunk_size_from_config():
-    assert CausalLanguageModelLoss.from_config({"loss_chunk_size": 128}).chunk_size == 128
+    assert (
+        CausalLanguageModelLoss.from_config({"loss_chunk_size": 128}).chunk_size == 128
+    )
     assert CausalLanguageModelLoss.from_config({}).chunk_size == 0
 
 
 def test_multi_token_prediction_loss_masks_future_targets() -> None:
     torch.manual_seed(91)
     labels = torch.randint(0, 17, (2, 8))
-    logits = [torch.randn(2, 8, 17, requires_grad=True), torch.randn(2, 8, 17, requires_grad=True)]
+    logits = [
+        torch.randn(2, 8, 17, requires_grad=True),
+        torch.randn(2, 8, 17, requires_grad=True),
+    ]
     mask = torch.ones_like(labels, dtype=torch.bool)
     mask[:, -1] = False
     from model.loss import MultiTokenPredictionLoss, MultiTokenPredictionLossOutput
+
     result = MultiTokenPredictionLoss(2, weight=0.25)(logits, labels, loss_mask=mask)
     assert isinstance(result, MultiTokenPredictionLossOutput)
     assert result.token_count > 0
@@ -283,7 +307,10 @@ def test_multi_token_prediction_loss_masks_future_targets() -> None:
 
 def test_trainer_opt_in_mtp_objective_updates_auxiliary_heads():
     from model.gpt import MiniGPT
-    model = MiniGPT(vocab_size=24, dim=8, layers=1, heads=2, max_pos=12, mtp_num_predictions=1)
+
+    model = MiniGPT(
+        vocab_size=24, dim=8, layers=1, heads=2, max_pos=12, mtp_num_predictions=1
+    )
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     trainer = Trainer(model, optimizer, mtp_loss_weight=0.2)
     batch = {
@@ -299,9 +326,16 @@ def test_trainer_opt_in_mtp_objective_updates_auxiliary_heads():
 
 def test_trainer_opt_in_moe_load_balancing_objective_updates_router():
     from model.gpt import MiniGPT
+
     model = MiniGPT(
-        vocab_size=24, dim=8, layers=1, heads=2, max_pos=12,
-        ffn_type="moe", num_experts=4, experts_per_token=2,
+        vocab_size=24,
+        dim=8,
+        layers=1,
+        heads=2,
+        max_pos=12,
+        ffn_type="moe",
+        num_experts=4,
+        experts_per_token=2,
     )
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     trainer = Trainer(model, optimizer, moe_aux_loss_weight=0.01)

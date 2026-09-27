@@ -13,8 +13,24 @@ from typing import Any
 
 IGNORED_DIRECTORIES = {".git", ".venv", "__pycache__", "checkpoints", "data", "exports"}
 TEXT_SUFFIXES = {
-    ".py", ".pyi", ".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml",
-    ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".sh", ".sql", ".xml",
+    ".py",
+    ".pyi",
+    ".md",
+    ".txt",
+    ".json",
+    ".jsonl",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".html",
+    ".css",
+    ".sh",
+    ".sql",
+    ".xml",
 }
 
 
@@ -49,8 +65,11 @@ class WorkspaceService:
         except UnicodeDecodeError as error:
             raise ValueError("workspace read supports UTF-8 text files only") from error
         return {
-            "path": path, "content": content[:max_chars], "truncated": len(content) > max_chars,
-            "sha256": self._hash(data), "size": len(data),
+            "path": path,
+            "content": content[:max_chars],
+            "truncated": len(content) > max_chars,
+            "sha256": self._hash(data),
+            "size": len(data),
         }
 
     def search(self, query: str, *, limit: int = 50) -> dict[str, Any]:
@@ -79,13 +98,19 @@ class WorkspaceService:
                     with path.open(encoding="utf-8") as stream:
                         for line_number, line in enumerate(stream, 1):
                             if needle in line.casefold():
-                                matches.append({
-                                    "path": str(path.relative_to(self.root)),
-                                    "line": line_number,
-                                    "text": line.rstrip()[:500],
-                                })
+                                matches.append(
+                                    {
+                                        "path": str(path.relative_to(self.root)),
+                                        "line": line_number,
+                                        "text": line.rstrip()[:500],
+                                    }
+                                )
                                 if len(matches) >= limit:
-                                    return {"query": query, "matches": matches, "truncated": True}
+                                    return {
+                                        "query": query,
+                                        "matches": matches,
+                                        "truncated": True,
+                                    }
                 except (OSError, UnicodeDecodeError):
                     continue
         return {"query": query, "matches": matches, "truncated": False}
@@ -96,16 +121,23 @@ class WorkspaceService:
         destination = self._path(path)
         previous = destination.read_bytes() if destination.exists() else b""
         if destination.exists() and expected_sha256 != self._hash(previous):
-            raise ValueError("expected_sha256 is required and must match the current file")
+            raise ValueError(
+                "expected_sha256 is required and must match the current file"
+            )
         new_data = content.encode("utf-8")
-        diff = "".join(difflib.unified_diff(
-            previous.decode("utf-8", errors="replace").splitlines(keepends=True),
-            content.splitlines(keepends=True),
-            fromfile=f"a/{path}", tofile=f"b/{path}",
-        ))
+        diff = "".join(
+            difflib.unified_diff(
+                previous.decode("utf-8", errors="replace").splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+            )
+        )
         if apply:
             destination.parent.mkdir(parents=True, exist_ok=True)
-            descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{destination.name}.", dir=destination.parent
+            )
             try:
                 with os.fdopen(descriptor, "wb") as stream:
                     stream.write(new_data)
@@ -115,7 +147,9 @@ class WorkspaceService:
             finally:
                 Path(temporary_name).unlink(missing_ok=True)
         return {
-            "path": path, "applied": apply, "diff": diff[:50_000],
+            "path": path,
+            "applied": apply,
+            "diff": diff[:50_000],
             "sha256": self._hash(new_data),
         }
 
@@ -130,12 +164,16 @@ class WorkspaceService:
                 pending_old = line[4:].split("\t", 1)[0]
             elif line.startswith("+++ "):
                 if pending_old is None:
-                    raise ValueError("patch has a new-file header without a matching old-file header")
+                    raise ValueError(
+                        "patch has a new-file header without a matching old-file header"
+                    )
                 new_value = line[4:].split("\t", 1)[0]
                 headers.append((pending_old, new_value))
                 pending_old = None
         if pending_old is not None:
-            raise ValueError("patch has an old-file header without a matching new-file header")
+            raise ValueError(
+                "patch has an old-file header without a matching new-file header"
+            )
         if not headers:
             raise ValueError("patch contains no file paths")
         for old_value, new_value in headers:
@@ -151,12 +189,22 @@ class WorkspaceService:
         checked = self._run(command, input_text=patch)
         if apply:
             self._run(["git", "apply", "--whitespace=error-all", "-"], input_text=patch)
-        return {"paths": sorted(set(paths)), "applied": apply, "check": checked["stdout"] or "ok"}
+        return {
+            "paths": sorted(set(paths)),
+            "applied": apply,
+            "check": checked["stdout"] or "ok",
+        }
 
     def run_test(self, preset: str) -> dict[str, Any]:
         commands = {
             "all": [str(self.root / ".venv/bin/python"), "-m", "pytest", "-q"],
-            "unit": [str(self.root / ".venv/bin/python"), "-m", "pytest", "tests", "-q"],
+            "unit": [
+                str(self.root / ".venv/bin/python"),
+                "-m",
+                "pytest",
+                "tests",
+                "-q",
+            ],
         }
         if preset not in commands:
             raise ValueError(f"unknown test preset: {preset}")
@@ -173,17 +221,28 @@ class WorkspaceService:
             raise ValueError(f"unknown read-only Git operation: {operation}")
         return self._run(commands[operation])
 
-    def _run(self, command: list[str], *, input_text: str | None = None) -> dict[str, Any]:
+    def _run(
+        self, command: list[str], *, input_text: str | None = None
+    ) -> dict[str, Any]:
         completed = subprocess.run(
-            command, cwd=self.root, input=input_text, text=True, capture_output=True,
-            timeout=self.timeout_seconds, check=False,
+            command,
+            cwd=self.root,
+            input=input_text,
+            text=True,
+            capture_output=True,
+            timeout=self.timeout_seconds,
+            check=False,
         )
         result = {
-            "command": command, "returncode": completed.returncode,
-            "stdout": completed.stdout[-100_000:], "stderr": completed.stderr[-100_000:],
+            "command": command,
+            "returncode": completed.returncode,
+            "stdout": completed.stdout[-100_000:],
+            "stderr": completed.stderr[-100_000:],
         }
         if completed.returncode != 0:
-            raise ValueError(f"command failed ({completed.returncode}): {completed.stderr[-2000:]}")
+            raise ValueError(
+                f"command failed ({completed.returncode}): {completed.stderr[-2000:]}"
+            )
         return result
 
     def execute(self, actions: Iterable[Any]) -> list[dict[str, Any]]:
@@ -195,8 +254,10 @@ class WorkspaceService:
                 result = self.search(action.query)
             elif action.type == "edit":
                 result = self.edit(
-                    action.path, action.content,
-                    expected_sha256=action.expected_sha256, apply=action.apply,
+                    action.path,
+                    action.content,
+                    expected_sha256=action.expected_sha256,
+                    apply=action.apply,
                 )
             elif action.type == "patch":
                 result = self.apply_patch(action.content, apply=action.apply)

@@ -1,4 +1,5 @@
 """Content-addressed local asset storage for production media APIs."""
+
 from __future__ import annotations
 
 import hashlib
@@ -6,7 +7,7 @@ import json
 import os
 import re
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 _ALLOWED_MIME = {
@@ -36,7 +37,9 @@ def _signature_matches(data: bytes, mime: str) -> bool:
     if mime == "audio/flac":
         return head.startswith(b"fLaC")
     if mime == "audio/mpeg":
-        return head.startswith(b"ID3") or (len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0)
+        return head.startswith(b"ID3") or (
+            len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0
+        )
     if mime == "video/mp4":
         return len(head) >= 12 and head[4:8] == b"ftyp"
     if mime == "video/webm":
@@ -59,21 +62,29 @@ class AssetStore:
     def __init__(self, root: str | Path, *, max_bytes: int | None = None) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
-        self.max_bytes = int(max_bytes or os.getenv("GOPI_MEDIA_MAX_ASSET_BYTES", 100 * 1024 * 1024))
+        self.max_bytes = int(
+            max_bytes or os.getenv("GOPI_MEDIA_MAX_ASSET_BYTES", 100 * 1024 * 1024)
+        )
         if self.max_bytes < 1:
             raise ValueError("max asset bytes must be positive")
 
-    def put(self, data: bytes, *, mime_type: str, filename: str | None = None) -> AssetRecord:
+    def put(
+        self, data: bytes, *, mime_type: str, filename: str | None = None
+    ) -> AssetRecord:
         if not data:
             raise ValueError("asset body is empty")
         if len(data) > self.max_bytes:
             raise ValueError(f"asset exceeds maximum size of {self.max_bytes} bytes")
-        mime = (mime_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+        mime = (
+            (mime_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+        )
         suffix = _ALLOWED_MIME.get(mime)
         if suffix is None:
             raise ValueError(f"unsupported media type: {mime}")
         if not _signature_matches(data, mime):
-            raise ValueError(f"asset content does not match declared media type: {mime}")
+            raise ValueError(
+                f"asset content does not match declared media type: {mime}"
+            )
         digest = hashlib.sha256(data).hexdigest()
         asset_id = f"asset_{digest[:32]}"
         original = Path(filename or f"upload{suffix}").name
@@ -95,7 +106,9 @@ class AssetStore:
             created_at=time.time(),
             path=str(payload_path),
         )
-        meta_path.write_text(json.dumps(asdict(record), indent=2, sort_keys=True), encoding="utf-8")
+        meta_path.write_text(
+            json.dumps(asdict(record), indent=2, sort_keys=True), encoding="utf-8"
+        )
         return record
 
     def get(self, asset_id: str) -> AssetRecord:

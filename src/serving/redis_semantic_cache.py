@@ -6,14 +6,15 @@ similarity is calculated client-side over namespace/policy candidates. A
 future Redis Vector Search adapter can replace candidate discovery without
 changing the public contract.
 """
+
 from __future__ import annotations
 
 import json
 import math
 import struct
 import time
-from dataclasses import asdict, dataclass
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from .semantic_cache_policy import CacheQuota
 
@@ -51,7 +52,9 @@ class RedisSemanticCacheBackend:
         if self.client is not None:
             return
         if redis is None:
-            raise RuntimeError("redis package is not installed; install the queue extra")
+            raise RuntimeError(
+                "redis package is not installed; install the queue extra"
+            )
         self.client = redis.from_url(self.config.url, decode_responses=True)
         await self.client.ping()
 
@@ -63,7 +66,6 @@ class RedisSemanticCacheBackend:
 
     def _quota_key(self, namespace: str) -> str:
         return f"{self.config.key_prefix}:quota:{namespace}"
-
 
     def _vector_key(self, namespace: str, exact_key: str) -> str:
         return f"{self.config.key_prefix}:vector:{namespace}:{exact_key}"
@@ -77,7 +79,11 @@ class RedisSemanticCacheBackend:
         Plain Redis deployments remain supported: a failed index creation is memoized and
         semantic lookup falls back to the bounded scan implementation.
         """
-        if not self.config.vector_index_enabled or self.client is None or self._vector_index_failed:
+        if (
+            not self.config.vector_index_enabled
+            or self.client is None
+            or self._vector_index_failed
+        ):
             return False
         if self._vector_index_ready:
             return True
@@ -88,13 +94,30 @@ class RedisSemanticCacheBackend:
                 await self.client.execute_command("FT.INFO", name)
             except Exception:
                 await self.client.execute_command(
-                    "FT.CREATE", name, "ON", "HASH", "PREFIX", "1", prefix,
+                    "FT.CREATE",
+                    name,
+                    "ON",
+                    "HASH",
+                    "PREFIX",
+                    "1",
+                    prefix,
                     "SCHEMA",
-                    "namespace", "TAG",
-                    "policy", "TAG",
-                    "expires_at", "NUMERIC",
-                    "vector", "VECTOR", "HNSW", "6",
-                    "TYPE", "FLOAT32", "DIM", str(int(dimension)), "DISTANCE_METRIC", "COSINE",
+                    "namespace",
+                    "TAG",
+                    "policy",
+                    "TAG",
+                    "expires_at",
+                    "NUMERIC",
+                    "vector",
+                    "VECTOR",
+                    "HNSW",
+                    "6",
+                    "TYPE",
+                    "FLOAT32",
+                    "DIM",
+                    str(int(dimension)),
+                    "DISTANCE_METRIC",
+                    "COSINE",
                 )
             self._vector_index_ready = True
             return True
@@ -106,16 +129,21 @@ class RedisSemanticCacheBackend:
     def _vector_blob(vector: list[float]) -> bytes:
         return struct.pack("<" + "f" * len(vector), *[float(v) for v in vector])
 
-    async def reserve_quota(self, namespace: str, exact_key: str, ttl_seconds: float, max_entries: int) -> bool:
+    async def reserve_quota(
+        self, namespace: str, exact_key: str, ttl_seconds: float, max_entries: int
+    ) -> bool:
         """Atomically enforce a cross-replica per-tenant entry quota using a Redis ZSET."""
         if self.client is None or max_entries <= 0:
             return True
-        if not all(hasattr(self.client, name) for name in ("zrem", "zremrangebyscore", "zcard")):
+        if not all(
+            hasattr(self.client, name) for name in ("zrem", "zremrangebyscore", "zcard")
+        ):
             # Compatibility fallback for minimal Redis clients/test doubles.
             if await self.get(namespace, exact_key) is not None:
                 return True
             return await self.count(namespace) < max_entries
-        now = time.time(); expires = now + max(1.0, float(ttl_seconds))
+        now = time.time()
+        expires = now + max(1.0, float(ttl_seconds))
         script = """
         redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
         if redis.call('ZSCORE', KEYS[1], ARGV[3]) then
@@ -126,7 +154,18 @@ class RedisSemanticCacheBackend:
         redis.call('EXPIRE', KEYS[1], math.max(1, math.ceil(tonumber(ARGV[5]))))
         return 1
         """
-        return bool(await self.client.eval(script, 1, self._quota_members_key(namespace), now, expires, exact_key, int(max_entries), ttl_seconds))
+        return bool(
+            await self.client.eval(
+                script,
+                1,
+                self._quota_members_key(namespace),
+                now,
+                expires,
+                exact_key,
+                int(max_entries),
+                ttl_seconds,
+            )
+        )
 
     async def release_quota(self, namespace: str, exact_key: str) -> None:
         if self.client is not None and hasattr(self.client, "zrem"):
@@ -138,15 +177,31 @@ class RedisSemanticCacheBackend:
         raw = await self.client.get(self._key(namespace, exact_key))
         return json.loads(raw) if raw else None
 
-    async def put(self, namespace: str, exact_key: str, payload: dict[str, Any], ttl_seconds: float) -> bool:
+    async def put(
+        self,
+        namespace: str,
+        exact_key: str,
+        payload: dict[str, Any],
+        ttl_seconds: float,
+    ) -> bool:
         if self.client is None:
             return False
         key = self._key(namespace, exact_key)
-        await self.client.set(key, json.dumps(payload, separators=(",", ":")), ex=max(1, int(ttl_seconds)))
+        await self.client.set(
+            key, json.dumps(payload, separators=(",", ":")), ex=max(1, int(ttl_seconds))
+        )
         return True
 
-
-    async def put_semantic(self, namespace: str, exact_key: str, payload: dict[str, Any], ttl_seconds: float, vector: list[float], *, policy: str | None = None) -> bool:
+    async def put_semantic(
+        self,
+        namespace: str,
+        exact_key: str,
+        payload: dict[str, Any],
+        ttl_seconds: float,
+        vector: list[float],
+        *,
+        policy: str | None = None,
+    ) -> bool:
         enriched = dict(payload)
         enriched["_semantic_vector"] = [float(v) for v in vector]
         if policy is not None:
@@ -155,18 +210,31 @@ class RedisSemanticCacheBackend:
         if stored and vector and await self._ensure_vector_index(len(vector)):
             try:
                 key = self._vector_key(namespace, exact_key)
-                await self.client.hset(key, mapping={
-                    "namespace": namespace, "policy": policy or "",
-                    "exact_key": exact_key, "expires_at": str(time.time() + ttl_seconds),
-                    "vector": self._vector_blob(vector),
-                })
+                await self.client.hset(
+                    key,
+                    mapping={
+                        "namespace": namespace,
+                        "policy": policy or "",
+                        "exact_key": exact_key,
+                        "expires_at": str(time.time() + ttl_seconds),
+                        "vector": self._vector_blob(vector),
+                    },
+                )
                 await self.client.expire(key, max(1, int(ttl_seconds)))
             except Exception:
                 # Exact cache writes must not fail because the optional ANN side-index is unavailable.
                 pass
         return stored
 
-    async def find_similar(self, namespace: str, vector: list[float], threshold: float, *, limit: int = 512, policy: str | None = None) -> tuple[str, dict[str, Any], float] | None:
+    async def find_similar(
+        self,
+        namespace: str,
+        vector: list[float],
+        threshold: float,
+        *,
+        limit: int = 512,
+        policy: str | None = None,
+    ) -> tuple[str, dict[str, Any], float] | None:
         """Return the best cosine-similar entry from Redis.
 
         This plain-Redis implementation scans bounded candidates and keeps the
@@ -178,21 +246,46 @@ class RedisSemanticCacheBackend:
             return None
         if await self._ensure_vector_index(len(vector)):
             try:
-                query = f"(@namespace:{{{namespace}}}" + (f" @policy:{{{policy}}}" if policy is not None else "") + ")=>[KNN 1 @vector $vec AS distance]"
-                result = await self.client.execute_command(
-                    "FT.SEARCH", self.config.vector_index_name, query,
-                    "PARAMS", "2", "vec", self._vector_blob(vector),
-                    "SORTBY", "distance", "ASC", "RETURN", "2", "exact_key", "distance",
-                    "DIALECT", "2",
+                query = (
+                    f"(@namespace:{{{namespace}}}"
+                    + (f" @policy:{{{policy}}}" if policy is not None else "")
+                    + ")=>[KNN 1 @vector $vec AS distance]"
                 )
-                if isinstance(result, (list, tuple)) and len(result) >= 3 and int(result[0]) > 0:
+                result = await self.client.execute_command(
+                    "FT.SEARCH",
+                    self.config.vector_index_name,
+                    query,
+                    "PARAMS",
+                    "2",
+                    "vec",
+                    self._vector_blob(vector),
+                    "SORTBY",
+                    "distance",
+                    "ASC",
+                    "RETURN",
+                    "2",
+                    "exact_key",
+                    "distance",
+                    "DIALECT",
+                    "2",
+                )
+                if (
+                    isinstance(result, (list, tuple))
+                    and len(result) >= 3
+                    and int(result[0]) > 0
+                ):
                     fields = result[2]
                     if isinstance(fields, (list, tuple)):
-                        values = {str(fields[i]): fields[i+1] for i in range(0, len(fields)-1, 2)}
+                        values = {
+                            str(fields[i]): fields[i + 1]
+                            for i in range(0, len(fields) - 1, 2)
+                        }
                         exact = values.get("exact_key") or values.get("b'exact_key'")
                         distance = values.get("distance") or values.get("b'distance'")
-                        if isinstance(exact, bytes): exact = exact.decode()
-                        if isinstance(distance, bytes): distance = distance.decode()
+                        if isinstance(exact, bytes):
+                            exact = exact.decode()
+                        if isinstance(distance, bytes):
+                            distance = distance.decode()
                         score = 1.0 - float(distance)
                         if exact and score >= threshold:
                             payload = await self.get(namespace, str(exact))
@@ -208,7 +301,9 @@ class RedisSemanticCacheBackend:
         pattern = f"{self.config.key_prefix}:entry:{namespace}:*"
         best = None
         seen = 0
-        async for key in self.client.scan_iter(match=pattern, count=min(max(16, limit), 1000)):
+        async for key in self.client.scan_iter(
+            match=pattern, count=min(max(16, limit), 1000)
+        ):
             if seen >= limit:
                 break
             seen += 1
@@ -225,7 +320,9 @@ class RedisSemanticCacheBackend:
                 other_norm = math.sqrt(sum(float(x) * float(x) for x in other))
                 if other_norm == 0:
                     continue
-                score = sum(float(a) * float(b) for a, b in zip(vector, other)) / (norm * other_norm)
+                score = sum(float(a) * float(b) for a, b in zip(vector, other)) / (
+                    norm * other_norm
+                )
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
             if score >= threshold and (best is None or score > best[2]):
@@ -256,19 +353,36 @@ class RedisSemanticCacheBackend:
             pass
         return deleted
 
-    async def acquire_singleflight(self, namespace: str, exact_key: str, token: str) -> bool:
+    async def acquire_singleflight(
+        self, namespace: str, exact_key: str, token: str
+    ) -> bool:
         if self.client is None:
             return True
-        return bool(await self.client.set(self._lock_key(namespace, exact_key), token, nx=True, px=self.config.lock_ttl_ms))
+        return bool(
+            await self.client.set(
+                self._lock_key(namespace, exact_key),
+                token,
+                nx=True,
+                px=self.config.lock_ttl_ms,
+            )
+        )
 
-    async def release_singleflight(self, namespace: str, exact_key: str, token: str) -> bool:
+    async def release_singleflight(
+        self, namespace: str, exact_key: str, token: str
+    ) -> bool:
         if self.client is None:
             return True
         # Lua compare-and-delete prevents one worker from deleting another worker's lock.
         script = "local v=redis.call('get',KEYS[1]); if v==ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end"
-        return bool(await self.client.eval(script, 1, self._lock_key(namespace, exact_key), token))
+        return bool(
+            await self.client.eval(
+                script, 1, self._lock_key(namespace, exact_key), token
+            )
+        )
 
-    async def warm(self, namespace: str, entries: list[tuple[str, dict[str, Any], float]]) -> int:
+    async def warm(
+        self, namespace: str, entries: list[tuple[str, dict[str, Any], float]]
+    ) -> int:
         count = 0
         for exact_key, payload, ttl in entries:
             count += int(await self.put(namespace, exact_key, payload, ttl))

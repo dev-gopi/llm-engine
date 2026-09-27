@@ -27,9 +27,18 @@ from utils.config import load_yaml
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--training-config", type=Path, required=True)
-    parser.add_argument("--axes", type=Path, required=True, help="YAML mapping of axis to candidate values")
+    parser.add_argument(
+        "--axes",
+        type=Path,
+        required=True,
+        help="YAML mapping of axis to candidate values",
+    )
     parser.add_argument("--prefix", default="trial")
-    parser.add_argument("--execute", action="store_true", help="run trials sequentially; default only prints plan")
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="run trials sequentially; default only prints plan",
+    )
     args = parser.parse_args()
 
     axes = load_yaml(args.axes)
@@ -38,12 +47,20 @@ def main() -> None:
     if not args.execute:
         return
     for trial in trials:
-        with tempfile.NamedTemporaryFile("w", suffix=".yaml", encoding="utf-8", delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".yaml", encoding="utf-8", delete=False
+        ) as handle:
             yaml.safe_dump(trial.config, handle, sort_keys=True)
             trial_path = Path(handle.name)
         try:
             subprocess.run(
-                [sys.executable, "scripts/train.py", "--training-config", str(trial_path)], check=True,
+                [
+                    sys.executable,
+                    "scripts/train.py",
+                    "--training-config",
+                    str(trial_path),
+                ],
+                check=True,
             )
         finally:
             trial_path.unlink(missing_ok=True)

@@ -20,14 +20,20 @@ class ContinuousStreamScheduler:
     """Multiplex active backend streams and admit new requests continuously."""
 
     def __init__(
-        self, backend: Any, *, max_active: int = 8, queue_size: int = 32,
+        self,
+        backend: Any,
+        *,
+        max_active: int = 8,
+        queue_size: int = 32,
         event_queue_size: int = 64,
     ) -> None:
         if max_active < 1 or queue_size < 1 or event_queue_size < 1:
             raise ValueError("continuous scheduler limits must be positive")
         self.backend = backend
         self.max_active = max_active
-        self.pending: asyncio.Queue[_StreamWork | None] = asyncio.Queue(maxsize=queue_size)
+        self.pending: asyncio.Queue[_StreamWork | None] = asyncio.Queue(
+            maxsize=queue_size
+        )
         self.event_queue_size = event_queue_size
         self.worker: asyncio.Task | None = None
         self._active: set[asyncio.Task] = set()
@@ -74,7 +80,9 @@ class ContinuousStreamScheduler:
                     waiters.add(intake)
                 if not waiters:
                     break
-                done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(
+                    waiters, return_when=asyncio.FIRST_COMPLETED
+                )
                 if intake is not None and intake in done:
                     work = intake.result()
                     intake = None
@@ -125,14 +133,18 @@ class TokenStepScheduler:
     state, and may implement ``release_stream(state)`` for KV-page reclamation.
     """
 
-    def __init__(self, backend: Any, *, max_active: int = 32, queue_size: int = 1024) -> None:
+    def __init__(
+        self, backend: Any, *, max_active: int = 32, queue_size: int = 1024
+    ) -> None:
         for method in ("start_stream", "decode_stream_batch"):
             if not callable(getattr(backend, method, None)):
                 raise TypeError(f"token-step backend must implement {method}()")
         if max_active < 1 or queue_size < 1:
             raise ValueError("token scheduler limits must be positive")
         self.backend, self.max_active = backend, max_active
-        self.pending: asyncio.Queue[_TokenWork | None] = asyncio.Queue(maxsize=queue_size)
+        self.pending: asyncio.Queue[_TokenWork | None] = asyncio.Queue(
+            maxsize=queue_size
+        )
         self.worker: asyncio.Task | None = None
         self._active: list[_TokenWork] = []
 
@@ -219,9 +231,13 @@ class TokenStepScheduler:
                     active.clear()
                     continue
                 try:
-                    results = await self.backend.decode_stream_batch([item.state for item in live])
+                    results = await self.backend.decode_stream_batch(
+                        [item.state for item in live]
+                    )
                     if len(results) != len(live):
-                        raise RuntimeError("token-step backend returned the wrong result count")
+                        raise RuntimeError(
+                            "token-step backend returned the wrong result count"
+                        )
                 except BaseException as error:
                     # A failed batch decode must not strand KV pages/session locks or
                     # leave consumers waiting forever on their per-request queues.
@@ -231,10 +247,13 @@ class TokenStepScheduler:
                         except BaseException:
                             pass
                         try:
-                            await item.queue.put(_StreamEnd(
-                                error if isinstance(error, Exception)
-                                else RuntimeError("token decode cancelled")
-                            ))
+                            await item.queue.put(
+                                _StreamEnd(
+                                    error
+                                    if isinstance(error, Exception)
+                                    else RuntimeError("token decode cancelled")
+                                )
+                            )
                         except BaseException:
                             pass
                     active.clear()
@@ -276,10 +295,14 @@ class ReplicaPoolBackend:
         return all(bool(replica.ready) for replica in self.replicas)
 
     async def startup(self) -> None:
-        await asyncio.gather(*(self._lifecycle(replica, "startup") for replica in self.replicas))
+        await asyncio.gather(
+            *(self._lifecycle(replica, "startup") for replica in self.replicas)
+        )
 
     async def shutdown(self) -> None:
-        await asyncio.gather(*(self._lifecycle(replica, "shutdown") for replica in self.replicas))
+        await asyncio.gather(
+            *(self._lifecycle(replica, "shutdown") for replica in self.replicas)
+        )
 
     async def generate(self, request):
         index, replica = await self._acquire()
@@ -298,10 +321,14 @@ class ReplicaPoolBackend:
 
     async def _acquire(self):
         async with self._lock:
-            ready = [index for index, replica in enumerate(self.replicas) if replica.ready]
+            ready = [
+                index for index, replica in enumerate(self.replicas) if replica.ready
+            ]
             if not ready:
                 raise RuntimeError("no model replica is ready")
-            index = min(ready, key=lambda candidate: (self.active[candidate], candidate))
+            index = min(
+                ready, key=lambda candidate: (self.active[candidate], candidate)
+            )
             self.active[index] += 1
             return index, self.replicas[index]
 

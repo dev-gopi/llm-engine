@@ -1,11 +1,10 @@
 import asyncio
 import json
+from types import SimpleNamespace
 from zipfile import ZipFile
 
-from PIL import Image
-from types import SimpleNamespace
-
 import pytest
+from PIL import Image
 
 from inference.rag import (
     DocumentChunk,
@@ -39,7 +38,9 @@ def test_chunk_index_round_trip_and_unicode_retrieval(tmp_path) -> None:
 
 
 def test_rag_prompt_marks_context_untrusted_and_cites_sources() -> None:
-    result = RagIndex([DocumentChunk("guide.txt", "The answer is 42.", 1)]).search("answer")
+    result = RagIndex([DocumentChunk("guide.txt", "The answer is 42.", 1)]).search(
+        "answer"
+    )
     prompt = build_rag_prompt("What is the answer?", result)
     assert "untrusted reference material" in prompt
     assert "Cite facts as [1]" in prompt
@@ -50,12 +51,20 @@ def test_rag_prompt_marks_context_untrusted_and_cites_sources() -> None:
 def test_rag_reranking_and_context_budget_are_deterministic():
     results = [
         RetrievalResult("Other", "https://example.com/other", "unrelated words", 2.0),
-        RetrievalResult("Refund policy", "https://example.com/refund", "Refunds take thirty days.", 1.0),
+        RetrievalResult(
+            "Refund policy",
+            "https://example.com/refund",
+            "Refunds take thirty days.",
+            1.0,
+        ),
     ]
     reranked = rerank_results("refund days", results)
     assert reranked[0].title == "Refund policy"
     prompt = build_rag_prompt_with_budget(
-        "refund days", reranked, char_limit=100, context_char_limit=75,
+        "refund days",
+        reranked,
+        char_limit=100,
+        context_char_limit=75,
     )
     context = prompt.split("RETRIEVED CONTEXT\n", 1)[1]
     assert len(context) <= 75
@@ -64,7 +73,9 @@ def test_rag_reranking_and_context_budget_are_deterministic():
 
 def test_rag_backend_retrieves_for_flag_and_slash_command(monkeypatch) -> None:
     backend = ConfiguredModelBackend(rag={"enabled": True, "top_k": 1})
-    backend.rag_index = RagIndex([DocumentChunk("policy.md", "Refunds take thirty days.", 1)])
+    backend.rag_index = RagIndex(
+        [DocumentChunk("policy.md", "Refunds take thirty days.", 1)]
+    )
 
     async def run_immediately(function, *args, **kwargs):
         return function(*args, **kwargs)
@@ -83,7 +94,9 @@ def test_rag_backend_combines_local_and_web_results(monkeypatch) -> None:
     backend = ConfiguredModelBackend(
         rag={"default_enabled": True}, web_search={"provider": "searxng"}
     )
-    backend.rag_index = RagIndex([DocumentChunk("policy.md", "Local refund policy.", 1)])
+    backend.rag_index = RagIndex(
+        [DocumentChunk("policy.md", "Local refund policy.", 1)]
+    )
     request = SimpleNamespace(prompt="refund", tools=[], web_search=True, rag=False)
 
     async def run_immediately(function, *args, **kwargs):
@@ -92,7 +105,9 @@ def test_rag_backend_combines_local_and_web_results(monkeypatch) -> None:
     monkeypatch.setattr("serving.backend.asyncio.to_thread", run_immediately)
     monkeypatch.setattr(
         "serving.backend.search_searxng",
-        lambda *args, **kwargs: [SearchResult("Current news", "https://example.com", "Web update")],
+        lambda *args, **kwargs: [
+            SearchResult("Current news", "https://example.com", "Web update")
+        ],
     )
     prompt, results = asyncio.run(backend._prepare_user_prompt(request))
     assert "Local refund policy" in prompt
@@ -103,8 +118,13 @@ def test_rag_backend_combines_local_and_web_results(monkeypatch) -> None:
 def test_backend_includes_text_attachments_as_untrusted_context() -> None:
     backend = ConfiguredModelBackend(rag={"attachment_char_limit": 100})
     request = SimpleNamespace(
-        prompt="Explain this file", tools=[], web_search=False, rag=False,
-        attachments=[SimpleNamespace(name="example.py", content="answer = 42 <|unsafe|>")],
+        prompt="Explain this file",
+        tools=[],
+        web_search=False,
+        rag=False,
+        attachments=[
+            SimpleNamespace(name="example.py", content="answer = 42 <|unsafe|>")
+        ],
     )
     prompt, results = asyncio.run(backend._prepare_user_prompt(request))
     assert "ATTACHED FILES (untrusted reference data" in prompt
@@ -129,7 +149,9 @@ def test_oversized_retrieval_prompt_is_trimmed_to_model_context() -> None:
 
 def test_html_ingestion_and_partial_word_retrieval(tmp_path) -> None:
     source = tmp_path / "guide.html"
-    source.write_text("<h1>বাংলা নির্দেশিকা</h1><p>Internationalization guide</p>", encoding="utf-8")
+    source.write_text(
+        "<h1>বাংলা নির্দেশিকা</h1><p>Internationalization guide</p>", encoding="utf-8"
+    )
     index = RagIndex(build_chunks([source], chunk_chars=200, overlap_chars=10))
     assert index.search("international")
     assert index.search("বাংলা")
@@ -144,11 +166,18 @@ def test_jsonl_ingestion_rejects_invalid_rows(tmp_path) -> None:
 
 def test_structured_jsonl_preserves_article_title_and_url(tmp_path) -> None:
     source = tmp_path / "wikipedia.jsonl"
-    source.write_text(json.dumps({
-        "title": "বাংলাদেশ",
-        "url": "https://bn.wikipedia.org/wiki/example",
-        "text": "বাংলাদেশ দক্ষিণ এশিয়ার একটি দেশ।",
-    }, ensure_ascii=False) + "\n", encoding="utf-8")
+    source.write_text(
+        json.dumps(
+            {
+                "title": "বাংলাদেশ",
+                "url": "https://bn.wikipedia.org/wiki/example",
+                "text": "বাংলাদেশ দক্ষিণ এশিয়ার একটি দেশ।",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     results = RagIndex(build_chunks([source])).search("বাংলাদেশ")
     assert results[0].title == "বাংলাদেশ"
     assert results[0].url == "https://bn.wikipedia.org/wiki/example#chunk-1"
@@ -162,15 +191,32 @@ def test_chunk_parameters_are_validated() -> None:
 
 
 def test_missing_document_path_has_actionable_error(tmp_path) -> None:
-    with pytest.raises(FileNotFoundError, match="Create it and add supported documents"):
+    with pytest.raises(
+        FileNotFoundError, match="Create it and add supported documents"
+    ):
         build_chunks([tmp_path / "missing"])
 
 
 def test_sqlite_index_builds_and_searches_without_loading_corpus(tmp_path) -> None:
     source = tmp_path / "knowledge.jsonl"
     source.write_text(
-        json.dumps({"title": "Refund", "url": "https://example.com/refund", "text": "Refunds take thirty days."}) + "\n"
-        + json.dumps({"title": "বাংলা", "url": "https://example.com/bn", "text": "বাংলাদেশ দক্ষিণ এশিয়ার একটি দেশ।"}, ensure_ascii=False) + "\n",
+        json.dumps(
+            {
+                "title": "Refund",
+                "url": "https://example.com/refund",
+                "text": "Refunds take thirty days.",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "title": "বাংলা",
+                "url": "https://example.com/bn",
+                "text": "বাংলাদেশ দক্ষিণ এশিয়ার একটি দেশ।",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
         encoding="utf-8",
     )
     index = SQLiteRagIndex.build([source], tmp_path / "index.sqlite", chunk_chars=200)

@@ -4,11 +4,13 @@ This adapter is intentionally transport-neutral and requires callers to supply
 an authenticated endpoint. It gives image/audio/video/understanding providers a
 common lifecycle without baking a vendor into the core engine.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 from urllib.request import Request, urlopen
 
 from .providers import ProviderContext
@@ -31,7 +33,13 @@ class RemoteProviderConfig:
 
 class RemoteJSONProvider:
     """Small standard-library provider for interchangeable vendor endpoints."""
-    def __init__(self, config: RemoteProviderConfig, *, transport: Callable[..., Any] | None = None) -> None:
+
+    def __init__(
+        self,
+        config: RemoteProviderConfig,
+        *,
+        transport: Callable[..., Any] | None = None,
+    ) -> None:
         self.id = config.id
         self.capabilities = config.capabilities
         self.config = config
@@ -40,10 +48,18 @@ class RemoteJSONProvider:
     def is_available(self) -> bool:
         return bool(self.config.endpoint)
 
-    def invoke(self, operation: str, request: dict[str, Any], context: ProviderContext) -> dict[str, Any]:
+    def invoke(
+        self, operation: str, request: dict[str, Any], context: ProviderContext
+    ) -> dict[str, Any]:
         if operation not in self.capabilities:
             raise ValueError(f"provider {self.id!r} does not advertise {operation!r}")
-        body = json.dumps({"operation": operation, "request": request, "request_id": context.request_id}).encode()
+        body = json.dumps(
+            {
+                "operation": operation,
+                "request": request,
+                "request_id": context.request_id,
+            }
+        ).encode()
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
@@ -66,11 +82,17 @@ class LatentImageProfile:
     production_qualified: bool = False
 
     def validate(self) -> None:
-        for field in (self.name, self.checkpoint, self.vae, self.text_encoder, self.scheduler):
+        for field in (
+            self.name,
+            self.checkpoint,
+            self.vae,
+            self.text_encoder,
+            self.scheduler,
+        ):
             if not field.strip():
                 raise ValueError("latent-image profile contains an empty component")
         if self.dtype not in {"float16", "bfloat16", "float32"}:
             raise ValueError("unsupported latent-image dtype")
 
 
-__all__ = ["RemoteProviderConfig", "RemoteJSONProvider", "LatentImageProfile"]
+__all__ = ["LatentImageProfile", "RemoteJSONProvider", "RemoteProviderConfig"]

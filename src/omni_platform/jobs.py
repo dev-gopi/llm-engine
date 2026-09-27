@@ -1,4 +1,5 @@
 """Unified generation job schema and legal state transitions."""
+
 from __future__ import annotations
 
 import time
@@ -6,7 +7,15 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-JobStatus = Literal["queued", "initializing", "processing", "postprocessing", "completed", "failed", "cancelled"]
+JobStatus = Literal[
+    "queued",
+    "initializing",
+    "processing",
+    "postprocessing",
+    "completed",
+    "failed",
+    "cancelled",
+]
 
 _ALLOWED = {
     "queued": {"initializing", "cancelled", "failed"},
@@ -42,7 +51,13 @@ class GenerationJob:
     artifacts: list[str] = field(default_factory=list)
     resource_usage: dict[str, float | int] = field(default_factory=dict)
 
-    def transition(self, status: JobStatus, *, progress: float | None = None, stage: str | None = None) -> None:
+    def transition(
+        self,
+        status: JobStatus,
+        *,
+        progress: float | None = None,
+        stage: str | None = None,
+    ) -> None:
         if status not in _ALLOWED[self.status]:
             raise ValueError(f"illegal job transition {self.status!r} -> {status!r}")
         now = time.time()

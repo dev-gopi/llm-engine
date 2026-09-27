@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from inference.backend_adapters import backend_matrix, detect_backend
-from inference.quantized_formats import NativeFormatUnavailable, capabilities, require_native
-from inference.speculative import DraftModelRegistry, SpeculativeConfig, speculative_accept
+from inference.backend_adapters import backend_matrix
+from inference.quantized_formats import (
+    NativeFormatUnavailable,
+    capabilities,
+    require_native,
+)
+from inference.speculative import (
+    DraftModelRegistry,
+    SpeculativeConfig,
+    speculative_accept,
+)
+from omni_platform.voice_cloning import ProviderVoiceCloner
 from serving.lora_registry import LoRAAdapterRegistry
-from omni_platform.voice_cloning import ProviderVoiceCloner, VoiceClonePolicy
 
 
 def test_backend_detection_is_non_destructive():
@@ -50,11 +58,17 @@ def test_voice_clone_policy_requires_consent():
     class Provider:
         id = "test"
         capabilities = frozenset({"voice_cloning"})
-        def is_available(self): return True
-        def clone_voice(self, request, context): return "ok"
+
+        def is_available(self):
+            return True
+
+        def clone_voice(self, request, context):
+            return "ok"
 
     wrapper = ProviderVoiceCloner(Provider())
     with pytest.raises(PermissionError):
         wrapper.clone_voice({"reference_duration_seconds": 2}, None)
     with pytest.raises(ValueError):
-        wrapper.clone_voice({"reference_duration_seconds": 31, "consent_token": "x"}, None)
+        wrapper.clone_voice(
+            {"reference_duration_seconds": 31, "consent_token": "x"}, None
+        )

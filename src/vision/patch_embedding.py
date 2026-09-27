@@ -6,8 +6,15 @@ from torch import Tensor, nn
 
 
 class PatchEmbedding(nn.Module):
-    def __init__(self, image_size: int, patch_size: int, channels: int, hidden_size: int,
-                 *, strict_image_size: bool = True) -> None:
+    def __init__(
+        self,
+        image_size: int,
+        patch_size: int,
+        channels: int,
+        hidden_size: int,
+        *,
+        strict_image_size: bool = True,
+    ) -> None:
         super().__init__()
         if image_size <= 0 or patch_size <= 0 or image_size % patch_size:
             raise ValueError("image_size must be positive and divisible by patch_size")
@@ -30,7 +37,10 @@ class PatchEmbedding(nn.Module):
         if images.shape[1] != self.channels:
             raise ValueError(f"images must have {self.channels} channels")
         height, width = images.shape[-2:]
-        if self.strict_image_size and (height, width) != (self.image_size, self.image_size):
+        if self.strict_image_size and (height, width) != (
+            self.image_size,
+            self.image_size,
+        ):
             expected = (self.channels, self.image_size, self.image_size)
             raise ValueError(f"images must have trailing shape {expected}")
         if height % self.patch_size or width % self.patch_size:

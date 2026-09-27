@@ -1,4 +1,5 @@
 """Bounded tool execution with authorization, schema, cancellation, audit and size controls."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,16 +22,24 @@ async def execute_tool(
         if cancellation is None:
             return await asyncio.wait_for(task, timeout=timeout)
         cancel_wait = asyncio.create_task(cancellation.wait())
-        done, pending = await asyncio.wait({task, cancel_wait}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(
+            {task, cancel_wait}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+        )
         if cancel_wait in done and cancellation.is_set():
-            task.cancel(); await asyncio.gather(task, return_exceptions=True); raise asyncio.CancelledError
-        cancel_wait.cancel(); await asyncio.gather(cancel_wait, return_exceptions=True)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise asyncio.CancelledError
+        cancel_wait.cancel()
+        await asyncio.gather(cancel_wait, return_exceptions=True)
         if task not in done:
-            task.cancel(); await asyncio.gather(task, return_exceptions=True); raise TimeoutError("tool execution timed out")
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise TimeoutError("tool execution timed out")
         return task.result()
     except BaseException:
         if not task.done():
-            task.cancel(); await asyncio.gather(task, return_exceptions=True)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         raise
 
 
@@ -59,13 +68,18 @@ class ControlledToolExecutor:
         self.audit = audit
 
     @staticmethod
-    def _validate_schema(arguments: Mapping[str, Any], schema: Mapping[str, Any]) -> None:
+    def _validate_schema(
+        arguments: Mapping[str, Any], schema: Mapping[str, Any]
+    ) -> None:
         from jsonschema import Draft202012Validator
+
         try:
             validator = Draft202012Validator(dict(schema))
             validator.validate(dict(arguments))
         except Exception as error:
-            raise ValueError(f"tool arguments failed JSON Schema validation: {error}") from error
+            raise ValueError(
+                f"tool arguments failed JSON Schema validation: {error}"
+            ) from error
 
     def _record(self, event: dict[str, Any]) -> None:
         if self.audit is not None:
@@ -89,14 +103,22 @@ class ControlledToolExecutor:
         self._record({"event": "tool_started", "tool": name})
         try:
             result = await execute_tool(
-                self.tools[name], timeout=self.authorization.timeout_seconds,
-                cancellation=cancellation, **args,
+                self.tools[name],
+                timeout=self.authorization.timeout_seconds,
+                cancellation=cancellation,
+                **args,
             )
-            encoded = json.dumps(result, ensure_ascii=False, default=str).encode("utf-8")
+            encoded = json.dumps(result, ensure_ascii=False, default=str).encode(
+                "utf-8"
+            )
             if len(encoded) > self.max_result_bytes:
                 raise ValueError("tool result exceeds configured size limit")
-            self._record({"event": "tool_completed", "tool": name, "result_bytes": len(encoded)})
+            self._record(
+                {"event": "tool_completed", "tool": name, "result_bytes": len(encoded)}
+            )
             return result
         except BaseException as error:
-            self._record({"event": "tool_failed", "tool": name, "error": type(error).__name__})
+            self._record(
+                {"event": "tool_failed", "tool": name, "error": type(error).__name__}
+            )
             raise

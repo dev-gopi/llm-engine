@@ -21,7 +21,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("list", "call"))
     parser.add_argument("tool", nargs="?")
-    parser.add_argument("arguments", nargs="?", default="{}", help="JSON object for a tool call")
+    parser.add_argument(
+        "arguments", nargs="?", default="{}", help="JSON object for a tool call"
+    )
     parser.add_argument("--config", type=Path, default=Path("configs/mcp.yaml"))
     parser.add_argument("--server", required=True, help="Server key under mcp.servers")
     return parser.parse_intermixed_args()
@@ -45,10 +47,24 @@ async def run(args: argparse.Namespace) -> None:
         url = server.get("url")
         if not isinstance(url, str) or not url:
             raise ValueError(f"MCP streamable_http server has no URL: {args.server}")
-        client = RemoteMCPClient(url, timeout=float(server.get("timeout_seconds", 30)), server_label=args.server)
+        client = RemoteMCPClient(
+            url,
+            timeout=float(server.get("timeout_seconds", 30)),
+            server_label=args.server,
+        )
     elif transport == "stdio":
-        command = [str(server["command"]), *(str(value) for value in server.get("args", []))]
-        client = MCPClient(command, cwd=server.get("cwd"), env=server.get("env"), timeout=float(server.get("timeout_seconds", 30)), protocol=str(server.get("protocol", "auto")), max_message_bytes=int(server.get("max_message_bytes", 16 * 1024 * 1024)))
+        command = [
+            str(server["command"]),
+            *(str(value) for value in server.get("args", [])),
+        ]
+        client = MCPClient(
+            command,
+            cwd=server.get("cwd"),
+            env=server.get("env"),
+            timeout=float(server.get("timeout_seconds", 30)),
+            protocol=str(server.get("protocol", "auto")),
+            max_message_bytes=int(server.get("max_message_bytes", 16 * 1024 * 1024)),
+        )
     else:
         raise ValueError(f"unsupported MCP transport: {transport}")
     async with client:
@@ -68,7 +84,14 @@ def main() -> None:
     args = parse_args()
     try:
         asyncio.run(run(args))
-    except (FileNotFoundError, KeyError, MCPError, TypeError, ValueError, json.JSONDecodeError) as error:
+    except (
+        FileNotFoundError,
+        KeyError,
+        MCPError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as error:
         raise SystemExit(f"error: {error}") from error
 
 

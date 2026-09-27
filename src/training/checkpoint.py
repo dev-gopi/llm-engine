@@ -41,7 +41,9 @@ def save_checkpoint(
         "ema": ema.state_dict() if ema is not None else None,
         "scaler": scaler.state_dict() if scaler is not None else None,
         "rng_state": torch.get_rng_state(),
-        "cuda_rng_state": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        "cuda_rng_state": torch.cuda.get_rng_state_all()
+        if torch.cuda.is_available()
+        else None,
         "python_rng_state": random.getstate(),
         "numpy_rng_state": _numpy_rng_state(),
         "step": int(step),
@@ -49,7 +51,9 @@ def save_checkpoint(
         "trainer": dict(trainer or {}),
         "sampler": dict(sampler or {}),
     }
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
     os.close(descriptor)
     try:
         torch.save(payload, temporary)
@@ -113,7 +117,11 @@ def load_checkpoint(
         model.load_state_dict(state, strict=strict, assign=low_memory)
         # assign=True can replace tied Parameters with distinct objects even
         # when their checkpoint tensors share storage.
-        if low_memory and hasattr(model, "tie_weights") and getattr(model, "tie_word_embeddings", False):
+        if (
+            low_memory
+            and hasattr(model, "tie_weights")
+            and getattr(model, "tie_word_embeddings", False)
+        ):
             model.tie_weights()
     except RuntimeError as err:
         saved_config = payload.get("metadata", {}).get("model_config")
@@ -186,7 +194,9 @@ def load_checkpoint(
             except Exception:
                 pass
     step = int(payload.get("step", 0))
-    logger.debug("Loaded checkpoint from %s (step=%d, use_ema=%s)", source, step, use_ema)
+    logger.debug(
+        "Loaded checkpoint from %s (step=%d, use_ema=%s)", source, step, use_ema
+    )
     return {
         "step": step,
         "metadata": payload.get("metadata", {}),
@@ -233,24 +243,46 @@ def _vocabulary_row_mean(values: torch.Tensor) -> torch.Tensor:
 
 def _numpy_rng_state() -> dict[str, Any]:
     name, keys, position, gaussian, cached = np.random.get_state()
-    return {"name": name, "keys": torch.from_numpy(keys.copy()), "position": position,
-            "gaussian": gaussian, "cached": cached}
+    return {
+        "name": name,
+        "keys": torch.from_numpy(keys.copy()),
+        "position": position,
+        "gaussian": gaussian,
+        "cached": cached,
+    }
 
 
 def _set_numpy_rng_state(state: dict[str, Any]) -> None:
-    np.random.set_state((state["name"], state["keys"].cpu().numpy(),
-                         int(state["position"]), int(state["gaussian"]), float(state["cached"])))
+    np.random.set_state(
+        (
+            state["name"],
+            state["keys"].cpu().numpy(),
+            int(state["position"]),
+            int(state["gaussian"]),
+            float(state["cached"]),
+        )
+    )
 
 
 def validate_checkpoint_promotion_metadata(metadata: dict[str, Any]) -> None:
     """Validate multi-axis promotion metadata before a checkpoint is publishable."""
     from training.promotion import MetricRule
+
     rules = metadata.get("promotion_rules")
     metrics = metadata.get("promotion_metrics")
     if rules is None or metrics is None:
-        raise ValueError("checkpoint promotion metadata requires promotion_rules and promotion_metrics")
+        raise ValueError(
+            "checkpoint promotion metadata requires promotion_rules and promotion_metrics"
+        )
     if not isinstance(rules, list) or not isinstance(metrics, dict) or not rules:
         raise ValueError("invalid checkpoint promotion metadata")
     for rule in rules:
-        MetricRule(str(rule["name"]), str(rule.get("direction","max")), float(rule.get("weight",1.0)), float(rule.get("max_regression",0.0)), bool(rule.get("protected",False)))
-        if rule["name"] not in metrics: raise ValueError(f"missing promotion metric: {rule['name']}")
+        MetricRule(
+            str(rule["name"]),
+            str(rule.get("direction", "max")),
+            float(rule.get("weight", 1.0)),
+            float(rule.get("max_regression", 0.0)),
+            bool(rule.get("protected", False)),
+        )
+        if rule["name"] not in metrics:
+            raise ValueError(f"missing promotion metric: {rule['name']}")

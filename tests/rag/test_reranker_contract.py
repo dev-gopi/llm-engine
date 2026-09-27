@@ -21,7 +21,9 @@ def test_callable_cross_encoder_preserves_document_and_citation():
 
 def test_ranking_metrics_are_reproducible():
     docs = [Doc("a", "a"), Doc("b", "b"), Doc("c", "c")]
-    ranked = CallableCrossEncoderReranker(lambda pairs: [0.3, 0.9, 0.2]).rerank("q", docs, top_k=3)
+    ranked = CallableCrossEncoderReranker(lambda pairs: [0.3, 0.9, 0.2]).rerank(
+        "q", docs, top_k=3
+    )
     relevant = {"b"}
     assert reciprocal_rank(ranked, relevant) == 1.0
     assert ndcg_at_k(ranked, relevant, 3) == 1.0
@@ -40,9 +42,12 @@ def test_retriever_requires_candidate_pool_at_least_top_k():
     else:
         raise AssertionError("expected candidate_k validation")
 
+
 def test_reranking_quality_is_measurable_against_candidate_recall():
     candidates = [Doc("distractor", "noise"), Doc("target", "answer")]
-    ranked = CallableCrossEncoderReranker(lambda pairs: [0.1, 0.9]).rerank("question", candidates, top_k=1)
+    ranked = CallableCrossEncoderReranker(lambda pairs: [0.1, 0.9]).rerank(
+        "question", candidates, top_k=1
+    )
     evaluation = RetrieverPipeline.evaluate(candidates, ranked, {"target"}, k=1)
     assert evaluation.recall_at_k == 1.0
     assert evaluation.reranked_recall_at_k == 1.0

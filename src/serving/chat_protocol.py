@@ -4,6 +4,7 @@ The project serves both its own decoder and delegated OpenAI-compatible
 backends.  This module keeps the native textual protocol deterministic while
 leaving delegated requests in their original OpenAI shape.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,8 +25,12 @@ from .schemas import (
 
 _TOOL_OPEN = "<tool_call>"
 _TOOL_CLOSE = "</tool_call>"
-_TOOL_PATTERN = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL | re.IGNORECASE)
-_THINKING_PATTERN = re.compile(r"<thinking>\s*(.*?)\s*</thinking>", re.DOTALL | re.IGNORECASE)
+_TOOL_PATTERN = re.compile(
+    r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL | re.IGNORECASE
+)
+_THINKING_PATTERN = re.compile(
+    r"<thinking>\s*(.*?)\s*</thinking>", re.DOTALL | re.IGNORECASE
+)
 
 
 @dataclass(frozen=True)
@@ -105,7 +110,10 @@ def render_native_messages(
     add_generation_prompt: bool = True,
 ) -> str:
     """Render native chat history, including tool result turns."""
-    turns = [{"role": "system", "content": system_prompt}, *normalize_native_messages(messages)]
+    turns = [
+        {"role": "system", "content": system_prompt},
+        *normalize_native_messages(messages),
+    ]
     chunks: list[str] = []
     for turn in turns:
         role = turn["role"]
@@ -119,7 +127,10 @@ def render_native_messages(
 
 
 def build_tool_system_instruction(
-    tools: list[OpenAITool], tool_choice: Any, *, coding: bool = False,
+    tools: list[OpenAITool],
+    tool_choice: Any,
+    *,
+    coding: bool = False,
 ) -> str:
     """Build a compact, deterministic native function-calling contract."""
     if not tools or tool_choice == "none":
@@ -128,7 +139,8 @@ def build_tool_system_instruction(
         {
             "name": tool.function.name,
             "description": tool.function.description or "",
-            "parameters": tool.function.parameters or {"type": "object", "properties": {}},
+            "parameters": tool.function.parameters
+            or {"type": "object", "properties": {}},
         }
         for tool in tools
     ]
@@ -157,17 +169,23 @@ def build_tool_system_instruction(
         "a write or patch tool only for the necessary change; finally use the available "
         "test or diff tools. Never claim a file was changed or a test passed until its "
         "tool result confirms it. Prefer targeted reads over reading an entire workspace."
-        if coding else ""
+        if coding
+        else ""
     )
     return (
-        "Function calling is available. " + choice + contract + coding_workflow
+        "Function calling is available. "
+        + choice
+        + contract
+        + coding_workflow
         + " arguments must be a JSON object satisfying that function's JSON Schema. "
         + "Do not invent function names. Available functions: "
         + json.dumps(definitions, ensure_ascii=False, separators=(",", ":"))
     )
 
 
-def selected_tool_for_forced_choice(tools: list[OpenAITool], tool_choice: Any) -> OpenAITool | None:
+def selected_tool_for_forced_choice(
+    tools: list[OpenAITool], tool_choice: Any
+) -> OpenAITool | None:
     """Return the single function whose invocation is already determined."""
     if isinstance(tool_choice, OpenAIToolChoiceObject):
         name = tool_choice.function.name
@@ -177,7 +195,9 @@ def selected_tool_for_forced_choice(tools: list[OpenAITool], tool_choice: Any) -
     return None
 
 
-def forced_tool_json_schema(tools: list[OpenAITool], tool_choice: Any) -> dict[str, Any] | None:
+def forced_tool_json_schema(
+    tools: list[OpenAITool], tool_choice: Any
+) -> dict[str, Any] | None:
     """Return a decoding schema for tool_choice modes that require a call."""
     selected = selected_tool_for_forced_choice(tools, tool_choice)
     if selected is not None:
@@ -222,7 +242,11 @@ def split_reasoning_trace(text: str) -> tuple[str, str | None]:
     reasoning = match.group(1).strip()
     remaining = f"{before}\n{after}".strip()
     lower_remaining = remaining.lower()
-    if not reasoning or "<thinking>" in lower_remaining or "</thinking>" in lower_remaining:
+    if (
+        not reasoning
+        or "<thinking>" in lower_remaining
+        or "</thinking>" in lower_remaining
+    ):
         return text.strip(), None
     return remaining, reasoning
 
@@ -265,12 +289,16 @@ def _candidate_payloads(text: str, *, allow_bare_json: bool) -> tuple[list[Any],
     return [], text.strip()
 
 
-def parse_tool_calls(text: str, tools: list[OpenAITool], tool_choice: Any) -> ParsedToolCalls:
+def parse_tool_calls(
+    text: str, tools: list[OpenAITool], tool_choice: Any
+) -> ParsedToolCalls:
     """Parse and schema-validate native model function-call output."""
     if not tools or tool_choice == "none":
         return ParsedToolCalls(text.strip(), ())
     by_name = {tool.function.name: tool for tool in tools}
-    forced_choice = tool_choice == "required" or isinstance(tool_choice, OpenAIToolChoiceObject)
+    forced_choice = tool_choice == "required" or isinstance(
+        tool_choice, OpenAIToolChoiceObject
+    )
     payloads, visible = _candidate_payloads(text, allow_bare_json=forced_choice)
     if not payloads:
         return ParsedToolCalls(visible, ())
@@ -284,11 +312,21 @@ def parse_tool_calls(text: str, tools: list[OpenAITool], tool_choice: Any) -> Pa
     calls: list[OpenAIToolCall] = []
     for payload in payloads:
         if not isinstance(payload, dict):
-            return ParsedToolCalls(visible, tuple(calls), "tool call payload must be a JSON object")
+            return ParsedToolCalls(
+                visible, tuple(calls), "tool call payload must be a JSON object"
+            )
         if "__parse_error__" in payload:
-            return ParsedToolCalls(visible, tuple(calls), f"tool call JSON is invalid: {payload['__parse_error__']}")
+            return ParsedToolCalls(
+                visible,
+                tuple(calls),
+                f"tool call JSON is invalid: {payload['__parse_error__']}",
+            )
 
-        function = payload.get("function") if isinstance(payload.get("function"), dict) else None
+        function = (
+            payload.get("function")
+            if isinstance(payload.get("function"), dict)
+            else None
+        )
         name = payload.get("name") or (function or {}).get("name") or selected_name
         arguments: Any = payload.get("arguments", (function or {}).get("arguments"))
 
@@ -298,35 +336,53 @@ def parse_tool_calls(text: str, tools: list[OpenAITool], tool_choice: Any) -> Pa
         if name is None and selected_name is not None:
             name = selected_name
             arguments = payload
-        elif name == selected_name and arguments is None and not any(
-            key in payload for key in ("name", "function", "arguments")
+        elif (
+            name == selected_name
+            and arguments is None
+            and not any(key in payload for key in ("name", "function", "arguments"))
         ):
             arguments = payload
 
         if not isinstance(name, str) or name not in by_name:
-            return ParsedToolCalls(visible, tuple(calls), f"unknown tool in model output: {name!r}")
+            return ParsedToolCalls(
+                visible, tuple(calls), f"unknown tool in model output: {name!r}"
+            )
         if selected_name is not None and name != selected_name:
-            return ParsedToolCalls(visible, tuple(calls), f"model called {name!r} but {selected_name!r} was required")
+            return ParsedToolCalls(
+                visible,
+                tuple(calls),
+                f"model called {name!r} but {selected_name!r} was required",
+            )
         if arguments is None:
             arguments = {}
         if isinstance(arguments, str):
             try:
                 arguments = json.loads(arguments)
             except ValueError as exc:
-                return ParsedToolCalls(visible, tuple(calls), f"arguments for {name} are not valid JSON: {exc}")
+                return ParsedToolCalls(
+                    visible,
+                    tuple(calls),
+                    f"arguments for {name} are not valid JSON: {exc}",
+                )
         if not isinstance(arguments, dict):
-            return ParsedToolCalls(visible, tuple(calls), f"arguments for {name} must be a JSON object")
+            return ParsedToolCalls(
+                visible, tuple(calls), f"arguments for {name} must be a JSON object"
+            )
         error = _validate_arguments(by_name[name], arguments)
         if error is not None:
             return ParsedToolCalls(visible, tuple(calls), error)
         call_id = payload.get("id")
         if not isinstance(call_id, str) or not call_id.strip():
             call_id = f"call_{uuid.uuid4().hex}"
-        calls.append(OpenAIToolCall(
-            id=call_id,
-            function=OpenAIToolFunctionCall(
-                name=name,
-                arguments=json.dumps(arguments, ensure_ascii=False, separators=(",", ":")),
-            ),
-        ))
+        calls.append(
+            OpenAIToolCall(
+                id=call_id,
+                function=OpenAIToolFunctionCall(
+                    name=name,
+                    arguments=json.dumps(
+                        arguments, ensure_ascii=False, separators=(",", ":")
+                    ),
+                ),
+            )
+        )
     return ParsedToolCalls(visible, tuple(calls))

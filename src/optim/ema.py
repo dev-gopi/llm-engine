@@ -38,7 +38,8 @@ class EMA:
         backup = {
             name: (
                 parameters[name].detach().to(device=backup_device, copy=True)
-                if backup_device is not None else parameters[name].detach().clone()
+                if backup_device is not None
+                else parameters[name].detach().clone()
             )
             for name in self.shadow
         }
@@ -53,7 +54,11 @@ class EMA:
                     parameters[name].copy_(value)
 
     def state_dict(self) -> dict[str, Any]:
-        return {"decay": self.decay, "num_updates": self.num_updates, "shadow": self.shadow}
+        return {
+            "decay": self.decay,
+            "num_updates": self.num_updates,
+            "shadow": self.shadow,
+        }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
         decay = float(state["decay"])
@@ -65,7 +70,10 @@ class EMA:
             raise ValueError("EMA state num_updates must be non-negative")
         if not isinstance(shadow, dict) or not shadow:
             raise ValueError("EMA state shadow must be a non-empty mapping")
-        if any(not isinstance(value, torch.Tensor) or not value.is_floating_point() for value in shadow.values()):
+        if any(
+            not isinstance(value, torch.Tensor) or not value.is_floating_point()
+            for value in shadow.values()
+        ):
             raise ValueError("EMA shadow values must be floating-point tensors")
         self.decay = decay
         self.num_updates = updates

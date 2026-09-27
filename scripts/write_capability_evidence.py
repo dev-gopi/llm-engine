@@ -1,4 +1,5 @@
 """Generate the capability evidence manifest after the conformance gates pass."""
+
 from __future__ import annotations
 
 import sys
@@ -22,10 +23,14 @@ def main() -> int:
         "vision": False,
         "audio": False,
     }
-    path=Path("reports/capability_evidence.json")
+    path = Path("reports/capability_evidence.json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(evidence, indent=2, sort_keys=True)+"\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(path)
     return 0
 
-if __name__ == "__main__": raise SystemExit(main())
+
+if __name__ == "__main__":
+    raise SystemExit(main())

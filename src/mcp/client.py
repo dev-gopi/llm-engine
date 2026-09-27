@@ -26,7 +26,9 @@ class MCPError(RuntimeError):
 class MCPProtocolError(MCPError):
     """JSON-RPC or MCP protocol error."""
 
-    def __init__(self, message: str, *, code: int | None = None, data: Any = None) -> None:
+    def __init__(
+        self, message: str, *, code: int | None = None, data: Any = None
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.data = data
@@ -47,7 +49,9 @@ class MCPTool:
             raise MCPProtocolError("server returned an invalid tool definition")
         return cls(
             name=name,
-            title=payload.get("title") if isinstance(payload.get("title"), str) else None,
+            title=payload.get("title")
+            if isinstance(payload.get("title"), str)
+            else None,
             description=str(payload.get("description", "")),
             input_schema=dict(schema),
         )
@@ -69,7 +73,11 @@ class MCPClient:
         max_message_bytes: int = 16 * 1024 * 1024,
         inherit_environment: bool = False,
     ) -> None:
-        if isinstance(command, (str, bytes)) or not command or any(not isinstance(part, str) or not part for part in command):
+        if (
+            isinstance(command, (str, bytes))
+            or not command
+            or any(not isinstance(part, str) or not part for part in command)
+        ):
             raise ValueError("MCP command must be a non-empty sequence of strings")
         if timeout <= 0:
             raise ValueError("MCP timeout must be positive")
@@ -111,11 +119,15 @@ class MCPClient:
         # MCP servers are external programs. Do not expose API keys, cloud
         # credentials, or unrelated service configuration unless explicitly
         # requested. PATH keeps normal executable discovery working.
-        environment = os.environ.copy() if self.inherit_environment else {
-            name: os.environ[name]
-            for name in ("PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "TEMP", "TMP")
-            if name in os.environ
-        }
+        environment = (
+            os.environ.copy()
+            if self.inherit_environment
+            else {
+                name: os.environ[name]
+                for name in ("PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "TEMP", "TMP")
+                if name in os.environ
+            }
+        )
         environment.update(self.env)
         try:
             self.process = await asyncio.create_subprocess_exec(
@@ -128,7 +140,9 @@ class MCPClient:
                 limit=self.max_message_bytes,
             )
         except OSError as error:
-            raise MCPError(f"failed to start MCP server {self.command[0]!r}: {error}") from error
+            raise MCPError(
+                f"failed to start MCP server {self.command[0]!r}: {error}"
+            ) from error
         self._stderr_task = asyncio.create_task(self._read_stderr())
         try:
             await self._negotiate()
@@ -168,35 +182,52 @@ class MCPClient:
             result = await self.request("tools/list", params)
             payloads = result.get("tools")
             if not isinstance(payloads, list):
-                raise MCPProtocolError("tools/list result does not contain a tools list")
-            tools.extend(MCPTool.from_payload(payload) for payload in payloads if isinstance(payload, Mapping))
+                raise MCPProtocolError(
+                    "tools/list result does not contain a tools list"
+                )
+            tools.extend(
+                MCPTool.from_payload(payload)
+                for payload in payloads
+                if isinstance(payload, Mapping)
+            )
             cursor = result.get("nextCursor")
             if not isinstance(cursor, str) or not cursor:
                 return tools
 
     async def call_tool(
-        self, name: str, arguments: Mapping[str, Any] | None = None,
-        *, input_schema: Mapping[str, Any] | None = None,
+        self,
+        name: str,
+        arguments: Mapping[str, Any] | None = None,
+        *,
+        input_schema: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not name.strip():
             raise ValueError("tool name cannot be empty")
         normalized_arguments = dict(arguments or {})
         if input_schema is not None:
             from inference.local_tools import validate_json_schema
+
             validate_json_schema(normalized_arguments, input_schema)
-        result = await self.request("tools/call", {"name": name, "arguments": normalized_arguments})
+        result = await self.request(
+            "tools/call", {"name": name, "arguments": normalized_arguments}
+        )
         if not isinstance(result.get("content", []), list):
             raise MCPProtocolError("tools/call result contains invalid content")
         return result
 
-    async def request(self, method: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    async def request(
+        self, method: str, params: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
         if not self.running or self.process is None:
             raise MCPError("MCP client is not started")
         async with self._lock:
             request_id = self._next_id
             self._next_id += 1
             payload: dict[str, Any] = {
-                "jsonrpc": "2.0", "id": request_id, "method": method, "params": dict(params or {}),
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": method,
+                "params": dict(params or {}),
             }
             if self.protocol_version == MODERN_PROTOCOL_VERSION:
                 payload["_meta"] = {
@@ -242,11 +273,14 @@ class MCPClient:
         last_error: MCPProtocolError | None = None
         for version in LEGACY_PROTOCOL_VERSIONS:
             try:
-                result = await self.request("initialize", {
-                    "protocolVersion": version,
-                    "capabilities": {},
-                    "clientInfo": self.client_info,
-                })
+                result = await self.request(
+                    "initialize",
+                    {
+                        "protocolVersion": version,
+                        "capabilities": {},
+                        "clientInfo": self.client_info,
+                    },
+                )
             except MCPProtocolError as error:
                 last_error = error
                 if error.code not in {-32022, -32021, -32602}:
@@ -255,14 +289,21 @@ class MCPClient:
             self.protocol_version = str(result.get("protocolVersion", version))
             self.server_info = dict(result.get("serverInfo", {}))
             self.server_capabilities = dict(result.get("capabilities", {}))
-            await self._write({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+            await self._write(
+                {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
+            )
             return
-        raise last_error or MCPProtocolError("MCP server rejected all supported legacy protocol versions")
+        raise last_error or MCPProtocolError(
+            "MCP server rejected all supported legacy protocol versions"
+        )
 
     async def _write(self, payload: Mapping[str, Any]) -> None:
         if self.process is None or self.process.stdin is None:
             raise MCPError("MCP server stdin is unavailable")
-        encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode() + b"\n"
+        encoded = (
+            json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+            + b"\n"
+        )
         self.process.stdin.write(encoded)
         try:
             await self.process.stdin.drain()
@@ -274,22 +315,30 @@ class MCPClient:
             raise MCPError("MCP server stdout is unavailable")
         while True:
             try:
-                line = await asyncio.wait_for(self.process.stdout.readline(), timeout=self.timeout)
+                line = await asyncio.wait_for(
+                    self.process.stdout.readline(), timeout=self.timeout
+                )
             except asyncio.TimeoutError as error:
-                raise MCPError(f"MCP request {request_id} timed out after {self.timeout:g}s") from error
+                raise MCPError(
+                    f"MCP request {request_id} timed out after {self.timeout:g}s"
+                ) from error
             if not line:
                 raise MCPError(self._exit_message("MCP server closed stdout"))
             try:
                 message = json.loads(line)
             except (UnicodeDecodeError, json.JSONDecodeError) as error:
-                raise MCPProtocolError("MCP server wrote invalid JSON to stdout") from error
+                raise MCPProtocolError(
+                    "MCP server wrote invalid JSON to stdout"
+                ) from error
             if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
                 raise MCPProtocolError("MCP server wrote an invalid JSON-RPC message")
             if message.get("id") == request_id:
                 return message
             # Notifications have no id and can safely be ignored by this client.
             if "id" in message:
-                raise MCPProtocolError(f"unexpected MCP response id: {message.get('id')!r}")
+                raise MCPProtocolError(
+                    f"unexpected MCP response id: {message.get('id')!r}"
+                )
 
     async def _read_stderr(self) -> None:
         if self.process is None or self.process.stderr is None:
@@ -305,7 +354,15 @@ class MCPClient:
             detail += f": {self.stderr[-1]}"
         return prefix + detail
 
-async def call_tool_with_approval(client: MCPClient, name: str, arguments=None, *, approved: bool = False, input_schema=None):
+
+async def call_tool_with_approval(
+    client: MCPClient,
+    name: str,
+    arguments=None,
+    *,
+    approved: bool = False,
+    input_schema=None,
+):
     """MCP execution gate used by bounded agent runtimes."""
     if not approved:
         raise PermissionError("human approval is required before MCP tool execution")

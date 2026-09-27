@@ -1,4 +1,5 @@
 """Local, self-contained MiniGPT inference bundles; no training state required."""
+
 from __future__ import annotations
 
 import json
@@ -8,8 +9,8 @@ from pathlib import Path
 
 from safetensors.torch import load_model, save_model
 
-from local_dataset.preprocessor import format_messages
 from inference.generator import Generator
+from local_dataset.preprocessor import format_messages
 from model.config import normalize_model_config
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
@@ -20,7 +21,9 @@ from training.checkpoint import load_checkpoint
 class MiniGPTBackend:
     """Load existing checkpoints or portable bundles and expose generation APIs."""
 
-    def __init__(self, model, tokenizer, model_config, *, device="auto", generation_config=None):
+    def __init__(
+        self, model, tokenizer, model_config, *, device="auto", generation_config=None
+    ):
         self.model_config = normalize_model_config(model_config)
         self.generation_config = dict(generation_config or {})
         self.generator = Generator(model, tokenizer, device=device)
@@ -28,16 +31,34 @@ class MiniGPTBackend:
         self.tokenizer = tokenizer
 
     @classmethod
-    def from_checkpoint(cls, checkpoint, *, model_config, tokenizer, device="auto",
-                        use_ema=True, generation_config=None):
+    def from_checkpoint(
+        cls,
+        checkpoint,
+        *,
+        model_config,
+        tokenizer,
+        device="auto",
+        use_ema=True,
+        generation_config=None,
+    ):
         if not isinstance(tokenizer, Tokenizer):
             tokenizer = Tokenizer.load(tokenizer)
-        config = adapt_config_to_tokenizer(normalize_model_config(model_config), tokenizer)
+        config = adapt_config_to_tokenizer(
+            normalize_model_config(model_config), tokenizer
+        )
         # Optimizer state in training checkpoints never enters GPU memory.
         model = MiniGPT.from_config(config, device="cpu")
-        load_checkpoint(checkpoint, model, map_location="cpu", restore_rng=False,
-                        use_ema=use_ema, **checkpoint_tokenizer_options(tokenizer))
-        return cls(model, tokenizer, config, device=device, generation_config=generation_config)
+        load_checkpoint(
+            checkpoint,
+            model,
+            map_location="cpu",
+            restore_rng=False,
+            use_ema=use_ema,
+            **checkpoint_tokenizer_options(tokenizer),
+        )
+        return cls(
+            model, tokenizer, config, device=device, generation_config=generation_config
+        )
 
     def generate(self, prompt, **options):
         return self.generator.generate(prompt, **(self.generation_config | options))
@@ -46,7 +67,9 @@ class MiniGPTBackend:
         return self.generator.stream(prompt, **(self.generation_config | options))
 
     def generate_batch(self, prompts, **options):
-        return self.generator.generate_batch(prompts, **(self.generation_config | options))
+        return self.generator.generate_batch(
+            prompts, **(self.generation_config | options)
+        )
 
     def chat(self, messages, **options):
         prompt = format_messages(messages, add_generation_prompt=True)
@@ -55,8 +78,10 @@ class MiniGPTBackend:
     def open_session(self, path, session_id, *, system_prompt="", ttl_seconds=86400):
         """Opt into persistent history at an explicitly selected SQLite path."""
         from inference.chat_session import ChatSession
-        return ChatSession(self, path, session_id, system_prompt=system_prompt,
-                           ttl_seconds=ttl_seconds)
+
+        return ChatSession(
+            self, path, session_id, system_prompt=system_prompt, ttl_seconds=ttl_seconds
+        )
 
     def save_pretrained(self, directory):
         """Publish a new local bundle; refuse to replace an existing directory."""
@@ -64,13 +89,20 @@ class MiniGPTBackend:
         if destination.exists():
             raise FileExistsError(f"bundle already exists: {destination}")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))
+        staging = Path(
+            tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent)
+        )
         try:
-            config = {"format_version": 1, "architecture": "MiniGPT",
-                      "model_config": self.model_config,
-                      "tokenizer_fingerprint": self.tokenizer.fingerprint,
-                      "generation_config": self.generation_config}
-            (staging / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            config = {
+                "format_version": 1,
+                "architecture": "MiniGPT",
+                "model_config": self.model_config,
+                "tokenizer_fingerprint": self.tokenizer.fingerprint,
+                "generation_config": self.generation_config,
+            }
+            (staging / "config.json").write_text(
+                json.dumps(config, indent=2) + "\n", encoding="utf-8"
+            )
             self.tokenizer.save(staging / "tokenizer")
             # save_model understands tied embedding/head storage.
             save_model(self.model, str(staging / "model.safetensors"))
@@ -95,5 +127,10 @@ class MiniGPTBackend:
             raise ValueError("bundle tokenizer vocabulary mismatch")
         model = MiniGPT.from_config(model_config, device="cpu")
         load_model(model, str(source / "model.safetensors"), strict=True, device="cpu")
-        return cls(model, tokenizer, model_config, device=device,
-                   generation_config=config.get("generation_config", {}))
+        return cls(
+            model,
+            tokenizer,
+            model_config,
+            device=device,
+            generation_config=config.get("generation_config", {}),
+        )

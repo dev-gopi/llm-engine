@@ -1,4 +1,5 @@
 """Dependency-light Prometheus exposition and structured operation metrics."""
+
 from __future__ import annotations
 
 import threading
@@ -20,7 +21,9 @@ class Metrics:
         self._lock = threading.Lock()
 
     @staticmethod
-    def _key(name: str, labels: dict[str, str] | None) -> tuple[str, tuple[tuple[str, str], ...]]:
+    def _key(
+        name: str, labels: dict[str, str] | None
+    ) -> tuple[str, tuple[tuple[str, str], ...]]:
         return name, tuple(sorted((labels or {}).items()))
 
     def inc(self, name: str, value: float = 1.0, **labels: str) -> None:
@@ -42,7 +45,9 @@ class Metrics:
     def prometheus(self) -> str:
         lines: list[str] = []
         with self._lock:
-            items = list(self._state.counters.items()) + list(self._state.gauges.items())
+            items = list(self._state.counters.items()) + list(
+                self._state.gauges.items()
+            )
         for (name, labels), value in sorted(items):
             label_text = ""
             if labels:

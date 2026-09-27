@@ -1,4 +1,5 @@
 """Measure packed-token and dynamic-padding efficiency from JSONL records."""
+
 from __future__ import annotations
 
 import argparse
@@ -21,12 +22,22 @@ def main() -> None:
         for line in stream:
             if line.strip():
                 row = json.loads(line)
-                lengths.append(int(row.get("token_count", len(row.get("token_ids", [])) + 1)))
-    result = {"path": str(args.path), "capacity": args.capacity,
-              "packed": packing_efficiency(lengths, args.capacity),
-              "dynamic_batch_padding": batch_padding_efficiency(lengths, args.batch_size, args.pad_to_multiple_of),
-              "protocol": "token_count includes loader BOS; useful-token utilization excludes padding"}
+                lengths.append(
+                    int(row.get("token_count", len(row.get("token_ids", [])) + 1))
+                )
+    result = {
+        "path": str(args.path),
+        "capacity": args.capacity,
+        "packed": packing_efficiency(lengths, args.capacity),
+        "dynamic_batch_padding": batch_padding_efficiency(
+            lengths, args.batch_size, args.pad_to_multiple_of
+        ),
+        "protocol": "token_count includes loader BOS; useful-token utilization excludes padding",
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2))
-if __name__ == "__main__": main()
+
+
+if __name__ == "__main__":
+    main()

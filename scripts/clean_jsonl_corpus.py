@@ -38,7 +38,18 @@ def detect_language(text: str) -> str:
     devanagari = sum("\u0900" <= character <= "\u097f" for character in letters)
     ascii_letters = sum(character.isascii() for character in letters)
     code_markers = sum(
-        marker in text for marker in ("def ", "class ", "import ", "from ", "function ", "#include", "const ", "let ", "var ")
+        marker in text
+        for marker in (
+            "def ",
+            "class ",
+            "import ",
+            "from ",
+            "function ",
+            "#include",
+            "const ",
+            "let ",
+            "var ",
+        )
     )
     if code_markers >= 2:
         return "code"
@@ -120,13 +131,19 @@ def main() -> None:
                 output["text"] = cleaned
                 output["language"] = language
                 output["token_count"] = token_count
-                line = json.dumps(output, ensure_ascii=False, separators=(",", ":")) + "\n"
+                line = (
+                    json.dumps(output, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
                 stream.write(line)
                 digest.update(line.encode("utf-8"))
                 lengths.append(token_count)
                 languages[language] += 1
                 if input_records % 10_000 == 0:
-                    print(f"processed={input_records} accepted={len(lengths)}", file=sys.stderr, flush=True)
+                    print(
+                        f"processed={input_records} accepted={len(lengths)}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
     temporary.replace(args.output)
 
     truncated = sum(length > args.max_length for length in lengths)
@@ -147,12 +164,16 @@ def main() -> None:
             "maximum": max(lengths, default=0),
             "truncated_at": args.max_length,
             "truncated_records": truncated,
-            "truncated_percent": round(100 * truncated / len(lengths), 4) if lengths else 0.0,
+            "truncated_percent": round(100 * truncated / len(lengths), 4)
+            if lengths
+            else 0.0,
         },
         "excluded_splits": [str(path) for path in args.exclude],
     }
     audit_path = args.output.with_suffix(".audit.json")
-    audit_path.write_text(json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    audit_path.write_text(
+        json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":

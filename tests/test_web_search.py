@@ -18,10 +18,18 @@ def test_build_search_prompt_numbers_sources_and_marks_them_untrusted() -> None:
 
 
 def test_searxng_search_normalizes_results(monkeypatch) -> None:
-    payload = {"results": [{"title": "Example", "url": "https://example.com", "content": "Snippet"}]}
+    payload = {
+        "results": [
+            {"title": "Example", "url": "https://example.com", "content": "Snippet"}
+        ]
+    }
     response = io.BytesIO(json.dumps(payload).encode())
-    monkeypatch.setattr("inference.web_search.urlopen", lambda request, timeout: response)
-    results = search_searxng("test query", endpoint="http://search.local", max_results=1)
+    monkeypatch.setattr(
+        "inference.web_search.urlopen", lambda request, timeout: response
+    )
+    results = search_searxng(
+        "test query", endpoint="http://search.local", max_results=1
+    )
     assert results == [SearchResult("Example", "https://example.com", "Snippet")]
 
 

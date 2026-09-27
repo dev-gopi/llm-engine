@@ -25,10 +25,7 @@ _script_dir = str(Path(__file__).resolve().parent)
 sys.path[:] = [e for e in sys.path if str(Path(e or ".").resolve()) != _script_dir]
 
 import argparse
-import json
-import os
 import time
-from datetime import datetime, timezone
 
 from inference.reporting import build_system_inference_report
 
@@ -41,7 +38,10 @@ def _section_set(args_only: list[str] | None) -> set[str]:
     requested = {s.strip().lower() for s in args_only}
     unknown = requested - all_sections
     if unknown:
-        print(f"[warn] unknown section(s) ignored: {', '.join(sorted(unknown))}", file=sys.stderr)
+        print(
+            f"[warn] unknown section(s) ignored: {', '.join(sorted(unknown))}",
+            file=sys.stderr,
+        )
     return requested & all_sections
 
 
@@ -55,7 +55,7 @@ def main() -> None:
         action="append",
         metavar="SECTION",
         help="Enable only specific section(s): generation, serving, chat, rag. "
-             "Repeatable. Default: all sections.",
+        "Repeatable. Default: all sections.",
     )
     parser.add_argument(
         "--model-config",
@@ -151,7 +151,9 @@ def main() -> None:
 
     for section in ["generation", "serving", "chat", "rag"]:
         if section in sections:
-            icon = {"generation": "⚡", "serving": "🌐", "chat": "💬", "rag": "📚"}[section]
+            icon = {"generation": "⚡", "serving": "🌐", "chat": "💬", "rag": "📚"}[
+                section
+            ]
             print(f"\n{icon}  Collecting {section} report…", flush=True)
 
     report = build_system_inference_report(**report_kwargs)
@@ -174,9 +176,10 @@ def main() -> None:
 
         # Also write standalone offline HTML report with embedded data
         from serving.report_router import DASHBOARD_HTML
+
         html_content = DASHBOARD_HTML.replace(
             "let currentReportData = null;",
-            f"let currentReportData = {json_str};\n    window.addEventListener('DOMContentLoaded', () => {{ renderReport(currentReportData); }});"
+            f"let currentReportData = {json_str};\n    window.addEventListener('DOMContentLoaded', () => {{ renderReport(currentReportData); }});",
         )
         html_path = out_path.with_suffix(".html")
         html_path.write_text(html_content, encoding="utf-8")

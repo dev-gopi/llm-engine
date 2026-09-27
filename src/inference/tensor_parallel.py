@@ -1,4 +1,5 @@
 """One-dimensional tensor parallelism for MiniGPT inference."""
+
 from __future__ import annotations
 
 import os
@@ -10,14 +11,22 @@ import torch.nn.functional as F
 from torch import nn
 
 
-def validate_tensor_parallel_size(size: int, *, attention_heads: int, kv_heads: int) -> None:
-    for name, value in (("size", size), ("attention_heads", attention_heads), ("kv_heads", kv_heads)):
+def validate_tensor_parallel_size(
+    size: int, *, attention_heads: int, kv_heads: int
+) -> None:
+    for name, value in (
+        ("size", size),
+        ("attention_heads", attention_heads),
+        ("kv_heads", kv_heads),
+    ):
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             raise ValueError(f"{name} must be a positive integer")
     if kv_heads > attention_heads or attention_heads % kv_heads:
         raise ValueError("attention head count must be divisible by KV head count")
     if attention_heads % size or kv_heads % size:
-        raise ValueError("attention and KV head counts must be divisible by tensor parallel size")
+        raise ValueError(
+            "attention and KV head counts must be divisible by tensor parallel size"
+        )
     if size > 1 and int(os.getenv("WORLD_SIZE", "1")) != size:
         raise RuntimeError(
             f"tensor parallel size {size} requires a torchrun world size of {size}; "
@@ -27,28 +36,46 @@ def validate_tensor_parallel_size(size: int, *, attention_heads: int, kv_heads: 
 
 class VocabParallelLinear(nn.Module):
     """Vocabulary-sharded projection that gathers ordinary full logits."""
+
     def __init__(self, source: nn.Linear, rank: int, size: int, group=None) -> None:
         super().__init__()
         if size < 1 or not 0 <= rank < size:
             raise ValueError("rank must be within the tensor-parallel world size")
         if source.out_features % size:
-            raise ValueError("vocabulary size must be divisible by tensor parallel size")
+            raise ValueError(
+                "vocabulary size must be divisible by tensor parallel size"
+            )
         width = source.out_features // size
         start, stop = rank * width, (rank + 1) * width
-        self.in_features, self.out_features, self.group = source.in_features, source.out_features, group
+        self.in_features, self.out_features, self.group = (
+            source.in_features,
+            source.out_features,
+            group,
+        )
         self.weight = nn.Parameter(source.weight[start:stop].detach().clone())
-        self.bias = nn.Parameter(source.bias[start:stop].detach().clone()) if source.bias is not None else None
+        self.bias = (
+            nn.Parameter(source.bias[start:stop].detach().clone())
+            if source.bias is not None
+            else None
+        )
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         local = F.linear(inputs, self.weight, self.bias)
-        parts = [torch.empty_like(local) for _ in range(dist.get_world_size(self.group))]
+        parts = [
+            torch.empty_like(local) for _ in range(dist.get_world_size(self.group))
+        ]
         dist.all_gather(parts, local, group=self.group)
         return torch.cat(parts, dim=-1)
 
 
 def _rows(source: nn.Linear, rows: torch.Tensor) -> nn.Linear:
-    target = nn.Linear(source.in_features, len(rows), bias=source.bias is not None,
-                       device=source.weight.device, dtype=source.weight.dtype)
+    target = nn.Linear(
+        source.in_features,
+        len(rows),
+        bias=source.bias is not None,
+        device=source.weight.device,
+        dtype=source.weight.dtype,
+    )
     target.weight.data.copy_(source.weight.data.index_select(0, rows))
     if source.bias is not None:
         target.bias.data.copy_(source.bias.data.index_select(0, rows))
@@ -56,8 +83,13 @@ def _rows(source: nn.Linear, rows: torch.Tensor) -> nn.Linear:
 
 
 def _columns(source: nn.Linear, start: int, stop: int, size: int) -> nn.Linear:
-    target = nn.Linear(stop - start, source.out_features, bias=source.bias is not None,
-                       device=source.weight.device, dtype=source.weight.dtype)
+    target = nn.Linear(
+        stop - start,
+        source.out_features,
+        bias=source.bias is not None,
+        device=source.weight.device,
+        dtype=source.weight.dtype,
+    )
     target.weight.data.copy_(source.weight.data[:, start:stop])
     if source.bias is not None:
         target.bias.data.copy_(source.bias.data / size)
@@ -67,7 +99,9 @@ def _columns(source: nn.Linear, start: int, stop: int, size: int) -> nn.Linear:
 def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
     """Shard a fully checkpoint-loaded MiniGPT in-place across the process group."""
     if not dist.is_available() or not dist.is_initialized():
-        raise RuntimeError("tensor parallelism requires an initialized torch.distributed process group")
+        raise RuntimeError(
+            "tensor parallelism requires an initialized torch.distributed process group"
+        )
     group = dist.group.WORLD if group is None else group
     size, rank = dist.get_world_size(group), dist.get_rank(group)
     if size == 1:
@@ -77,7 +111,9 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
     if not hasattr(model, "head"):
         raise ValueError("tensor parallelism requires a language-model output head")
     first = model.blocks[0].attn
-    validate_tensor_parallel_size(size, attention_heads=first.heads, kv_heads=first.kv_heads)
+    validate_tensor_parallel_size(
+        size, attention_heads=first.heads, kv_heads=first.kv_heads
+    )
     # Sparse-MoE routers stay replicated while every expert FFN is tensor-sharded.
     # This composes cleanly with expert parallelism: EP chooses which experts live on
     # a rank and TP shards the matrix multiplications of each locally resident expert.
@@ -90,14 +126,26 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
         ks, ke = rank * local_kv * head_dim, (rank + 1) * local_kv * head_dim
         if attn.qkv_proj is not None:
             dev = attn.qkv_proj.weight.device
-            rows = torch.cat((torch.arange(qs, qe, device=dev),
-                              torch.arange(attn.dim + ks, attn.dim + ke, device=dev),
-                              torch.arange(attn.dim + kv_width + ks, attn.dim + kv_width + ke, device=dev)))
+            rows = torch.cat(
+                (
+                    torch.arange(qs, qe, device=dev),
+                    torch.arange(attn.dim + ks, attn.dim + ke, device=dev),
+                    torch.arange(
+                        attn.dim + kv_width + ks, attn.dim + kv_width + ke, device=dev
+                    ),
+                )
+            )
             attn.qkv_proj = _rows(attn.qkv_proj, rows)
         else:
-            attn.q_proj = _rows(attn.q_proj, torch.arange(qs, qe, device=attn.q_proj.weight.device))
-            attn.k_proj = _rows(attn.k_proj, torch.arange(ks, ke, device=attn.k_proj.weight.device))
-            attn.v_proj = _rows(attn.v_proj, torch.arange(ks, ke, device=attn.v_proj.weight.device))
+            attn.q_proj = _rows(
+                attn.q_proj, torch.arange(qs, qe, device=attn.q_proj.weight.device)
+            )
+            attn.k_proj = _rows(
+                attn.k_proj, torch.arange(ks, ke, device=attn.k_proj.weight.device)
+            )
+            attn.v_proj = _rows(
+                attn.v_proj, torch.arange(ks, ke, device=attn.v_proj.weight.device)
+            )
         attn.out_proj = _columns(attn.out_proj, qs, qe, size)
         attn.heads, attn.kv_heads = local_heads, local_kv
         attn.num_kv_groups = local_heads // local_kv
@@ -108,13 +156,22 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
         for expert in ffns:
             old_hidden = expert.hidden_dim
             if old_hidden % size:
-                raise ValueError("FFN hidden size must be divisible by tensor parallel size")
+                raise ValueError(
+                    "FFN hidden size must be divisible by tensor parallel size"
+                )
             local_hidden = old_hidden // size
             start, stop = rank * local_hidden, (rank + 1) * local_hidden
             dev = expert.in_proj.weight.device
-            rows = (torch.cat((torch.arange(start, stop, device=dev),
-                               torch.arange(old_hidden + start, old_hidden + stop, device=dev)))
-                    if expert.is_gated else torch.arange(start, stop, device=dev))
+            rows = (
+                torch.cat(
+                    (
+                        torch.arange(start, stop, device=dev),
+                        torch.arange(old_hidden + start, old_hidden + stop, device=dev),
+                    )
+                )
+                if expert.is_gated
+                else torch.arange(start, stop, device=dev)
+            )
             expert.in_proj = _rows(expert.in_proj, rows)
             expert.out_proj = _columns(expert.out_proj, start, stop, size)
             expert.hidden_dim, expert.tensor_parallel_group = local_hidden, group
@@ -127,6 +184,7 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
     model.head = VocabParallelLinear(model.head, rank, size, group)
     model.tensor_parallel_size = size
     return model
+
 
 @dataclass(frozen=True)
 class ParallelTopologyContract:
@@ -142,11 +200,22 @@ class ParallelTopologyContract:
         self, *, attention_heads: int, num_experts: int = 1, kv_heads: int | None = None
     ) -> None:
         degrees = (self.tensor_parallel, self.pipeline_parallel, self.expert_parallel)
-        if any(not isinstance(value, int) or isinstance(value, bool) or value < 1 for value in degrees):
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 1
+            for value in degrees
+        ):
             raise ValueError("parallel degrees must be positive integers")
-        if not isinstance(attention_heads, int) or isinstance(attention_heads, bool) or attention_heads < 1:
+        if (
+            not isinstance(attention_heads, int)
+            or isinstance(attention_heads, bool)
+            or attention_heads < 1
+        ):
             raise ValueError("attention_heads must be a positive integer")
-        if not isinstance(num_experts, int) or isinstance(num_experts, bool) or num_experts < 1:
+        if (
+            not isinstance(num_experts, int)
+            or isinstance(num_experts, bool)
+            or num_experts < 1
+        ):
             raise ValueError("num_experts must be a positive integer")
         if attention_heads % self.tensor_parallel:
             raise ValueError("attention heads must divide tensor parallel degree")

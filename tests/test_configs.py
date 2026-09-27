@@ -32,13 +32,18 @@ def test_all_model_and_training_profiles_are_complete() -> None:
         # asserted below.
         if path.name.startswith(("pretraining", "finetuning")):
             assert required_training <= config.keys(), path
-            assert config["distributed_strategy"] in {"ddp", "fsdp", "fsdp_hybrid", "none"}
+            assert config["distributed_strategy"] in {
+                "ddp",
+                "fsdp",
+                "fsdp_hybrid",
+                "none",
+            }
             assert config["checkpoint_format"] in {"single_file", "distributed"}
             for key in ("dataset_weights", "validation_weights"):
                 if key in config:
-                    assert sum(float(value) for value in config[key].values()) == pytest.approx(1.0), (
-                        path, key
-                    )
+                    assert sum(
+                        float(value) for value in config[key].values()
+                    ) == pytest.approx(1.0), (path, key)
             if config.get("dataset_weights"):
                 paths = config["train_files"]
                 groups = _mixture_groups(paths, [1] * len(paths), config)
@@ -74,7 +79,10 @@ def test_active_cpu_and_gpu_models_match_both_tokenizer_stages() -> None:
     for name in ("model.cpu.yaml", "model.gpu.yaml"):
         model = load_yaml(CONFIGS / name)
         assert model["vocab_size"] == base.vocab_size
-        assert adapt_config_to_tokenizer(model, extended)["vocab_size"] == extended.vocab_size
+        assert (
+            adapt_config_to_tokenizer(model, extended)["vocab_size"]
+            == extended.vocab_size
+        )
 
 
 def test_gpu_pretraining_uses_full_context_with_expanded_token_budget() -> None:
@@ -100,11 +108,22 @@ def test_gpu_finetuning_profile_targets_balanced_quality() -> None:
     assert config["label_smoothing"] == 0.0
     assert weights["gsm8k"] >= 0.12
     assert config["generation_evaluation"]["enabled"] is True
-    assert config["generation_evaluation"]["cases"] == "configs/evaluation.domains.jsonl"
+    assert (
+        config["generation_evaluation"]["cases"] == "configs/evaluation.domains.jsonl"
+    )
     assert config["log_interval_seconds"] is None
-    assert sum(weights[name] for name in (
-        "multilingual_bn_hi", "bangla_qa", "bangla_reading_qa", "v2_bengali_news",
-    )) >= 0.14
+    assert (
+        sum(
+            weights[name]
+            for name in (
+                "multilingual_bn_hi",
+                "bangla_qa",
+                "bangla_reading_qa",
+                "v2_bengali_news",
+            )
+        )
+        >= 0.14
+    )
 
 
 def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
@@ -126,22 +145,40 @@ def test_v2_recovery_profile_requires_fresh_stage_and_behavior_gate() -> None:
     assert config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]
     assert config["ema_decay"] <= 0.995
     assert config["best_checkpoint_min_generation_accuracy"] >= 0.20
-    assert config["generation_evaluation"]["best_output"] != config["runtime"]["best_output"]
+    assert (
+        config["generation_evaluation"]["best_output"]
+        != config["runtime"]["best_output"]
+    )
     assert config["generation_evaluation"]["output"] != config["runtime"]["report_json"]
     assert "finetuning-v2" in config["runtime"]["output"]
     assert "peft" not in config
     assert config["generation_evaluation"]["evaluate_at_start"] is True
     assert config["generation_evaluation"]["preserve_passed"] is True
-    assert config["generation_evaluation"]["cases"] == "configs/evaluation.retention.jsonl"
+    assert (
+        config["generation_evaluation"]["cases"] == "configs/evaluation.retention.jsonl"
+    )
     assert config["validation_evaluate_at_start"] is True
     assert config["save_initial_best_checkpoint"] is True
-    assert sum(config["dataset_weights"][name] for name in (
-        "fineweb_edu", "fineweb_edu_large", "code_pretraining",
-    )) <= 0.05
+    assert (
+        sum(
+            config["dataset_weights"][name]
+            for name in (
+                "fineweb_edu",
+                "fineweb_edu_large",
+                "code_pretraining",
+            )
+        )
+        <= 0.05
+    )
     assert config["dataset_weights"]["helpsteer"] >= 0.35
     assert config["learning_rate"] <= 3e-5
     assert set(config["best_checkpoint_domain_max_regression"]) == {
-        "chat", "english", "math", "coding", "bengali", "hindi",
+        "chat",
+        "english",
+        "math",
+        "coding",
+        "bengali",
+        "hindi",
     }
 
 
@@ -162,15 +199,19 @@ def test_cpu_finetuning_and_pretraining_profiles_use_direct_validation() -> None
 
 def test_primary_training_profiles_enable_validation_plateau_recovery() -> None:
     for name in (
-        "pretraining.gpu.yaml", "pretraining.cpu.yaml",
-        "finetuning.gpu.yaml", "finetuning.cpu.yaml",
+        "pretraining.gpu.yaml",
+        "pretraining.cpu.yaml",
+        "finetuning.gpu.yaml",
+        "finetuning.cpu.yaml",
     ):
         config = load_yaml(CONFIGS / name)
         assert config["validation_lr_adaptation_enabled"] is True
         assert config["validation_lr_decay_factor"] == pytest.approx(0.5)
         assert config["validation_lr_patience"] >= 1
         assert 0 < config["validation_lr_min_scale"] <= 1
-        assert config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]
+        assert (
+            config["validation_lr_min_steps_between_decays"] >= config["evaluate_every"]
+        )
         assert config["early_stopping_patience"] > config["validation_lr_patience"]
 
 
@@ -190,7 +231,10 @@ def test_omni_has_one_merged_production_profile() -> None:
     assert config["version"] == 1
     assert config["runtime"]["multimodal_responses"] is True
     assert config["responses"]["supported_input_parts"] == [
-        "input_text", "input_image", "input_audio", "input_video",
+        "input_text",
+        "input_image",
+        "input_audio",
+        "input_video",
     ]
     assert config["speech"]["vad"]["frame_ms"] == 30
     assert config["video_understanding"]["require_ffmpeg"] is True
@@ -202,7 +246,8 @@ def test_finetuning_profiles_have_complete_isolated_runtime_paths() -> None:
     # Versioned snapshots document previous runs and intentionally retain their
     # original output paths; only active profiles require mutually unique paths.
     profiles = sorted(
-        path for path in CONFIGS.glob("finetuning*.yaml")
+        path
+        for path in CONFIGS.glob("finetuning*.yaml")
         if "v1" not in path.stem.split(".")
     )
     tokenizer_v2 = load_yaml(CONFIGS / "tokenizer.v2.yaml")
@@ -279,8 +324,13 @@ def test_gpu_finetuning_includes_balanced_domain_expansion() -> None:
         assert validation in config["validation_domains"][domain]
 
     assert "data/processed/hindi_hinglish/train.jsonl" in config["train_files"]
-    assert "data/processed/hindi_hinglish/validation.jsonl" in config["validation_files"]
-    assert "data/processed/hindi_hinglish/validation.jsonl" in config["validation_domains"]["hindi"]
+    assert (
+        "data/processed/hindi_hinglish/validation.jsonl" in config["validation_files"]
+    )
+    assert (
+        "data/processed/hindi_hinglish/validation.jsonl"
+        in config["validation_domains"]["hindi"]
+    )
     assert config["validation_weights"]["hindi"] == pytest.approx(0.15)
     assert sum(config["dataset_weights"].values()) == pytest.approx(1.0)
     assert sum(config["validation_weights"].values()) == pytest.approx(1.0)
@@ -322,7 +372,10 @@ def test_expanded_finetuning_includes_every_tokenizer_source() -> None:
 
     assert set(config["train_files"]) <= tokenizer_sources
     assert "data/processed/preferences/validation.jsonl" in config["validation_files"]
-    assert "data/processed/preferences/validation.jsonl" in config["validation_domains"]["english"]
+    assert (
+        "data/processed/preferences/validation.jsonl"
+        in config["validation_domains"]["english"]
+    )
 
 
 def test_active_sft_fits_the_laptop_growth_route() -> None:

@@ -47,8 +47,12 @@ def test_multimodal_wrapper_keeps_base_models_frozen_and_projector_trainable() -
         position_type="rotary",
     )
     model = VisionLanguageModel(small_vision(), language, visual_tokens=4)
-    assert not any(parameter.requires_grad for parameter in model.vision_encoder.parameters())
-    assert not any(parameter.requires_grad for parameter in model.language_model.parameters())
+    assert not any(
+        parameter.requires_grad for parameter in model.vision_encoder.parameters()
+    )
+    assert not any(
+        parameter.requires_grad for parameter in model.language_model.parameters()
+    )
     assert all(parameter.requires_grad for parameter in model.projector.parameters())
     assert not model.vision_encoder.training
     assert not model.language_model.training
@@ -68,7 +72,9 @@ def test_multimodal_wrapper_keeps_base_models_frozen_and_projector_trainable() -
     assert torch.isfinite(logits).all()
 
 
-def test_projector_training_backward_pass_never_accumulates_backbone_gradients() -> None:
+def test_projector_training_backward_pass_never_accumulates_backbone_gradients() -> (
+    None
+):
     language = MiniGPT(vocab_size=32, dim=16, layers=1, heads=2, max_pos=32)
     model = VisionLanguageModel(small_vision(), language, visual_tokens=4).train()
 
@@ -79,8 +85,12 @@ def test_projector_training_backward_pass_never_accumulates_backbone_gradients()
     )
     logits.sum().backward()
 
-    assert all(parameter.grad is None for parameter in model.vision_encoder.parameters())
-    assert all(parameter.grad is None for parameter in model.language_model.parameters())
+    assert all(
+        parameter.grad is None for parameter in model.vision_encoder.parameters()
+    )
+    assert all(
+        parameter.grad is None for parameter in model.language_model.parameters()
+    )
     assert any(parameter.grad is not None for parameter in model.projector.parameters())
 
 
@@ -93,8 +103,15 @@ def test_multimodal_wrapper_does_not_change_language_state_keys() -> None:
 
 def test_flexible_vision_resolution_interpolates_position_embeddings() -> None:
     model = VisionEncoder(
-        image_size=32, patch_size=8, hidden_size=24, layers=1, heads=3,
-        ffn_hidden_size=48, dropout=0.0, strict_image_size=False, pool_type="mean",
+        image_size=32,
+        patch_size=8,
+        hidden_size=24,
+        layers=1,
+        heads=3,
+        ffn_hidden_size=48,
+        dropout=0.0,
+        strict_image_size=False,
+        pool_type="mean",
     )
     assert model(torch.randn(2, 3, 48, 32)).shape == (2, 25, 24)
     assert model.pooled(torch.randn(2, 3, 48, 32)).shape == (2, 24)
@@ -111,9 +128,14 @@ def test_image_text_sft_collator_and_metrics() -> None:
         collate_image_text_sft,
         multimodal_sft_metrics,
     )
+
     examples = [
-        ImageTextSFTExample(torch.zeros(3, 32, 32), torch.tensor([1, 2]), torch.tensor([3, 4]), "a"),
-        ImageTextSFTExample(torch.ones(3, 32, 32), torch.tensor([1]), torch.tensor([5, 6, 7]), "b"),
+        ImageTextSFTExample(
+            torch.zeros(3, 32, 32), torch.tensor([1, 2]), torch.tensor([3, 4]), "a"
+        ),
+        ImageTextSFTExample(
+            torch.ones(3, 32, 32), torch.tensor([1]), torch.tensor([5, 6, 7]), "b"
+        ),
     ]
     batch = collate_image_text_sft(examples)
     assert batch["images"].shape == (2, 3, 32, 32)
@@ -125,6 +147,8 @@ def test_image_text_sft_collator_and_metrics() -> None:
     logits[0, 2 + 4, 4] = 20.0
     logits[1, 2 + 4, 6] = 20.0
     logits[1, 2 + 4 + 1, 7] = 20.0
-    metrics = multimodal_sft_metrics(logits, batch["response_ids"], batch["response_loss_mask"])
+    metrics = multimodal_sft_metrics(
+        logits, batch["response_ids"], batch["response_loss_mask"]
+    )
     assert metrics["tokens"] == 3
     assert metrics["token_accuracy"] == 1.0

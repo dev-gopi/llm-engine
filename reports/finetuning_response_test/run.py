@@ -5,15 +5,14 @@ import time
 from pathlib import Path
 
 import torch
-
 from datasets.preprocessor import format_messages
+
 from inference.generator import Generator
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
-
 
 torch.set_num_threads(4)
 output_directory = Path("reports/finetuning_response_test")
@@ -56,7 +55,10 @@ generator = Generator(model, tokenizer, device="cpu")
 probes = [
     ("greeting", "Hello! Who are you?"),
     ("factual_question", "What is the capital of France? Answer in one sentence."),
-    ("reasoning", "I have 3 apples and buy 2 more. Then I give away 1 apple. How many apples do I have left?"),
+    (
+        "reasoning",
+        "I have 3 apples and buy 2 more. Then I give away 1 apple. How many apples do I have left?",
+    ),
     ("instruction_following", "Reply with exactly this word: READY"),
     ("story_request", "Write a short story about a girl who helps a lost puppy."),
     ("coding", "Write a Python function add(a, b) that returns their sum."),
@@ -66,7 +68,10 @@ probes = [
 for name, prompt in probes:
     rendered_prompt = format_messages(
         [
-            {"role": "system", "content": "You are Gopi, a helpful assistant. Answer clearly and briefly."},
+            {
+                "role": "system",
+                "content": "You are Gopi, a helpful assistant. Answer clearly and briefly.",
+            },
             {"role": "user", "content": prompt},
         ],
         add_generation_prompt=True,

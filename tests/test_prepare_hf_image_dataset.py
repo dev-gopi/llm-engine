@@ -25,8 +25,10 @@ def test_prepare_split_bounds_batches_and_output(tmp_path, monkeypatch) -> None:
     encoded = io.BytesIO()
     Image.new("RGB", (4, 4)).save(encoded, format="PNG")
     source = tmp_path / "source.parquet"
-    pq.write_table(pa.table({"image": [encoded.getvalue()] * 7,
-                             "label": [0, 1, 0, 1, 0, 1, 0]}), source)
+    pq.write_table(
+        pa.table({"image": [encoded.getvalue()] * 7, "label": [0, 1, 0, 1, 0, 1, 0]}),
+        source,
+    )
     monkeypatch.setattr(module, "parquet_urls", lambda *args: [source.as_uri()])
     original = pq.ParquetFile
     sizes = []
@@ -47,24 +49,44 @@ def test_prepare_split_bounds_batches_and_output(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(module.pq, "ParquetFile", TrackedParquet)
     output = tmp_path / "images"
-    assert module.prepare_split("test", "default", "train", output,
-                                image_column="image", label_column="label",
-                                labels=("a", "b"), limit=3, timeout=1,
-                                batch_size=2) == 3
+    assert (
+        module.prepare_split(
+            "test",
+            "default",
+            "train",
+            output,
+            image_column="image",
+            label_column="label",
+            labels=("a", "b"),
+            limit=3,
+            timeout=1,
+            batch_size=2,
+        )
+        == 3
+    )
     assert sizes == [2]
     assert len(list(output.rglob("*.png"))) == 3
     with Image.open(output / "a" / "000002.png") as image:
         assert image.mode == "RGB"
 
 
-@pytest.mark.parametrize("options,match", [
-    ({"batch_size": 0}, "batch_size"),
-    ({"labels": ("../escape", "b")}, "safe directory"),
-])
+@pytest.mark.parametrize(
+    "options,match",
+    [
+        ({"batch_size": 0}, "batch_size"),
+        ({"labels": ("../escape", "b")}, "safe directory"),
+    ],
+)
 def test_prepare_split_rejects_invalid_options_before_io(tmp_path, options, match):
     from scripts.prepare_hf_image_dataset import prepare_split
-    kwargs = dict(image_column="image", label_column="label", labels=("a", "b"),
-                  limit=1, timeout=1)
+
+    kwargs = dict(
+        image_column="image",
+        label_column="label",
+        labels=("a", "b"),
+        limit=1,
+        timeout=1,
+    )
     kwargs.update(options)
     with pytest.raises(ValueError, match=match):
         prepare_split("unused", "default", "train", tmp_path, **kwargs)

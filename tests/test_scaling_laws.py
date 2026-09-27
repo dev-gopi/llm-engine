@@ -4,10 +4,12 @@ from training.scaling_laws import ScalingObservation, summarize_scaling
 
 
 def test_scaling_summary_reports_loss_and_shared_capability_trends() -> None:
-    result = summarize_scaling([
-        ScalingObservation(10, 100, 3.0, {"math": .1, "code": .2}),
-        ScalingObservation(20, 100, 2.0, {"math": .3, "code": .4}),
-    ])
+    result = summarize_scaling(
+        [
+            ScalingObservation(10, 100, 3.0, {"math": 0.1, "code": 0.2}),
+            ScalingObservation(20, 100, 2.0, {"math": 0.3, "code": 0.4}),
+        ]
+    )
     assert result["observations"] == 2
     assert result["validation_loss_log_compute_slope"] < 0
     assert result["capability_math_log_compute_slope"] > 0

@@ -7,7 +7,9 @@ from inference.paged_kv_cache import PagedKVCache
 from model.attention import MultiHeadAttention
 
 
-def manual_attention(module: MultiHeadAttention, hidden_states: torch.Tensor) -> torch.Tensor:
+def manual_attention(
+    module: MultiHeadAttention, hidden_states: torch.Tensor
+) -> torch.Tensor:
     query, key, value = module.project_qkv(hidden_states)
     scores = query @ key.transpose(-2, -1) / math.sqrt(module.head_dim)
     causal = torch.ones(scores.shape[-2:], dtype=torch.bool).tril()
@@ -37,14 +39,18 @@ def test_matches_manual_causal_reference():
 
 def test_auto_backend_uses_deterministic_eager_fallback_on_cpu():
     module = MultiHeadAttention(dim=16, heads=4, attention_backend="auto").eval()
-    assert module.resolve_attention_backend(torch.device("cpu"), torch.float32) == "eager"
+    assert (
+        module.resolve_attention_backend(torch.device("cpu"), torch.float32) == "eager"
+    )
     module(torch.randn(1, 3, 16))
     assert module.last_attention_backend == "eager"
 
 
 def test_explicit_eager_backend_never_selects_sdpa():
     module = MultiHeadAttention(dim=16, heads=4, attention_backend="eager").eval()
-    assert module.resolve_attention_backend(torch.device("cuda"), torch.float16) == "eager"
+    assert (
+        module.resolve_attention_backend(torch.device("cuda"), torch.float16) == "eager"
+    )
 
 
 def test_invalid_attention_backend_fails_loudly():
@@ -80,7 +86,9 @@ def test_boolean_padding_mask_blocks_keys():
     modified = original.clone()
     modified[:, -1] += 1_000
     mask = torch.tensor([[True, True, True, False]])
-    torch.testing.assert_close(module(original, mask)[:, :3], module(modified, mask)[:, :3])
+    torch.testing.assert_close(
+        module(original, mask)[:, :3], module(modified, mask)[:, :3]
+    )
 
 
 def test_additive_mask_matches_boolean_mask():
@@ -130,7 +138,11 @@ def test_sliding_window_kv_cache_matches_full_sequence():
     """Incremental decode must retain the same local receptive field as prefill."""
     torch.manual_seed(111)
     module = MultiHeadAttention(
-        dim=32, heads=4, causal=True, attention_pattern="sliding_window", attention_window=3
+        dim=32,
+        heads=4,
+        causal=True,
+        attention_pattern="sliding_window",
+        attention_window=3,
     ).eval()
     hidden_states = torch.randn(2, 7, 32)
     full_output = module(hidden_states)
@@ -139,7 +151,9 @@ def test_sliding_window_kv_cache_matches_full_sequence():
     incremental_outputs = []
     for position in range(hidden_states.size(1)):
         output, cache = module(
-            hidden_states[:, position : position + 1], past_key_value=cache, use_cache=True
+            hidden_states[:, position : position + 1],
+            past_key_value=cache,
+            use_cache=True,
         )
         incremental_outputs.append(output)
 
@@ -155,14 +169,26 @@ def test_paged_kv_decode_matches_contiguous_cache_without_materialization(monkey
     _, contiguous = module(prefix, use_cache=True)
     expected = module(next_token, past_key_value=contiguous)
     allocator = PagedKVCache(
-        num_pages=4, page_size=2, layers=1, kv_heads=4, head_dim=4,
-        device="cpu", dtype=torch.float32,
+        num_pages=4,
+        page_size=2,
+        layers=1,
+        kv_heads=4,
+        head_dim=4,
+        device="cpu",
+        dtype=torch.float32,
     )
     for row, request_id in enumerate(("one", "two")):
         allocator.reserve(request_id, 4)
-        allocator.append(request_id, contiguous[0][row:row + 1].squeeze(0).unsqueeze(0),
-                         contiguous[1][row:row + 1].squeeze(0).unsqueeze(0))
-    monkeypatch.setattr(allocator, "materialize", lambda _: pytest.fail("paged attention materialized KV"))
+        allocator.append(
+            request_id,
+            contiguous[0][row : row + 1].squeeze(0).unsqueeze(0),
+            contiguous[1][row : row + 1].squeeze(0).unsqueeze(0),
+        )
+    monkeypatch.setattr(
+        allocator,
+        "materialize",
+        lambda _: pytest.fail("paged attention materialized KV"),
+    )
     actual = module(next_token, past_key_value=allocator.layer_cache(["one", "two"], 0))
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
@@ -174,7 +200,9 @@ def test_backward_is_finite():
     assert hidden_states.grad is not None
     assert torch.isfinite(hidden_states.grad).all()
     assert all(parameter.grad is not None for parameter in module.parameters())
-    assert all(torch.isfinite(parameter.grad).all() for parameter in module.parameters())
+    assert all(
+        torch.isfinite(parameter.grad).all() for parameter in module.parameters()
+    )
 
 
 def test_dropout_is_disabled_during_evaluation():

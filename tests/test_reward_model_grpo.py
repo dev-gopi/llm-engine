@@ -10,8 +10,12 @@ from model.gpt import MiniGPT
 from optim.adamw import build_adamw
 from post_training.grpo import GRPOLoss, GRPOTrainer
 from post_training.grpo_data import build_grpo_loader
-from post_training.reward_model import PairwiseRewardLoss, RewardModel, RewardModelTrainer
 from post_training.preference_data import build_preference_loader
+from post_training.reward_model import (
+    PairwiseRewardLoss,
+    RewardModel,
+    RewardModelTrainer,
+)
 from tokenizer.bpe import BYTE_ENCODER
 from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 
@@ -19,7 +23,9 @@ from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 def tokenizer() -> Tokenizer:
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: index for index, piece in enumerate(pieces)}
-    return Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    return Tokenizer(
+        vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
+    )
 
 
 def test_minigpt_hidden_state_opt_in_preserves_default_forward() -> None:
@@ -36,7 +42,9 @@ def test_minigpt_hidden_state_opt_in_preserves_default_forward() -> None:
 
 def test_pairwise_reward_loss_prefers_higher_chosen_reward() -> None:
     loss_fn = PairwiseRewardLoss()
-    good_loss, good_metrics = loss_fn(torch.tensor([2.0, 1.0]), torch.tensor([0.0, -1.0]))
+    good_loss, good_metrics = loss_fn(
+        torch.tensor([2.0, 1.0]), torch.tensor([0.0, -1.0])
+    )
     bad_loss, _ = loss_fn(torch.tensor([0.0, -1.0]), torch.tensor([2.0, 1.0]))
     assert good_loss < bad_loss
     assert float(good_metrics["reward_accuracy"]) == 1.0
@@ -61,8 +69,12 @@ def test_reward_model_trainer_one_step(tmp_path) -> None:
         {"prompt": "Q2", "chosen": "right", "rejected": "wrong"},
     ]
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
-    loader = build_preference_loader([str(path)], tok, max_length=64, batch_size=2, shuffle=False)
-    model = RewardModel(MiniGPT(vocab_size=tok.vocab_size, dim=8, layers=1, heads=2, max_pos=64), 8)
+    loader = build_preference_loader(
+        [str(path)], tok, max_length=64, batch_size=2, shuffle=False
+    )
+    model = RewardModel(
+        MiniGPT(vocab_size=tok.vocab_size, dim=8, layers=1, heads=2, max_pos=64), 8
+    )
     trainer = RewardModelTrainer(model, build_adamw(model, learning_rate=1e-4))
     metrics = trainer.train_step(next(iter(loader)))
     assert trainer.global_step == 1
@@ -88,16 +100,24 @@ def test_grpo_dataset_loader_and_trainer_step(tmp_path) -> None:
     path = tmp_path / "grpo.jsonl"
     rows = [
         {"prompt": "Pick", "completions": ["A", "B", "C"], "rewards": [1.0, 0.0, -1.0]},
-        {"prompt": "Choose", "completions": ["X", "Y", "Z"], "rewards": [0.2, 0.8, 0.4]},
+        {
+            "prompt": "Choose",
+            "completions": ["X", "Y", "Z"],
+            "rewards": [0.2, 0.8, 0.4],
+        },
     ]
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
-    loader = build_grpo_loader([str(path)], tok, max_length=64, batch_size=2, shuffle=False)
+    loader = build_grpo_loader(
+        [str(path)], tok, max_length=64, batch_size=2, shuffle=False
+    )
     batch = next(iter(loader))
     assert batch["completion_ids"].shape[:2] == (2, 3)
     policy = MiniGPT(vocab_size=tok.vocab_size, dim=8, layers=1, heads=2, max_pos=64)
     old = copy.deepcopy(policy)
     reference = copy.deepcopy(policy)
-    trainer = GRPOTrainer(policy, old, reference, build_adamw(policy, learning_rate=1e-4))
+    trainer = GRPOTrainer(
+        policy, old, reference, build_adamw(policy, learning_rate=1e-4)
+    )
     metrics = trainer.train_step(batch)
     assert trainer.global_step == 1
     assert torch.isfinite(torch.tensor(metrics["loss"]))
@@ -108,12 +128,17 @@ def test_reward_and_grpo_clis_and_profiles_are_available() -> None:
     root = Path(__file__).resolve().parents[1]
     for script in ("scripts/train_reward_model.py", "scripts/train_grpo.py"):
         completed = subprocess.run(
-            [sys.executable, script, "--help"], cwd=root,
-            text=True, capture_output=True, check=False,
+            [sys.executable, script, "--help"],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=False,
         )
         assert completed.returncode == 0, completed.stderr
     for config in (
-        "configs/reward_model.cpu.yaml", "configs/reward_model.gpu.yaml",
-        "configs/grpo.cpu.yaml", "configs/grpo.gpu.yaml",
+        "configs/reward_model.cpu.yaml",
+        "configs/reward_model.gpu.yaml",
+        "configs/grpo.cpu.yaml",
+        "configs/grpo.gpu.yaml",
     ):
         assert (root / config).is_file()

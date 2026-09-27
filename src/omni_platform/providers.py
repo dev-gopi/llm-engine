@@ -1,9 +1,11 @@
 """Vendor-neutral provider contracts for multimodal generation and understanding."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 ProgressCallback = Callable[[float, str], None]
 
@@ -41,44 +43,64 @@ class BaseProvider(Protocol):
 
 @runtime_checkable
 class ImageGenerationProvider(BaseProvider, Protocol):
-    def generate_image(self, request: dict[str, Any], context: ProviderContext) -> GenerationResult: ...
-    def edit_image(self, request: dict[str, Any], context: ProviderContext) -> GenerationResult: ...
+    def generate_image(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult: ...
+    def edit_image(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult: ...
 
 
 @runtime_checkable
 class AudioGenerationProvider(BaseProvider, Protocol):
-    def generate_audio(self, request: dict[str, Any], context: ProviderContext) -> GenerationResult: ...
+    def generate_audio(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult: ...
 
 
 @runtime_checkable
 class TextToSpeechProvider(BaseProvider, Protocol):
-    def synthesize(self, request: dict[str, Any], context: ProviderContext) -> GenerationResult: ...
+    def synthesize(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult: ...
 
 
 @runtime_checkable
 class SpeechToTextProvider(BaseProvider, Protocol):
-    def transcribe(self, request: dict[str, Any], context: ProviderContext) -> dict[str, Any]: ...
+    def transcribe(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> dict[str, Any]: ...
 
 
 @runtime_checkable
 class SpeechToSpeechProvider(BaseProvider, Protocol):
-    def convert_speech(self, request: dict[str, Any], context: ProviderContext) -> GenerationResult: ...
+    def convert_speech(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult: ...
 
 
 @runtime_checkable
 class AudioUnderstandingProvider(BaseProvider, Protocol):
-    def understand_audio(self, request: dict[str, Any], context: ProviderContext) -> dict[str, Any]: ...
+    def understand_audio(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> dict[str, Any]: ...
 
 
 @runtime_checkable
 class VideoGenerationProvider(BaseProvider, Protocol):
-    def generate_video(self, request: dict[str, Any], context: ProviderContext) -> GenerationResult: ...
-    def edit_video(self, request: dict[str, Any], context: ProviderContext) -> GenerationResult: ...
+    def generate_video(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult: ...
+    def edit_video(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult: ...
 
 
 @runtime_checkable
 class VideoUnderstandingProvider(BaseProvider, Protocol):
-    def understand_video(self, request: dict[str, Any], context: ProviderContext) -> dict[str, Any]: ...
+    def understand_video(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> dict[str, Any]: ...
 
 
 class ProviderRegistry:
@@ -89,7 +111,9 @@ class ProviderRegistry:
 
     def register(self, provider: BaseProvider) -> None:
         if not provider.id or provider.id in self._providers:
-            raise ValueError(f"provider id must be unique and non-empty: {provider.id!r}")
+            raise ValueError(
+                f"provider id must be unique and non-empty: {provider.id!r}"
+            )
         self._providers[provider.id] = provider
 
     def get(self, provider_id: str) -> BaseProvider:

@@ -41,7 +41,9 @@ def _load_yaml(path: Path, ancestors: tuple[Path, ...]) -> dict[str, Any]:
     parents = data.pop("extends", [])
     if isinstance(parents, str):
         parents = [parents]
-    if not isinstance(parents, list) or any(not isinstance(p, str) or not p for p in parents):
+    if not isinstance(parents, list) or any(
+        not isinstance(p, str) or not p for p in parents
+    ):
         raise ValueError("extends must be a path or a list of paths")
     merged: dict[str, Any] = {}
     for parent in parents:

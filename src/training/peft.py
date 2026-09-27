@@ -75,21 +75,36 @@ def apply_lora(model: nn.Module, config: Mapping[str, Any]) -> dict[str, Any]:
     for full_name, module in model.named_modules():
         if not isinstance(module, nn.Linear) or isinstance(module, LoRALinear):
             continue
-        if not any(full_name == target or full_name.endswith(f".{target}") for target in targets):
+        if not any(
+            full_name == target or full_name.endswith(f".{target}")
+            for target in targets
+        ):
             continue
         parent_name, _, child_name = full_name.rpartition(".")
         parent = model.get_submodule(parent_name) if parent_name else model
         replacements.append((parent, child_name, module, full_name))
     if not replacements:
-        raise ValueError(f"LoRA target_modules matched no linear layers: {list(targets)!r}")
+        raise ValueError(
+            f"LoRA target_modules matched no linear layers: {list(targets)!r}"
+        )
     for parent, child_name, module, _ in replacements:
-        setattr(parent, child_name, LoRALinear(module, rank=rank, alpha=alpha, dropout=dropout))
+        setattr(
+            parent,
+            child_name,
+            LoRALinear(module, rank=rank, alpha=alpha, dropout=dropout),
+        )
 
-    trainable = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+    trainable = sum(
+        parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+    )
     total = sum(parameter.numel() for parameter in model.parameters())
     logger.info(
         "Applied LoRA: rank=%d, alpha=%.1f, %d/%d trainable parameters (%.2f%%)",
-        rank, alpha, trainable, total, (trainable / total * 100) if total else 0.0,
+        rank,
+        alpha,
+        trainable,
+        total,
+        (trainable / total * 100) if total else 0.0,
     )
     return {
         "method": "lora",
@@ -137,15 +152,27 @@ def merge_and_unload(model: nn.Module) -> nn.Module:
         if not isinstance(module, LoRALinear):
             continue
         parent_name, _, child_name = full_name.rpartition(".")
-        replacements.append((model.get_submodule(parent_name) if parent_name else model, child_name, module))
+        replacements.append(
+            (
+                model.get_submodule(parent_name) if parent_name else model,
+                child_name,
+                module,
+            )
+        )
     with torch.no_grad():
         for parent, child_name, module in replacements:
             base = module.base
             merged = nn.Linear(
-                base.in_features, base.out_features, bias=base.bias is not None,
-                device=base.weight.device, dtype=base.weight.dtype,
+                base.in_features,
+                base.out_features,
+                bias=base.bias is not None,
+                device=base.weight.device,
+                dtype=base.weight.dtype,
             )
-            merged.weight.copy_(base.weight + (module.lora_b @ module.lora_a).to(base.weight) * module.scaling)
+            merged.weight.copy_(
+                base.weight
+                + (module.lora_b @ module.lora_a).to(base.weight) * module.scaling
+            )
             if base.bias is not None:
                 merged.bias.copy_(base.bias)
             # Preserve the frozen-base contract after adapter merge. Callers can
@@ -167,8 +194,13 @@ def _targets(value: Any) -> tuple[str, ...]:
 
 
 __all__ = [
-    "DEFAULT_LORA_TARGETS", "LoRALinear", "apply_lora", "has_lora",
-    "load_lora_adapter", "lora_adapter_state_dict", "merge_and_unload",
+    "DEFAULT_LORA_TARGETS",
+    "LoRALinear",
+    "apply_lora",
+    "has_lora",
+    "load_lora_adapter",
+    "lora_adapter_state_dict",
+    "merge_and_unload",
 ]
 
 
@@ -185,5 +217,9 @@ def prepare_qlora(model: nn.Module, config: Mapping[str, Any]) -> dict[str, Any]
     details = apply_lora(model, config.get("lora", config))
     details["profile"] = "qlora"
     details["quantization"] = quantization
-    details["base_model_frozen"] = all(not p.requires_grad for name,p in model.named_parameters() if "lora_" not in name)
+    details["base_model_frozen"] = all(
+        not p.requires_grad
+        for name, p in model.named_parameters()
+        if "lora_" not in name
+    )
     return details

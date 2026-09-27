@@ -10,7 +10,13 @@ def test_fsdp_manifest_detection(tmp_path: Path) -> None:
     root = tmp_path / "checkpoint.pt"
     root.mkdir()
     (root / "manifest.json").write_text(
-        json.dumps({"format": "gopi-fsdp-post-v2", "world_size": 2, "metadata": {"training_type": "dpo"}}),
+        json.dumps(
+            {
+                "format": "gopi-fsdp-post-v2",
+                "world_size": 2,
+                "metadata": {"training_type": "dpo"},
+            }
+        ),
         encoding="utf8",
     )
     assert is_fsdp_checkpoint(root)

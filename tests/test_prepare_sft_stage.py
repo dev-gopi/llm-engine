@@ -16,11 +16,18 @@ from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 def tokenizer():
     pieces = [*DEFAULT_SPECIAL_TOKENS, *BYTE_ENCODER.values()]
     vocab = {piece: i for i, piece in enumerate(pieces)}
-    return Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    return Tokenizer(
+        vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
+    )
 
 
 def chat(prompt, answer="OK"):
-    return {"messages": [{"role": "user", "content": prompt}, {"role": "assistant", "content": answer}]}
+    return {
+        "messages": [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": answer},
+        ]
+    }
 
 
 def test_preparation_preserves_sft_masks_and_reserves_all_heldout_prompts(tmp_path):
@@ -30,22 +37,41 @@ def test_preparation_preserves_sft_masks_and_reserves_all_heldout_prompts(tmp_pa
     source.mkdir()
     train = source / "train.jsonl"
     validation = source / "validation.jsonl"
-    train_rows = [chat("held out"), chat("too long held out"), chat("unique", "def f():\n    return 1"),
-                  chat("unique", "duplicate answer"), chat("test only"), chat("eval only")]
+    train_rows = [
+        chat("held out"),
+        chat("too long held out"),
+        chat("unique", "def f():\n    return 1"),
+        chat("unique", "duplicate answer"),
+        chat("test only"),
+        chat("eval only"),
+    ]
     train.write_text("".join(json.dumps(row) + "\n" for row in train_rows))
     original = train.read_bytes()
-    validation.write_text(json.dumps(chat("held out")) + "\n" + json.dumps(chat("too long held out", "x" * 200)) + "\n")
+    validation.write_text(
+        json.dumps(chat("held out"))
+        + "\n"
+        + json.dumps(chat("too long held out", "x" * 200))
+        + "\n"
+    )
     (source / "test.jsonl").write_text(json.dumps(chat("test only")) + "\n")
     cases = tmp_path / "cases.jsonl"
     cases.write_text(json.dumps({"prompt": "eval only"}) + "\n")
-    config = {"train_files": [str(train)], "validation_files": [str(validation)],
-              "validation_domains": {"chat": [str(validation)]}, "dataset_weights": {"source": 1},
-              "max_sequence_length": 128, "runtime": {"tokenizer": str(tmp_path / "tokenizer")}}
+    config = {
+        "train_files": [str(train)],
+        "validation_files": [str(validation)],
+        "validation_domains": {"chat": [str(validation)]},
+        "dataset_weights": {"source": 1},
+        "max_sequence_length": 128,
+        "runtime": {"tokenizer": str(tmp_path / "tokenizer")},
+    }
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(config))
     output = tmp_path / "cleaned"
     summary = prepare(config_path, output, cases=[cases])
-    kept = [json.loads(line) for line in (output / "source/train.jsonl").read_text().splitlines()]
+    kept = [
+        json.loads(line)
+        for line in (output / "source/train.jsonl").read_text().splitlines()
+    ]
     assert kept == [train_rows[2]]
     assert train.read_bytes() == original
     assert summary["files"][1]["heldout_overlap"] == 4
@@ -70,7 +96,9 @@ def test_preparation_requires_complete_thinking_trace_before_the_answer():
     tok = tokenizer()
     valid = chat("What is 2 + 2?", "<thinking>Two plus two is four.</thinking>\n4")
     malformed = chat("What is 2 + 2?", "<thinking>Two plus two is four.\n4")
-    no_final_answer = chat("What is 2 + 2?", "<thinking>Two plus two is four.</thinking>")
+    no_final_answer = chat(
+        "What is 2 + 2?", "<thinking>Two plus two is four.</thinking>"
+    )
 
     assert rejection_reason(valid, tok, 128) is None
     assert rejection_reason(malformed, tok, 128) == "invalid_thinking_trace"
@@ -87,10 +115,13 @@ def test_refresh_training_config_reuses_audited_files(tmp_path):
     train.write_text(json.dumps(chat("train")) + "\n")
     validation.write_text(json.dumps(chat("validation")) + "\n")
     config = {
-        "train_files": [str(train)], "validation_files": [str(validation)],
+        "train_files": [str(train)],
+        "validation_files": [str(validation)],
         "validation_domains": {"chat": [str(validation)]},
-        "dataset_weights": {"source": 1}, "max_sequence_length": 128,
-        "batch_size": 4, "runtime": {"tokenizer": str(tmp_path / "tokenizer")},
+        "dataset_weights": {"source": 1},
+        "max_sequence_length": 128,
+        "batch_size": 4,
+        "runtime": {"tokenizer": str(tmp_path / "tokenizer")},
     }
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(config))

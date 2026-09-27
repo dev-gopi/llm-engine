@@ -40,7 +40,9 @@ def test_needle_in_haystack_probe_validates_its_contract():
 
 
 def test_expression_scoring_preserves_operators():
-    case = BenchmarkCase("coding", "Remainder expression?", ("a % b", "a%b"), match="exact_code")
+    case = BenchmarkCase(
+        "coding", "Remainder expression?", ("a % b", "a%b"), match="exact_code"
+    )
     assert score_answer("a + b", case) == 0
     assert score_answer("a b", case) == 0
     assert score_answer("```python\na % b\n```", case) == 1
@@ -62,7 +64,11 @@ def test_final_number_requires_explicit_final_answer():
 
 def test_gsm8k_case_requires_a_complete_thinking_trace_before_final_answer():
     case = BenchmarkCase(
-        "gsm8k", "Solve this.", ("4",), match="final_number", require_thinking_trace=True,
+        "gsm8k",
+        "Solve this.",
+        ("4",),
+        match="final_number",
+        require_thinking_trace=True,
     )
     assert score_answer("<thinking>2 + 2 = 4.</thinking>\n#### 4", case) == 1
     assert score_answer("#### 4", case) == 0
@@ -71,8 +77,15 @@ def test_gsm8k_case_requires_a_complete_thinking_trace_before_final_answer():
 
 def test_reasoning_code_manifest_preserves_all_scoring_controls():
     path = Path("configs/evaluation.reasoning_code.jsonl")
-    cases = [BenchmarkCase.from_mapping(json.loads(line)) for line in path.read_text().splitlines()]
-    assert [case.category for case in cases] == ["reasoning_math", "reasoning_logic", "code"]
+    cases = [
+        BenchmarkCase.from_mapping(json.loads(line))
+        for line in path.read_text().splitlines()
+    ]
+    assert [case.category for case in cases] == [
+        "reasoning_math",
+        "reasoning_logic",
+        "code",
+    ]
     assert cases[0].require_thinking_trace
     assert cases[0].max_answer_tokens == 96
     assert score_answer("<thinking>7 + 5 = 12.</thinking>\n#### 12", cases[0]) == 1
@@ -82,7 +95,10 @@ def test_reasoning_code_manifest_preserves_all_scoring_controls():
 
 def test_contains_match_rejects_overlong_or_identity_leaking_answer():
     case = BenchmarkCase(
-        "chat", "Greet me", ("hello",), ("open assistant",),
+        "chat",
+        "Greet me",
+        ("hello",),
+        ("open assistant",),
         max_answer_tokens=4,
     )
     assert score_answer("Hello, nice to meet you", case) == 0
@@ -91,10 +107,13 @@ def test_contains_match_rejects_overlong_or_identity_leaking_answer():
 
 
 def report(scores, protocol=None):
-    return {"protocol": protocol or {"cases": "fixed"}, "results": [
-        {"category": category, "prompt": str(i), "score": score}
-        for i, (category, score) in enumerate(scores)
-    ]}
+    return {
+        "protocol": protocol or {"cases": "fixed"},
+        "results": [
+            {"category": category, "prompt": str(i), "score": score}
+            for i, (category, score) in enumerate(scores)
+        ],
+    }
 
 
 def test_retention_gate_rejects_improvement_that_forgets_a_passing_case():
@@ -117,10 +136,17 @@ def test_retention_gate_accepts_identical_answers_and_rejects_changed_protocol()
 
 def test_instruction_following_manifest_is_versioned_and_deterministically_scored():
     path = Path("configs/evaluation.instruction_following.jsonl")
-    cases = [BenchmarkCase.from_mapping(json.loads(line)) for line in path.read_text().splitlines()]
+    cases = [
+        BenchmarkCase.from_mapping(json.loads(line))
+        for line in path.read_text().splitlines()
+    ]
 
     assert [case.category for case in cases] == [
-        "clarification", "refusal", "format_following", "conversation_consistency", "tool_turn",
+        "clarification",
+        "refusal",
+        "format_following",
+        "conversation_consistency",
+        "tool_turn",
     ]
     answers = [
         "Which form and field are confusing?",
@@ -129,7 +155,9 @@ def test_instruction_following_manifest_is_versioned_and_deterministically_score
         "Gopi",
         "4",
     ]
-    assert [score_answer(answer, case) for answer, case in zip(answers, cases, strict=True)] == [1.0] * 5
+    assert [
+        score_answer(answer, case) for answer, case in zip(answers, cases, strict=True)
+    ] == [1.0] * 5
 
 
 def test_ctx002_long_context_fixtures_cover_all_profiles_and_positions():
@@ -137,12 +165,19 @@ def test_ctx002_long_context_fixtures_cover_all_profiles_and_positions():
     from pathlib import Path
 
     profiles = (("2k", 2048), ("4k", 4096), ("8k", 8192))
-    paths = [Path(f"data/processed/long_context/{name}/validation.jsonl") for name, _ in profiles]
+    paths = [
+        Path(f"data/processed/long_context/{name}/validation.jsonl")
+        for name, _ in profiles
+    ]
     if not all(path.is_file() for path in paths):
-        pytest.skip("long-context validation fixtures are generated data and are not included in source checkouts")
+        pytest.skip(
+            "long-context validation fixtures are generated data and are not included in source checkouts"
+        )
 
     for (name, length), path in zip(profiles, paths, strict=True):
-        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        rows = [
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        ]
         assert [row["context_tokens"] for row in rows] == [length] * 3
         assert [row["needle_position"] for row in rows] == [0.10, 0.50, 0.90]
         assert len({row["passkey"] for row in rows}) == 3
@@ -150,13 +185,22 @@ def test_ctx002_long_context_fixtures_cover_all_profiles_and_positions():
 
 def test_ctx002_base_pretraining_profile_publishes_paired_profiles():
     import yaml
-    config = yaml.safe_load(Path("configs/pretraining.gpu.yaml").read_text(encoding="utf-8"))
+
+    config = yaml.safe_load(
+        Path("configs/pretraining.gpu.yaml").read_text(encoding="utf-8")
+    )
     profiles = config["long_context_profiles"]
     assert set(profiles) == {"2k", "4k", "8k"}
-    assert [profiles[name]["max_position"] for name in ("2k", "4k", "8k")] == [2048, 4096, 8192]
+    assert [profiles[name]["max_position"] for name in ("2k", "4k", "8k")] == [
+        2048,
+        4096,
+        8192,
+    ]
 
 
-def test_benchmark_cli_rejects_contexts_larger_than_the_model_limit(tmp_path, monkeypatch, capsys):
+def test_benchmark_cli_rejects_contexts_larger_than_the_model_limit(
+    tmp_path, monkeypatch, capsys
+):
     """The CLI must validate its model config before constructing probe cases."""
     from scripts.evaluate_benchmarks import main
 
@@ -173,11 +217,16 @@ def test_benchmark_cli_rejects_contexts_larger_than_the_model_limit(tmp_path, mo
         "argv",
         [
             "evaluate_benchmarks.py",
-            "--checkpoint", str(checkpoint),
-            "--model-config", str(model_config),
-            "--inference-config", str(inference_config),
-            "--tokenizer", str(tokenizer),
-            "--long-context-lengths", "1024",
+            "--checkpoint",
+            str(checkpoint),
+            "--model-config",
+            str(model_config),
+            "--inference-config",
+            str(inference_config),
+            "--tokenizer",
+            str(tokenizer),
+            "--long-context-lengths",
+            "1024",
         ],
     )
 

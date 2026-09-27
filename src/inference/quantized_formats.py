@@ -3,14 +3,15 @@
 GGUF is implemented as a real GGUF v3 binary container. GPTQ/AWQ remain
 provider-specific because their packed-kernel layouts differ by runtime.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 import importlib.util
-import json
-from pathlib import Path
 import struct
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 
 class NativeFormatUnavailable(RuntimeError):
@@ -34,10 +35,14 @@ def capabilities() -> dict[str, FormatCapability]:
     out: dict[str, FormatCapability] = {}
     for fmt, (module, label) in checks.items():
         if fmt == "gguf":
-            out[fmt] = FormatCapability(fmt, True, None, "built-in GGUF v3 writer available")
+            out[fmt] = FormatCapability(
+                fmt, True, None, "built-in GGUF v3 writer available"
+            )
             continue
         ok = importlib.util.find_spec(module) is not None
-        out[fmt] = FormatCapability(fmt, ok, module, "available" if ok else f"{label} is not installed")
+        out[fmt] = FormatCapability(
+            fmt, ok, module, "available" if ok else f"{label} is not installed"
+        )
     return out
 
 
@@ -80,6 +85,7 @@ def _kv(key: str, value: str | int | bool) -> bytes:
 
 def _tensor_bytes(tensor: Any) -> tuple[int, tuple[int, ...], bytes]:
     import torch
+
     if not isinstance(tensor, torch.Tensor):
         raise TypeError("GGUF export expects torch.Tensor values")
     if tensor.layout != torch.strided:
@@ -91,7 +97,9 @@ def _tensor_bytes(tensor: Any) -> tuple[int, tuple[int, ...], bytes]:
         if value.dtype == torch.bfloat16:
             value = value.float()
         return _GGML_F32, tuple(reversed(value.shape)), value.numpy().tobytes(order="C")
-    raise ValueError(f"unsupported GGUF tensor dtype: {value.dtype}; convert to float16/float32 first")
+    raise ValueError(
+        f"unsupported GGUF tensor dtype: {value.dtype}; convert to float16/float32 first"
+    )
 
 
 def export_gguf(
@@ -178,20 +186,33 @@ def convert_native(*, fmt: str, model: Any, output: str | Path, **kwargs: Any) -
         save = getattr(model, "save_quantized", None)
         examples = kwargs.pop("examples", None)
         if callable(quantize) and callable(save):
-            if examples is None: raise ValueError("GPTQ conversion requires calibration examples")
-            quantize(examples, **kwargs); save(str(output)); return Path(output)
+            if examples is None:
+                raise ValueError("GPTQ conversion requires calibration examples")
+            quantize(examples, **kwargs)
+            save(str(output))
+            return Path(output)
     if fmt == "awq":
         quantize = getattr(model, "quantize", None)
         save = getattr(model, "save_quantized", None)
         tokenizer = kwargs.pop("tokenizer", None)
         quant_config = kwargs.pop("quant_config", None)
         if callable(quantize) and callable(save):
-            if tokenizer is None: raise ValueError("AWQ conversion requires a tokenizer")
-            quantize(tokenizer, quant_config=quant_config or kwargs); save(str(output)); return Path(output)
+            if tokenizer is None:
+                raise ValueError("AWQ conversion requires a tokenizer")
+            quantize(tokenizer, quant_config=quant_config or kwargs)
+            save(str(output))
+            return Path(output)
     raise NativeFormatUnavailable(
         f"installed {fmt} runtime requires a model-specific quantizable wrapper; "
         "supply a native model or an explicit converter callable"
     )
 
 
-__all__ = ["FormatCapability", "NativeFormatUnavailable", "capabilities", "require_native", "export_gguf", "convert_native"]
+__all__ = [
+    "FormatCapability",
+    "NativeFormatUnavailable",
+    "capabilities",
+    "convert_native",
+    "export_gguf",
+    "require_native",
+]

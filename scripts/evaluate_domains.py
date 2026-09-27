@@ -24,13 +24,21 @@ from utils.device import resolve_device
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--domains", type=Path, default=Path("configs/evaluation.domains.yaml"))
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml"))
+    parser.add_argument(
+        "--domains", type=Path, default=Path("configs/evaluation.domains.yaml")
+    )
+    parser.add_argument(
+        "--model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
+    parser.add_argument(
+        "--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml")
+    )
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--max-batches", type=int, help="limit batches independently per domain")
+    parser.add_argument(
+        "--max-batches", type=int, help="limit batches independently per domain"
+    )
     args = parser.parse_args()
 
     domain_config = load_yaml(args.domains)
@@ -43,13 +51,18 @@ def main() -> None:
     training_config = load_yaml(args.training_config)
     tokenizer = Tokenizer.load(args.tokenizer)
     try:
-        model_config = adapt_config_to_tokenizer(load_yaml(args.model_config), tokenizer)
+        model_config = adapt_config_to_tokenizer(
+            load_yaml(args.model_config), tokenizer
+        )
     except ValueError as error:
         parser.error(str(error))
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device="cpu")
     load_checkpoint(
-        args.checkpoint, model, use_ema=True, restore_rng=False,
+        args.checkpoint,
+        model,
+        use_ema=True,
+        restore_rng=False,
         **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
     model.to(device)
@@ -71,7 +84,11 @@ def main() -> None:
         aggregate = aggregate_domain_metrics(results, weights)
     except ValueError as error:
         parser.error(str(error))
-    print(json.dumps({"aggregate": aggregate, "domains": results}, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {"aggregate": aggregate, "domains": results}, indent=2, ensure_ascii=False
+        )
+    )
 
 
 if __name__ == "__main__":

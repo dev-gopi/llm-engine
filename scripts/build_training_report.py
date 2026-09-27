@@ -16,8 +16,7 @@ import sys
 # ``scripts/tokenize.py`` can be cached under that name and later break torch.
 script_directory = os.path.dirname(os.path.realpath(__file__))
 sys.path[:] = [
-    entry for entry in sys.path
-    if os.path.realpath(entry or ".") != script_directory
+    entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory
 ]
 
 import argparse
@@ -88,7 +87,10 @@ def evaluation_coverage(
         accuracy = generation_accuracy(generation_evaluation)
         if accuracy is not None:
             generation_status = f"available (accuracy: {accuracy:.1%})"
-        elif isinstance(generation_evaluation.get("responses"), list) and generation_evaluation["responses"]:
+        elif (
+            isinstance(generation_evaluation.get("responses"), list)
+            and generation_evaluation["responses"]
+        ):
             generation_status = "available (qualitative probes; accuracy not measured)"
         else:
             generation_status = "pending; no valid generation accuracy or qualitative responses are available"
@@ -98,7 +100,9 @@ def evaluation_coverage(
 class SystemMonitor:
     """Collect lightweight host and NVIDIA telemetry outside the trainer."""
 
-    def __init__(self, process_pid: int | None = None, *, max_points: int = 3600) -> None:
+    def __init__(
+        self, process_pid: int | None = None, *, max_points: int = 3600
+    ) -> None:
         self.process_pid = process_pid
         self.max_points = max_points
         self.previous_cpu: tuple[int, int] | None = None
@@ -111,18 +115,34 @@ class SystemMonitor:
         sample["process_rss_mb"] = self._process_rss_mb()
         sample["gpus"] = self._gpus()
         self.history.append(sample)
-        del self.history[:-self.max_points]
+        del self.history[: -self.max_points]
         return sample
 
     def _cpu_and_memory(self) -> dict[str, Any]:
-        result = {"cpu_percent": None, "ram_used_mb": None, "ram_total_mb": None, "ram_percent": None}
+        result = {
+            "cpu_percent": None,
+            "ram_used_mb": None,
+            "ram_total_mb": None,
+            "ram_percent": None,
+        }
         try:
-            cpu_values = [int(value) for value in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
-            total, idle = sum(cpu_values), cpu_values[3] + (cpu_values[4] if len(cpu_values) > 4 else 0)
+            cpu_values = [
+                int(value)
+                for value in Path("/proc/stat").read_text().splitlines()[0].split()[1:]
+            ]
+            total, idle = (
+                sum(cpu_values),
+                cpu_values[3] + (cpu_values[4] if len(cpu_values) > 4 else 0),
+            )
             if self.previous_cpu:
-                total_delta, idle_delta = total - self.previous_cpu[0], idle - self.previous_cpu[1]
+                total_delta, idle_delta = (
+                    total - self.previous_cpu[0],
+                    idle - self.previous_cpu[1],
+                )
                 if total_delta > 0:
-                    result["cpu_percent"] = max(0.0, min(100.0, (1.0 - idle_delta / total_delta) * 100.0))
+                    result["cpu_percent"] = max(
+                        0.0, min(100.0, (1.0 - idle_delta / total_delta) * 100.0)
+                    )
                 else:
                     # Back-to-back samples can land in the same kernel tick.
                     # Report a valid zero-utilization interval instead of an
@@ -135,11 +155,13 @@ class SystemMonitor:
                 memory[key] = int(value.strip().split()[0])
             total_kb, available_kb = memory["MemTotal"], memory["MemAvailable"]
             used_kb = total_kb - available_kb
-            result.update({
-                "ram_used_mb": used_kb / 1024,
-                "ram_total_mb": total_kb / 1024,
-                "ram_percent": used_kb / total_kb * 100 if total_kb else None,
-            })
+            result.update(
+                {
+                    "ram_used_mb": used_kb / 1024,
+                    "ram_total_mb": total_kb / 1024,
+                    "ram_percent": used_kb / total_kb * 100 if total_kb else None,
+                }
+            )
         except (OSError, ValueError, KeyError, IndexError):
             pass
         return result
@@ -157,24 +179,39 @@ class SystemMonitor:
                     name = (device / "name").read_text().strip().lower()
                 except OSError:
                     continue
-                if not any(token in name for token in ("coretemp", "k10temp", "zenpower", "cpu")):
+                if not any(
+                    token in name
+                    for token in ("coretemp", "k10temp", "zenpower", "cpu")
+                ):
                     continue
                 for sensor in device.glob("temp*_input"):
                     try:
                         value = float(sensor.read_text().strip()) / 1000.0
-                        label_path = sensor.with_name(sensor.name.replace("_input", "_label"))
-                        label = label_path.read_text().strip().lower() if label_path.exists() else ""
+                        label_path = sensor.with_name(
+                            sensor.name.replace("_input", "_label")
+                        )
+                        label = (
+                            label_path.read_text().strip().lower()
+                            if label_path.exists()
+                            else ""
+                        )
                     except (OSError, ValueError):
                         continue
                     if not -20 <= value <= 150:
                         continue
-                    priority = 0 if any(token in label for token in ("package", "tctl", "tdie")) else 1
+                    priority = (
+                        0
+                        if any(token in label for token in ("package", "tctl", "tdie"))
+                        else 1
+                    )
                     candidates.append((priority, value))
         except OSError:
             pass
         if candidates:
             best_priority = min(priority for priority, _ in candidates)
-            return max(value for priority, value in candidates if priority == best_priority)
+            return max(
+                value for priority, value in candidates if priority == best_priority
+            )
         try:
             for zone in thermal_root.glob("thermal_zone*"):
                 try:
@@ -182,7 +219,10 @@ class SystemMonitor:
                     value = float((zone / "temp").read_text().strip()) / 1000.0
                 except (OSError, ValueError):
                     continue
-                if any(token in kind for token in ("cpu", "package", "x86_pkg", "soc")) and -20 <= value <= 150:
+                if (
+                    any(token in kind for token in ("cpu", "package", "x86_pkg", "soc"))
+                    and -20 <= value <= 150
+                ):
                     return value
         except OSError:
             pass
@@ -192,7 +232,9 @@ class SystemMonitor:
         if not self.process_pid:
             return None
         try:
-            for line in Path(f"/proc/{self.process_pid}/status").read_text().splitlines():
+            for line in (
+                Path(f"/proc/{self.process_pid}/status").read_text().splitlines()
+            ):
                 if line.startswith("VmRSS:"):
                     return int(line.split()[1]) / 1024
         except (OSError, ValueError, IndexError):
@@ -202,14 +244,29 @@ class SystemMonitor:
     @staticmethod
     def _gpus() -> list[dict[str, Any]]:
         fields = [
-            "index", "name", "utilization.gpu", "memory.used", "memory.total",
-            "temperature.gpu", "power.draw", "power.limit", "power.default_limit",
-            "power.max_limit", "fan.speed",
+            "index",
+            "name",
+            "utilization.gpu",
+            "memory.used",
+            "memory.total",
+            "temperature.gpu",
+            "power.draw",
+            "power.limit",
+            "power.default_limit",
+            "power.max_limit",
+            "fan.speed",
         ]
         try:
             completed = subprocess.run(
-                ["nvidia-smi", f"--query-gpu={','.join(fields)}", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=2, check=False,
+                [
+                    "nvidia-smi",
+                    f"--query-gpu={','.join(fields)}",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
             )
         except (OSError, subprocess.TimeoutExpired):
             return []
@@ -223,17 +280,22 @@ class SystemMonitor:
             enforced_limit = _number(values[7])
             default_limit = _number(values[8])
             maximum_limit = _number(values[9])
-            gpus.append({
-                "index": int(values[0]), "name": values[1],
-                "utilization_percent": _number(values[2]),
-                "memory_used_mb": _number(values[3]), "memory_total_mb": _number(values[4]),
-                "temperature_c": _number(values[5]), "power_draw_w": _number(values[6]),
-                "power_limit_w": enforced_limit or default_limit or maximum_limit,
-                "power_enforced_limit_w": enforced_limit,
-                "power_default_limit_w": default_limit,
-                "power_max_limit_w": maximum_limit,
-                "fan_percent": _number(values[10]),
-            })
+            gpus.append(
+                {
+                    "index": int(values[0]),
+                    "name": values[1],
+                    "utilization_percent": _number(values[2]),
+                    "memory_used_mb": _number(values[3]),
+                    "memory_total_mb": _number(values[4]),
+                    "temperature_c": _number(values[5]),
+                    "power_draw_w": _number(values[6]),
+                    "power_limit_w": enforced_limit or default_limit or maximum_limit,
+                    "power_enforced_limit_w": enforced_limit,
+                    "power_default_limit_w": default_limit,
+                    "power_max_limit_w": maximum_limit,
+                    "fan_percent": _number(values[10]),
+                }
+            )
         return gpus
 
 
@@ -253,10 +315,17 @@ def _fields(message: str) -> dict[str, Any]:
 
 def _empty_parsed() -> dict[str, Any]:
     return {
-        "training": [], "validation": [], "best_updates": [],
-        "validation_timings": [], "checkpoint_timings": [], "generation_timings": [],
+        "training": [],
+        "validation": [],
+        "best_updates": [],
+        "validation_timings": [],
+        "checkpoint_timings": [],
+        "generation_timings": [],
         "validation_events": [],
-        "warnings": [], "run_configurations": [], "raw_log_tail": [], "line_count": 0,
+        "warnings": [],
+        "run_configurations": [],
+        "raw_log_tail": [],
+        "line_count": 0,
         "session_count": 0,
     }
 
@@ -324,7 +393,10 @@ def _append_lines(
             values["timestamp"] = timestamp
             values["session"] = parsed["session_count"]
             parsed["checkpoint_timings"].append(values)
-        elif message.startswith("generation_evaluation ") and "duration_seconds=" in message:
+        elif (
+            message.startswith("generation_evaluation ")
+            and "duration_seconds=" in message
+        ):
             values = _fields(message)
             values["timestamp"] = timestamp
             values["session"] = parsed["session_count"]
@@ -334,7 +406,11 @@ def _append_lines(
             values["timestamp"] = timestamp
             values["session"] = parsed["session_count"]
             parsed["best_updates"].append(values)
-        elif "epoch=" in message and "tokens_per_second=" in message and "loss=" in message:
+        elif (
+            "epoch=" in message
+            and "tokens_per_second=" in message
+            and "loss=" in message
+        ):
             values = _fields(message)
             values["timestamp"] = timestamp
             values["session"] = parsed["session_count"]
@@ -346,7 +422,9 @@ def _append_lines(
         del parsed["raw_log_tail"][:-raw_tail_lines]
 
 
-def parse_training_log(path: str | Path, *, raw_tail_lines: int = 1000) -> dict[str, Any]:
+def parse_training_log(
+    path: str | Path, *, raw_tail_lines: int = 1000
+) -> dict[str, Any]:
     """Parse trainer INFO lines without importing or interacting with training code."""
     lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     parsed = _empty_parsed()
@@ -381,21 +459,35 @@ def normalize_history(parsed: dict[str, Any]) -> dict[str, Any]:
     validation_records: dict[tuple[int, int], dict[str, Any]] = {}
     for item in parsed.get("validation", []):
         position = (int(item.get("epoch", 0)), int(item.get("step", 0)))
-        if any(start < position <= abandoned_end for start, abandoned_end in rollback_ranges):
+        if any(
+            start < position <= abandoned_end
+            for start, abandoned_end in rollback_ranges
+        ):
             continue
         validation_records[position] = item
-    normalized["validation"] = [validation_records[key] for key in sorted(validation_records)]
+    normalized["validation"] = [
+        validation_records[key] for key in sorted(validation_records)
+    ]
 
     best_updates: dict[int, dict[str, Any]] = {}
     for item in parsed.get("best_updates", []):
         step = int(item.get("step", 0))
-        if any(start[1] < step <= abandoned_end[1] for start, abandoned_end in rollback_ranges):
+        if any(
+            start[1] < step <= abandoned_end[1]
+            for start, abandoned_end in rollback_ranges
+        ):
             continue
         best_updates[step] = item
     normalized["best_updates"] = [best_updates[key] for key in sorted(best_updates)]
-    for timing_name in ("checkpoint_timings", "validation_timings", "generation_timings", "validation_events"):
+    for timing_name in (
+        "checkpoint_timings",
+        "validation_timings",
+        "generation_timings",
+        "validation_events",
+    ):
         normalized[timing_name] = [
-            item for item in parsed.get(timing_name, [])
+            item
+            for item in parsed.get(timing_name, [])
             if not any(
                 start[1] < int(item.get("step", 0)) <= abandoned_end[1]
                 for start, abandoned_end in rollback_ranges
@@ -434,9 +526,13 @@ class IncrementalLogReader:
             return self.parsed
         pieces = (self.partial + chunk).split(b"\n")
         self.partial = pieces.pop()
-        lines = [piece.rstrip(b"\r").decode("utf-8", errors="replace") for piece in pieces]
+        lines = [
+            piece.rstrip(b"\r").decode("utf-8", errors="replace") for piece in pieces
+        ]
         _append_lines(
-            self.parsed, lines, self.pending_domains,
+            self.parsed,
+            lines,
+            self.pending_domains,
             raw_tail_lines=self.raw_tail_lines,
         )
         return self.parsed
@@ -454,16 +550,22 @@ def _checkpoint_step(path: Path) -> int | None:
         return None
 
 
-def checkpoint_details(path: str | Path, validation: list[dict[str, Any]], *, best: bool) -> dict[str, Any]:
+def checkpoint_details(
+    path: str | Path, validation: list[dict[str, Any]], *, best: bool
+) -> dict[str, Any]:
     checkpoint = Path(path)
     details: dict[str, Any] = {"path": str(checkpoint), "exists": checkpoint.is_file()}
     if checkpoint.is_file():
         stat = checkpoint.stat()
-        details.update({
-            "size_bytes": stat.st_size,
-            "size_mb": round(stat.st_size / 1024**2, 2),
-            "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-        })
+        details.update(
+            {
+                "size_bytes": stat.st_size,
+                "size_mb": round(stat.st_size / 1024**2, 2),
+                "modified_at": datetime.fromtimestamp(
+                    stat.st_mtime, timezone.utc
+                ).isoformat(),
+            }
+        )
         details["step"] = _checkpoint_step(checkpoint)
     checkpoint_step = details.get("step")
     matching = [item for item in validation if item.get("step") == checkpoint_step]
@@ -477,7 +579,12 @@ def checkpoint_details(path: str | Path, validation: list[dict[str, Any]], *, be
 
 def _change(first: float | None, latest: float | None) -> dict[str, Any]:
     if first is None or latest is None:
-        return {"first": first, "latest": latest, "absolute_improvement": None, "percent_improvement": None}
+        return {
+            "first": first,
+            "latest": latest,
+            "absolute_improvement": None,
+            "percent_improvement": None,
+        }
     improvement = float(first) - float(latest)
     percent = improvement / abs(float(first)) * 100.0 if float(first) else None
     return {
@@ -527,13 +634,18 @@ def _active_validation_state(
         pass
     latest = events[-1]
     started = next(
-        (event for event in reversed(events)
-         if event.get("event") == "started" and _event_step([event], []) == step),
+        (
+            event
+            for event in reversed(events)
+            if event.get("event") == "started" and _event_step([event], []) == step
+        ),
         latest,
     )
     reported_elapsed = _number(str(latest.get("elapsed_seconds", "")))
     started_at = _timestamp_seconds(started.get("timestamp"))
-    wall_elapsed = max(0.0, time.time() - started_at) if started_at is not None else None
+    wall_elapsed = (
+        max(0.0, time.time() - started_at) if started_at is not None else None
+    )
     elapsed = reported_elapsed if reported_elapsed is not None else wall_elapsed
     completed_durations = [
         float(item["duration_seconds"])
@@ -541,7 +653,11 @@ def _active_validation_state(
         if item.get("duration_seconds") is not None
         and _number(str(item["duration_seconds"])) is not None
     ]
-    estimated_duration = sum(completed_durations) / len(completed_durations) if completed_durations else None
+    estimated_duration = (
+        sum(completed_durations) / len(completed_durations)
+        if completed_durations
+        else None
+    )
     reported_eta = _number(str(latest.get("eta_seconds", "")))
     eta = reported_eta
     if eta is None and estimated_duration is not None and elapsed is not None:
@@ -550,13 +666,15 @@ def _active_validation_state(
         "running": True,
         "step": step,
         "name": str(latest.get("name", "validation")),
-        "batches": str(latest["batches"]) if latest.get("batches") is not None else None,
+        "batches": str(latest["batches"])
+        if latest.get("batches") is not None
+        else None,
         "elapsed_seconds": elapsed,
         "eta_seconds": eta,
         "estimated_duration_seconds": estimated_duration,
-        "eta_source": "progress" if reported_eta is not None else (
-            "historical_average" if eta is not None else "unavailable"
-        ),
+        "eta_source": "progress"
+        if reported_eta is not None
+        else ("historical_average" if eta is not None else "unavailable"),
         "started_at": started.get("timestamp"),
         "timestamp": latest.get("timestamp"),
     }
@@ -569,7 +687,8 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
     active_metric = metrics[-1] if metrics else None
     validation = (
         [item for item in all_validation if item.get("metric") == active_metric]
-        if active_metric else all_validation
+        if active_metric
+        else all_validation
     )
     excluded_validation = len(all_validation) - len(validation)
     overall = _change(
@@ -585,12 +704,20 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
         validation[-1].get("perplexity") if validation else None,
     )
     domains: dict[str, Any] = {}
-    domain_names = sorted({name for item in validation for name in item.get("domains", {})})
+    domain_names = sorted(
+        {name for item in validation for name in item.get("domains", {})}
+    )
     for name in domain_names:
-        records = [item["domains"][name] for item in validation if name in item.get("domains", {})]
+        records = [
+            item["domains"][name]
+            for item in validation
+            if name in item.get("domains", {})
+        ]
         domains[name] = {
             "loss": _change(records[0].get("loss"), records[-1].get("loss")),
-            "perplexity": _change(records[0].get("perplexity"), records[-1].get("perplexity")),
+            "perplexity": _change(
+                records[0].get("perplexity"), records[-1].get("perplexity")
+            ),
             "observations": len(records),
         }
     improvement = recent.get("absolute_improvement")
@@ -602,9 +729,21 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
         verdict = "plateau"
     else:
         verdict = "worsening"
-    throughput = [float(item["tokens_per_second"]) for item in training if item.get("tokens_per_second") is not None]
-    gradients = [float(item["grad_norm"]) for item in training if item.get("grad_norm") is not None]
-    memory = [float(item["peak_memory_mb"]) for item in training if item.get("peak_memory_mb") is not None]
+    throughput = [
+        float(item["tokens_per_second"])
+        for item in training
+        if item.get("tokens_per_second") is not None
+    ]
+    gradients = [
+        float(item["grad_norm"])
+        for item in training
+        if item.get("grad_norm") is not None
+    ]
+    memory = [
+        float(item["peak_memory_mb"])
+        for item in training
+        if item.get("peak_memory_mb") is not None
+    ]
     train_metric = "avg" if training and training[0].get("avg") is not None else "loss"
     training_loss = _change(
         training[0].get(train_metric) if training else None,
@@ -612,8 +751,11 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
     )
     domain_ranking = sorted(
         (
-            {"name": name, "latest_loss": values["loss"]["latest"],
-             "percent_improvement": values["loss"]["percent_improvement"]}
+            {
+                "name": name,
+                "latest_loss": values["loss"]["latest"],
+                "percent_improvement": values["loss"]["percent_improvement"],
+            }
             for name, values in domains.items()
             if values["loss"]["latest"] is not None
         ),
@@ -622,16 +764,44 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
     train_improvement = training_loss.get("absolute_improvement")
     recent_validation_improvement = recent.get("absolute_improvement")
     if len(validation) < 2:
-        overfitting = {"status": "insufficient_validation", "reason": "At least two validation runs are required."}
-    elif train_improvement is not None and train_improvement > 0 and recent_validation_improvement is not None and recent_validation_improvement < -0.001:
-        overfitting = {"status": "risk_detected", "reason": "Training loss improved while recent validation loss worsened."}
-    elif recent_validation_improvement is not None and recent_validation_improvement >= -0.001:
-        overfitting = {"status": "no_current_signal", "reason": "Recent validation loss is stable or improving."}
+        overfitting = {
+            "status": "insufficient_validation",
+            "reason": "At least two validation runs are required.",
+        }
+    elif (
+        train_improvement is not None
+        and train_improvement > 0
+        and recent_validation_improvement is not None
+        and recent_validation_improvement < -0.001
+    ):
+        overfitting = {
+            "status": "risk_detected",
+            "reason": "Training loss improved while recent validation loss worsened.",
+        }
+    elif (
+        recent_validation_improvement is not None
+        and recent_validation_improvement >= -0.001
+    ):
+        overfitting = {
+            "status": "no_current_signal",
+            "reason": "Recent validation loss is stable or improving.",
+        }
     else:
-        overfitting = {"status": "inconclusive", "reason": "The available loss trends are inconclusive."}
+        overfitting = {
+            "status": "inconclusive",
+            "reason": "The available loss trends are inconclusive.",
+        }
     valid_validations = [item for item in validation if item.get("loss") is not None]
-    best_validation = min(valid_validations, key=lambda item: float(item["loss"])) if valid_validations else None
-    latest_validation = valid_validations[-1] if valid_validations else (validation[-1] if validation else None)
+    best_validation = (
+        min(valid_validations, key=lambda item: float(item["loss"]))
+        if valid_validations
+        else None
+    )
+    latest_validation = (
+        valid_validations[-1]
+        if valid_validations
+        else (validation[-1] if validation else None)
+    )
     same_checkpoint = bool(
         latest_validation
         and best_validation
@@ -648,12 +818,21 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
         "overfitting": overfitting,
         "checkpoint_comparison": {
             "best_step": best_validation.get("step") if best_validation else None,
-            "best_validation_loss": best_validation.get("loss") if best_validation else None,
+            "best_validation_loss": best_validation.get("loss")
+            if best_validation
+            else None,
             "latest_step": latest_validation.get("step") if latest_validation else None,
-            "latest_validation_loss": latest_validation.get("loss") if latest_validation else None,
+            "latest_validation_loss": latest_validation.get("loss")
+            if latest_validation
+            else None,
             "latest_minus_best": (
                 float(latest_validation["loss"]) - float(best_validation["loss"])
-                if latest_validation and best_validation and latest_validation.get("loss") is not None and best_validation.get("loss") is not None and not same_checkpoint else None
+                if latest_validation
+                and best_validation
+                and latest_validation.get("loss") is not None
+                and best_validation.get("loss") is not None
+                and not same_checkpoint
+                else None
             ),
             "status": "same_checkpoint" if same_checkpoint else "different_checkpoints",
             "generation_accuracy": None,
@@ -665,15 +844,23 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "progress_percent": training[-1].get("progress") if training else None,
             "resume_count": int(parsed.get("session_count", 0)),
             "rollback_count": len(parsed.get("resume_rollbacks", [])),
-            "best_validation_step": best_validation.get("step") if best_validation else None,
-            "best_validation_loss": best_validation.get("loss") if best_validation else None,
+            "best_validation_step": best_validation.get("step")
+            if best_validation
+            else None,
+            "best_validation_loss": best_validation.get("loss")
+            if best_validation
+            else None,
             "best_checkpoint_updates": len(parsed.get("best_updates", [])),
             "active_validation_metric": active_metric,
             "excluded_incompatible_validations": excluded_validation,
             "training_start_time": training[0].get("timestamp") if training else None,
             "training_end_time": training[-1].get("timestamp") if training else None,
-            "validation_start_time": validation[0].get("timestamp") if validation else None,
-            "validation_end_time": validation[-1].get("timestamp") if validation else None,
+            "validation_start_time": validation[0].get("timestamp")
+            if validation
+            else None,
+            "validation_end_time": validation[-1].get("timestamp")
+            if validation
+            else None,
         },
         "report_coverage": {
             "loss_and_runtime": "available",
@@ -687,51 +874,96 @@ def analyze_progress(parsed: dict[str, Any]) -> dict[str, Any]:
             "validation_points": len(validation),
             "training_start_time": training[0].get("timestamp") if training else None,
             "training_end_time": training[-1].get("timestamp") if training else None,
-            "validation_start_time": validation[0].get("timestamp") if validation else None,
-            "validation_end_time": validation[-1].get("timestamp") if validation else None,
-            "average_tokens_per_second": sum(throughput) / len(throughput) if throughput else None,
+            "validation_start_time": validation[0].get("timestamp")
+            if validation
+            else None,
+            "validation_end_time": validation[-1].get("timestamp")
+            if validation
+            else None,
+            "average_tokens_per_second": sum(throughput) / len(throughput)
+            if throughput
+            else None,
             "minimum_tokens_per_second": min(throughput) if throughput else None,
             "maximum_tokens_per_second": max(throughput) if throughput else None,
-            "average_gradient_norm": sum(gradients) / len(gradients) if gradients else None,
+            "average_gradient_norm": sum(gradients) / len(gradients)
+            if gradients
+            else None,
             "maximum_gradient_norm": max(gradients) if gradients else None,
             "peak_memory_mb": max(memory) if memory else None,
-            "nonfinite_updates": training[-1].get("nonfinite_updates") if training else None,
+            "nonfinite_updates": training[-1].get("nonfinite_updates")
+            if training
+            else None,
             "current_learning_rate": training[-1].get("lr") if training else None,
             "tokens_processed": training[-1].get("tokens") if training else None,
-            "elapsed_seconds": training[-1].get("elapsed_seconds") if training else None,
+            "elapsed_seconds": training[-1].get("elapsed_seconds")
+            if training
+            else None,
             "eta_seconds": training[-1].get("eta_seconds") if training else None,
-            "latest_log_interval_seconds": training[-1].get("log_interval_seconds") if training else None,
-            "latest_seconds_per_step": training[-1].get("seconds_per_step") if training else None,
-            "next_log_eta_seconds": training[-1].get("next_log_eta_seconds") if training else None,
-            "next_checkpoint_eta_seconds": training[-1].get("next_checkpoint_eta_seconds") if training else None,
-            "next_validation_eta_seconds": training[-1].get("next_validation_eta_seconds") if training else None,
+            "latest_log_interval_seconds": training[-1].get("log_interval_seconds")
+            if training
+            else None,
+            "latest_seconds_per_step": training[-1].get("seconds_per_step")
+            if training
+            else None,
+            "next_log_eta_seconds": training[-1].get("next_log_eta_seconds")
+            if training
+            else None,
+            "next_checkpoint_eta_seconds": training[-1].get(
+                "next_checkpoint_eta_seconds"
+            )
+            if training
+            else None,
+            "next_validation_eta_seconds": training[-1].get(
+                "next_validation_eta_seconds"
+            )
+            if training
+            else None,
             "latest_checkpoint_duration_seconds": (
                 parsed.get("checkpoint_timings", [{}])[-1].get("duration_seconds")
-                if parsed.get("checkpoint_timings") else None
+                if parsed.get("checkpoint_timings")
+                else None
             ),
             "latest_validation_duration_seconds": (
                 parsed.get("validation_timings", [{}])[-1].get("duration_seconds")
-                if parsed.get("validation_timings") else None
+                if parsed.get("validation_timings")
+                else None
             ),
             "average_validation_duration_seconds": (
-                sum(float(v["duration_seconds"]) for v in parsed.get("validation_timings", []) if v.get("duration_seconds") is not None)
-                / len([v for v in parsed.get("validation_timings", []) if v.get("duration_seconds") is not None])
-                if any(v.get("duration_seconds") is not None for v in parsed.get("validation_timings", [])) else None
+                sum(
+                    float(v["duration_seconds"])
+                    for v in parsed.get("validation_timings", [])
+                    if v.get("duration_seconds") is not None
+                )
+                / len(
+                    [
+                        v
+                        for v in parsed.get("validation_timings", [])
+                        if v.get("duration_seconds") is not None
+                    ]
+                )
+                if any(
+                    v.get("duration_seconds") is not None
+                    for v in parsed.get("validation_timings", [])
+                )
+                else None
             ),
             "latest_generation_duration_seconds": (
                 parsed.get("generation_timings", [{}])[-1].get("duration_seconds")
-                if parsed.get("generation_timings") else None
+                if parsed.get("generation_timings")
+                else None
             ),
             "active_validation": _active_validation_state(
                 parsed.get("validation_events", []),
-                parsed.get("validation_timings", []), training,
+                parsed.get("validation_timings", []),
+                training,
             ),
         },
     }
 
 
 def model_deployment_analysis(
-    model_config: dict[str, Any], training_config: dict[str, Any],
+    model_config: dict[str, Any],
+    training_config: dict[str, Any],
     telemetry: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Summarize architecture and analytical deployment footprints safely."""
@@ -742,34 +974,47 @@ def model_deployment_analysis(
         return {"available": False, "error": str(error)}
     context = min(
         int(model_config.get("max_position", 1)),
-        max(1, int(training_config.get("max_sequence_length", model_config.get("max_position", 1)))),
+        max(
+            1,
+            int(
+                training_config.get(
+                    "max_sequence_length", model_config.get("max_position", 1)
+                )
+            ),
+        ),
     )
     gpu_budget = None
     latest = (telemetry or [])[-1] if telemetry else {}
     gpus = latest.get("gpus", []) if isinstance(latest, dict) else []
-    if gpus and all(isinstance(gpu.get("memory_total_mb"), (int, float)) for gpu in gpus):
-        gpu_budget = int(sum(float(gpu["memory_total_mb"]) for gpu in gpus) * 1024 ** 2)
+    if gpus and all(
+        isinstance(gpu.get("memory_total_mb"), (int, float)) for gpu in gpus
+    ):
+        gpu_budget = int(sum(float(gpu["memory_total_mb"]) for gpu in gpus) * 1024**2)
     rows = deployment_matrix(
-        model_config, context_length=context, memory_budget_bytes=gpu_budget,
+        model_config,
+        context_length=context,
+        memory_budget_bytes=gpu_budget,
     )
     return {
         "available": True,
         "parameter_count": size.parameters,
         "active_parameters_per_token": size.active_parameters_per_token,
-        "bf16_weight_gib": size.parameter_bytes_bf16 / 1024 ** 3,
+        "bf16_weight_gib": size.parameter_bytes_bf16 / 1024**3,
         "configured_context": int(model_config.get("max_position", 0)),
         "report_context": context,
         "attention_pattern": "hybrid" if len(set(patterns)) > 1 else patterns[0],
         "full_attention_layers": size.full_attention_layers,
         "linear_attention_layers": size.linear_attention_layers,
-        "bf16_kv_cache_gib_per_sequence_at_max_context": size.kv_cache_bytes_bf16_per_sequence / 1024 ** 3,
-        "bf16_linear_state_gib_per_sequence": size.linear_state_bytes_bf16_per_sequence / 1024 ** 3,
+        "bf16_kv_cache_gib_per_sequence_at_max_context": size.kv_cache_bytes_bf16_per_sequence
+        / 1024**3,
+        "bf16_linear_state_gib_per_sequence": size.linear_state_bytes_bf16_per_sequence
+        / 1024**3,
         "ffn_type": str(model_config.get("ffn_type", "dense")),
         "num_experts": model_config.get("num_experts"),
         "experts_per_token": model_config.get("experts_per_token"),
         "mtp_predictions": int(model_config.get("mtp_num_predictions", 0) or 0),
         "qk_norm": bool(model_config.get("qk_norm", False)),
-        "memory_budget_gib": gpu_budget / 1024 ** 3 if gpu_budget else None,
+        "memory_budget_gib": gpu_budget / 1024**3 if gpu_budget else None,
         "deployment_matrix": rows,
         "note": "Footprints are analytical estimates; measured peak memory and checkpoint quality remain separate validation requirements.",
     }
@@ -811,19 +1056,27 @@ def build_report(
             "telemetry_seconds": args.telemetry_seconds,
             "refresh_seconds": args.watch_seconds,
         },
-        "configuration_source": "run_log_snapshot" if active_snapshot else "current_files_fallback",
+        "configuration_source": "run_log_snapshot"
+        if active_snapshot
+        else "current_files_fallback",
         "model_config": model_config,
         "training_config": training_config,
         "checkpoints": {
-            "latest": checkpoint_details(args.latest_checkpoint, parsed["validation"], best=False),
-            "best": checkpoint_details(args.best_checkpoint, parsed["validation"], best=True),
+            "latest": checkpoint_details(
+                args.latest_checkpoint, parsed["validation"], best=False
+            ),
+            "best": checkpoint_details(
+                args.best_checkpoint, parsed["validation"], best=True
+            ),
         },
         "evaluations": {
             "data_quality": data_audit,
             "generation_quality": generation_evaluation,
         },
         "analysis": analyze_progress(parsed),
-        "model_analysis": model_deployment_analysis(model_config, training_config, telemetry),
+        "model_analysis": model_deployment_analysis(
+            model_config, training_config, telemetry
+        ),
         "telemetry": telemetry or [],
         **parsed,
     }
@@ -832,9 +1085,13 @@ def build_report(
     comparison = report["analysis"]["checkpoint_comparison"]
     comparison["generation_accuracy"] = accuracy
     if accuracy is not None:
-        comparison["note"] = "Fixed-prompt benchmark results are included. Compare multiple checkpoint artifacts before deployment."
+        comparison["note"] = (
+            "Fixed-prompt benchmark results are included. Compare multiple checkpoint artifacts before deployment."
+        )
     elif coverage["generation_quality"].startswith("available"):
-        comparison["note"] = "Qualitative fixed-prompt responses are included; generation accuracy has not been measured."
+        comparison["note"] = (
+            "Qualitative fixed-prompt responses are included; generation accuracy has not been measured."
+        )
     latest_telemetry = report["telemetry"][-1] if report["telemetry"] else {}
     latest_training = report.get("training", [])[-1] if report.get("training") else {}
     report["analysis"]["runtime"]["mtp_loss"] = latest_training.get("mtp_loss")
@@ -842,7 +1099,9 @@ def build_report(
     if latest_telemetry.get("gpus"):
         report["analysis"]["report_coverage"]["gpu_telemetry"] = "available"
     elif report["telemetry"]:
-        report["analysis"]["report_coverage"]["gpu_telemetry"] = "CPU and RAM available; NVIDIA telemetry unavailable"
+        report["analysis"]["report_coverage"]["gpu_telemetry"] = (
+            "CPU and RAM available; NVIDIA telemetry unavailable"
+        )
     return _finite(report)
 
 
@@ -859,7 +1118,9 @@ async def watch_report(args: argparse.Namespace) -> None:
             return
         parsed = await asyncio.to_thread(reader.refresh)
         now = time.monotonic()
-        telemetry_due = not monitor.history or now - last_telemetry_at >= args.telemetry_seconds
+        telemetry_due = (
+            not monitor.history or now - last_telemetry_at >= args.telemetry_seconds
+        )
         log_changed = parsed["line_count"] != last_line_count
         if telemetry_due:
             await asyncio.to_thread(monitor.sample)
@@ -907,7 +1168,10 @@ def write_atomic(path: Path, report: dict[str, Any]) -> None:
             # Compact output substantially reduces disk writes during long live runs.
             # The dashboard parses JSON directly, so whitespace provides no value here.
             json.dump(
-                report, stream, ensure_ascii=False, allow_nan=False,
+                report,
+                stream,
+                ensure_ascii=False,
+                allow_nan=False,
                 separators=(",", ":"),
             )
             stream.write("\n")
@@ -920,37 +1184,62 @@ def write_atomic(path: Path, report: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--log", type=Path, default=Path("logs/training.log"),
+        "--log",
+        type=Path,
+        default=Path("logs/training.log"),
         help="training console log to parse (matches train.py default)",
     )
-    parser.add_argument("--output", type=Path, default=Path("reports/training_report.json"))
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml"))
-    parser.add_argument("--latest-checkpoint", type=Path, default=Path("checkpoints/finetuning/latest.pt"))
-    parser.add_argument("--best-checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt"))
     parser.add_argument(
-        "--data-audit", type=Path, default=Path("reports/data_quality.json"),
+        "--output", type=Path, default=Path("reports/training_report.json")
+    )
+    parser.add_argument(
+        "--model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
+    parser.add_argument(
+        "--training-config", type=Path, default=Path("configs/finetuning.gpu.yaml")
+    )
+    parser.add_argument(
+        "--latest-checkpoint",
+        type=Path,
+        default=Path("checkpoints/finetuning/latest.pt"),
+    )
+    parser.add_argument(
+        "--best-checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt")
+    )
+    parser.add_argument(
+        "--data-audit",
+        type=Path,
+        default=Path("reports/data_quality.json"),
         help="optional JSON dataset-quality audit included in report coverage",
     )
     parser.add_argument(
-        "--generation-evaluation", type=Path, default=Path("reports/generation_quality.json"),
+        "--generation-evaluation",
+        type=Path,
+        default=Path("reports/generation_quality.json"),
         help="optional JSON fixed-prompt/benchmark result included in report coverage",
     )
     parser.add_argument("--raw-tail-lines", type=int, default=1000)
     parser.add_argument(
-        "--telemetry-points", type=int, default=3600,
+        "--telemetry-points",
+        type=int,
+        default=3600,
         help="maximum live CPU/RAM/GPU samples retained in report JSON",
     )
     parser.add_argument(
-        "--telemetry-seconds", type=float, default=2.0,
+        "--telemetry-seconds",
+        type=float,
+        default=2.0,
         help="CPU/RAM/GPU sampling interval (default: 2 seconds)",
     )
     parser.add_argument(
-        "--watch-seconds", type=float, default=2.0,
+        "--watch-seconds",
+        type=float,
+        default=2.0,
         help="asynchronous refresh interval (default: 2 seconds; zero runs once)",
     )
     parser.add_argument(
-        "--parent-pid", type=int,
+        "--parent-pid",
+        type=int,
         help="stop automatically when this training process exits",
     )
     args = parser.parse_args()

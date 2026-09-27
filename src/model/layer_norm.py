@@ -82,7 +82,9 @@ class RMSNorm(nn.Module):
         variance = accumulated.square().mean(dim=-1, keepdim=True)
         # Multiply before downcasting so the reciprocal scale cannot overflow
         # FP16 for small activations and small configured epsilon values.
-        normalized = (accumulated * torch.rsqrt(variance + self.eps)).to(hidden_states.dtype)
+        normalized = (accumulated * torch.rsqrt(variance + self.eps)).to(
+            hidden_states.dtype
+        )
         output = normalized * self.weight
         if self.bias is not None:
             output = output + self.bias

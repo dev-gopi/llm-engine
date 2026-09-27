@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from torch import Tensor
 
 
 def load_wav(
@@ -25,7 +25,9 @@ def load_wav(
         raise ValueError("crop must be start, center, or random")
     with wave.open(str(source), "rb") as handle:
         if handle.getsampwidth() != 2:
-            raise ValueError("built-in WAV loader supports 16-bit PCM; install/convert data accordingly")
+            raise ValueError(
+                "built-in WAV loader supports 16-bit PCM; install/convert data accordingly"
+            )
         channels = handle.getnchannels()
         source_rate = handle.getframerate()
         frames = handle.readframes(handle.getnframes())
@@ -34,7 +36,9 @@ def load_wav(
     tensor = torch.from_numpy(data)
     if source_rate != sample_rate:
         target = max(1, round(tensor.numel() * sample_rate / source_rate))
-        tensor = F.interpolate(tensor[None, None], size=target, mode="linear", align_corners=False)[0, 0]
+        tensor = F.interpolate(
+            tensor[None, None], size=target, mode="linear", align_corners=False
+        )[0, 0]
     if peak_normalize and tensor.numel():
         peak = tensor.abs().max()
         if peak > 1e-6:
@@ -52,7 +56,7 @@ def load_wav(
                 start = random.randint(0, available)
             else:
                 start = 0
-            tensor = tensor[start:start + samples]
+            tensor = tensor[start : start + samples]
         else:
             tensor = tensor[:samples]
     return tensor
@@ -65,7 +69,11 @@ def save_wav(path: str | Path, waveform: Tensor, sample_rate: int) -> Path:
         raise ValueError("sample_rate must be positive")
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    pcm = (waveform.detach().float().cpu().clamp(-1, 1).numpy() * 32767.0).round().astype("<i2")
+    pcm = (
+        (waveform.detach().float().cpu().clamp(-1, 1).numpy() * 32767.0)
+        .round()
+        .astype("<i2")
+    )
     with wave.open(str(destination), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)

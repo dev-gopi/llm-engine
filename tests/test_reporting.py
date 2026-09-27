@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -26,7 +24,9 @@ from inference.reporting import (
 def test_standalone_system_report_uses_local_json_and_sample() -> None:
     root = Path(__file__).parents[1]
     html = (root / "reports" / "system_report.html").read_text(encoding="utf-8")
-    sample = json.loads((root / "reports" / "system_report.sample.json").read_text(encoding="utf-8"))
+    sample = json.loads(
+        (root / "reports" / "system_report.sample.json").read_text(encoding="utf-8")
+    )
 
     assert "system_report.json" in html
     assert "system_report.sample.json" in html
@@ -39,6 +39,7 @@ def test_standalone_system_report_uses_local_json_and_sample() -> None:
 
 
 # ─── Chat Report ──────────────────────────────────────────────────────────────
+
 
 class TestChatReport:
     def test_missing_database_returns_empty(self, tmp_path: Path) -> None:
@@ -87,6 +88,7 @@ class TestChatReport:
 
 # ─── RAG Report ───────────────────────────────────────────────────────────────
 
+
 class TestRagReport:
     def test_missing_index_returns_not_found(self, tmp_path: Path) -> None:
         report = collect_rag_report(database_path=tmp_path / "no_index.sqlite")
@@ -116,6 +118,7 @@ class TestRagReport:
 
 
 # ─── Serving Report ───────────────────────────────────────────────────────────
+
 
 class TestServingReport:
     def test_offline_server_returns_correct_status(self) -> None:
@@ -147,6 +150,7 @@ class TestServingReport:
 
 # ─── Generation Report (mocked) ───────────────────────────────────────────────
 
+
 class TestGenerationReport:
     def _make_mock_generation_report(self) -> GenerationReport:
         return GenerationReport(
@@ -159,7 +163,14 @@ class TestGenerationReport:
             p95_ttft_seconds=0.08,
             peak_vram_mb=None,
             samples=[
-                {"prompt": "Hello", "generated_text": "Hi!", "tokens": 14, "duration_s": 1.0, "ttft_s": 0.05, "tokens_per_second": 14.0},
+                {
+                    "prompt": "Hello",
+                    "generated_text": "Hi!",
+                    "tokens": 14,
+                    "duration_s": 1.0,
+                    "ttft_s": 0.05,
+                    "tokens_per_second": 14.0,
+                },
             ],
         )
 
@@ -176,6 +187,7 @@ class TestGenerationReport:
         if not ckpt.is_file():
             pytest.skip("Fine-tuned checkpoint not present")
         from inference.reporting import collect_generation_report
+
         report = collect_generation_report(
             model_config_path="configs/model.gpu.yaml",
             inference_config_path="configs/inference.yaml",
@@ -193,6 +205,7 @@ class TestGenerationReport:
 
 
 # ─── SystemInferenceReport ────────────────────────────────────────────────────
+
 
 class TestSystemInferenceReport:
     def _build_report(self, tmp_path: Path) -> SystemInferenceReport:
@@ -283,6 +296,7 @@ class TestSystemInferenceReport:
 
 
 # ─── build_system_inference_report ────────────────────────────────────────────
+
 
 class TestBuildSystemInferenceReport:
     def test_serving_and_chat_and_rag_only(self, tmp_path: Path) -> None:

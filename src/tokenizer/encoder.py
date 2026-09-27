@@ -59,7 +59,9 @@ class Tokenizer:
         for token, identifier in self.special_tokens.items():
             if self.vocab.get(token) != identifier:
                 raise ValueError(f"special token {token!r} is missing from vocabulary")
-        self.special_ids = {identifier: token for token, identifier in self.special_tokens.items()}
+        self.special_ids = {
+            identifier: token for token, identifier in self.special_tokens.items()
+        }
         self.pattern = pattern
         self._pattern = regex.compile(pattern)
         self.bpe = BPE(merges)
@@ -71,9 +73,16 @@ class Tokenizer:
             text: self.vocab[self._text_to_piece(text)] for text in self.added_tokens
         }
         self._added_pattern = (
-            re.compile("(" + "|".join(
-                re.escape(token) for token in sorted(self._added_token_ids, key=len, reverse=True)
-            ) + ")") if self._added_token_ids else None
+            re.compile(
+                "("
+                + "|".join(
+                    re.escape(token)
+                    for token in sorted(self._added_token_ids, key=len, reverse=True)
+                )
+                + ")"
+            )
+            if self._added_token_ids
+            else None
         )
 
     @property
@@ -94,9 +103,9 @@ class Tokenizer:
             payload["type"] = self.tokenizer_type
         if self.added_tokens:
             payload["added_tokens"] = list(self.added_tokens)
-        encoded = json.dumps(
-            payload, ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8")
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
         return hashlib.sha256(encoded).hexdigest()
 
     @property
@@ -104,7 +113,9 @@ class Tokenizer:
         """Tokenizer fingerprints whose ID mappings are preserved as a prefix."""
         extension = self.metadata.get("extension", {})
         ancestors = extension.get("compatible_base_fingerprints", ())
-        if not isinstance(ancestors, list) or not all(isinstance(item, str) for item in ancestors):
+        if not isinstance(ancestors, list) or not all(
+            isinstance(item, str) for item in ancestors
+        ):
             return frozenset()
         return frozenset(ancestors)
 
@@ -118,7 +129,9 @@ class Tokenizer:
     def added_tokens(self) -> tuple[str, ...]:
         extension = self.metadata.get("extension", {})
         values = extension.get("added_token_texts", ())
-        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+        if not isinstance(values, list) or not all(
+            isinstance(item, str) for item in values
+        ):
             return ()
         return tuple(values)
 
@@ -137,7 +150,9 @@ class Tokenizer:
             if not isinstance(text, str) or not text:
                 raise ValueError("extension tokens must be non-empty strings")
             if text in self.special_tokens:
-                raise ValueError(f"special token cannot be added as an ordinary token: {text!r}")
+                raise ValueError(
+                    f"special token cannot be added as an ordinary token: {text!r}"
+                )
             if text in added_texts:
                 continue
             piece = self._text_to_piece(text)
@@ -230,7 +245,11 @@ class Tokenizer:
         chunks = [text]
         if allowed:
             special_pattern = re.compile(
-                "(" + "|".join(re.escape(token) for token in sorted(allowed, key=len, reverse=True)) + ")"
+                "("
+                + "|".join(
+                    re.escape(token) for token in sorted(allowed, key=len, reverse=True)
+                )
+                + ")"
             )
             chunks = special_pattern.split(text)
 
@@ -276,23 +295,31 @@ class Tokenizer:
             if self.tokenizer_type == "word_level":
                 pieces = (token,)
             elif self.tokenizer_type == "byte_level_bpe":
-                pieces = self.bpe.apply(tuple(BYTE_ENCODER[value] for value in token.encode("utf-8")))
+                pieces = self.bpe.apply(
+                    tuple(BYTE_ENCODER[value] for value in token.encode("utf-8"))
+                )
             else:
                 pieces = self.bpe.apply(tuple(token))
             for piece in pieces:
                 identifier = self.vocab.get(piece, unknown_id)
                 if identifier is None:
-                    raise ValueError(f"token piece is absent from vocabulary: {piece!r}")
+                    raise ValueError(
+                        f"token piece is absent from vocabulary: {piece!r}"
+                    )
                 identifiers.append(identifier)
         return identifiers
 
-    def decode(self, identifiers: Iterable[int], *, skip_special_tokens: bool = False) -> str:
+    def decode(
+        self, identifiers: Iterable[int], *, skip_special_tokens: bool = False
+    ) -> str:
         if self.tokenizer_type != "byte_level_bpe":
             output: list[str] = []
             for raw_identifier in identifiers:
                 identifier = int(raw_identifier)
                 if identifier not in self.id_to_token:
-                    raise ValueError(f"token ID is outside the vocabulary: {identifier}")
+                    raise ValueError(
+                        f"token ID is outside the vocabulary: {identifier}"
+                    )
                 if identifier in self.special_ids and skip_special_tokens:
                     continue
                 output.append(self.id_to_token[identifier])
@@ -319,7 +346,9 @@ class Tokenizer:
             try:
                 byte_buffer.extend(BYTE_DECODER[character] for character in piece)
             except KeyError as error:
-                raise ValueError(f"token contains an invalid byte symbol: {piece!r}") from error
+                raise ValueError(
+                    f"token contains an invalid byte symbol: {piece!r}"
+                ) from error
         flush_bytes()
         return "".join(output)
 
@@ -341,7 +370,8 @@ class Tokenizer:
         _atomic_json_dump(destination / "vocab.json", self.vocab)
         _atomic_text_write(
             destination / "merges.txt",
-            "#version: 1\n" + "".join(f"{left} {right}\n" for left, right in self.bpe.merges),
+            "#version: 1\n"
+            + "".join(f"{left} {right}\n" for left, right in self.bpe.merges),
         )
         return artifact
 
@@ -353,7 +383,9 @@ class Tokenizer:
         with artifact.open(encoding="utf-8") as stream:
             payload = json.load(stream)
         if payload.get("version") != TOKENIZER_VERSION:
-            raise ValueError(f"unsupported tokenizer version: {payload.get('version')!r}")
+            raise ValueError(
+                f"unsupported tokenizer version: {payload.get('version')!r}"
+            )
         if payload.get("type") not in TOKENIZER_TYPES:
             raise ValueError(f"unsupported tokenizer type: {payload.get('type')!r}")
         tokenizer = cls(
@@ -365,8 +397,13 @@ class Tokenizer:
             tokenizer_type=payload["type"],
         )
         expected_fingerprint = payload.get("fingerprint")
-        if expected_fingerprint is not None and expected_fingerprint != tokenizer.fingerprint:
-            raise ValueError("tokenizer artifact fingerprint does not match its contents")
+        if (
+            expected_fingerprint is not None
+            and expected_fingerprint != tokenizer.fingerprint
+        ):
+            raise ValueError(
+                "tokenizer artifact fingerprint does not match its contents"
+            )
         return tokenizer
 
     def _text_to_piece(self, text: str) -> str:
@@ -385,18 +422,29 @@ class Tokenizer:
             raise ValueError(f"unknown special tokens: {sorted(unknown)}")
         return result
 
-    def compatibility_report(self, expected_fingerprint: str | None) -> dict[str, object]:
+    def compatibility_report(
+        self, expected_fingerprint: str | None
+    ) -> dict[str, object]:
         """Report exact or append-only compatibility with a checkpoint tokenizer."""
-        compatible = (expected_fingerprint is None or expected_fingerprint == self.fingerprint
-                      or expected_fingerprint in self.compatible_base_fingerprints)
-        return {"expected": expected_fingerprint, "current": self.fingerprint,
-                "vocab_size": self.vocab_size, "compatible": compatible}
+        compatible = (
+            expected_fingerprint is None
+            or expected_fingerprint == self.fingerprint
+            or expected_fingerprint in self.compatible_base_fingerprints
+        )
+        return {
+            "expected": expected_fingerprint,
+            "current": self.fingerprint,
+            "vocab_size": self.vocab_size,
+            "compatible": compatible,
+        }
 
     def _required_special_id(self, token: str) -> int:
         try:
             return self.special_tokens[token]
         except KeyError as error:
-            raise ValueError(f"tokenizer does not define required special token {token!r}") from error
+            raise ValueError(
+                f"tokenizer does not define required special token {token!r}"
+            ) from error
 
 
 def _atomic_json_dump(path: Path, payload: object) -> None:
@@ -404,7 +452,9 @@ def _atomic_json_dump(path: Path, payload: object) -> None:
 
 
 def _atomic_text_write(path: Path, content: str) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
             stream.write(content)

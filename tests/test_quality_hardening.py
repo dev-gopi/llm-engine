@@ -14,7 +14,7 @@ from inference.web_search import search_brave
 from model.feed_forward import SparseMoE
 from multimodal.projector import VisionProjector
 from optim.ema import EMA
-from rag.reranker import HybridReranker, LexicalCrossEncoderBaseline
+from rag.reranker import HybridReranker
 from serving.batching import DynamicBatcher
 from serving.rate_limit import InMemoryRateLimiter
 
@@ -133,7 +133,9 @@ def test_ema_rejects_corrupt_state() -> None:
 def test_embedding_service_can_unit_normalize_vectors() -> None:
     result = EmbeddingService().encode(["alpha beta", "gamma delta"], normalize=True)
     vectors = torch.tensor(result.embeddings)
-    torch.testing.assert_close(vectors.norm(dim=-1), torch.ones(2), atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        vectors.norm(dim=-1), torch.ones(2), atol=1e-5, rtol=1e-5
+    )
 
 
 def test_web_search_rejects_non_http_endpoint_before_network_access() -> None:

@@ -16,12 +16,14 @@ script_directory = str(Path(__file__).resolve().parent)
 if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
     sys.path.pop(0)
 
-from local_dataset.loader import iter_records
 from inference.context import format_system_prompt
+from local_dataset.loader import iter_records
 
 BASE_SYSTEM_PROMPT = "You are Gopi, a helpful assistant. Answer clearly and briefly."
 SYSTEM_PROMPT = format_system_prompt(
-    BASE_SYSTEM_PROMPT, "plain", include_safety_instruction=False,
+    BASE_SYSTEM_PROMPT,
+    "plain",
+    include_safety_instruction=False,
 )
 
 DOMAIN_SOURCES = {
@@ -77,10 +79,16 @@ def extract_pair(record: Mapping[str, Any]) -> tuple[str, str] | None:
         return pairs[-1] if pairs else None
     prompt = record.get("prompt") or record.get("instruction") or record.get("question")
     response = (
-        record.get("chosen") or record.get("response") or record.get("output")
+        record.get("chosen")
+        or record.get("response")
+        or record.get("output")
         or record.get("answer")
     )
-    return (prompt, response) if isinstance(prompt, str) and isinstance(response, str) else None
+    return (
+        (prompt, response)
+        if isinstance(prompt, str) and isinstance(response, str)
+        else None
+    )
 
 
 def quality_pair(pair: tuple[str, str] | None) -> tuple[str, str] | None:
@@ -129,7 +137,9 @@ def prompt_key(prompt: str) -> str:
 
 def make_record(domain: str, source: str, prompt: str, response: str) -> dict[str, Any]:
     return {
-        "id": hashlib.sha256(f"{domain}\0{source}\0{prompt}\0{response}".encode()).hexdigest()[:20],
+        "id": hashlib.sha256(
+            f"{domain}\0{source}\0{prompt}\0{response}".encode()
+        ).hexdigest()[:20],
         "domain": domain,
         "source": source,
         "messages": [
@@ -141,8 +151,13 @@ def make_record(domain: str, source: str, prompt: str, response: str) -> dict[st
 
 
 def collect_records(
-    paths: Iterable[tuple[str, Path]], domain: str, *, excluded_prompts: set[str], limit: int,
-    tokenizer=None, max_length: int = 512,
+    paths: Iterable[tuple[str, Path]],
+    domain: str,
+    *,
+    excluded_prompts: set[str],
+    limit: int,
+    tokenizer=None,
+    max_length: int = 512,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     candidates: dict[str, tuple[str, dict[str, Any]]] = {}
     stats = {"read": 0, "rejected": 0, "duplicate": 0}
@@ -171,7 +186,10 @@ def collect_records(
     for _, item in sorted(candidates.values(), key=lambda item: item[0]):
         if tokenizer is not None:
             from local_dataset.loader import TextDataset
-            identifiers, _ = TextDataset._encode_chat(item["messages"], tokenizer, True, True)
+
+            identifiers, _ = TextDataset._encode_chat(
+                item["messages"], tokenizer, True, True
+            )
             if len(identifiers) > max_length:
                 stats["over_context"] += 1
                 continue
@@ -181,12 +199,22 @@ def collect_records(
     return selected, stats
 
 
-def build_dataset(data_root: Path, output: Path, *, tokenizer=None, max_length: int = 512,
-                  train_limit: int | None = None, validation_limit: int = 1_000) -> dict[str, Any]:
+def build_dataset(
+    data_root: Path,
+    output: Path,
+    *,
+    tokenizer=None,
+    max_length: int = 512,
+    train_limit: int | None = None,
+    validation_limit: int = 1_000,
+) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
-    summary: dict[str, Any] = {"system_prompt": SYSTEM_PROMPT, "domains": {},
-                              "tokenizer_fingerprint": tokenizer.fingerprint if tokenizer else None,
-                              "max_length": max_length if tokenizer else None}
+    summary: dict[str, Any] = {
+        "system_prompt": SYSTEM_PROMPT,
+        "domains": {},
+        "tokenizer_fingerprint": tokenizer.fingerprint if tokenizer else None,
+        "max_length": max_length if tokenizer else None,
+    }
     validation_prompts: set[str] = set()
     validations: dict[str, list[dict[str, Any]]] = {}
     validation_statistics: dict[str, dict[str, int]] = {}
@@ -215,24 +243,32 @@ def build_dataset(data_root: Path, output: Path, *, tokenizer=None, max_length: 
             domain,
             excluded_prompts=validation_prompts,
             limit=validation_limit,
-            tokenizer=tokenizer, max_length=max_length,
+            tokenizer=tokenizer,
+            max_length=max_length,
         )
         validations[domain] = validation
         validation_statistics[domain] = validation_stats
-        validation_prompts.update(prompt_key(item["messages"][1]["content"]) for item in validation)
+        validation_prompts.update(
+            prompt_key(item["messages"][1]["content"]) for item in validation
+        )
 
     for domain, sources in DOMAIN_SOURCES.items():
         validation = validations[domain]
         validation_stats = validation_statistics[domain]
-        training_paths = [(source, data_root / source / "train.jsonl") for source in sources]
+        training_paths = [
+            (source, data_root / source / "train.jsonl") for source in sources
+        ]
         training, training_stats = collect_records(
             training_paths,
             domain,
             excluded_prompts=held_out_prompts,
             limit=train_limit if train_limit is not None else TRAIN_LIMITS[domain],
-            tokenizer=tokenizer, max_length=max_length,
+            tokenizer=tokenizer,
+            max_length=max_length,
         )
-        held_out_prompts.update(prompt_key(item["messages"][1]["content"]) for item in training)
+        held_out_prompts.update(
+            prompt_key(item["messages"][1]["content"]) for item in training
+        )
         domain_dir = output / domain
         domain_dir.mkdir(parents=True, exist_ok=True)
         manifest = {
@@ -249,37 +285,68 @@ def build_dataset(data_root: Path, output: Path, *, tokenizer=None, max_length: 
             "privacy_review": "unreviewed",
         }
         import yaml
+
         (domain_dir / "dataset-manifest.yaml").write_text(
             yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8"
         )
         for split, records in (("train", training), ("validation", validation)):
             with (domain_dir / f"{split}.jsonl").open("w", encoding="utf-8") as stream:
                 for record in records:
-                    stream.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+                    stream.write(
+                        json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+                        + "\n"
+                    )
         summary["domains"][domain] = {
-            "train": len(training), "validation": len(validation),
-            "train_stats": training_stats, "validation_stats": validation_stats,
+            "train": len(training),
+            "validation": len(validation),
+            "train_stats": training_stats,
+            "validation_stats": validation_stats,
         }
-    (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output / "summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
     return summary
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=Path("data/processed"))
-    parser.add_argument("--output", type=Path, default=Path("data/processed/recovery_sft"))
-    parser.add_argument("--tokenizer", type=Path, help="reject complete conversations that exceed context")
+    parser.add_argument(
+        "--output", type=Path, default=Path("data/processed/recovery_sft")
+    )
+    parser.add_argument(
+        "--tokenizer",
+        type=Path,
+        help="reject complete conversations that exceed context",
+    )
     parser.add_argument("--max-length", type=int, default=512)
-    parser.add_argument("--train-limit", type=int, help="maximum accepted examples per domain")
+    parser.add_argument(
+        "--train-limit", type=int, help="maximum accepted examples per domain"
+    )
     parser.add_argument("--validation-limit", type=int, default=1_000)
     args = parser.parse_args()
-    if args.max_length < 2 or args.validation_limit < 1 or (args.train_limit is not None and args.train_limit < 1):
+    if (
+        args.max_length < 2
+        or args.validation_limit < 1
+        or (args.train_limit is not None and args.train_limit < 1)
+    ):
         parser.error("limits must be positive and max-length at least 2")
     from tokenizer.encoder import Tokenizer
+
     tokenizer = Tokenizer.load(args.tokenizer) if args.tokenizer else None
-    print(json.dumps(build_dataset(args.data_root, args.output, tokenizer=tokenizer,
-                                  max_length=args.max_length, train_limit=args.train_limit,
-                                  validation_limit=args.validation_limit), indent=2))
+    print(
+        json.dumps(
+            build_dataset(
+                args.data_root,
+                args.output,
+                tokenizer=tokenizer,
+                max_length=args.max_length,
+                train_limit=args.train_limit,
+                validation_limit=args.validation_limit,
+            ),
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

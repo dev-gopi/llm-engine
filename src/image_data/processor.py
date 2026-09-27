@@ -16,7 +16,9 @@ def _pillow_modules() -> tuple[Any, Any, Any]:
     try:
         from PIL import Image, ImageEnhance, ImageOps
     except ImportError as error:  # pragma: no cover
-        raise RuntimeError("image support requires: pip install -e '.[images]'") from error
+        raise RuntimeError(
+            "image support requires: pip install -e '.[images]'"
+        ) from error
     return Image, ImageEnhance, ImageOps
 
 
@@ -33,22 +35,28 @@ class ImageProcessor:
     max_source_pixels: int | None = 100_000_000
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any], *, training: bool = False) -> ImageProcessor:
+    def from_config(
+        cls, config: Mapping[str, Any], *, training: bool = False
+    ) -> ImageProcessor:
         flip_probability = float(config.get("horizontal_flip_probability", 0.5))
         if not bool(config.get("horizontal_flip", True)):
             flip_probability = 0.0
         return cls(
             image_size=int(config["image_size"]),
-            resize_mode=str(config.get(
-                "train_resize_mode" if training else "eval_resize_mode",
-                "random_crop" if training else "center_crop",
-            )),
+            resize_mode=str(
+                config.get(
+                    "train_resize_mode" if training else "eval_resize_mode",
+                    "random_crop" if training else "center_crop",
+                )
+            ),
             normalization=str(config.get("image_normalization", "minus_one_one")),
             augment=training,
             horizontal_flip_probability=flip_probability,
             color_jitter=float(config.get("color_jitter", 0.0)),
             max_source_pixels=(
-                int(config["max_source_pixels"]) if config.get("max_source_pixels") is not None else None
+                int(config["max_source_pixels"])
+                if config.get("max_source_pixels") is not None
+                else None
             ),
         )
 
@@ -58,7 +66,9 @@ class ImageProcessor:
         if self.resize_mode not in {"stretch", "center_crop", "random_crop"}:
             raise ValueError("resize_mode must be stretch, center_crop, or random_crop")
         if self.normalization not in {"minus_one_one", "zero_one", "imagenet"}:
-            raise ValueError("normalization must be minus_one_one, zero_one, or imagenet")
+            raise ValueError(
+                "normalization must be minus_one_one, zero_one, or imagenet"
+            )
         if not 0 <= self.horizontal_flip_probability <= 1:
             raise ValueError("horizontal_flip_probability must be between zero and one")
         if not 0 <= self.color_jitter <= 1:
@@ -72,7 +82,10 @@ class ImageProcessor:
         if not source.is_file():
             raise FileNotFoundError(f"image not found: {source}")
         with image_module.open(source) as opened:
-            if self.max_source_pixels is not None and opened.width * opened.height > self.max_source_pixels:
+            if (
+                self.max_source_pixels is not None
+                and opened.width * opened.height > self.max_source_pixels
+            ):
                 raise ValueError(
                     f"source image exceeds max_source_pixels={self.max_source_pixels}"
                 )
@@ -102,8 +115,11 @@ class ImageProcessor:
         width, height = image.size
         scale = self.image_size / min(width, height)
         resized = image.resize(
-            (max(self.image_size, round(width * scale)),
-             max(self.image_size, round(height * scale))), resampling
+            (
+                max(self.image_size, round(width * scale)),
+                max(self.image_size, round(height * scale)),
+            ),
+            resampling,
         )
         left_max = resized.width - self.image_size
         top_max = resized.height - self.image_size

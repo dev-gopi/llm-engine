@@ -18,7 +18,9 @@ def test_adamw_groups_scheduler_and_ema() -> None:
     scheduler.step()
     ema.update(model)
     assert ema.num_updates == 1
-    assert any(not torch.equal(before[name], value) for name, value in ema.shadow.items())
+    assert any(
+        not torch.equal(before[name], value) for name, value in ema.shadow.items()
+    )
 
 
 def test_ema_average_context_restores_parameters() -> None:
@@ -47,6 +49,7 @@ def test_ema_average_context_supports_cpu_backup() -> None:
 
 def test_auto_fused_optimizer_uses_cpu_fallback():
     from optim.adamw import adamw_from_config
+
     model = nn.Linear(2, 2)
     optimizer = adamw_from_config(model, {"fused_optimizer": "auto"})
     assert optimizer.defaults["fused"] is False
@@ -56,5 +59,6 @@ def test_auto_fused_optimizer_uses_cpu_fallback():
 
 def test_invalid_fused_optimizer_is_rejected():
     import pytest
+
     with pytest.raises(ValueError, match="fused_optimizer"):
         build_adamw(nn.Linear(2, 2), fused="yes")

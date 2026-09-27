@@ -1,4 +1,5 @@
 """Typed errors shared by multimodal providers, jobs, storage, and APIs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,7 +32,9 @@ class GenerationValidationError(OmniError):
 
 
 class GenerationFailedError(OmniError):
-    def __init__(self, message: str = "generation failed", *, retryable: bool = True) -> None:
+    def __init__(
+        self, message: str = "generation failed", *, retryable: bool = True
+    ) -> None:
         super().__init__(message, "generation_failed", 500, retryable)
 
 

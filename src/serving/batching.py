@@ -102,7 +102,9 @@ class DynamicBatcher:
                         item.future.cancel()
                 raise
             except Exception as error:
-                logger.exception("Batch generation failed for %d requests: %s", len(active), error)
+                logger.exception(
+                    "Batch generation failed for %d requests: %s", len(active), error
+                )
                 for item in active:
                     if not item.future.cancelled() and not item.future.done():
                         item.future.set_exception(error)

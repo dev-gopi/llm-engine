@@ -213,7 +213,11 @@ class SparseMoE(nn.Module):
         dtype: torch.dtype | None = None,
     ) -> None:
         super().__init__()
-        if not isinstance(num_experts, int) or isinstance(num_experts, bool) or num_experts < 1:
+        if (
+            not isinstance(num_experts, int)
+            or isinstance(num_experts, bool)
+            or num_experts < 1
+        ):
             raise ValueError("num_experts must be a positive integer")
         if (
             not isinstance(experts_per_token, int)
@@ -227,16 +231,24 @@ class SparseMoE(nn.Module):
             not math.isfinite(capacity_factor) or capacity_factor <= 0
         ):
             raise ValueError("capacity_factor must be finite and positive, or None")
-        if not isinstance(min_capacity, int) or isinstance(min_capacity, bool) or min_capacity < 0:
+        if (
+            not isinstance(min_capacity, int)
+            or isinstance(min_capacity, bool)
+            or min_capacity < 0
+        ):
             raise ValueError("min_capacity must be a non-negative integer")
 
         self.dim = dim
         self.num_experts = num_experts
         self.experts_per_token = experts_per_token
         self.router_jitter = float(router_jitter)
-        self.capacity_factor = float(capacity_factor) if capacity_factor is not None else None
+        self.capacity_factor = (
+            float(capacity_factor) if capacity_factor is not None else None
+        )
         self.min_capacity = min_capacity
-        self.router = nn.Linear(dim, num_experts, bias=router_bias, device=device, dtype=dtype)
+        self.router = nn.Linear(
+            dim, num_experts, bias=router_bias, device=device, dtype=dtype
+        )
         nn.init.normal_(self.router.weight, mean=0.0, std=initializer_range)
         if self.router.bias is not None:
             nn.init.zeros_(self.router.bias)
@@ -304,7 +316,9 @@ class SparseMoE(nn.Module):
         hard_routes = F.one_hot(top_experts, num_classes=self.num_experts).float()
         load = hard_routes.mean(dim=(0, 1))
         self.last_router_aux_loss = self.num_experts * torch.sum(importance * load)
-        self.last_router_z_loss = torch.logsumexp(router_logits.float(), dim=-1).square().mean()
+        self.last_router_z_loss = (
+            torch.logsumexp(router_logits.float(), dim=-1).square().mean()
+        )
 
         capacity = self._capacity(token_count)
         self.last_expert_capacity = capacity
@@ -316,15 +330,21 @@ class SparseMoE(nn.Module):
         # strongest routes for each expert deterministically and renormalize the
         # kept weights per token so overflow does not silently shrink activations.
         kept_by_expert: list[tuple[Tensor, Tensor, Tensor]] = []
-        kept_weight_sum = torch.zeros(token_count, device=tokens.device, dtype=tokens.dtype)
+        kept_weight_sum = torch.zeros(
+            token_count, device=tokens.device, dtype=tokens.dtype
+        )
         for expert_index in range(self.num_experts):
             token_index, route_index = torch.where(top_experts == expert_index)
             if token_index.numel() == 0:
-                kept_by_expert.append((token_index, route_index, top_weights.new_empty((0,))))
+                kept_by_expert.append(
+                    (token_index, route_index, top_weights.new_empty((0,)))
+                )
                 continue
             weights = top_weights[token_index, route_index]
             if capacity is not None and token_index.numel() > capacity:
-                keep_order = torch.argsort(weights, descending=True, stable=True)[:capacity]
+                keep_order = torch.argsort(weights, descending=True, stable=True)[
+                    :capacity
+                ]
                 dropped_routes += int(token_index.numel() - capacity)
                 token_index = token_index.index_select(0, keep_order)
                 route_index = route_index.index_select(0, keep_order)
@@ -344,10 +364,11 @@ class SparseMoE(nn.Module):
             output.index_add_(0, token_index, expert_output * normalized_weights)
 
         with torch.no_grad():
-            entropy = -(
-                router_probabilities
-                * router_probabilities.clamp_min(1e-12).log()
-            ).sum(dim=-1).mean()
+            entropy = (
+                -(router_probabilities * router_probabilities.clamp_min(1e-12).log())
+                .sum(dim=-1)
+                .mean()
+            )
             self.last_router_entropy = float(entropy)
             self.last_expert_load = tuple(float(value) for value in load)
             self.last_dropped_route_fraction = dropped_routes / max(total_routes, 1)

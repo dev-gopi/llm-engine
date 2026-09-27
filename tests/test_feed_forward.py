@@ -93,7 +93,9 @@ def test_backward_produces_finite_gradients():
     assert hidden_states.grad is not None
     assert torch.isfinite(hidden_states.grad).all()
     assert all(parameter.grad is not None for parameter in module.parameters())
-    assert all(torch.isfinite(parameter.grad).all() for parameter in module.parameters())
+    assert all(
+        torch.isfinite(parameter.grad).all() for parameter in module.parameters()
+    )
 
 
 def test_dtype_and_two_dimensional_input():

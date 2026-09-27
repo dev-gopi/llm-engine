@@ -1,8 +1,11 @@
 """Inference presets and prompt helpers for production media generation."""
+
 from __future__ import annotations
-from dataclasses import dataclass
+
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
+
 
 @dataclass(frozen=True)
 class InferencePreset:
@@ -10,6 +13,7 @@ class InferencePreset:
     steps: int
     guidance_scale: float
     eta: float = 0.0
+
 
 DEFAULT_PRESETS: dict[str, InferencePreset] = {
     "draft": InferencePreset("draft", 20, 3.5, 0.0),
@@ -40,7 +44,12 @@ def resolve_preset(name: str | None, config: Mapping[str, Any]) -> InferencePres
     custom = config.get("inference_presets", {}) or {}
     if key in custom:
         values = custom[key]
-        return InferencePreset(key, int(values["steps"]), float(values["guidance_scale"]), float(values.get("eta", 0.0)))
+        return InferencePreset(
+            key,
+            int(values["steps"]),
+            float(values["guidance_scale"]),
+            float(values.get("eta", 0.0)),
+        )
     if key not in DEFAULT_PRESETS:
         raise ValueError(f"unknown inference preset: {name}")
     return DEFAULT_PRESETS[key]

@@ -5,6 +5,7 @@ introducing a second vision stack. Audio is transcribed by a configured ASR
 provider. Video is sampled safely with FFmpeg into image data URLs and may also
 include an ASR transcript of its audio track.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -60,7 +61,9 @@ def _asset_record(store: AssetStore, asset_id: str, prefix: str):
     except KeyError as exc:
         raise MediaValidationError(f"asset not found: {asset_id}") from exc
     if not record.mime_type.startswith(prefix):
-        raise MediaValidationError(f"asset {asset_id} must be {prefix.rstrip('/')} media")
+        raise MediaValidationError(
+            f"asset {asset_id} must be {prefix.rstrip('/')} media"
+        )
     return record
 
 
@@ -69,7 +72,9 @@ def _image_asset_url(store: AssetStore, asset_id: str) -> str:
     path = Path(record.path)
     limit = int(os.getenv("GOPI_OMNI_MAX_INLINE_IMAGE_BYTES", str(16 * 1024 * 1024)))
     if record.size_bytes > limit:
-        raise MediaValidationError(f"image asset exceeds inline vision limit of {limit} bytes")
+        raise MediaValidationError(
+            f"image asset exceeds inline vision limit of {limit} bytes"
+        )
     return _data_url(path.read_bytes(), record.mime_type)
 
 
@@ -99,10 +104,17 @@ async def _transcribe_asset(
 ) -> str:
     record = _asset_record(store, asset_id, "audio/")
     if asr is None or not asr.is_available():
-        raise ProviderUnavailableError("audio input requires a configured and ready speech-to-text provider")
+        raise ProviderUnavailableError(
+            "audio input requires a configured and ready speech-to-text provider"
+        )
     result = await asyncio.to_thread(
         asr.transcribe,
-        {"path": record.path, "language": language, "timestamps": False, "task": "transcribe"},
+        {
+            "path": record.path,
+            "language": language,
+            "timestamps": False,
+            "task": "transcribe",
+        },
         ProviderContext(request_id=request_id),
     )
     text = str(result.get("text", "")).strip()
@@ -125,7 +137,9 @@ async def _video_parts(
     probe = await asyncio.to_thread(ff.probe, record.path)
     duration = _probe_duration(probe)
     hard_limit = max(1, min(32, int(os.getenv("GOPI_OMNI_VIDEO_MAX_FRAMES", "8"))))
-    count = min(max_frames or int(os.getenv("GOPI_OMNI_VIDEO_DEFAULT_FRAMES", "6")), hard_limit)
+    count = min(
+        max_frames or int(os.getenv("GOPI_OMNI_VIDEO_DEFAULT_FRAMES", "6")), hard_limit
+    )
     parts: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     transcript: str | None = None
@@ -133,16 +147,37 @@ async def _video_parts(
         root = Path(tmp)
         for index, at in enumerate(_sample_times(duration, count)):
             frame = root / f"frame-{index:03d}.jpg"
-            await asyncio.to_thread(ff.extract_thumbnail, record.path, frame, at_seconds=at)
-            parts.append({"type": "image_url", "image_url": {"url": _data_url(frame.read_bytes(), "image/jpeg"), "detail": "auto"}})
-            events.append({"type": "response.input_video.frame.sampled", "index": index, "timestamp": at})
+            await asyncio.to_thread(
+                ff.extract_thumbnail, record.path, frame, at_seconds=at
+            )
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": _data_url(frame.read_bytes(), "image/jpeg"),
+                        "detail": "auto",
+                    },
+                }
+            )
+            events.append(
+                {
+                    "type": "response.input_video.frame.sampled",
+                    "index": index,
+                    "timestamp": at,
+                }
+            )
         if asr is not None and asr.is_available():
             audio = root / "audio.wav"
             try:
                 await asyncio.to_thread(ff.extract_audio, record.path, audio)
                 result = await asyncio.to_thread(
                     asr.transcribe,
-                    {"path": str(audio), "language": language, "timestamps": False, "task": "transcribe"},
+                    {
+                        "path": str(audio),
+                        "language": language,
+                        "timestamps": False,
+                        "task": "transcribe",
+                    },
                     ProviderContext(request_id=request_id),
                 )
                 transcript = str(result.get("text", "")).strip() or None
@@ -157,13 +192,19 @@ async def _video_parts(
     preface += "]"
     if transcript:
         preface += f"\n[Audio transcript]\n{transcript}"
-        events.append({"type": "response.input_video.transcription.completed", "text": transcript})
-    return ([{"type": "text", "text": preface}] + parts), {
-        "asset_id": asset_id,
-        "duration_seconds": duration,
-        "sampled_frames": count,
-        "audio_transcribed": bool(transcript),
-    }, events
+        events.append(
+            {"type": "response.input_video.transcription.completed", "text": transcript}
+        )
+    return (
+        ([{"type": "text", "text": preface}] + parts),
+        {
+            "asset_id": asset_id,
+            "duration_seconds": duration,
+            "sampled_frames": count,
+            "audio_transcribed": bool(transcript),
+        },
+        events,
+    )
 
 
 async def prepare_responses_input(
@@ -173,14 +214,24 @@ async def prepare_responses_input(
     asr: HuggingFaceASRProvider | None = None,
 ) -> PreparedMultimodalInput:
     if isinstance(input_value, str):
-        return PreparedMultimodalInput(messages=[{"role": "user", "content": input_value}])
-    store = asset_store or AssetStore(os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets"))
+        return PreparedMultimodalInput(
+            messages=[{"role": "user", "content": input_value}]
+        )
+    store = asset_store or AssetStore(
+        os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets")
+    )
     messages: list[dict[str, Any]] = []
-    metadata: dict[str, Any] = {"audio_inputs": [], "video_inputs": [], "image_inputs": 0}
+    metadata: dict[str, Any] = {
+        "audio_inputs": [],
+        "video_inputs": [],
+        "image_inputs": 0,
+    }
     events: list[dict[str, Any]] = []
     request_id = f"prep_{uuid.uuid4().hex}"
     for item in input_value:
-        raw = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+        raw = (
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+        )
         role = raw.get("role", "user")
         content = raw.get("content")
         if isinstance(content, str):
@@ -195,15 +246,34 @@ async def prepare_responses_input(
                 out.append({"type": "text", "text": part["text"]})
             elif kind == "input_image":
                 url = part.get("image_url") or _image_asset_url(store, part["asset_id"])
-                out.append({"type": "image_url", "image_url": {"url": url, "detail": part.get("detail", "auto")}})
+                out.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": url, "detail": part.get("detail", "auto")},
+                    }
+                )
                 metadata["image_inputs"] += 1
             elif kind == "input_audio":
                 transcript = await _transcribe_asset(
-                    store, part["asset_id"], language=part.get("language"), asr=asr, request_id=request_id
+                    store,
+                    part["asset_id"],
+                    language=part.get("language"),
+                    asr=asr,
+                    request_id=request_id,
                 )
-                out.append({"type": "text", "text": f"[Audio transcript]\n{transcript}"})
-                metadata["audio_inputs"].append({"asset_id": part["asset_id"], "transcribed": True})
-                events.append({"type": "response.input_audio.transcription.completed", "asset_id": part["asset_id"], "text": transcript})
+                out.append(
+                    {"type": "text", "text": f"[Audio transcript]\n{transcript}"}
+                )
+                metadata["audio_inputs"].append(
+                    {"asset_id": part["asset_id"], "transcribed": True}
+                )
+                events.append(
+                    {
+                        "type": "response.input_audio.transcription.completed",
+                        "asset_id": part["asset_id"],
+                        "text": transcript,
+                    }
+                )
             elif kind == "input_video":
                 video_parts, video_meta, video_events = await _video_parts(
                     store,
@@ -235,8 +305,12 @@ async def synthesize_response_audio(
     path or an unbounded base64 payload.
     """
     if tts is None or not tts.is_available():
-        raise ProviderUnavailableError("audio output requires a configured and ready text-to-speech provider")
-    store = asset_store or AssetStore(os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets"))
+        raise ProviderUnavailableError(
+            "audio output requires a configured and ready text-to-speech provider"
+        )
+    store = asset_store or AssetStore(
+        os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets")
+    )
     result = await asyncio.to_thread(
         tts.synthesize,
         {"text": text},
@@ -246,7 +320,11 @@ async def synthesize_response_audio(
         raise MediaValidationError("text-to-speech provider returned no audio artifact")
     artifact = result.artifacts[0]
     payload = artifact.path.read_bytes()
-    record = store.put(payload, mime_type=artifact.mime_type or "audio/wav", filename=f"{request_id}.wav")
+    record = store.put(
+        payload,
+        mime_type=artifact.mime_type or "audio/wav",
+        filename=f"{request_id}.wav",
+    )
     return {
         "asset_id": record.id,
         "mime_type": record.mime_type,

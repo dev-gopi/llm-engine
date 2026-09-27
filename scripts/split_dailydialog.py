@@ -31,9 +31,21 @@ def split_records(
         groups[dialogue_id].append(record)
     group_ids = sorted(groups)
     random.Random(seed).shuffle(group_ids)
-    validation_groups = set(group_ids[:max(1, round(len(group_ids) * validation_ratio))])
-    train = [record for group in group_ids if group not in validation_groups for record in groups[group]]
-    validation = [record for group in group_ids if group in validation_groups for record in groups[group]]
+    validation_groups = set(
+        group_ids[: max(1, round(len(group_ids) * validation_ratio))]
+    )
+    train = [
+        record
+        for group in group_ids
+        if group not in validation_groups
+        for record in groups[group]
+    ]
+    validation = [
+        record
+        for group in group_ids
+        if group in validation_groups
+        for record in groups[group]
+    ]
     for path, split in ((train_output, train), (validation_output, validation)):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -45,15 +57,30 @@ def split_records(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=Path("data/processed/dailydialog/dailydialog-conversations.json"))
-    parser.add_argument("--train-output", type=Path, default=Path("data/processed/dailydialog/train.jsonl"))
-    parser.add_argument("--validation-output", type=Path, default=Path("data/processed/dailydialog/validation.jsonl"))
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=Path("data/processed/dailydialog/dailydialog-conversations.json"),
+    )
+    parser.add_argument(
+        "--train-output",
+        type=Path,
+        default=Path("data/processed/dailydialog/train.jsonl"),
+    )
+    parser.add_argument(
+        "--validation-output",
+        type=Path,
+        default=Path("data/processed/dailydialog/validation.jsonl"),
+    )
     parser.add_argument("--validation-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     train, validation = split_records(
-        args.source, args.train_output, args.validation_output,
-        validation_ratio=args.validation_ratio, seed=args.seed,
+        args.source,
+        args.train_output,
+        args.validation_output,
+        validation_ratio=args.validation_ratio,
+        seed=args.seed,
     )
     print(json.dumps({"train": train, "validation": validation}, indent=2))
 

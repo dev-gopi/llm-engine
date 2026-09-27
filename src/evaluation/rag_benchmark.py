@@ -1,4 +1,5 @@
 """Retrieval, reranking, faithfulness and citation benchmark primitives."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -50,8 +51,15 @@ def _reciprocal_rank(order: Sequence[str], relevant: frozenset[str]) -> float:
 
 def _ndcg(order: Sequence[str], relevant: frozenset[str]) -> float:
     import math
-    dcg = sum((1.0 / math.log2(index + 2)) for index, identifier in enumerate(order) if identifier in relevant)
-    ideal = sum((1.0 / math.log2(index + 2)) for index in range(min(len(relevant), len(order))))
+
+    dcg = sum(
+        (1.0 / math.log2(index + 2))
+        for index, identifier in enumerate(order)
+        if identifier in relevant
+    )
+    ideal = sum(
+        (1.0 / math.log2(index + 2)) for index in range(min(len(relevant), len(order)))
+    )
     return dcg / ideal if ideal else 0.0
 
 
@@ -76,7 +84,9 @@ def evaluate_rag(
     ndcg = 0.0
     faithful = 0
     cited = 0
-    for index, (case, candidates) in enumerate(zip(cases, candidate_lists, strict=True)):
+    for index, (case, candidates) in enumerate(
+        zip(cases, candidate_lists, strict=True)
+    ):
         initial = [doc.id for doc in candidates[:top_k]]
         retrieval_hits += int(bool(case.relevant_ids.intersection(initial)))
         ranked = reranker.rerank(case.query, candidates, top_k=top_k)

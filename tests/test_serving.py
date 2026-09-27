@@ -64,7 +64,9 @@ def settings(**overrides):
 async def send_request(app, method, path, **kwargs):
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
             return await client.request(method, path, **kwargs)
 
 
@@ -89,8 +91,12 @@ def test_api_key_rate_limit_and_metrics():
     unauthorized = request(app, "POST", "/v1/generate", json={"prompt": "hello"})
     assert unauthorized.status_code == 401
     headers = {"Authorization": "Bearer secret"}
-    accepted = request(app, "POST", "/v1/generate", json={"prompt": "hello"}, headers=headers)
-    limited = request(app, "POST", "/v1/generate", json={"prompt": "again"}, headers=headers)
+    accepted = request(
+        app, "POST", "/v1/generate", json={"prompt": "hello"}, headers=headers
+    )
+    limited = request(
+        app, "POST", "/v1/generate", json={"prompt": "again"}, headers=headers
+    )
     assert accepted.status_code == 200
     assert limited.status_code == 429
     metrics = request(app, "GET", "/metrics").json()
@@ -98,9 +104,13 @@ def test_api_key_rate_limit_and_metrics():
 
 
 def test_authenticated_audit_log_records_protected_operations_without_prompt_content():
-    app = create_app(FakeBackend(), settings=settings(api_key="secret", audit_log_capacity=2))
+    app = create_app(
+        FakeBackend(), settings=settings(api_key="secret", audit_log_capacity=2)
+    )
     headers = {"Authorization": "Bearer secret", "X-Request-ID": "audit-123"}
-    accepted = request(app, "POST", "/v1/generate", json={"prompt": "private prompt"}, headers=headers)
+    accepted = request(
+        app, "POST", "/v1/generate", json={"prompt": "private prompt"}, headers=headers
+    )
     assert accepted.status_code == 200
     events = request(app, "GET", "/v1/audit/events", headers=headers)
     assert events.status_code == 200
@@ -118,23 +128,39 @@ def test_session_memory_access_is_opt_in_authenticated_and_deletable(tmp_path):
 
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: index for index, piece in enumerate(pieces)}
-    tokenizer = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    tokenizer = Tokenizer(
+        vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
+    )
     backend = FakeBackend()
-    backend.sessions = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer, max_tokens=64, system_prompt="")
+    backend.sessions = SQLiteSessionStore(
+        tmp_path / "sessions.sqlite", tokenizer, max_tokens=64, system_prompt=""
+    )
     memory = backend.sessions.load("alice")
     memory.add("user", "private preference")
     backend.sessions.save("alice", memory)
     headers = {"Authorization": "Bearer secret"}
 
-    disabled = request(create_app(backend, settings=settings(api_key="secret")), "GET", "/v1/sessions/alice/memory", headers=headers)
+    disabled = request(
+        create_app(backend, settings=settings(api_key="secret")),
+        "GET",
+        "/v1/sessions/alice/memory",
+        headers=headers,
+    )
     assert disabled.status_code == 403
-    app = create_app(backend, settings=settings(api_key="secret", session_memory_enabled=True))
+    app = create_app(
+        backend, settings=settings(api_key="secret", session_memory_enabled=True)
+    )
     loaded = request(app, "GET", "/v1/sessions/alice/memory", headers=headers)
     assert loaded.status_code == 200
     assert loaded.json()["messages"][-1]["content"] == "private preference"
     deleted = request(app, "DELETE", "/v1/sessions/alice/memory", headers=headers)
     assert deleted.status_code == 200 and deleted.json()["deleted"]
-    assert request(app, "GET", "/v1/sessions/alice/memory", headers=headers).json()["messages"] == []
+    assert (
+        request(app, "GET", "/v1/sessions/alice/memory", headers=headers).json()[
+            "messages"
+        ]
+        == []
+    )
 
 
 def test_session_context_api_reports_token_usage_and_compacts_history(tmp_path):
@@ -144,27 +170,47 @@ def test_session_context_api_reports_token_usage_and_compacts_history(tmp_path):
 
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: index for index, piece in enumerate(pieces)}
-    tokenizer = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    tokenizer = Tokenizer(
+        vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
+    )
     backend = FakeBackend()
-    backend.sessions = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer, max_tokens=32, system_prompt="system")
+    backend.sessions = SQLiteSessionStore(
+        tmp_path / "sessions.sqlite", tokenizer, max_tokens=32, system_prompt="system"
+    )
     memory = backend.sessions.load("alice")
     memory.add("user", "first message with enough words to be compacted")
     memory.add("assistant", "first response with enough words to be compacted")
     memory.add("user", "latest question")
     backend.sessions.save("alice", memory)
-    app = create_app(backend, settings=settings(api_key="secret", session_memory_enabled=True))
+    app = create_app(
+        backend, settings=settings(api_key="secret", session_memory_enabled=True)
+    )
     headers = {"Authorization": "Bearer secret"}
 
-    info = request(app, "GET", "/v1/sessions/alice/context?reserve_tokens=8", headers=headers)
+    info = request(
+        app, "GET", "/v1/sessions/alice/context?reserve_tokens=8", headers=headers
+    )
     assert info.status_code == 200
     payload = info.json()
     assert payload["context_window_tokens"] == 32
     assert payload["categories"]["system_instructions"] > 0
     assert payload["categories"]["tool_definitions"] == 0
-    assert payload["non_persisted_categories"] == ["tool_definitions", "files", "tool_results"]
-    compacted = request(app, "POST", "/v1/sessions/alice/context/compact?reserve_tokens=8", headers=headers)
+    assert payload["non_persisted_categories"] == [
+        "tool_definitions",
+        "files",
+        "tool_results",
+    ]
+    compacted = request(
+        app,
+        "POST",
+        "/v1/sessions/alice/context/compact?reserve_tokens=8",
+        headers=headers,
+    )
     assert compacted.status_code == 200
-    assert compacted.json()["after"]["used_tokens"] <= compacted.json()["before"]["used_tokens"]
+    assert (
+        compacted.json()["after"]["used_tokens"]
+        <= compacted.json()["before"]["used_tokens"]
+    )
 
 
 def test_runtime_selects_token_step_scheduler_for_capable_backend():
@@ -176,16 +222,24 @@ def test_runtime_selects_token_step_scheduler_for_capable_backend():
             output = []
             for state in states:
                 state[1] += 1
-                output.append((BackendStreamEvent(
-                    token=state[0], completion_tokens=state[1],
-                    finish_reason=FinishReason.STOP if state[1] == 1 else None,
-                ), state[1] == 1))
+                output.append(
+                    (
+                        BackendStreamEvent(
+                            token=state[0],
+                            completion_tokens=state[1],
+                            finish_reason=FinishReason.STOP if state[1] == 1 else None,
+                        ),
+                        state[1] == 1,
+                    )
+                )
             return output
 
     async def scenario():
         runtime = ServingRuntime(TokenBackend(), continuous_streams=4)
         await runtime.startup()
-        events = [event async for event in runtime.stream(GenerateRequest(prompt="batched"))]
+        events = [
+            event async for event in runtime.stream(GenerateRequest(prompt="batched"))
+        ]
         metrics = runtime.metrics()
         await runtime.shutdown()
         return events, metrics
@@ -232,7 +286,9 @@ def test_backend_lifecycle_and_readiness():
         async with app.router.lifespan_context(app):
             assert backend.started
             transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
                 response = await client.get("/health/ready")
                 assert response.status_code == 200
         assert backend.stopped
@@ -249,11 +305,13 @@ def test_browser_playground_is_served():
     assert 'id="attachments"' in response.text
     assert 'id="stopButton"' in response.text
     assert 'aria-label="Stop generation"' in response.text
-    assert 'audio/wav' in response.text
-    assert 'video/mp4' in response.text
+    assert "audio/wav" in response.text
+    assert "video/mp4" in response.text
     assert 'id="reasoningEffort"' in response.text
     assert 'id="modelSummary"' in response.text
-    script = request(create_app(FakeBackend(), settings=settings()), "GET", "/ui/app.js")
+    script = request(
+        create_app(FakeBackend(), settings=settings()), "GET", "/ui/app.js"
+    )
     assert "mcp_server:" in script.text
     assert "reasoning_effort:" in script.text
     assert "uploadMediaAsset" in script.text
@@ -264,8 +322,14 @@ def test_browser_playground_is_served():
 def test_health_reports_whether_the_browser_must_supply_an_api_key():
     open_app = create_app(FakeBackend(), settings=settings())
     protected_app = create_app(FakeBackend(), settings=settings(api_key="secret"))
-    assert request(open_app, "GET", "/health/ready").json()["authentication_required"] is False
-    assert request(protected_app, "GET", "/health/ready").json()["authentication_required"] is True
+    assert (
+        request(open_app, "GET", "/health/ready").json()["authentication_required"]
+        is False
+    )
+    assert (
+        request(protected_app, "GET", "/health/ready").json()["authentication_required"]
+        is True
+    )
 
 
 def test_swagger_redoc_and_openapi_schema_are_served():
@@ -289,9 +353,12 @@ def test_swagger_redoc_and_openapi_schema_are_served():
 
 def test_workspace_agent_is_disabled_by_default():
     app = create_app(FakeBackend(), settings=settings())
-    response = request(app, "POST", "/v1/workspace/actions", json={
-        "actions": [{"type": "read", "path": "README.md"}]
-    })
+    response = request(
+        app,
+        "POST",
+        "/v1/workspace/actions",
+        json={"actions": [{"type": "read", "path": "README.md"}]},
+    )
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "workspace_agent_disabled"
 
@@ -307,7 +374,9 @@ def test_authenticated_workspace_agent_reads_files(tmp_path, monkeypatch):
     )
     app = create_app(FakeBackend(), settings=configured)
     response = request(
-        app, "POST", "/v1/workspace/actions",
+        app,
+        "POST",
+        "/v1/workspace/actions",
         headers={"Authorization": "Bearer secret"},
         json={"actions": [{"type": "read", "path": "example.txt"}]},
     )
@@ -316,12 +385,21 @@ def test_authenticated_workspace_agent_reads_files(tmp_path, monkeypatch):
 
 
 def test_generate_request_validates_text_attachments():
-    request_model = GenerateRequest(prompt="review", attachments=[{
-        "name": "example.py", "content": "print('ok')", "media_type": "text/x-code"
-    }])
+    request_model = GenerateRequest(
+        prompt="review",
+        attachments=[
+            {
+                "name": "example.py",
+                "content": "print('ok')",
+                "media_type": "text/x-code",
+            }
+        ],
+    )
     assert request_model.attachments[0].name == "example.py"
     with pytest.raises(ValueError):
-        GenerateRequest(prompt="review", attachments=[{"name": "../secret", "content": "x"}])
+        GenerateRequest(
+            prompt="review", attachments=[{"name": "../secret", "content": "x"}]
+        )
 
 
 def test_production_security_headers_and_trusted_hosts():
@@ -423,7 +501,8 @@ def test_openai_model_discovery_and_chat_completion():
     payload = response.json()
     assert payload["object"] == "chat.completion"
     assert payload["choices"][0]["message"] == {
-        "role": "assistant", "content": "Gopi: hello",
+        "role": "assistant",
+        "content": "Gopi: hello",
     }
     assert payload["usage"]["total_tokens"] == 5
 
@@ -481,7 +560,9 @@ def test_context_overflow_returns_client_error() -> None:
 
     response = request(
         create_app(OverflowBackend(), settings=settings()),
-        "POST", "/v1/generate", json={"prompt": "too long"},
+        "POST",
+        "/v1/generate",
+        json={"prompt": "too long"},
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_generation_request"
@@ -511,9 +592,7 @@ class SlowBackend(FakeBackend):
 
 def test_generation_timeout_returns_504():
     response = request(
-        create_app(
-            SlowBackend(), settings=settings(generation_timeout_seconds=0.01)
-        ),
+        create_app(SlowBackend(), settings=settings(generation_timeout_seconds=0.01)),
         "POST",
         "/v1/generate",
         json={"prompt": "hello"},
@@ -613,7 +692,10 @@ def test_request_defaults_match_local_inference_profile():
 
 
 def test_request_accepts_supported_response_formats():
-    assert GenerateRequest(prompt="hello", response_format="markdown").response_format == "markdown"
+    assert (
+        GenerateRequest(prompt="hello", response_format="markdown").response_format
+        == "markdown"
+    )
     with pytest.raises(ValueError):
         GenerateRequest(prompt="hello", response_format="html")
 
@@ -626,7 +708,9 @@ def test_request_accepts_supported_chat_modes():
 
 
 def test_request_accepts_supported_tools():
-    assert GenerateRequest(prompt="hello", tools=["calculator", "calculator"]).tools == ["calculator"]
+    assert GenerateRequest(
+        prompt="hello", tools=["calculator", "calculator"]
+    ).tools == ["calculator"]
     with pytest.raises(ValueError):
         GenerateRequest(prompt="hello", tools=["shell"])
 
@@ -744,14 +828,19 @@ def test_websocket_stream_with_session_id(tmp_path):
 
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: index for index, piece in enumerate(pieces)}
-    tok = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    tok = Tokenizer(
+        vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
+    )
 
     class SessionFakeBackend(FakeBackend):
         def __init__(self, db_path):
             super().__init__()
             from collections import defaultdict
+
             self.system_prompt = "You are Gopi."
-            self.sessions = SQLiteSessionStore(db_path, tok, max_tokens=512, system_prompt=self.system_prompt)
+            self.sessions = SQLiteSessionStore(
+                db_path, tok, max_tokens=512, system_prompt=self.system_prompt
+            )
             self._session_locks = defaultdict(asyncio.Lock)
             self._stream_steps = ConfiguredModelBackend._stream_steps.__get__(self)
 
@@ -769,23 +858,38 @@ def test_websocket_stream_with_session_id(tmp_path):
                 tokenizer = tok
 
                 def stream(self, prompt, **options):
-                    yield GenerationStep(token="Hi", token_id=1, prompt_tokens=5, completion_tokens=1)
-                    yield GenerationStep(token="", token_id=None, prompt_tokens=5, completion_tokens=1, finish_reason="stop")
+                    yield GenerationStep(
+                        token="Hi", token_id=1, prompt_tokens=5, completion_tokens=1
+                    )
+                    yield GenerationStep(
+                        token="",
+                        token_id=None,
+                        prompt_tokens=5,
+                        completion_tokens=1,
+                        finish_reason="stop",
+                    )
 
             from inference.generator import GenerationStep
+
             return DummyGenerator()
 
     async def scenario():
         backend = SessionFakeBackend(tmp_path / "sessions.sqlite")
         app = create_app(backend, settings=settings())
-        websocket = FakeWebSocket(app, [{"prompt": "hello", "session_id": "sess-123", "max_tokens": 512}])
+        websocket = FakeWebSocket(
+            app, [{"prompt": "hello", "session_id": "sess-123", "max_tokens": 512}]
+        )
         async with app.router.lifespan_context(app):
             await generate_stream(websocket)
         return websocket
 
     websocket = asyncio.run(scenario())
     assert websocket.accepted
-    assert [message["type"] for message in websocket.sent] == ["start", "token", "done"], websocket.sent
+    assert [message["type"] for message in websocket.sent] == [
+        "start",
+        "token",
+        "done",
+    ], websocket.sent
     assert websocket.sent[1]["token"] == "Hi"
 
 
@@ -794,7 +898,8 @@ def test_model_resource_planner_endpoint_uses_config_without_loading_weights():
     backend.model_config = "configs/model.hybrid.gpu.yaml"
     app = create_app(backend, settings=settings())
     response = request(
-        app, "GET",
+        app,
+        "GET",
         "/v1/models/gopi-test/resources?context_length=4096&batch_size=2&weight_precision=q1_0&kv_precision=int8&memory_gib=4",
     )
     assert response.status_code == 200
@@ -808,12 +913,20 @@ def test_model_resource_planner_endpoint_uses_config_without_loading_weights():
 
 def test_model_capabilities_expose_hybrid_and_moe_architecture_metadata():
     from runtime.capabilities import discover_capabilities
+
     config = {
-        "vocab_size": 64, "hidden_size": 32, "layers": 8, "heads": 4,
-        "kv_heads": 2, "max_position": 1024,
+        "vocab_size": 64,
+        "hidden_size": 32,
+        "layers": 8,
+        "heads": 4,
+        "kv_heads": 2,
+        "max_position": 1024,
         "attention_layer_pattern": ["linear", "linear", "linear", "dense"],
-        "ffn_type": "moe", "num_experts": 8, "experts_per_token": 2,
-        "mtp_num_predictions": 2, "qk_norm": True,
+        "ffn_type": "moe",
+        "num_experts": 8,
+        "experts_per_token": 2,
+        "mtp_num_predictions": 2,
+        "qk_norm": True,
     }
     caps = discover_capabilities(FakeBackend(), model_config=config)
     assert caps.attention_pattern == "hybrid"

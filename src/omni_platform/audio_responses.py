@@ -1,4 +1,5 @@
 """Audio-only Responses modality contracts."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -24,6 +25,8 @@ class AudioResponse:
 
 def validate_audio_only_request(request: dict[str, Any]) -> None:
     if request.get("input") in (None, "") and request.get("audio") in (None, ""):
-        raise ValueError("audio-only response requires audio input or an audio generation request")
+        raise ValueError(
+            "audio-only response requires audio input or an audio generation request"
+        )
     if request.get("text") not in (None, "") and request.get("audio_only"):
         raise ValueError("audio_only requests must not require text output")

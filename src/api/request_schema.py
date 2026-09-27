@@ -1,4 +1,5 @@
 """API request contracts shared by Chat Completions and Responses."""
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -16,9 +17,16 @@ class JSONSchemaResponseFormat(BaseModel):
     @field_validator("json_schema")
     @classmethod
     def validate_schema(cls, value: dict[str, Any]) -> dict[str, Any]:
-        try: make_spec(name=str(value.get("name", "schema")), schema=value.get("schema", value), strict=bool(value.get("strict", False)))
-        except StructuredSchemaError as exc: raise ValueError(str(exc)) from exc
+        try:
+            make_spec(
+                name=str(value.get("name", "schema")),
+                schema=value.get("schema", value),
+                strict=bool(value.get("strict", False)),
+            )
+        except StructuredSchemaError as exc:
+            raise ValueError(str(exc)) from exc
         return value
+
 
 class APIResponseFormat(BaseModel):
     model_config = ConfigDict(extra="forbid")

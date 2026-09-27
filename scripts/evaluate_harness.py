@@ -17,9 +17,9 @@ if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 import torch
 
 from evaluation.harness import (
+    HAS_LM_EVAL,
     EvaluationHarness,
     HarnessModelAdapter,
-    HAS_LM_EVAL,
     list_tasks,
 )
 from model.gpt import MiniGPT
@@ -36,22 +36,43 @@ logger = get_logger(__name__)
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, help="Path to checkpoint .pt file")
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument(
+        "--model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument(
         "--tasks",
         default="mmlu,arc_challenge,gsm8k",
         help="Comma-separated list of benchmark tasks to run, or 'all'",
     )
-    parser.add_argument("--num-fewshot", type=int, default=0, help="Number of few-shot examples")
-    parser.add_argument("--limit", type=int, default=None, help="Maximum evaluation samples per task")
-    parser.add_argument("--batch-size", type=int, default=4, help="Inference batch size")
+    parser.add_argument(
+        "--num-fewshot", type=int, default=0, help="Number of few-shot examples"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Maximum evaluation samples per task"
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=4, help="Inference batch size"
+    )
     parser.add_argument("--device", default="auto", help="Device (cuda/cpu/auto)")
-    parser.add_argument("--weights", choices=("ema", "model"), default="ema", help="Checkpoint weight flavor")
+    parser.add_argument(
+        "--weights",
+        choices=("ema", "model"),
+        default="ema",
+        help="Checkpoint weight flavor",
+    )
     parser.add_argument("--threads", type=int, default=4, help="CPU torch thread count")
-    parser.add_argument("--output", type=Path, help="Atomically write the JSON evaluation result")
-    parser.add_argument("--native-lm-eval", action="store_true", help="Run official lm_eval runner if installed")
-    parser.add_argument("--list-tasks", action="store_true", help="List available tasks and exit")
+    parser.add_argument(
+        "--output", type=Path, help="Atomically write the JSON evaluation result"
+    )
+    parser.add_argument(
+        "--native-lm-eval",
+        action="store_true",
+        help="Run official lm_eval runner if installed",
+    )
+    parser.add_argument(
+        "--list-tasks", action="store_true", help="List available tasks and exit"
+    )
 
     args = parser.parse_args()
 
@@ -75,7 +96,9 @@ def main() -> None:
         parser.error("limit must be positive if specified")
 
     if args.output and args.output.exists():
-        parser.error("output already exists; choose a new path to preserve evaluation evidence")
+        parser.error(
+            "output already exists; choose a new path to preserve evaluation evidence"
+        )
 
     torch.set_num_threads(args.threads)
 
@@ -124,8 +147,11 @@ def main() -> None:
 
     if args.native_lm_eval:
         if not HAS_LM_EVAL:
-            parser.error("lm_eval package is not installed; run without --native-lm-eval to use the built-in runner")
+            parser.error(
+                "lm_eval package is not installed; run without --native-lm-eval to use the built-in runner"
+            )
         import lm_eval
+
         logger.info("Executing official lm_eval.evaluator on tasks: %s", selected_tasks)
         eval_results = lm_eval.evaluator.simple_evaluate(
             model=model_adapter,
@@ -166,7 +192,9 @@ def main() -> None:
 
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix=f".{args.output.name}.", dir=args.output.parent)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{args.output.name}.", dir=args.output.parent
+        )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 stream.write(rendered)

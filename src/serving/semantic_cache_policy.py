@@ -4,23 +4,27 @@ The module is backend-neutral.  It supplies privacy/freshness policy, quotas,
 negative-cache records, explainable selection metadata and route-specific
 threshold resolution without changing the existing local SQLite cache API.
 """
+
 from __future__ import annotations
 
 import hashlib
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
-
+from typing import Any
 
 _SECRET_PATTERNS = (
     re.compile(r"\b(?:sk|rk|pk)_[A-Za-z0-9_-]{16,}\b"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
-    re.compile(r"\b(?:password|passwd|secret|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+", re.I),
+    re.compile(
+        r"\b(?:password|passwd|secret|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+",
+        re.IGNORECASE,
+    ),
 )
-_EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
+_EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _PHONE = re.compile(r"(?<!\d)(?:\+?\d[\d .()/-]{8,}\d)(?!\d)")
 
 
@@ -47,18 +51,21 @@ class CachePrivacyPolicy:
                 if re.search(expression, prompt):
                     return True, "sensitive_custom_pattern"
             except re.error as exc:
-                raise ValueError(f"invalid sensitive-data pattern: {expression!r}") from exc
+                raise ValueError(
+                    f"invalid sensitive-data pattern: {expression!r}"
+                ) from exc
         return False, None
 
 
 @dataclass(frozen=True)
 class CacheFreshness:
     """Caller-provided fingerprint for dynamic dependencies."""
+
     value: str = ""
     sources: tuple[str, ...] = ()
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "CacheFreshness":
+    def from_mapping(cls, values: Mapping[str, Any]) -> CacheFreshness:
         canonical = "|".join(f"{key}={values[key]}" for key in sorted(values))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
         return cls(value=digest, sources=tuple(sorted(str(k) for k in values)))
@@ -81,7 +88,13 @@ class ThresholdPolicy:
     models: Mapping[str, float] = field(default_factory=dict)
     tasks: Mapping[str, float] = field(default_factory=dict)
 
-    def resolve(self, *, route: str | None = None, model: str | None = None, task: str | None = None) -> float:
+    def resolve(
+        self,
+        *,
+        route: str | None = None,
+        model: str | None = None,
+        task: str | None = None,
+    ) -> float:
         value = self.default
         if route and route in self.routes:
             value = self.routes[route]
@@ -103,9 +116,17 @@ class NegativeCacheEntry:
     expires_at: float
 
     @classmethod
-    def create(cls, key: str, error_type: str, message: str, ttl_seconds: float) -> "NegativeCacheEntry":
+    def create(
+        cls, key: str, error_type: str, message: str, ttl_seconds: float
+    ) -> NegativeCacheEntry:
         now = time.time()
-        return cls(key, error_type, hashlib.sha256(message.encode()).hexdigest(), now, now + ttl_seconds)
+        return cls(
+            key,
+            error_type,
+            hashlib.sha256(message.encode()).hexdigest(),
+            now,
+            now + ttl_seconds,
+        )
 
     def active(self, now: float | None = None) -> bool:
         return (time.time() if now is None else now) < self.expires_at

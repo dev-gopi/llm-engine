@@ -1,4 +1,5 @@
 """Opt-in persistent chat and explicitly approved fine-tuning examples."""
+
 from __future__ import annotations
 
 import json
@@ -15,7 +16,6 @@ from inference.memory import LongTermMemory
 _CHAT_ROLES = frozenset({"system", "user", "assistant", "tool"})
 
 
-
 def validate_reasoning_trace(content: str) -> bool:
     """Validate exactly one explicit reasoning block followed by a final answer."""
     if not isinstance(content, str) or not content.strip():
@@ -28,8 +28,8 @@ def validate_reasoning_trace(content: str) -> bool:
     close_at = content.find("</thinking>")
     if open_at > close_at:
         raise ValueError("reasoning trace thinking tags are malformed")
-    reasoning = content[open_at + len("<thinking>"):close_at].strip()
-    final = content[close_at + len("</thinking>"):].strip()
+    reasoning = content[open_at + len("<thinking>") : close_at].strip()
+    final = content[close_at + len("</thinking>") :].strip()
     if not reasoning:
         raise ValueError("reasoning trace thinking block cannot be empty")
     if not final:
@@ -37,6 +37,7 @@ def validate_reasoning_trace(content: str) -> bool:
     if "<thinking>" in final or "</thinking>" in final:
         raise ValueError("reasoning trace final answer cannot contain thinking tags")
     return True
+
 
 def format_chat_messages(messages, *, add_generation_prompt: bool = False) -> str:
     """Render the canonical, unambiguous instruction-tuning chat format."""
@@ -88,22 +89,30 @@ def build_chat_sft_example(tokenizer, messages) -> dict[str, torch.Tensor]:
 class ChatSession:
     """Single-process session handle; serialize use of its owning backend."""
 
-    def __init__(self, backend, path, session_id, *, system_prompt="", ttl_seconds=86400):
+    def __init__(
+        self, backend, path, session_id, *, system_prompt="", ttl_seconds=86400
+    ):
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("session_id must be nonempty")
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be positive")
         self.backend = backend
         self.session_id = session_id
-        self.store = SQLiteSessionStore(path, backend.tokenizer,
-                                       max_tokens=backend.generator.max_positions - 1,
-                                       system_prompt=system_prompt, ttl_seconds=ttl_seconds)
+        self.store = SQLiteSessionStore(
+            path,
+            backend.tokenizer,
+            max_tokens=backend.generator.max_positions - 1,
+            system_prompt=system_prompt,
+            ttl_seconds=ttl_seconds,
+        )
         self._lock = RLock()
         self._pending = None
         with closing(sqlite3.connect(self.store.path)) as connection, connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS approved_chat_examples "
-                               "(session_id TEXT NOT NULL, messages TEXT NOT NULL, "
-                               "PRIMARY KEY(session_id, messages))")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS approved_chat_examples "
+                "(session_id TEXT NOT NULL, messages TEXT NOT NULL, "
+                "PRIMARY KEY(session_id, messages))"
+            )
 
     def chat(self, message, **options):
         """Persist a successful turn. Training export remains separately opt-in."""
@@ -114,21 +123,32 @@ class ChatSession:
             settings = self.backend.generation_config | options
             maximum = int(settings.get("max_tokens", 128))
             prompt = memory.render(reserve_tokens=maximum)
-            messages = [{"role": item.role, "content": item.content} for item in memory.snapshot()]
-            result = self.backend.generate(prompt, **(settings | {"allow_special_tokens": True}))
+            messages = [
+                {"role": item.role, "content": item.content}
+                for item in memory.snapshot()
+            ]
+            result = self.backend.generate(
+                prompt, **(settings | {"allow_special_tokens": True})
+            )
             if result.text.strip():
                 # Capture exactly the bounded prompt used, before history trims.
-                self._pending = messages + [{"role": "assistant", "content": result.text}]
+                self._pending = messages + [
+                    {"role": "assistant", "content": result.text}
+                ]
                 memory.add("assistant", result.text)
                 self.store.save(self.session_id, memory)
             return result
 
     def history(self):
         with self._lock:
-            return [{"role": item.role, "content": item.content}
-                    for item in self.store.load(self.session_id).snapshot()]
+            return [
+                {"role": item.role, "content": item.content}
+                for item in self.store.load(self.session_id).snapshot()
+            ]
 
-    def attach_long_term_memory(self, memory: LongTermMemory, *, user_id: str | None = None) -> None:
+    def attach_long_term_memory(
+        self, memory: LongTermMemory, *, user_id: str | None = None
+    ) -> None:
         """Attach opt-in semantic/episodic memory scoped to one user."""
         self.long_term_memory = memory
         self.memory_user_id = user_id or self.session_id
@@ -137,7 +157,12 @@ class ChatSession:
         memory = getattr(self, "long_term_memory", None)
         if memory is None:
             return []
-        return [record.__dict__ for record in memory.retrieve(getattr(self, "memory_user_id", self.session_id), query, limit=limit)]
+        return [
+            record.__dict__
+            for record in memory.retrieve(
+                getattr(self, "memory_user_id", self.session_id), query, limit=limit
+            )
+        ]
 
     def retrieve_memory(self, query, *, limit=3):
         """Return a bounded, deterministic subset of this session's non-system history.
@@ -155,15 +180,21 @@ class ChatSession:
             messages = self.store.load(self.session_id).snapshot()
         ranked = sorted(
             (
-                (len(terms.intersection(message.content.casefold().split())), index, message)
+                (
+                    len(terms.intersection(message.content.casefold().split())),
+                    index,
+                    message,
+                )
                 for index, message in enumerate(messages)
                 if message.role != "system"
             ),
-            key=lambda item: (item[0], item[1]), reverse=True,
+            key=lambda item: (item[0], item[1]),
+            reverse=True,
         )
         return [
             {"role": message.role, "content": message.content}
-            for score, _, message in ranked[:limit] if score
+            for score, _, message in ranked[:limit]
+            if score
         ]
 
     def review_pending(self):
@@ -175,10 +206,15 @@ class ChatSession:
         """Approve the entire last prompt/reply snapshot, including prior replies."""
         with self._lock:
             if self._pending is None:
-                raise ValueError("no unreviewed response; generate a successful reply first")
+                raise ValueError(
+                    "no unreviewed response; generate a successful reply first"
+                )
             messages = [dict(item) for item in self._pending]
             if corrected_response is not None:
-                if not isinstance(corrected_response, str) or not corrected_response.strip():
+                if (
+                    not isinstance(corrected_response, str)
+                    or not corrected_response.strip()
+                ):
                     raise ValueError("corrected_response must be nonempty text")
                 messages[-1]["content"] = corrected_response
             payload = json.dumps(messages, ensure_ascii=False, sort_keys=True)
@@ -195,31 +231,51 @@ class ChatSession:
             with closing(sqlite3.connect(self.store.path)) as connection:
                 rows = connection.execute(
                     "SELECT messages FROM approved_chat_examples WHERE session_id = ? ORDER BY rowid",
-                    (self.session_id,)).fetchall()
+                    (self.session_id,),
+                ).fetchall()
             if not rows:
                 raise ValueError("no approved examples to export")
             destination = Path(path)
             destination.parent.mkdir(parents=True, exist_ok=True)
             with destination.open("x", encoding="utf-8") as stream:
                 for (messages,) in rows:
-                    stream.write(json.dumps({"messages": json.loads(messages)}, ensure_ascii=False) + "\n")
+                    stream.write(
+                        json.dumps(
+                            {"messages": json.loads(messages)}, ensure_ascii=False
+                        )
+                        + "\n"
+                    )
             return len(rows)
 
     def forget(self, *, include_training_examples=False):
         """Delete stored history; optionally delete this session's approved data."""
         with self._lock:
-            self.store.delete(self.session_id, include_training_examples=include_training_examples)
+            self.store.delete(
+                self.session_id, include_training_examples=include_training_examples
+            )
             self._pending = None
             if include_training_examples:
-                with closing(sqlite3.connect(self.store.path)) as connection, connection:
-                    connection.execute("DELETE FROM approved_chat_examples WHERE session_id = ?",
-                                       (self.session_id,))
+                with (
+                    closing(sqlite3.connect(self.store.path)) as connection,
+                    connection,
+                ):
+                    connection.execute(
+                        "DELETE FROM approved_chat_examples WHERE session_id = ?",
+                        (self.session_id,),
+                    )
 
 
 def validate_instruction_example(record: dict) -> dict:
     """Validate and score an instruction example before training export."""
     from local_dataset.instruction_quality import score_instruction
+
     result = score_instruction(record)
     if result.flags:
-        raise ValueError("instruction example failed quality gate: " + ",".join(result.flags))
-    return {"quality_score": result.score, "category": result.category, "fingerprint": result.fingerprint}
+        raise ValueError(
+            "instruction example failed quality gate: " + ",".join(result.flags)
+        )
+    return {
+        "quality_score": result.score,
+        "category": result.category,
+        "fingerprint": result.fingerprint,
+    }

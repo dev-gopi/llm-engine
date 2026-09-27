@@ -1,4 +1,5 @@
 """Modality-aware resource accounting primitives."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,7 +14,14 @@ class ResourceUsage:
     gpu_seconds: float = 0.0
     storage_bytes: int = 0
 
-    def weighted_units(self, *, audio_weight: float = 5.0, video_weight: float = 50.0, image_weight: float = 100.0, gpu_weight: float = 10.0) -> float:
+    def weighted_units(
+        self,
+        *,
+        audio_weight: float = 5.0,
+        video_weight: float = 50.0,
+        image_weight: float = 100.0,
+        gpu_weight: float = 10.0,
+    ) -> float:
         return (
             self.text_tokens
             + self.images * image_weight

@@ -1,7 +1,9 @@
 """Optional context-free grammar constraints for structured generation."""
+
 from __future__ import annotations
+
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 try:
     from lark import Lark, UnexpectedInput
@@ -26,6 +28,7 @@ class GrammarSpec:
 
 class GrammarConstraint:
     """Compile and validate an EBNF grammar without changing generation APIs."""
+
     def __init__(self, spec: GrammarSpec) -> None:
         if not spec.grammar.strip():
             raise GrammarValidationError("grammar cannot be empty")

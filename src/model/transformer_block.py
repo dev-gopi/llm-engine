@@ -64,14 +64,20 @@ class TransformerBlock(nn.Module):
         self.pre_norm = bool(pre_norm)
         self.residual_scale = float(residual_scale)
         pattern = str(attention_pattern).lower()
-        attention_class = CausalLinearAttention if pattern == "linear" else MultiHeadAttention
-        attention_options = ({
-            "eps": linear_attention_eps,
-            "chunk_size": linear_attention_chunk_size,
-        } if pattern == "linear" else {
-            "attention_pattern": pattern,
-            "attention_window": attention_window,
-        })
+        attention_class = (
+            CausalLinearAttention if pattern == "linear" else MultiHeadAttention
+        )
+        attention_options = (
+            {
+                "eps": linear_attention_eps,
+                "chunk_size": linear_attention_chunk_size,
+            }
+            if pattern == "linear"
+            else {
+                "attention_pattern": pattern,
+                "attention_window": attention_window,
+            }
+        )
         self.attn = attention_class(
             dim,
             heads,
@@ -89,14 +95,18 @@ class TransformerBlock(nn.Module):
         if ffn_type not in {"dense", "moe"}:
             raise ValueError("ffn_type must be 'dense' or 'moe'")
         ffn_class = SparseMoE if ffn_type == "moe" else FeedForward
-        moe_options = ({
-            "num_experts": num_experts,
-            "experts_per_token": experts_per_token,
-            "router_bias": router_bias,
-            "router_jitter": router_jitter,
-            "capacity_factor": moe_capacity_factor,
-            "min_capacity": moe_min_capacity,
-        } if ffn_type == "moe" else {})
+        moe_options = (
+            {
+                "num_experts": num_experts,
+                "experts_per_token": experts_per_token,
+                "router_bias": router_bias,
+                "router_jitter": router_jitter,
+                "capacity_factor": moe_capacity_factor,
+                "min_capacity": moe_min_capacity,
+            }
+            if ffn_type == "moe"
+            else {}
+        )
         self.ffn = ffn_class(
             dim,
             hidden_dim=ffn_hidden_dim,
@@ -138,12 +148,16 @@ class TransformerBlock(nn.Module):
                 past_key_value=past_key_value,
                 use_cache=use_cache,
             )
-            attention_update, present = self._unpack_attention(attention_result, use_cache)
+            attention_update, present = self._unpack_attention(
+                attention_result, use_cache
+            )
             hidden_states = self._add_residual(
                 hidden_states, attention_update, self.attention_residual_dropout
             )
             ffn_update = self.ffn(self.ffn_norm(hidden_states))
-            output = self._add_residual(hidden_states, ffn_update, self.ffn_residual_dropout)
+            output = self._add_residual(
+                hidden_states, ffn_update, self.ffn_residual_dropout
+            )
             return (output, present) if present is not None else output
 
         attention_result = self.attn(
@@ -196,7 +210,9 @@ class TransformerBlock(nn.Module):
         return cls(
             dim=int(config["hidden_size"]),
             heads=int(config["heads"]),
-            kv_heads=(int(config["kv_heads"]) if config.get("kv_heads") is not None else None),
+            kv_heads=(
+                int(config["kv_heads"]) if config.get("kv_heads") is not None else None
+            ),
             norm_type=str(config.get("norm_type", "layer_norm")),
             norm_eps=float(config.get("norm_eps", 1e-5)),
             norm_bias=bool(config.get("norm_bias", True)),
@@ -223,16 +239,23 @@ class TransformerBlock(nn.Module):
             experts_per_token=int(config.get("experts_per_token", 1)),
             router_bias=bool(config.get("router_bias", False)),
             router_jitter=float(config.get("router_jitter", 0.0)),
-            moe_capacity_factor=(float(config["moe_capacity_factor"]) if config.get("moe_capacity_factor") is not None else None),
+            moe_capacity_factor=(
+                float(config["moe_capacity_factor"])
+                if config.get("moe_capacity_factor") is not None
+                else None
+            ),
             moe_min_capacity=int(config.get("moe_min_capacity", 0)),
             initializer_range=float(config.get("initializer_range", 0.02)),
             attention_pattern=str(config.get("attention_pattern", "dense")),
             attention_window=(
                 int(config["attention_window"])
-                if config.get("attention_window") is not None else None
+                if config.get("attention_window") is not None
+                else None
             ),
             linear_attention_eps=float(config.get("linear_attention_eps", 1e-6)),
-            linear_attention_chunk_size=int(config.get("linear_attention_chunk_size", 128)),
+            linear_attention_chunk_size=int(
+                config.get("linear_attention_chunk_size", 128)
+            ),
             device=device,
             dtype=dtype,
         )

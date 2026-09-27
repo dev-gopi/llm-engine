@@ -1,4 +1,5 @@
 """OpenAI-compatible embeddings request/response models and service adapter."""
+
 from __future__ import annotations
 
 import base64
@@ -19,8 +20,12 @@ class EmbeddingsRequest(BaseModel):
 
     def texts(self) -> list[str]:
         values = [self.input] if isinstance(self.input, str) else self.input
-        if not values or any(not isinstance(value, str) or not value.strip() for value in values):
-            raise ValueError("input must be a non-empty string or list of non-empty strings")
+        if not values or any(
+            not isinstance(value, str) or not value.strip() for value in values
+        ):
+            raise ValueError(
+                "input must be a non-empty string or list of non-empty strings"
+            )
         return values
 
 
@@ -47,7 +52,9 @@ def _base64_float32(vector: list[float]) -> str:
     return base64.b64encode(payload).decode("ascii")
 
 
-def create_embeddings(request: EmbeddingsRequest, service: EmbeddingService) -> EmbeddingsResponse:
+def create_embeddings(
+    request: EmbeddingsRequest, service: EmbeddingService
+) -> EmbeddingsResponse:
     result = service.encode(request.texts(), dimensions=request.dimensions)
     vectors = result.embeddings
     encoded: list[list[float] | str]
@@ -56,7 +63,12 @@ def create_embeddings(request: EmbeddingsRequest, service: EmbeddingService) -> 
     else:
         encoded = vectors
     return EmbeddingsResponse(
-        data=[EmbeddingItem(embedding=vector, index=index) for index, vector in enumerate(encoded)],
+        data=[
+            EmbeddingItem(embedding=vector, index=index)
+            for index, vector in enumerate(encoded)
+        ],
         model=request.model,
-        usage=EmbeddingUsage(prompt_tokens=result.prompt_tokens, total_tokens=result.prompt_tokens),
+        usage=EmbeddingUsage(
+            prompt_tokens=result.prompt_tokens, total_tokens=result.prompt_tokens
+        ),
     )

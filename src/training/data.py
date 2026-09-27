@@ -54,7 +54,9 @@ def _mixture_name(path: str | Path, configured: Mapping[str, Any]) -> str:
     return source.parent.name.replace("-", "_")
 
 
-def _mixture_groups(paths: list[str | Path], dataset_sizes: list[int], config: Mapping[str, Any]) -> list[tuple[int, int, float]] | None:
+def _mixture_groups(
+    paths: list[str | Path], dataset_sizes: list[int], config: Mapping[str, Any]
+) -> list[tuple[int, int, float]] | None:
     configured = config.get("dataset_weights")
     if not configured:
         return None
@@ -82,7 +84,9 @@ def _mixture_groups(paths: list[str | Path], dataset_sizes: list[int], config: M
         if quality_weights:
             quality = float(quality_weights[name])
             if not math.isfinite(quality) or quality < 0:
-                raise ValueError(f"dataset quality weight must be finite and non-negative: {name}")
+                raise ValueError(
+                    f"dataset quality weight must be finite and non-negative: {name}"
+                )
             weight *= quality
         if not math.isfinite(weight) or weight < 0:
             raise ValueError(f"dataset weight must be finite and non-negative: {name}")
@@ -110,9 +114,14 @@ def build_loader(
         _mixture_groups(paths, [1] * len(paths), config)
     if paths and all(Path(path).name == "manifest.json" for path in paths):
         shard_datasets = [TokenShardDataset(path) for path in paths]
-        expected = int(config.get("max_sequence_length", shard_datasets[0].sequence_length))
+        expected = int(
+            config.get("max_sequence_length", shard_datasets[0].sequence_length)
+        )
         for dataset in shard_datasets:
-            if dataset.tokenizer_vocab_size and dataset.tokenizer_vocab_size != tokenizer.vocab_size:
+            if (
+                dataset.tokenizer_vocab_size
+                and dataset.tokenizer_vocab_size != tokenizer.vocab_size
+            ):
                 raise ValueError(
                     f"token shard vocabulary ({dataset.tokenizer_vocab_size}) does not match "
                     f"tokenizer vocabulary ({tokenizer.vocab_size})"
@@ -129,39 +138,60 @@ def build_loader(
                     f"token shard sequence length ({dataset.sequence_length}) does not match "
                     f"max_sequence_length ({expected})"
                 )
-        dataset = shard_datasets[0] if len(shard_datasets) == 1 else ConcatDataset(shard_datasets)
+        dataset = (
+            shard_datasets[0]
+            if len(shard_datasets) == 1
+            else ConcatDataset(shard_datasets)
+        )
         dataset.lengths = [length for item in shard_datasets for length in item.lengths]
         dataset.dataset_sizes = [len(item) for item in shard_datasets]
     else:
         dataset = build_text_dataset(
-            paths, tokenizer, max_length=int(config.get("max_sequence_length", 2048)),
+            paths,
+            tokenizer,
+            max_length=int(config.get("max_sequence_length", 2048)),
             lazy=bool(config.get("lazy_dataset", True)),
         )
     if not dataset:
         raise ValueError("configured dataset contains no usable examples")
-    sampling_groups = _mixture_groups(paths, dataset.dataset_sizes, config) if shuffle and hasattr(dataset, "dataset_sizes") else None
+    sampling_groups = (
+        _mixture_groups(paths, dataset.dataset_sizes, config)
+        if shuffle and hasattr(dataset, "dataset_sizes")
+        else None
+    )
     resolved_sampler_shuffle = shuffle if sampler_shuffle is None else sampler_shuffle
     sampler = Sampler(
         dataset.lengths,
-        int(config.get("batch_size", 32)), shuffle=resolved_sampler_shuffle,
+        int(config.get("batch_size", 32)),
+        shuffle=resolved_sampler_shuffle,
         seed=int(config.get("seed", 42)),
-        rank=rank, world_size=world_size,
+        rank=rank,
+        world_size=world_size,
         sampling_groups=sampling_groups,
-        num_samples=int(config.get("samples_per_epoch", len(dataset))) if sampling_groups else None,
+        num_samples=int(config.get("samples_per_epoch", len(dataset)))
+        if sampling_groups
+        else None,
     )
     pad_id = tokenizer.token_to_id("<|pad|>")
     if pad_id is None:
         raise ValueError("tokenizer must define <|pad|>")
     import torch
-    num_workers = int(config.get("num_workers", 0) if shuffle else
-                      config.get("validation_num_workers", config.get("num_workers", 0)))
+
+    num_workers = int(
+        config.get("num_workers", 0)
+        if shuffle
+        else config.get("validation_num_workers", config.get("num_workers", 0))
+    )
     if num_workers < 0:
         raise ValueError("num_workers must be non-negative")
     loader_options: dict[str, Any] = {}
     if num_workers > 0:
         loader_options["persistent_workers"] = bool(
-            config.get("persistent_workers", True) if shuffle else
-            config.get("validation_persistent_workers", config.get("persistent_workers", True))
+            config.get("persistent_workers", True)
+            if shuffle
+            else config.get(
+                "validation_persistent_workers", config.get("persistent_workers", True)
+            )
         )
         loader_options["prefetch_factor"] = int(config.get("prefetch_factor", 2))
         if loader_options["prefetch_factor"] < 1:
@@ -178,7 +208,8 @@ def build_loader(
                 "so padding cannot exceed the model context"
             )
     return DataLoader(
-        dataset, batch_sampler=sampler,
+        dataset,
+        batch_sampler=sampler,
         collate_fn=Collator(
             pad_id,
             ignore_index=int(config.get("ignore_index", -100)),

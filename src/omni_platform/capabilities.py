@@ -1,17 +1,36 @@
 """Runtime-derived capability snapshots for the unified multimodal API."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-
 KNOWN_CAPABILITIES = (
-    "chat", "streaming", "structured_outputs", "vision", "image_generation",
-    "image_editing", "audio_input", "audio_output", "speech_to_text",
-    "text_to_speech", "speech_to_speech", "audio_generation", "video_input",
-    "video_generation", "image_to_video", "video_understanding", "tool_calling",
-    "embeddings", "reasoning", "voice_activity_detection", "audio_translation",
-    "video_captioning", "video_summarization", "video_to_video", "audio_to_audio",
+    "chat",
+    "streaming",
+    "structured_outputs",
+    "vision",
+    "image_generation",
+    "image_editing",
+    "audio_input",
+    "audio_output",
+    "speech_to_text",
+    "text_to_speech",
+    "speech_to_speech",
+    "audio_generation",
+    "video_input",
+    "video_generation",
+    "image_to_video",
+    "video_understanding",
+    "tool_calling",
+    "embeddings",
+    "reasoning",
+    "voice_activity_detection",
+    "audio_translation",
+    "video_captioning",
+    "video_summarization",
+    "video_to_video",
+    "audio_to_audio",
 )
 
 
@@ -24,7 +43,10 @@ class CapabilitySnapshot:
         return bool(self.capabilities.get(capability, False))
 
     def as_dict(self) -> dict[str, Any]:
-        return {"capabilities": dict(self.capabilities), "evidence": dict(self.evidence)}
+        return {
+            "capabilities": dict(self.capabilities),
+            "evidence": dict(self.evidence),
+        }
 
 
 def build_capability_snapshot(

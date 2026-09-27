@@ -1,4 +1,5 @@
 """Candidate retrieval, reranking, and ranking evaluation."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -38,7 +39,9 @@ class RetrieverPipeline:
         self.retriever = retriever
         self.reranker = reranker or LexicalCrossEncoderBaseline()
 
-    def search(self, query: str, *, candidate_k: int = 20, top_k: int = 5) -> list[RerankedDocument]:
+    def search(
+        self, query: str, *, candidate_k: int = 20, top_k: int = 5
+    ) -> list[RerankedDocument]:
         if candidate_k < top_k:
             raise ValueError("candidate_k must be greater than or equal to top_k")
         if top_k < 1:
@@ -57,7 +60,9 @@ class RetrieverPipeline:
         if k < 1:
             raise ValueError("k must be positive")
         if not relevant_sources:
-            return RetrievalEvaluation(len(candidates), len(reranked), 0.0, 0.0, 0.0, 0.0)
+            return RetrievalEvaluation(
+                len(candidates), len(reranked), 0.0, 0.0, 0.0, 0.0
+            )
         candidate_sources = {
             getattr(item, "url", None) or getattr(item, "source", None)
             for item in candidates
@@ -68,7 +73,9 @@ class RetrieverPipeline:
             or getattr(getattr(item, "document", item), "source", None)
             for item in reranked[:k]
         }
-        reranked_recall = len(reranked_sources & relevant_sources) / len(relevant_sources)
+        reranked_recall = len(reranked_sources & relevant_sources) / len(
+            relevant_sources
+        )
         return RetrievalEvaluation(
             candidate_count=len(candidates),
             reranked_count=len(reranked),
@@ -79,7 +86,9 @@ class RetrieverPipeline:
         )
 
     @staticmethod
-    def recall_at_k(results: Sequence[object], relevant_sources: set[str], k: int) -> float:
+    def recall_at_k(
+        results: Sequence[object], relevant_sources: set[str], k: int
+    ) -> float:
         if k < 1:
             raise ValueError("k must be positive")
         if not relevant_sources:

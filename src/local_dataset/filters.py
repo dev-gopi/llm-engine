@@ -13,8 +13,12 @@ from dataclasses import dataclass
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _PHONE = re.compile(r"(?<!\w)(?:\+?\d[\d .()-]{7,}\d)(?!\w)")
 _IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_IPV6 = re.compile(r"(?<![\w:])(?:[0-9A-F]{0,4}:){2,7}[0-9A-F]{0,4}(?![\w:])", re.IGNORECASE)
-_US_SSN = re.compile(r"(?<!\d)(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}(?!\d)")
+_IPV6 = re.compile(
+    r"(?<![\w:])(?:[0-9A-F]{0,4}:){2,7}[0-9A-F]{0,4}(?![\w:])", re.IGNORECASE
+)
+_US_SSN = re.compile(
+    r"(?<!\d)(?!000|666|9\d\d)\d{3}[- ](?!00)\d{2}[- ](?!0000)\d{4}(?!\d)"
+)
 _CARD = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b", re.IGNORECASE)
 _CREDENTIAL = re.compile(
@@ -113,20 +117,28 @@ class CorpusFilter:
         if len(preserved) > self.max_chars:
             self.stats.too_long += 1
             return None
-        printable = sum(character.isprintable() or character in "\n\t" for character in preserved) / len(preserved)
-        alphanumeric = sum(character.isalnum() for character in preserved) / len(preserved)
+        printable = sum(
+            character.isprintable() or character in "\n\t" for character in preserved
+        ) / len(preserved)
+        alphanumeric = sum(character.isalnum() for character in preserved) / len(
+            preserved
+        )
         if printable < 0.95 or alphanumeric < 0.25:
             self.stats.low_quality += 1
             return None
         if self.english_only:
             letters = [character for character in preserved if character.isalpha()]
-            ascii_ratio = sum(character.isascii() for character in letters) / max(len(letters), 1)
+            ascii_ratio = sum(character.isascii() for character in letters) / max(
+                len(letters), 1
+            )
             if ascii_ratio < 0.85:
                 self.stats.language += 1
                 return None
         digest = _digest(canonical)
         fingerprint = _simhash(canonical)
-        if digest in self.excluded_digests or self._is_contaminated(canonical, fingerprint):
+        if digest in self.excluded_digests or self._is_contaminated(
+            canonical, fingerprint
+        ):
             self.stats.contamination += 1
             return None
         if digest in self.seen:
@@ -164,7 +176,7 @@ class CorpusFilter:
             if not starts or starts[-1] != final_start:
                 starts.append(final_start)
             for start in starts:
-                window = " ".join(words[start:start + width])
+                window = " ".join(words[start : start + width])
                 window_hash = _simhash(window)
                 if window_hash is not None and self.contamination.contains(window_hash):
                     return True
@@ -188,8 +200,15 @@ class CorpusFilter:
         self.stats.phone_redactions += phones
         self.stats.address_redactions += addresses
         self.stats.pii_redactions += (
-            credentials + government_ids + cards + ibans + emails + ipv4 + ipv6
-            + phones + addresses
+            credentials
+            + government_ids
+            + cards
+            + ibans
+            + emails
+            + ipv4
+            + ipv6
+            + phones
+            + addresses
         )
         return text
 
@@ -212,7 +231,10 @@ class _SimilarityIndex:
         candidates: set[int] = set()
         for key in self._keys(fingerprint):
             candidates.update(self.buckets.get(key, ()))
-        return any((candidate ^ fingerprint).bit_count() <= self.distance for candidate in candidates)
+        return any(
+            (candidate ^ fingerprint).bit_count() <= self.distance
+            for candidate in candidates
+        )
 
     def add(self, fingerprint: int) -> None:
         if self.distance is None:
@@ -242,9 +264,16 @@ class _MinHashLSHIndex:
     _PRIME = (1 << 61) - 1
     _PERMUTATIONS = tuple(
         (
-            int.from_bytes(hashlib.blake2b(f"minhash-a:{index}".encode(), digest_size=8).digest(), "big")
-            % ((1 << 61) - 2) + 1,
-            int.from_bytes(hashlib.blake2b(f"minhash-b:{index}".encode(), digest_size=8).digest(), "big")
+            int.from_bytes(
+                hashlib.blake2b(f"minhash-a:{index}".encode(), digest_size=8).digest(),
+                "big",
+            )
+            % ((1 << 61) - 2)
+            + 1,
+            int.from_bytes(
+                hashlib.blake2b(f"minhash-b:{index}".encode(), digest_size=8).digest(),
+                "big",
+            )
             % ((1 << 61) - 1),
         )
         for index in range(128)
@@ -276,9 +305,13 @@ class _MinHashLSHIndex:
         words = _words(text)
         if len(words) < 5:
             return ()
-        shingles = {" ".join(words[index:index + 5]) for index in range(len(words) - 4)}
+        shingles = {
+            " ".join(words[index : index + 5]) for index in range(len(words) - 4)
+        }
         values = [
-            int.from_bytes(hashlib.blake2b(shingle.encode("utf-8"), digest_size=8).digest(), "big")
+            int.from_bytes(
+                hashlib.blake2b(shingle.encode("utf-8"), digest_size=8).digest(), "big"
+            )
             % cls._PRIME
             for shingle in shingles
         ]
@@ -286,10 +319,7 @@ class _MinHashLSHIndex:
             min((multiplier * value + offset) % cls._PRIME for value in values)
             for multiplier, offset in cls._PERMUTATIONS
         )
-        return tuple(
-            (band, signature[band * 4:(band + 1) * 4])
-            for band in range(32)
-        )
+        return tuple((band, signature[band * 4 : (band + 1) * 4]) for band in range(32))
 
 
 def _normalize(text: str) -> str:
@@ -297,9 +327,14 @@ def _normalize(text: str) -> str:
 
 
 def _clean_preserving_whitespace(text: str) -> str:
-    text = unicodedata.normalize("NFKC", str(text)).replace("\r\n", "\n").replace("\r", "\n")
+    text = (
+        unicodedata.normalize("NFKC", str(text))
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
     text = "".join(
-        character for character in text
+        character
+        for character in text
         if character in "\n\t" or unicodedata.category(character) != "Cc"
     )
     text = re.sub(r"[ \t]+(?=\n)", "", text)
@@ -315,10 +350,12 @@ def _simhash(text: str) -> int | None:
     words = _words(text)
     if len(words) < 5:
         return None
-    features = [" ".join(words[index:index + 2]) for index in range(len(words) - 1)]
+    features = [" ".join(words[index : index + 2]) for index in range(len(words) - 1)]
     weights = [0] * 64
     for feature in features:
-        value = int.from_bytes(hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest())
+        value = int.from_bytes(
+            hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest()
+        )
         for bit in range(64):
             weights[bit] += 1 if value & (1 << bit) else -1
     fingerprint = 0
@@ -332,7 +369,9 @@ def _words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text.casefold())
 
 
-def _validated_sub(pattern: re.Pattern, text: str, replacement: str, validator) -> tuple[str, int]:
+def _validated_sub(
+    pattern: re.Pattern, text: str, replacement: str, validator
+) -> tuple[str, int]:
     count = 0
 
     def replace(match: re.Match) -> str:
@@ -365,7 +404,10 @@ def _iban_valid(value: str) -> bool:
     if not 15 <= len(compact) <= 34:
         return False
     rearranged = compact[4:] + compact[:4]
-    numeric = "".join(str(ord(character) - 55) if character.isalpha() else character for character in rearranged)
+    numeric = "".join(
+        str(ord(character) - 55) if character.isalpha() else character
+        for character in rearranged
+    )
     return int(numeric) % 97 == 1
 
 

@@ -15,14 +15,20 @@ def clean(text: str) -> str:
     if not isinstance(text, str):
         raise TypeError("text must be a string")
     text = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\r", "\n")
-    text = "".join(character for character in text if character in "\n\t" or unicodedata.category(character) != "Cc")
+    text = "".join(
+        character
+        for character in text
+        if character in "\n\t" or unicodedata.category(character) != "Cc"
+    )
     # Spaces and tabs can be syntax (Python indentation) or literal content.
     # Keep them identical in plain training records and inference templates.
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
-def format_messages(messages: Sequence[Mapping[str, Any]], *, add_generation_prompt: bool = False) -> str:
+def format_messages(
+    messages: Sequence[Mapping[str, Any]], *, add_generation_prompt: bool = False
+) -> str:
     """Serialize chat messages using the tokenizer's role special tokens."""
     if not messages:
         raise ValueError("messages cannot be empty")

@@ -1,4 +1,5 @@
 """Storyboard and production prompt utilities for multi-shot video generation."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,7 +23,9 @@ class StoryboardShot:
     camera: str | None = None
 
 
-def build_storyboard(base_prompt: str, scenes: list[str] | None = None, *, camera: str | None = None) -> list[StoryboardShot]:
+def build_storyboard(
+    base_prompt: str, scenes: list[str] | None = None, *, camera: str | None = None
+) -> list[StoryboardShot]:
     base = base_prompt.strip()
     if not base:
         raise ValueError("base prompt cannot be empty")
@@ -30,7 +33,7 @@ def build_storyboard(base_prompt: str, scenes: list[str] | None = None, *, camer
     if camera is not None and camera not in CAMERA_SUFFIXES:
         raise ValueError(f"unknown camera preset: {camera}")
     suffix = CAMERA_SUFFIXES.get(camera)
-    shots=[]
+    shots = []
     for index, text in enumerate(items):
         prompt = text if text != base else base
         if suffix:

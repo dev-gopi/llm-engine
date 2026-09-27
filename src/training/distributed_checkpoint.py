@@ -51,7 +51,9 @@ def save_distributed_checkpoint(
         "scheduler": scheduler.state_dict() if scheduler is not None else None,
         "scaler": scaler.state_dict() if scaler is not None else None,
         "torch_rng_state": torch.get_rng_state(),
-        "cuda_rng_state": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        "cuda_rng_state": torch.cuda.get_rng_state_all()
+        if torch.cuda.is_available()
+        else None,
         "python_rng_state": random.getstate(),
         "numpy_rng_state": _numpy_rng_state(),
     }
@@ -109,7 +111,11 @@ def load_distributed_checkpoint(
         optim_state_dict=state["optimizer"],
     )
     metadata_path = source / "gopi_metadata.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    metadata = (
+        json.loads(metadata_path.read_text(encoding="utf-8"))
+        if metadata_path.exists()
+        else {}
+    )
     rank = dist.get_rank() if dist.is_initialized() else 0
     world_size = dist.get_world_size() if dist.is_initialized() else 1
     saved_world_size = int(metadata.get("checkpoint_world_size", world_size))
@@ -137,7 +143,9 @@ def load_distributed_checkpoint(
 
 def _atomic_torch_save(payload: dict[str, Any], destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
     os.close(descriptor)
     try:
         torch.save(payload, temporary)
@@ -149,7 +157,9 @@ def _atomic_torch_save(payload: dict[str, Any], destination: Path) -> None:
 
 def _checksum_manifest(directory: Path) -> dict[str, Any]:
     files = {}
-    for path in sorted(candidate for candidate in directory.rglob("*") if candidate.is_file()):
+    for path in sorted(
+        candidate for candidate in directory.rglob("*") if candidate.is_file()
+    ):
         relative = path.relative_to(directory).as_posix()
         digest = hashlib.sha256()
         with path.open("rb") as stream:
@@ -162,14 +172,18 @@ def _checksum_manifest(directory: Path) -> dict[str, Any]:
 def _verify_checkpoint(directory: Path) -> None:
     manifest_path = directory / "gopi_manifest.json"
     if not (directory / "gopi_complete").is_file() or not manifest_path.is_file():
-        raise ValueError("distributed checkpoint is incomplete or uses an unsupported legacy format")
+        raise ValueError(
+            "distributed checkpoint is incomplete or uses an unsupported legacy format"
+        )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("format") != "gopi-distributed-checkpoint-v2":
         raise ValueError("unsupported distributed checkpoint manifest")
     for relative, expected in manifest.get("files", {}).items():
         path = directory / relative
         if not path.is_file() or path.stat().st_size != int(expected["bytes"]):
-            raise ValueError(f"distributed checkpoint file is missing or truncated: {relative}")
+            raise ValueError(
+                f"distributed checkpoint file is missing or truncated: {relative}"
+            )
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest != expected["sha256"]:
             raise ValueError(f"distributed checkpoint checksum mismatch: {relative}")
@@ -194,17 +208,31 @@ def _restore_rng_state(state: dict[str, Any]) -> None:
             torch.cuda.set_rng_state_all(cuda_states)
     random.setstate(state["python_rng_state"])
     numpy_state = state["numpy_rng_state"]
-    np.random.set_state((
-        numpy_state["name"],
-        numpy_state["keys"].cpu().numpy(),
-        int(numpy_state["position"]),
-        int(numpy_state["gaussian"]),
-        float(numpy_state["cached"]),
-    ))
+    np.random.set_state(
+        (
+            numpy_state["name"],
+            numpy_state["keys"].cpu().numpy(),
+            int(numpy_state["position"]),
+            int(numpy_state["gaussian"]),
+            float(numpy_state["cached"]),
+        )
+    )
 
 
-def build_parallel_checkpoint_manifest(*, topology: dict, model_fingerprint: str, shard_count: int) -> dict:
-    if shard_count < 1: raise ValueError("shard_count must be positive")
-    required=("tensor_parallel","pipeline_parallel","expert_parallel")
-    if any(int(topology.get(k,0)) < 1 for k in required): raise ValueError("invalid parallel topology")
-    return {"schema_version": 1, "model_fingerprint": model_fingerprint, "topology": {k:int(topology[k]) for k in required}, "world_size": int(topology["tensor_parallel"])*int(topology["pipeline_parallel"])*int(topology["expert_parallel"]), "shard_count": int(shard_count)}
+def build_parallel_checkpoint_manifest(
+    *, topology: dict, model_fingerprint: str, shard_count: int
+) -> dict:
+    if shard_count < 1:
+        raise ValueError("shard_count must be positive")
+    required = ("tensor_parallel", "pipeline_parallel", "expert_parallel")
+    if any(int(topology.get(k, 0)) < 1 for k in required):
+        raise ValueError("invalid parallel topology")
+    return {
+        "schema_version": 1,
+        "model_fingerprint": model_fingerprint,
+        "topology": {k: int(topology[k]) for k in required},
+        "world_size": int(topology["tensor_parallel"])
+        * int(topology["pipeline_parallel"])
+        * int(topology["expert_parallel"]),
+        "shard_count": int(shard_count),
+    }

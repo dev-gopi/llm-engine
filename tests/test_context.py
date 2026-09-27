@@ -12,11 +12,15 @@ from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
 def tokenizer() -> Tokenizer:
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: index for index, piece in enumerate(pieces)}
-    return Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
+    return Tokenizer(
+        vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
+    )
 
 
 def test_context_memory_renders_roles_and_preserves_system_prompt() -> None:
-    memory = ConversationMemory(tokenizer(), max_tokens=100, system_prompt="You are Gopi.")
+    memory = ConversationMemory(
+        tokenizer(), max_tokens=100, system_prompt="You are Gopi."
+    )
     memory.add("user", "Hello")
     memory.add("assistant", "Hi!")
     prompt = memory.render(add_generation_prompt=True, reserve_tokens=10)
@@ -60,14 +64,18 @@ def test_response_format_system_prompt() -> None:
     with pytest.raises(ValueError, match="unsupported assistant mode"):
         format_system_prompt("Gopi", "plain", "unknown")
     compact = format_system_prompt(
-        "You are Gopi.", "plain", include_safety_instruction=False,
+        "You are Gopi.",
+        "plain",
+        include_safety_instruction=False,
     )
     assert "serious harm" not in compact
     assert compact == "You are Gopi.\nUse plain text."
 
 
 def test_sqlite_session_store_persists_messages(tmp_path) -> None:
-    store = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer(), max_tokens=100, system_prompt="Gopi")
+    store = SQLiteSessionStore(
+        tmp_path / "sessions.sqlite", tokenizer(), max_tokens=100, system_prompt="Gopi"
+    )
     memory = store.load("abc")
     memory.add("user", "Remember this")
     store.save("abc", memory)
@@ -78,7 +86,9 @@ def test_sqlite_session_store_persists_messages(tmp_path) -> None:
 
 
 def test_context_memory_handles_large_reserve_tokens() -> None:
-    memory = ConversationMemory(tokenizer(), max_tokens=100, system_prompt="You are Gopi.")
+    memory = ConversationMemory(
+        tokenizer(), max_tokens=100, system_prompt="You are Gopi."
+    )
     memory.add("user", "Hello world")
     prompt = memory.render(add_generation_prompt=True, reserve_tokens=100)
     assert "<|system|>" in prompt
@@ -94,7 +104,9 @@ def test_context_memory_truncates_lone_message_to_reserve_generation_space() -> 
 
 
 def test_context_memory_rejects_negative_reserve_tokens() -> None:
-    memory = ConversationMemory(tokenizer(), max_tokens=100, system_prompt="You are Gopi.")
+    memory = ConversationMemory(
+        tokenizer(), max_tokens=100, system_prompt="You are Gopi."
+    )
     memory.add("user", "Hello")
     with pytest.raises(ValueError, match="reserve_tokens must be non-negative"):
         memory.render(reserve_tokens=-1)
@@ -102,7 +114,10 @@ def test_context_memory_rejects_negative_reserve_tokens() -> None:
 
 def test_session_store_closes_connections_and_rolls_back(tmp_path):
     import sqlite3
-    store = SQLiteSessionStore(tmp_path / "sessions.sqlite", tokenizer(), max_tokens=100, system_prompt="Gopi")
+
+    store = SQLiteSessionStore(
+        tmp_path / "sessions.sqlite", tokenizer(), max_tokens=100, system_prompt="Gopi"
+    )
     with store._connect() as connection:
         connection.execute("SELECT 1")
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
@@ -113,4 +128,9 @@ def test_session_store_closes_connections_and_rolls_back(tmp_path):
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         failed.execute("SELECT 1")
     with store._connect() as check:
-        assert check.execute("SELECT count(*) FROM sessions WHERE id = 'rollback'").fetchone()[0] == 0
+        assert (
+            check.execute(
+                "SELECT count(*) FROM sessions WHERE id = 'rollback'"
+            ).fetchone()[0]
+            == 0
+        )

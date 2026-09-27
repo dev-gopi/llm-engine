@@ -9,9 +9,10 @@ from dataclasses import dataclass
 
 import regex
 
+from utils.logger import get_logger
+
 from .bpe import BYTE_ENCODER, merge_pair
 from .encoder import DEFAULT_PATTERN, DEFAULT_SPECIAL_TOKENS, Tokenizer
-from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -50,9 +51,13 @@ class BPETokenizerTrainer:
         if tokenizer_type not in {"byte_level_bpe", "bpe"}:
             raise ValueError("BPETokenizerTrainer type must be byte_level_bpe or bpe")
         self.special_token_names = tuple(dict.fromkeys(special_tokens))
-        minimum_size = len(self.special_token_names) + (256 if tokenizer_type == "byte_level_bpe" else 1)
+        minimum_size = len(self.special_token_names) + (
+            256 if tokenizer_type == "byte_level_bpe" else 1
+        )
         if vocab_size < minimum_size:
-            raise ValueError(f"vocab_size must be at least {minimum_size} for {tokenizer_type}")
+            raise ValueError(
+                f"vocab_size must be at least {minimum_size} for {tokenizer_type}"
+            )
         if min_frequency < 1:
             raise ValueError("min_frequency must be positive")
         if max_training_bytes is not None and max_training_bytes < 1:
@@ -79,14 +84,19 @@ class BPETokenizerTrainer:
             raise ValueError("training corpus contains no text tokens")
 
         if self.tokenizer_type == "byte_level_bpe":
-            words = [tuple(BYTE_ENCODER[value] for value in token.encode("utf-8")) for token in frequencies]
+            words = [
+                tuple(BYTE_ENCODER[value] for value in token.encode("utf-8"))
+                for token in frequencies
+            ]
         else:
             words = [tuple(token) for token in frequencies]
         word_frequencies = list(frequencies.values())
         pair_counts: Counter[Pair] = Counter()
         pair_to_words: dict[Pair, set[int]] = defaultdict(set)
 
-        for word_id, (symbols, frequency) in enumerate(zip(words, word_frequencies, strict=True)):
+        for word_id, (symbols, frequency) in enumerate(
+            zip(words, word_frequencies, strict=True)
+        ):
             occurrences = Counter(zip(symbols, symbols[1:]))
             for pair, count in occurrences.items():
                 pair_counts[pair] += count * frequency
@@ -95,7 +105,9 @@ class BPETokenizerTrainer:
         heap = [(-count, pair[0], pair[1]) for pair, count in pair_counts.items()]
         heapq.heapify(heap)
 
-        special_tokens = {token: index for index, token in enumerate(self.special_token_names)}
+        special_tokens = {
+            token: index for index, token in enumerate(self.special_token_names)
+        }
         vocab = dict(special_tokens)
         if self.tokenizer_type == "byte_level_bpe":
             alphabet = (BYTE_ENCODER[value] for value in range(256))
@@ -192,7 +204,9 @@ class VocabularyTokenizerTrainer:
         tokenizer_type: str,
     ):
         if tokenizer_type not in {"character", "word_level"}:
-            raise ValueError("vocabulary tokenizer type must be character or word_level")
+            raise ValueError(
+                "vocabulary tokenizer type must be character or word_level"
+            )
         self.vocab_size = vocab_size
         self.min_frequency = min_frequency
         self.special_token_names = tuple(dict.fromkeys(special_tokens))
@@ -206,16 +220,25 @@ class VocabularyTokenizerTrainer:
         if min_frequency < 1:
             raise ValueError("min_frequency must be positive")
 
-    def train(self, texts: Iterable[str], *, progress: ProgressCallback | None = None) -> Tokenizer:
+    def train(
+        self, texts: Iterable[str], *, progress: ProgressCallback | None = None
+    ) -> Tokenizer:
         frequencies: Counter[str] = Counter()
         documents = utf8_bytes = pre_tokens = 0
         for text in texts:
             if not isinstance(text, str):
                 raise TypeError("training documents must be strings")
             size = len(text.encode("utf-8"))
-            if self.max_training_bytes is not None and utf8_bytes + size > self.max_training_bytes:
+            if (
+                self.max_training_bytes is not None
+                and utf8_bytes + size > self.max_training_bytes
+            ):
                 break
-            tokens = list(text) if self.tokenizer_type == "character" else [m.group(0) for m in self._pattern.finditer(text)]
+            tokens = (
+                list(text)
+                if self.tokenizer_type == "character"
+                else [m.group(0) for m in self._pattern.finditer(text)]
+            )
             frequencies.update(tokens)
             pre_tokens += len(tokens)
             documents += 1
@@ -226,24 +249,40 @@ class VocabularyTokenizerTrainer:
         vocab = dict(special)
         candidates = sorted(frequencies.items(), key=lambda item: (-item[1], item[0]))
         for token, frequency in candidates:
-            if frequency >= self.min_frequency and token not in vocab and len(vocab) < self.vocab_size:
+            if (
+                frequency >= self.min_frequency
+                and token not in vocab
+                and len(vocab) < self.vocab_size
+            ):
                 vocab[token] = len(vocab)
-        self.stats = TrainingStats(documents, utf8_bytes, pre_tokens, len(frequencies), 0)
+        self.stats = TrainingStats(
+            documents, utf8_bytes, pre_tokens, len(frequencies), 0
+        )
         metadata = {
             "trainer": f"frequency_{self.tokenizer_type}",
             "requested_vocab_size": self.vocab_size,
             "actual_vocab_size": len(vocab),
             "min_frequency": self.min_frequency,
             "training_stats": {
-                "documents": documents, "utf8_bytes": utf8_bytes,
-                "pre_tokens": pre_tokens, "unique_pre_tokens": len(frequencies), "merges": 0,
+                "documents": documents,
+                "utf8_bytes": utf8_bytes,
+                "pre_tokens": pre_tokens,
+                "unique_pre_tokens": len(frequencies),
+                "merges": 0,
             },
         }
-        return Tokenizer(vocab, special_tokens=special, pattern=self.pattern,
-                         metadata=metadata, tokenizer_type=self.tokenizer_type)
+        return Tokenizer(
+            vocab,
+            special_tokens=special,
+            pattern=self.pattern,
+            metadata=metadata,
+            tokenizer_type=self.tokenizer_type,
+        )
 
 
-def create_tokenizer_trainer(tokenizer_type: str, **options: object) -> BPETokenizerTrainer | VocabularyTokenizerTrainer:
+def create_tokenizer_trainer(
+    tokenizer_type: str, **options: object
+) -> BPETokenizerTrainer | VocabularyTokenizerTrainer:
     """Create a built-in trainer from a configuration type."""
     aliases = {"normal_bpe": "bpe", "char": "character", "word": "word_level"}
     resolved = aliases.get(tokenizer_type, tokenizer_type)
@@ -252,10 +291,14 @@ def create_tokenizer_trainer(tokenizer_type: str, **options: object) -> BPEToken
     if resolved in {"character", "word_level"}:
         return VocabularyTokenizerTrainer(tokenizer_type=resolved, **options)
     supported = "bpe, byte_level_bpe, character, word_level"
-    raise ValueError(f"unsupported tokenizer type {tokenizer_type!r}; supported types: {supported}")
+    raise ValueError(
+        f"unsupported tokenizer type {tokenizer_type!r}; supported types: {supported}"
+    )
 
 
-def _count_pre_tokens(texts: Iterable[str], pattern: regex.Pattern, max_bytes: int | None) -> tuple[Counter[str], int, int]:
+def _count_pre_tokens(
+    texts: Iterable[str], pattern: regex.Pattern, max_bytes: int | None
+) -> tuple[Counter[str], int, int]:
     frequencies: Counter[str] = Counter()
     documents = utf8_bytes = 0
     for text in texts:
@@ -270,7 +313,9 @@ def _count_pre_tokens(texts: Iterable[str], pattern: regex.Pattern, max_bytes: i
     return frequencies, documents, utf8_bytes
 
 
-def _pop_best_pair(heap: list[tuple[int, str, str]], pair_counts: Counter[Pair]) -> tuple[Pair, int] | None:
+def _pop_best_pair(
+    heap: list[tuple[int, str, str]], pair_counts: Counter[Pair]
+) -> tuple[Pair, int] | None:
     while heap:
         negative_count, left, right = heapq.heappop(heap)
         pair = (left, right)
@@ -281,14 +326,20 @@ def _pop_best_pair(heap: list[tuple[int, str, str]], pair_counts: Counter[Pair])
 
 
 def _update_pair_statistics(
-    word_id: int, old_symbols: tuple[str, ...], new_symbols: tuple[str, ...],
-    word_frequency: int, pair_counts: Counter[Pair], pair_to_words: dict[Pair, set[int]],
+    word_id: int,
+    old_symbols: tuple[str, ...],
+    new_symbols: tuple[str, ...],
+    word_frequency: int,
+    pair_counts: Counter[Pair],
+    pair_to_words: dict[Pair, set[int]],
     heap: list[tuple[int, str, str]],
 ) -> None:
     old_occurrences = Counter(zip(old_symbols, old_symbols[1:]))
     new_occurrences = Counter(zip(new_symbols, new_symbols[1:]))
     for candidate in old_occurrences.keys() | new_occurrences.keys():
-        delta = (new_occurrences[candidate] - old_occurrences[candidate]) * word_frequency
+        delta = (
+            new_occurrences[candidate] - old_occurrences[candidate]
+        ) * word_frequency
         if delta:
             pair_counts[candidate] += delta
         if new_occurrences[candidate]:

@@ -25,8 +25,11 @@ def pair(identifier: str, prompt: str, answer: str) -> dict:
 def build_records() -> list[dict]:
     records: list[dict] = []
     identity_prompts = [
-        "What is your name?", "Who are you?", "Introduce yourself.",
-        "Hello, who are you?", "Can you tell me your name?",
+        "What is your name?",
+        "Who are you?",
+        "Introduce yourself.",
+        "Hello, who are you?",
+        "Can you tell me your name?",
     ]
     identity_answers = [
         "My name is Gopi. I am a helpful AI assistant.",
@@ -35,7 +38,9 @@ def build_records() -> list[dict]:
     ]
     for prompt_index, prompt in enumerate(identity_prompts):
         for answer_index, answer in enumerate(identity_answers):
-            records.append(pair(f"identity-{prompt_index}-{answer_index}", prompt, answer))
+            records.append(
+                pair(f"identity-{prompt_index}-{answer_index}", prompt, answer)
+            )
 
     greetings = {
         "Hi": "Hello! How can I help you?",
@@ -50,29 +55,52 @@ def build_records() -> list[dict]:
 
     for left in range(21):
         for right in range(21):
-            records.append(pair(
-                f"addition-{left}-{right}",
-                f"What is {left} plus {right}?",
-                f"{left} plus {right} is {left + right}.",
-            ))
+            records.append(
+                pair(
+                    f"addition-{left}-{right}",
+                    f"What is {left} plus {right}?",
+                    f"{left} plus {right} is {left + right}.",
+                )
+            )
 
     facts = [
         ("What is the capital of France?", "The capital of France is Paris."),
         ("What is the capital of India?", "The capital of India is New Delhi."),
-        ("Which planet is known as the Red Planet?", "Mars is known as the Red Planet."),
+        (
+            "Which planet is known as the Red Planet?",
+            "Mars is known as the Red Planet.",
+        ),
         ("How many days are in a week?", "There are seven days in a week."),
-        ("What do plants need for photosynthesis?", "Plants use light, water, and carbon dioxide for photosynthesis."),
+        (
+            "What do plants need for photosynthesis?",
+            "Plants use light, water, and carbon dioxide for photosynthesis.",
+        ),
         ("Name three fruits.", "Apple, banana, and orange."),
-        ("Give one tip for staying healthy.", "Exercise regularly and eat a balanced diet."),
-        ("Give two ways to save water.", "Turn off taps when not in use and repair leaks promptly."),
+        (
+            "Give one tip for staying healthy.",
+            "Exercise regularly and eat a balanced diet.",
+        ),
+        (
+            "Give two ways to save water.",
+            "Turn off taps when not in use and repair leaks promptly.",
+        ),
     ]
     for index, (prompt, answer) in enumerate(facts):
         records.append(pair(f"fact-{index}", prompt, answer))
 
     rewrites = [
-        ("Rewrite this politely: Send me the report now.", "Could you please send me the report?"),
-        ("Correct this sentence: She go to school every day.", "She goes to school every day."),
-        ("Rewrite this politely: Give me your notes.", "Could you please share your notes with me?"),
+        (
+            "Rewrite this politely: Send me the report now.",
+            "Could you please send me the report?",
+        ),
+        (
+            "Correct this sentence: She go to school every day.",
+            "She goes to school every day.",
+        ),
+        (
+            "Rewrite this politely: Give me your notes.",
+            "Could you please share your notes with me?",
+        ),
     ]
     for index, (prompt, answer) in enumerate(rewrites):
         records.append(pair(f"rewrite-{index}", prompt, answer))
@@ -81,7 +109,9 @@ def build_records() -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, default=Path("data/processed/core_chat"))
+    parser.add_argument(
+        "--output-dir", type=Path, default=Path("data/processed/core_chat")
+    )
     args = parser.parse_args()
     records = build_records()
     validation = records[::10]

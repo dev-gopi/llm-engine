@@ -25,17 +25,26 @@ def build_adamw(
             continue
         # LoRA matrices are small adapters; regularizing them like pretrained
         # base weights can erase useful updates during short PEFT stages.
-        (no_decay if parameter.ndim < 2 or name.endswith("bias") or "lora_" in name else decay).append(parameter)
+        (
+            no_decay
+            if parameter.ndim < 2 or name.endswith("bias") or "lora_" in name
+            else decay
+        ).append(parameter)
     if fused == "auto":
         parameters = decay + no_decay
-        fused = bool(parameters) and all(parameter.device.type == "cuda" for parameter in parameters)
+        fused = bool(parameters) and all(
+            parameter.device.type == "cuda" for parameter in parameters
+        )
     elif fused is not None and not isinstance(fused, bool):
         raise ValueError("fused_optimizer must be true, false, null, or auto")
     kwargs: dict[str, Any] = {"lr": learning_rate, "betas": betas, "eps": eps}
     if fused is not None:
         kwargs["fused"] = fused
     return AdamW(
-        [{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}],
+        [
+            {"params": decay, "weight_decay": weight_decay},
+            {"params": no_decay, "weight_decay": 0.0},
+        ],
         **kwargs,
     )
 

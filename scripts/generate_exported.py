@@ -9,8 +9,7 @@ from pathlib import Path
 
 script_directory = os.path.dirname(os.path.realpath(__file__))
 sys.path[:] = [
-    entry for entry in sys.path
-    if os.path.realpath(entry or ".") != script_directory
+    entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory
 ]
 
 from safetensors.torch import load_model
@@ -63,7 +62,8 @@ def main() -> None:
     tokenizer = Tokenizer.load(args.tokenizer)
     try:
         model_config = adapt_config_to_tokenizer(
-            load_yaml(args.model_config), tokenizer,
+            load_yaml(args.model_config),
+            tokenizer,
         )
     except ValueError as error:
         parser.error(str(error))

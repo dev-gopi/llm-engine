@@ -22,7 +22,9 @@ class FakeProvider:
 def test_provider_registry_and_capability_snapshot():
     registry = ProviderRegistry()
     registry.register(FakeProvider())
-    snapshot = build_capability_snapshot(provider_capabilities=registry.capability_set())
+    snapshot = build_capability_snapshot(
+        provider_capabilities=registry.capability_set()
+    )
     assert snapshot.enabled("video_generation") is True
     assert snapshot.enabled("image_to_video") is True
     assert snapshot.enabled("speech_to_text") is False
@@ -30,11 +32,15 @@ def test_provider_registry_and_capability_snapshot():
 
 def test_router_is_deterministic():
     decision = route_multimodal(
-        input_modalities=["text", "image"], output_modality="video", operation="generate"
+        input_modalities=["text", "image"],
+        output_modality="video",
+        operation="generate",
     )
     assert decision.capability == "image_to_video"
     with pytest.raises(UnsupportedCapabilityError):
-        route_multimodal(input_modalities=["video"], output_modality="audio", operation="generate")
+        route_multimodal(
+            input_modalities=["video"], output_modality="audio", operation="generate"
+        )
 
 
 def test_local_artifact_storage_does_not_expose_source_path(tmp_path: Path):
@@ -62,7 +68,9 @@ def test_bounded_priority_queue_and_dead_letter():
 
 
 def test_video_limits():
-    limits = GenerationLimits(max_video_seconds=10, max_video_fps=30, max_video_frames=300)
+    limits = GenerationLimits(
+        max_video_seconds=10, max_video_fps=30, max_video_frames=300
+    )
     validate_video(frames=300, fps=30, limits=limits)
     with pytest.raises(Exception):
         validate_video(frames=301, fps=30, limits=limits)

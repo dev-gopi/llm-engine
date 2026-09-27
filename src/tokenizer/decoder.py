@@ -11,5 +11,9 @@ class Decoder:
     def __init__(self, tokenizer: Tokenizer):
         self.tokenizer = tokenizer
 
-    def decode(self, identifiers: Iterable[int], *, skip_special_tokens: bool = False) -> str:
-        return self.tokenizer.decode(identifiers, skip_special_tokens=skip_special_tokens)
+    def decode(
+        self, identifiers: Iterable[int], *, skip_special_tokens: bool = False
+    ) -> str:
+        return self.tokenizer.decode(
+            identifiers, skip_special_tokens=skip_special_tokens
+        )

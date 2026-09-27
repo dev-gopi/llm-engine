@@ -1,4 +1,5 @@
 """Estimate model/attention-state memory across deployment precisions."""
+
 from __future__ import annotations
 
 import argparse
@@ -16,13 +17,17 @@ from utils.config import load_yaml
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument(
+        "--model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
     parser.add_argument("--context-length", type=int)
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--memory-gib", type=float, help="optional device/RAM budget in GiB")
+    parser.add_argument(
+        "--memory-gib", type=float, help="optional device/RAM budget in GiB"
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    budget = None if args.memory_gib is None else int(args.memory_gib * 1024 ** 3)
+    budget = None if args.memory_gib is None else int(args.memory_gib * 1024**3)
     payload = {
         "schema_version": 1,
         "model_config": str(args.model_config),

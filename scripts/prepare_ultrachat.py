@@ -21,7 +21,10 @@ def valid_messages(messages: list[dict[str, str]] | None) -> bool:
         return False
     expected_role = "user"
     for message in messages:
-        if message.get("role") != expected_role or not message.get("content", "").strip():
+        if (
+            message.get("role") != expected_role
+            or not message.get("content", "").strip()
+        ):
             return False
         expected_role = "assistant" if expected_role == "user" else "user"
     return messages[-1]["role"] == "assistant"
@@ -96,7 +99,10 @@ def main() -> None:
 
     counts = {
         "train": write_subset(
-            train_source, args.output_dir / "train.jsonl", args.train_size, bot_name=args.bot_name
+            train_source,
+            args.output_dir / "train.jsonl",
+            args.train_size,
+            bot_name=args.bot_name,
         ),
         "validation": write_subset(
             test_source,

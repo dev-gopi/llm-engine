@@ -11,7 +11,9 @@ from .encoder import VisionEncoder
 
 
 class VisionClassifier(nn.Module):
-    def __init__(self, encoder: VisionEncoder, num_classes: int, dropout: float = 0.0) -> None:
+    def __init__(
+        self, encoder: VisionEncoder, num_classes: int, dropout: float = 0.0
+    ) -> None:
         super().__init__()
         if num_classes < 2:
             raise ValueError("num_classes must be at least two")
@@ -19,7 +21,9 @@ class VisionClassifier(nn.Module):
             raise ValueError("dropout must satisfy 0 <= dropout < 1")
         self.encoder = encoder
         self.num_classes = num_classes
-        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(encoder.hidden_size, num_classes))
+        self.head = nn.Sequential(
+            nn.Dropout(dropout), nn.Linear(encoder.hidden_size, num_classes)
+        )
 
     def forward(self, images: Tensor) -> Tensor:
         return self.head(self.encoder.pooled(images))

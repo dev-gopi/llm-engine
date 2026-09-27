@@ -1,10 +1,13 @@
 """Unified multimodal model registry with runtime availability states."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-ModelStatus = Literal["configured", "installed", "loading", "ready", "unavailable", "error"]
+ModelStatus = Literal[
+    "configured", "installed", "loading", "ready", "unavailable", "error"
+]
 
 
 @dataclass(slots=True)
@@ -44,7 +47,15 @@ class OmniModelRegistry:
     def get(self, model_id: str) -> OmniModelRecord:
         return self._models[model_id]
 
-    def update_status(self, model_id: str, *, status: ModelStatus, loaded: bool | None = None, device: str | None = None, precision: str | None = None) -> OmniModelRecord:
+    def update_status(
+        self,
+        model_id: str,
+        *,
+        status: ModelStatus,
+        loaded: bool | None = None,
+        device: str | None = None,
+        precision: str | None = None,
+    ) -> OmniModelRecord:
         record = self.get(model_id)
         record.status = status
         if loaded is not None:
@@ -62,5 +73,7 @@ class OmniModelRegistry:
         result: set[str] = set()
         for record in self._models.values():
             if record.status == "ready":
-                result.update(name for name, enabled in record.capabilities.items() if enabled)
+                result.update(
+                    name for name, enabled in record.capabilities.items() if enabled
+                )
         return frozenset(result)

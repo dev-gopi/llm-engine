@@ -4,6 +4,7 @@ Omni keeps the original string/message forms while adding typed multimodal
 input parts. Media parts reference either content-safe image URLs/data URLs or
 assets previously uploaded through the media asset API.
 """
+
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
@@ -29,7 +30,9 @@ class ResponseInputImage(BaseModel):
     @model_validator(mode="after")
     def exactly_one_source(self):
         if bool(self.image_url) == bool(self.asset_id):
-            raise ValueError("input_image requires exactly one of image_url or asset_id")
+            raise ValueError(
+                "input_image requires exactly one of image_url or asset_id"
+            )
         return self
 
 
@@ -75,7 +78,9 @@ class ResponseInput(BaseModel):
     def validate_role_media(self):
         if isinstance(self.content, list) and self.role != "user":
             if any(not isinstance(part, ResponseInputText) for part in self.content):
-                raise ValueError("image/audio/video input parts are only accepted on user messages")
+                raise ValueError(
+                    "image/audio/video input parts are only accepted on user messages"
+                )
         return self
 
 
@@ -84,7 +89,9 @@ class ResponsesRequest(BaseModel):
     model: str = Field(min_length=1, max_length=128)
     input: str | list[ResponseInput]
     stream: bool = False
-    modalities: list[Literal["text", "audio"]] = Field(default_factory=lambda: ["text"], min_length=1, max_length=2)
+    modalities: list[Literal["text", "audio"]] = Field(
+        default_factory=lambda: ["text"], min_length=1, max_length=2
+    )
     max_output_tokens: int = Field(default=128, ge=1, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
     top_p: float = Field(default=0.9, gt=0, le=1)
@@ -119,7 +126,6 @@ class ResponsesRequest(BaseModel):
             raise ValueError("input cannot contain more than 256 messages")
         return value
 
-
     @field_validator("modalities")
     @classmethod
     def validate_modalities(cls, values):
@@ -140,12 +146,20 @@ class ResponsesRequest(BaseModel):
                 raise ValueError("stop sequences cannot exceed 1024 characters")
             if item not in normalized:
                 normalized.append(item)
-        return normalized[0] if isinstance(value, str) else normalized if value is not None else None
+        return (
+            normalized[0]
+            if isinstance(value, str)
+            else normalized
+            if value is not None
+            else None
+        )
 
     @field_validator("tools")
     @classmethod
     def validate_tools(cls, values):
-        return [OpenAITool.model_validate(value).model_dump(mode="json") for value in values]
+        return [
+            OpenAITool.model_validate(value).model_dump(mode="json") for value in values
+        ]
 
     rag: bool = False
     web_search: bool = False

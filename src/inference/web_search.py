@@ -63,11 +63,13 @@ def search_brave(
         url = _safe_result_url(item.get("url"))
         if not url:
             continue
-        results.append(SearchResult(
-            title=str(item.get("title", "Untitled")).strip(),
-            url=url,
-            description=str(item.get("description", "")).strip(),
-        ))
+        results.append(
+            SearchResult(
+                title=str(item.get("title", "Untitled")).strip(),
+                url=url,
+                description=str(item.get("description", "")).strip(),
+            )
+        )
     return results
 
 
@@ -99,11 +101,13 @@ def search_searxng(
         url = _safe_result_url(item.get("url"))
         if not url:
             continue
-        results.append(SearchResult(
-            title=str(item.get("title", "Untitled")).strip(),
-            url=url,
-            description=str(item.get("content", "")).strip(),
-        ))
+        results.append(
+            SearchResult(
+                title=str(item.get("title", "Untitled")).strip(),
+                url=url,
+                description=str(item.get("content", "")).strip(),
+            )
+        )
     return results
 
 

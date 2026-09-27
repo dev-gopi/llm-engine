@@ -99,6 +99,7 @@ def test_sinusoidal_token_ids_preserve_fractional_embeddings():
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_rotary_cache_growth_after_dtype_conversion_matches_fp32(dtype):
     from model.positional import RotaryPositionalEmbedding
+
     reference = RotaryPositionalEmbedding(16, max_position_embeddings=1024)
     module = RotaryPositionalEmbedding(16, max_position_embeddings=8).to(dtype=dtype)
     x = torch.zeros(1, 2, 1024, 16, dtype=dtype)
@@ -107,16 +108,22 @@ def test_rotary_cache_growth_after_dtype_conversion_matches_fp32(dtype):
     for result, target in zip(actual, expected):
         torch.testing.assert_close(result, target, atol=0, rtol=0)
     module.float()
-    for result, target in zip(module(x.float(), seq_len=1024), reference(x.float(), seq_len=1024)):
+    for result, target in zip(
+        module(x.float(), seq_len=1024), reference(x.float(), seq_len=1024)
+    ):
         torch.testing.assert_close(result, target, atol=0, rtol=0)
 
 
 @pytest.mark.parametrize("scaling_type", ["ntk", "yarn"])
 def test_rope_long_context_scaling_builds_extended_position_tables(scaling_type):
     from model.positional import RotaryPositionalEmbedding
+
     module = RotaryPositionalEmbedding(
-        16, max_position_embeddings=1024, scaling_type=scaling_type,
-        scaling_factor=4.0, original_max_position_embeddings=1024,
+        16,
+        max_position_embeddings=1024,
+        scaling_type=scaling_type,
+        scaling_factor=4.0,
+        original_max_position_embeddings=1024,
     )
     cos, sin = module(torch.zeros(1, 1, 4096, 16), seq_len=4096)
     assert cos.shape == sin.shape == (1, 1, 4096, 16)
@@ -125,10 +132,14 @@ def test_rope_long_context_scaling_builds_extended_position_tables(scaling_type)
 
 def test_yarn_preserves_high_frequency_and_stretches_low_frequency_features():
     from model.positional import RotaryPositionalEmbedding
+
     baseline = RotaryPositionalEmbedding(16, max_position_embeddings=1024)
     yarn = RotaryPositionalEmbedding(
-        16, max_position_embeddings=1024, scaling_type="yarn",
-        scaling_factor=4.0, original_max_position_embeddings=1024,
+        16,
+        max_position_embeddings=1024,
+        scaling_type="yarn",
+        scaling_factor=4.0,
+        original_max_position_embeddings=1024,
     )
     assert yarn.inv_freq[0] == baseline.inv_freq[0]
     assert yarn.inv_freq[-1] < baseline.inv_freq[-1]
@@ -137,26 +148,28 @@ def test_yarn_preserves_high_frequency_and_stretches_low_frequency_features():
 def test_model_config_wires_rope_scaling_into_long_context_model():
     from model.gpt import MiniGPT
 
-    model = MiniGPT.from_config({
-        "vocab_size": 32,
-        "hidden_size": 16,
-        "layers": 1,
-        "heads": 2,
-        "kv_heads": 1,
-        "max_position": 2048,
-        "position_type": "rotary",
-        "rope_base": 10000.0,
-        "rope_scale": 2.0,
-        "rope_scaling_type": "ntk",
-        "rope_original_max_position": 1024,
-        "ffn_hidden_size": 32,
-        "ffn_activation": "swiglu",
-        "ffn_multiple_of": 8,
-        "norm_type": "rms_norm",
-        "norm_bias": False,
-        "ffn_bias": False,
-        "attention_bias": False,
-    })
+    model = MiniGPT.from_config(
+        {
+            "vocab_size": 32,
+            "hidden_size": 16,
+            "layers": 1,
+            "heads": 2,
+            "kv_heads": 1,
+            "max_position": 2048,
+            "position_type": "rotary",
+            "rope_base": 10000.0,
+            "rope_scale": 2.0,
+            "rope_scaling_type": "ntk",
+            "rope_original_max_position": 1024,
+            "ffn_hidden_size": 32,
+            "ffn_activation": "swiglu",
+            "ffn_multiple_of": 8,
+            "norm_type": "rms_norm",
+            "norm_bias": False,
+            "ffn_bias": False,
+            "attention_bias": False,
+        }
+    )
     assert model.max_positions == 2048
     assert model.rotary_emb is not None
     assert model.rotary_emb.scaling_type == "ntk"

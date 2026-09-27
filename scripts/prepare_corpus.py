@@ -74,11 +74,11 @@ def detect_language(text: str) -> str:
     ascii_ratio = sum(char.isascii() for char in letters) / len(letters)
     bengali = sum("\u0980" <= char <= "\u09ff" for char in letters) / len(letters)
     devanagari = sum("\u0900" <= char <= "\u097f" for char in letters) / len(letters)
-    if ascii_ratio >= .85:
+    if ascii_ratio >= 0.85:
         return "en"
-    if bengali >= .70:
+    if bengali >= 0.70:
         return "bn"
-    if devanagari >= .70:
+    if devanagari >= 0.70:
         return "hi"
     return "other"
 
@@ -100,7 +100,9 @@ def local_records(paths: list[str]) -> Iterator[dict[str, Any]]:
     for raw_path in paths:
         path = Path(raw_path)
         if path.suffix.lower() not in {".jsonl", ".json"}:
-            raise ValueError("web reader supports JSONL/JSON; use DataTrove's WARC reader for WARC files")
+            raise ValueError(
+                "web reader supports JSONL/JSON; use DataTrove's WARC reader for WARC files"
+            )
         with path.open(encoding="utf-8") as handle:
             if path.suffix.lower() == ".json":
                 values = json.load(handle)
@@ -116,7 +118,9 @@ def local_records(paths: list[str]) -> Iterator[dict[str, Any]]:
                     try:
                         value = json.loads(line)
                     except json.JSONDecodeError as error:
-                        raise ValueError(f"invalid JSON at {path}:{line_number}") from error
+                        raise ValueError(
+                            f"invalid JSON at {path}:{line_number}"
+                        ) from error
                     if isinstance(value, dict):
                         yield value
 
@@ -127,28 +131,40 @@ def hf_records(source: dict[str, Any]) -> Iterator[dict[str, Any]]:
     # distribution explicitly when the internal package is first on sys.path.
     try:
         import datasets as datasets_module
+
         load_dataset = datasets_module.load_dataset
     except AttributeError:
         try:
-            package_root = Path(importlib.metadata.distribution("datasets").locate_file("datasets"))
+            package_root = Path(
+                importlib.metadata.distribution("datasets").locate_file("datasets")
+            )
             spec = importlib.util.spec_from_file_location(
-                "datasets", package_root / "__init__.py",
+                "datasets",
+                package_root / "__init__.py",
                 submodule_search_locations=[str(package_root)],
             )
             if spec is None or spec.loader is None:
                 raise ImportError("could not resolve Hugging Face datasets")
             # CorpusFilter has already been imported above, so replacing this
             # module entry cannot affect the preparation filters.
-            for name in [name for name in sys.modules if name == "datasets" or name.startswith("datasets.")]:
+            for name in [
+                name
+                for name in sys.modules
+                if name == "datasets" or name.startswith("datasets.")
+            ]:
                 del sys.modules[name]
             datasets_module = importlib.util.module_from_spec(spec)
             sys.modules["datasets"] = datasets_module
             spec.loader.exec_module(datasets_module)
             load_dataset = datasets_module.load_dataset
         except (ImportError, importlib.metadata.PackageNotFoundError) as error:
-            raise RuntimeError("Hugging Face input requires `pip install -e '.[data]'`") from error
+            raise RuntimeError(
+                "Hugging Face input requires `pip install -e '.[data]'`"
+            ) from error
     except ImportError as error:
-        raise RuntimeError("Hugging Face input requires `pip install -e '.[data]'`") from error
+        raise RuntimeError(
+            "Hugging Face input requires `pip install -e '.[data]'`"
+        ) from error
     name = source.get("name")
     if not isinstance(name, str) or not name:
         raise ValueError("source.name is required for source.kind: huggingface")
@@ -177,8 +193,11 @@ def build_filter(config: dict[str, Any]) -> CorpusFilter:
         min_chars=int(quality.get("min_chars", 40)),
         max_chars=int(quality.get("max_chars", 100_000)),
         redact_pii=bool(pii.get("redact", True)),
-        near_duplicate_distance=(None if dedup.get("near_duplicate_distance", 3) is None
-                                 else int(dedup.get("near_duplicate_distance", 3))),
+        near_duplicate_distance=(
+            None
+            if dedup.get("near_duplicate_distance", 3) is None
+            else int(dedup.get("near_duplicate_distance", 3))
+        ),
         max_fingerprints=int(dedup.get("max_fingerprints", 1_000_000)),
     )
 
@@ -189,9 +208,17 @@ def run_pipeline(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(source, dict) or not isinstance(output, dict):
         raise ValueError("source and output must be mappings")
     kind = source.get("kind", "huggingface")
-    if kind == "web" and (not isinstance(source.get("paths"), list) or not source["paths"]):
+    if kind == "web" and (
+        not isinstance(source.get("paths"), list) or not source["paths"]
+    ):
         raise ValueError("source.paths must be a non-empty list for source.kind: web")
-    records = hf_records(source) if kind == "huggingface" else local_records(list(source.get("paths", []))) if kind == "web" else None
+    records = (
+        hf_records(source)
+        if kind == "huggingface"
+        else local_records(list(source.get("paths", [])))
+        if kind == "web"
+        else None
+    )
     if records is None:
         raise ValueError("source.kind must be 'huggingface' or 'web'")
     destination = Path(output.get("directory", "data/processed/corpus"))
@@ -204,11 +231,16 @@ def run_pipeline(config: dict[str, Any]) -> dict[str, Any]:
             f"output already has shards: {destination}; choose a new output.directory"
         )
     fields = source.get("text_fields", ["text", "content", "raw_content", "html"])
-    if not isinstance(fields, list) or not all(isinstance(item, str) for item in fields):
+    if not isinstance(fields, list) or not all(
+        isinstance(item, str) for item in fields
+    ):
         raise ValueError("source.text_fields must be a list of field names")
     extraction = config.get("extraction", {})
     languages = set(config.get("languages", {}).get("allow", []))
-    blocked = [re.compile(pattern, re.IGNORECASE) for pattern in config.get("unwanted_content", {}).get("patterns", [])]
+    blocked = [
+        re.compile(pattern, re.IGNORECASE)
+        for pattern in config.get("unwanted_content", {}).get("patterns", [])
+    ]
     corpus_filter = build_filter(config)
     counts: Counter[str] = Counter()
     language_counts: Counter[str] = Counter()
@@ -242,30 +274,52 @@ def run_pipeline(config: dict[str, Any]) -> dict[str, Any]:
                 stream = path.open("a", encoding="utf-8")
                 if str(path) not in output_files:
                     output_files.append(str(path))
-            identifier = raw.get("id") or hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
-            record = {"id": str(identifier), "source": str(source.get("name", kind)), "text": cleaned, "language": language}
+            identifier = (
+                raw.get("id") or hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+            )
+            record = {
+                "id": str(identifier),
+                "source": str(source.get("name", kind)),
+                "text": cleaned,
+                "language": language,
+            }
             if isinstance(raw.get("url"), str):
                 record["url"] = raw["url"]
-            stream.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+            stream.write(
+                json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+            )
             counts["accepted"] += 1
             language_counts[language] += 1
     finally:
         if stream is not None:
             stream.close()
-    manifest = {"format": "llm-corpus-v1", "pipeline": "datatrove-compatible", "source": source,
-                "output_files": output_files, "counts": dict(counts), "languages": dict(language_counts),
-                "filter_stats": asdict(corpus_filter.stats), "next_step": "scripts/build_token_shards.py <shards> --tokenizer <dir> --output <token-dir>"}
-    (destination / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    manifest = {
+        "format": "llm-corpus-v1",
+        "pipeline": "datatrove-compatible",
+        "source": source,
+        "output_files": output_files,
+        "counts": dict(counts),
+        "languages": dict(language_counts),
+        "filter_stats": asdict(corpus_filter.stats),
+        "next_step": "scripts/build_token_shards.py <shards> --tokenizer <dir> --output <token-dir>",
+    }
+    (destination / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return manifest
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, required=True, help="YAML corpus pipeline configuration")
+    parser.add_argument(
+        "--config", type=Path, required=True, help="YAML corpus pipeline configuration"
+    )
     args = parser.parse_args()
     config = load_yaml(args.config)
     if config.get("planning_only", False):
-        parser.error("planning-only corpus profile; provide its source data and remove planning_only first")
+        parser.error(
+            "planning-only corpus profile; provide its source data and remove planning_only first"
+        )
     print(json.dumps(run_pipeline(config), indent=2, ensure_ascii=False))
 
 

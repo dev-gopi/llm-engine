@@ -22,7 +22,9 @@ def _sample_indices(length: int, frames: int, mode: str) -> list[int]:
     if mode == "uniform":
         return torch.linspace(0, length - 1, frames).round().long().tolist()
     if mode not in {"start_contiguous", "center_contiguous", "random_contiguous"}:
-        raise ValueError("sampling must be uniform, start_contiguous, center_contiguous, or random_contiguous")
+        raise ValueError(
+            "sampling must be uniform, start_contiguous, center_contiguous, or random_contiguous"
+        )
     if length >= frames:
         available = length - frames
         if mode == "center_contiguous":
@@ -51,7 +53,9 @@ def load_video(
     try:
         import av  # type: ignore
     except ImportError as exc:
-        raise RuntimeError("video loading requires the optional 'av' package: pip install -e '.[media]'") from exc
+        raise RuntimeError(
+            "video loading requires the optional 'av' package: pip install -e '.[media]'"
+        ) from exc
     decoded: list[Tensor] = []
     with av.open(str(source)) as container:
         stream = container.streams.video[0]
@@ -77,15 +81,26 @@ def save_mp4(path: str | Path, video: Tensor, *, fps: int = 12, crf: int = 18) -
         raise ValueError("crf must be between 0 and 51")
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    arrays = ((video.detach().float().cpu().clamp(-1, 1) + 1) * 127.5).round().byte().permute(1, 2, 3, 0).numpy()
+    arrays = (
+        ((video.detach().float().cpu().clamp(-1, 1) + 1) * 127.5)
+        .round()
+        .byte()
+        .permute(1, 2, 3, 0)
+        .numpy()
+    )
     try:
         import av  # type: ignore
+
         with av.open(str(destination), mode="w") as container:
             stream = container.add_stream("libx264", rate=fps)
             stream.width = int(video.shape[-1])
             stream.height = int(video.shape[-2])
             stream.pix_fmt = "yuv420p"
-            stream.options = {"crf": str(crf), "preset": "medium", "movflags": "+faststart"}
+            stream.options = {
+                "crf": str(crf),
+                "preset": "medium",
+                "movflags": "+faststart",
+            }
             for array in arrays:
                 frame = av.VideoFrame.from_ndarray(array, format="rgb24")
                 for packet in stream.encode(frame):
@@ -100,11 +115,32 @@ def save_mp4(path: str | Path, video: Tensor, *, fps: int = 12, crf: int = 18) -
         raise RuntimeError("MP4 output requires PyAV or ffmpeg")
     height, width = int(video.shape[-2]), int(video.shape[-1])
     command = [
-        ffmpeg, "-y", "-loglevel", "error",
-        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
-        "-r", str(fps), "-i", "-", "-an", "-c:v", "libx264",
-        "-preset", "medium", "-crf", str(crf), "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart", str(destination),
+        ffmpeg,
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        str(fps),
+        "-i",
+        "-",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        str(crf),
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(destination),
     ]
     process = subprocess.run(command, input=arrays.tobytes(), check=False)
     if process.returncode != 0:
@@ -120,7 +156,9 @@ def load_image(path: str | Path, *, height: int, width: int) -> Tensor:
     try:
         from PIL import Image
     except ImportError as exc:
-        raise RuntimeError("image-to-video requires Pillow: pip install pillow") from exc
+        raise RuntimeError(
+            "image-to-video requires Pillow: pip install pillow"
+        ) from exc
     image = Image.open(path).convert("RGB").resize((width, height))
     return _frame_to_tensor(np.asarray(image))
 

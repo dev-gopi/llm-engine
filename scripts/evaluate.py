@@ -24,13 +24,21 @@ from utils.device import resolve_device
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
-    parser.add_argument("--training-config", type=Path, default=Path("configs/pretraining.gpu.yaml"))
+    parser.add_argument(
+        "--model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
+    parser.add_argument(
+        "--training-config", type=Path, default=Path("configs/pretraining.gpu.yaml")
+    )
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
-    parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/pretraining/best.pt"))
+    parser.add_argument(
+        "--checkpoint", type=Path, default=Path("checkpoints/pretraining/best.pt")
+    )
     parser.add_argument("--dataset", type=Path, action="append")
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--max-batches", type=int, help="limit evaluation batches for a smoke test")
+    parser.add_argument(
+        "--max-batches", type=int, help="limit evaluation batches for a smoke test"
+    )
     args = parser.parse_args()
     if not args.checkpoint.is_file():
         parser.error(
@@ -54,7 +62,10 @@ def main() -> None:
     device = resolve_device(args.device)
     model = MiniGPT.from_config(model_config, device="cpu")
     load_checkpoint(
-        args.checkpoint, model, use_ema=True, restore_rng=False,
+        args.checkpoint,
+        model,
+        use_ema=True,
+        restore_rng=False,
         **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
     model.to(device)
@@ -65,9 +76,7 @@ def main() -> None:
         loss_fn=CausalLanguageModelLoss.from_config(config),
         device=device,
         mixed_precision=str(config.get("mixed_precision", "none")),
-    ).evaluate(
-        loader, max_batches=args.max_batches
-    )
+    ).evaluate(loader, max_batches=args.max_batches)
     print(json.dumps(metrics, indent=2))
 
 

@@ -1,7 +1,8 @@
 """Resource discovery and CUDA OOM classification helpers."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 try:
@@ -26,7 +27,9 @@ def enumerate_gpus() -> list[GPUInfo]:
     result: list[GPUInfo] = []
     for i in range(torch.cuda.device_count()):
         props = torch.cuda.get_device_properties(i)
-        result.append(GPUInfo(i, props.name, int(props.total_memory), (props.major, props.minor)))
+        result.append(
+            GPUInfo(i, props.name, int(props.total_memory), (props.major, props.minor))
+        )
     return result
 
 

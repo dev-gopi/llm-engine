@@ -6,6 +6,7 @@ by default. Exact-request identity and semantic similarity are separated so a
 semantic hit is only possible when every non-prompt generation parameter is
 identical.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,7 +41,9 @@ class SemanticCacheConfig:
         if self.capacity < 1:
             raise ValueError("semantic cache capacity must be positive")
         if not 0.0 <= self.similarity_threshold <= 1.0:
-            raise ValueError("semantic cache similarity_threshold must be between 0 and 1")
+            raise ValueError(
+                "semantic cache similarity_threshold must be between 0 and 1"
+            )
         if self.ttl_seconds <= 0:
             raise ValueError("semantic cache ttl_seconds must be positive")
         if not self.namespace.strip():
@@ -172,10 +175,16 @@ class SemanticResponseCache:
         query_vector = self._embed(request.prompt)
         best_entry: _CacheEntry | None = None
         best_score = -1.0
-        candidates = [entry for entry in self._entries.values() if entry.policy_key == policy_key]
+        candidates = [
+            entry for entry in self._entries.values() if entry.policy_key == policy_key
+        ]
         if self._db is not None:
             known = {entry.exact_key for entry in candidates}
-            candidates.extend(entry for entry in self._load_policy(policy_key, now) if entry.exact_key not in known)
+            candidates.extend(
+                entry
+                for entry in self._load_policy(policy_key, now)
+                if entry.exact_key not in known
+            )
         for candidate in candidates:
             score = self._cosine(query_vector, candidate.vector)
             if score > best_score:
@@ -231,7 +240,11 @@ class SemanticResponseCache:
         return count
 
     def metrics(self) -> dict[str, int | float | str]:
-        lookups = self._metrics["exact_hits"] + self._metrics["semantic_hits"] + self._metrics["misses"]
+        lookups = (
+            self._metrics["exact_hits"]
+            + self._metrics["semantic_hits"]
+            + self._metrics["misses"]
+        )
         hits = self._metrics["exact_hits"] + self._metrics["semantic_hits"]
         return {
             **self._metrics,
@@ -248,7 +261,9 @@ class SemanticResponseCache:
 
     @staticmethod
     def _hash_payload(payload: dict[str, Any]) -> str:
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
     def _embed(self, text: str) -> tuple[float, ...]:
@@ -292,7 +307,9 @@ class SemanticResponseCache:
                 self._db.commit()
 
     def _purge_expired(self, now: float) -> None:
-        expired = [key for key, entry in self._entries.items() if entry.expires_at <= now]
+        expired = [
+            key for key, entry in self._entries.items() if entry.expires_at <= now
+        ]
         for key in expired:
             self._entries.pop(key, None)
         if expired:
@@ -329,7 +346,9 @@ class SemanticResponseCache:
         payload = {
             **asdict(entry.result),
             "finish_reason": entry.result.finish_reason.value,
-            "tool_calls": [call.model_dump(mode="json") for call in entry.result.tool_calls],
+            "tool_calls": [
+                call.model_dump(mode="json") for call in entry.result.tool_calls
+            ],
         }
         with self._db_lock:
             self._db.execute(
@@ -384,9 +403,20 @@ class SemanticResponseCache:
 
     @staticmethod
     def _row_to_entry(row: tuple[Any, ...]) -> _CacheEntry:
-        exact_key, policy_key, prompt, vector_json, result_json, created_at, expires_at, last_access = row
+        (
+            exact_key,
+            policy_key,
+            prompt,
+            vector_json,
+            result_json,
+            created_at,
+            expires_at,
+            last_access,
+        ) = row
         payload = json.loads(result_json)
-        payload["finish_reason"] = FinishReason(payload.get("finish_reason", FinishReason.STOP.value))
+        payload["finish_reason"] = FinishReason(
+            payload.get("finish_reason", FinishReason.STOP.value)
+        )
         payload["tool_calls"] = ()
         return _CacheEntry(
             exact_key=exact_key,

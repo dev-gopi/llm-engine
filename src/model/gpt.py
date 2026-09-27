@@ -92,17 +92,25 @@ class MiniGPT(nn.Module):
         dtype: torch.dtype | None = None,
     ) -> None:
         super().__init__()
-        self._validate_configuration(vocab_size, dim, layers, heads, max_pos, embedding_dropout)
+        self._validate_configuration(
+            vocab_size, dim, layers, heads, max_pos, embedding_dropout
+        )
         self.vocab_size = vocab_size
         self.dim = dim
         self.max_positions = max_pos
         self.position_type = str(position_type).lower()
         self.tie_word_embeddings = bool(tie_word_embeddings)
         self.gradient_checkpointing = bool(gradient_checkpointing)
-        if not isinstance(mtp_num_predictions, int) or isinstance(mtp_num_predictions, bool) or mtp_num_predictions < 0:
+        if (
+            not isinstance(mtp_num_predictions, int)
+            or isinstance(mtp_num_predictions, bool)
+            or mtp_num_predictions < 0
+        ):
             raise ValueError("mtp_num_predictions must be a non-negative integer")
         self.mtp_num_predictions = int(mtp_num_predictions)
-        if logit_softcap is not None and (not math.isfinite(logit_softcap) or logit_softcap <= 0):
+        if logit_softcap is not None and (
+            not math.isfinite(logit_softcap) or logit_softcap <= 0
+        ):
             raise ValueError("logit_softcap must be finite and positive when provided")
         self.logit_softcap = float(logit_softcap) if logit_softcap is not None else None
 
@@ -112,7 +120,9 @@ class MiniGPT(nn.Module):
             "attention_layer_pattern": attention_layer_pattern,
             "attention_window": attention_window,
         }
-        self.attention_layer_pattern = resolve_attention_layer_pattern(attention_config, layers)
+        self.attention_layer_pattern = resolve_attention_layer_pattern(
+            attention_config, layers
+        )
 
         if self.position_type not in {"learned", "rotary", "sinusoidal", "none"}:
             raise ValueError(f"Unsupported position_type: {position_type!r}")
@@ -202,7 +212,9 @@ class MiniGPT(nn.Module):
         self.norm = build_normalization(
             norm_type, dim, eps=norm_eps, bias=norm_bias, device=device, dtype=dtype
         )
-        self.head = nn.Linear(dim, vocab_size, bias=lm_head_bias, device=device, dtype=dtype)
+        self.head = nn.Linear(
+            dim, vocab_size, bias=lm_head_bias, device=device, dtype=dtype
+        )
         nn.init.normal_(self.head.weight, mean=0.0, std=initializer_range)
         if self.head.bias is not None:
             nn.init.zeros_(self.head.bias)
@@ -216,7 +228,11 @@ class MiniGPT(nn.Module):
             nn.init.normal_(head.weight, mean=0.0, std=initializer_range)
             if head.bias is not None:
                 nn.init.zeros_(head.bias)
-        logger.debug("Initialized GPT with %d layers and %d parameters", layers, self.num_parameters())
+        logger.debug(
+            "Initialized GPT with %d layers and %d parameters",
+            layers,
+            self.num_parameters(),
+        )
 
     def gradient_checkpointing_enable(self) -> None:
         self.gradient_checkpointing = True
@@ -243,11 +259,13 @@ class MiniGPT(nn.Module):
             ffn = block.ffn
             if not hasattr(ffn, "last_expert_load") or not ffn.last_expert_load:
                 continue
-            layers.append({
-                "layer": index,
-                "entropy": ffn.last_router_entropy,
-                "expert_load": list(ffn.last_expert_load),
-            })
+            layers.append(
+                {
+                    "layer": index,
+                    "entropy": ffn.last_router_entropy,
+                    "expert_load": list(ffn.last_expert_load),
+                }
+            )
         return {"layers": layers}
 
     def forward(
@@ -262,7 +280,12 @@ class MiniGPT(nn.Module):
         logits_to_keep: int = 0,
         return_mtp_logits: bool = False,
         return_hidden_states: bool = False,
-    ) -> Tensor | tuple[Tensor, tuple[KeyValueCache, ...]] | tuple[Tensor, list[Tensor]] | tuple[Tensor, Tensor]:
+    ) -> (
+        Tensor
+        | tuple[Tensor, tuple[KeyValueCache, ...]]
+        | tuple[Tensor, list[Tensor]]
+        | tuple[Tensor, Tensor]
+    ):
         # Zero preserves full-sequence training/export behavior. Generation
         # only needs the final token projection, while KV caches stay complete.
         if not isinstance(logits_to_keep, int) or isinstance(logits_to_keep, bool):
@@ -274,14 +297,18 @@ class MiniGPT(nn.Module):
         if return_mtp_logits and use_cache:
             raise ValueError("MTP logits are only available for full-sequence training")
         if return_hidden_states and (use_cache or return_mtp_logits):
-            raise ValueError("return_hidden_states is only available for ordinary full-sequence forward passes")
+            raise ValueError(
+                "return_hidden_states is only available for ordinary full-sequence forward passes"
+            )
         self._validate_inputs(token_ids)
         if not isinstance(position_offset, int) or isinstance(position_offset, bool):
             raise TypeError("position_offset must be an integer")
         if position_offset < 0:
             raise ValueError("position_offset must be non-negative")
         if past_key_values is not None and len(past_key_values) != len(self.blocks):
-            raise ValueError("past_key_values must contain one cache per Transformer block")
+            raise ValueError(
+                "past_key_values must contain one cache per Transformer block"
+            )
         cached_length = 0
         if past_key_values:
             for cache in past_key_values:
@@ -292,8 +319,13 @@ class MiniGPT(nn.Module):
                 ):
                     continue
                 if not isinstance(cache, tuple) or len(cache) != 2:
-                    raise TypeError("each past_key_values entry must be a (key, value) tuple")
-                if any(not isinstance(tensor, Tensor) or tensor.ndim != 4 for tensor in cache):
+                    raise TypeError(
+                        "each past_key_values entry must be a (key, value) tuple"
+                    )
+                if any(
+                    not isinstance(tensor, Tensor) or tensor.ndim != 4
+                    for tensor in cache
+                ):
                     raise ValueError("cached keys and values must have four dimensions")
             cached_length = self._cache_length(past_key_values[0])
             if any(
@@ -301,7 +333,9 @@ class MiniGPT(nn.Module):
                 or self._cache_value_length_mismatch(cache, cached_length)
                 for cache in past_key_values
             ):
-                raise ValueError("all cached keys and values must have the same sequence length")
+                raise ValueError(
+                    "all cached keys and values must have the same sequence length"
+                )
             if position_offset == 0:
                 position_offset = cached_length
 
@@ -316,12 +350,18 @@ class MiniGPT(nn.Module):
         # floating additive biases. Normalize here so float 0/1 masks really
         # exclude padding rather than merely adding 0/1 to attention scores.
         if attention_mask is not None:
-            attention_mask = attention_mask.to(device=token_ids.device, dtype=torch.bool)
+            attention_mask = attention_mask.to(
+                device=token_ids.device, dtype=torch.bool
+            )
         current_attention_mask = attention_mask
         if attention_mask is not None and attention_mask.shape[1] != seq_len:
             current_attention_mask = attention_mask[:, -seq_len:]
         block_attention_mask = attention_mask
-        if attention_mask is not None and cached_length and attention_mask.shape[1] == seq_len:
+        if (
+            attention_mask is not None
+            and cached_length
+            and attention_mask.shape[1] == seq_len
+        ):
             prefix_mask = torch.ones(
                 (token_ids.shape[0], cached_length),
                 dtype=attention_mask.dtype,
@@ -337,12 +377,19 @@ class MiniGPT(nn.Module):
                 # The block mask contains a synthetic all-valid prefix for
                 # attention. It must not contribute to position IDs: the
                 # actual prefix position is represented by position_offset.
-                position_ids = current_attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)
+                position_ids = (
+                    current_attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)
+                )
                 position_ids = position_ids + position_offset
             else:
                 # A complete prefix mask already produces absolute logical
                 # positions, including any padding stored in the cache.
-                position_ids = block_attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0)[:, -seq_len:]
+                position_ids = (
+                    block_attention_mask.long()
+                    .cumsum(dim=1)
+                    .sub(1)
+                    .clamp_min(0)[:, -seq_len:]
+                )
         if position_ids is not None:
             position_ids = self._validate_position_ids(
                 position_ids, token_ids.shape[0], seq_len, token_ids.device
@@ -357,7 +404,9 @@ class MiniGPT(nn.Module):
             )
             hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
         elif self.position_type == "sinusoidal" and self.pos is not None:
-            positions = self.pos(token_ids, position_offset=position_offset, position_ids=position_ids)
+            positions = self.pos(
+                token_ids, position_offset=position_offset, position_ids=position_ids
+            )
             hidden_states = self.embedding_dropout(self.tok(token_ids) + positions)
         elif self.position_type == "rotary" and self.rotary_emb is not None:
             hidden_states = self.embedding_dropout(self.tok(token_ids))
@@ -384,6 +433,7 @@ class MiniGPT(nn.Module):
             past_kv = past_key_values[index] if past_key_values is not None else None
 
             if self.gradient_checkpointing and self.training and not use_cache:
+
                 def create_custom_forward(target_block: TransformerBlock):
                     def custom_forward(*inputs: Any) -> Tensor:
                         out = target_block(
@@ -414,12 +464,16 @@ class MiniGPT(nn.Module):
                 )
                 if use_cache:
                     if not isinstance(block_output, tuple):
-                        raise RuntimeError("Transformer block did not return a requested cache")
+                        raise RuntimeError(
+                            "Transformer block did not return a requested cache"
+                        )
                     hidden_states, present = block_output
                     present_key_values.append(present)
                 else:
                     if isinstance(block_output, tuple):
-                        raise RuntimeError("Transformer block unexpectedly returned a cache")
+                        raise RuntimeError(
+                            "Transformer block unexpectedly returned a cache"
+                        )
                     hidden_states = block_output
 
         normalized_hidden_states = self.norm(hidden_states)
@@ -435,10 +489,16 @@ class MiniGPT(nn.Module):
             return logits, normalized_hidden_states
         return (logits, tuple(present_key_values)) if use_cache else logits
 
-    def load_causal_checkpoint_state_dict(self, state_dict: Mapping[str, Tensor], *, strict: bool = True):
+    def load_causal_checkpoint_state_dict(
+        self, state_dict: Mapping[str, Tensor], *, strict: bool = True
+    ):
         """Load an ordinary causal checkpoint while leaving opt-in MTP heads initialized."""
         if self.mtp_num_predictions:
-            base_state = {key: value for key, value in state_dict.items() if not key.startswith("mtp_heads.")}
+            base_state = {
+                key: value
+                for key, value in state_dict.items()
+                if not key.startswith("mtp_heads.")
+            }
             return self.load_state_dict(base_state, strict=False)
         return self.load_state_dict(state_dict, strict=strict)
 
@@ -455,7 +515,9 @@ class MiniGPT(nn.Module):
     ) -> int:
         """Resize input/output vocabulary matrices and restore weight tying."""
         effective_size = self.tok.resize(
-            new_vocab_size, pad_to_multiple_of=pad_to_multiple_of, init_strategy=init_strategy
+            new_vocab_size,
+            pad_to_multiple_of=pad_to_multiple_of,
+            init_strategy=init_strategy,
         )
         old_head = self.head
         replacement = nn.Linear(
@@ -471,9 +533,13 @@ class MiniGPT(nn.Module):
                 replacement.weight.zero_()
             elif init_strategy == "mean":
                 mean_vec = old_head.weight.mean(dim=0)
-                replacement.weight.copy_(mean_vec.unsqueeze(0).expand(effective_size, -1))
+                replacement.weight.copy_(
+                    mean_vec.unsqueeze(0).expand(effective_size, -1)
+                )
             else:
-                nn.init.normal_(replacement.weight, mean=0.0, std=self.tok.initializer_range)
+                nn.init.normal_(
+                    replacement.weight, mean=0.0, std=self.tok.initializer_range
+                )
 
             replacement.weight[:rows].copy_(old_head.weight[:rows])
             if replacement.bias is not None:
@@ -497,26 +563,42 @@ class MiniGPT(nn.Module):
                         mtp_replacement.weight.zero_()
                     elif init_strategy == "mean":
                         mean_vec = old_mtp_head.weight.mean(dim=0)
-                        mtp_replacement.weight.copy_(mean_vec.unsqueeze(0).expand(effective_size, -1))
+                        mtp_replacement.weight.copy_(
+                            mean_vec.unsqueeze(0).expand(effective_size, -1)
+                        )
                     else:
-                        nn.init.normal_(mtp_replacement.weight, mean=0.0, std=self.tok.initializer_range)
+                        nn.init.normal_(
+                            mtp_replacement.weight,
+                            mean=0.0,
+                            std=self.tok.initializer_range,
+                        )
 
-                    mtp_replacement.weight[:mtp_rows].copy_(old_mtp_head.weight[:mtp_rows])
+                    mtp_replacement.weight[:mtp_rows].copy_(
+                        old_mtp_head.weight[:mtp_rows]
+                    )
                     if mtp_replacement.bias is not None:
                         mtp_replacement.bias.zero_()
-                        mtp_replacement.bias[:mtp_rows].copy_(old_mtp_head.bias[:mtp_rows])
+                        mtp_replacement.bias[:mtp_rows].copy_(
+                            old_mtp_head.bias[:mtp_rows]
+                        )
                 new_mtp_heads.append(mtp_replacement)
             self.mtp_heads = new_mtp_heads
         self.vocab_size = effective_size
         if self.tie_word_embeddings:
             self.tie_weights()
-        logger.info("Resized GPT vocabulary to %d tokens (init_strategy=%s)", effective_size, init_strategy)
+        logger.info(
+            "Resized GPT vocabulary to %d tokens (init_strategy=%s)",
+            effective_size,
+            init_strategy,
+        )
         return effective_size
 
     def num_parameters(self, *, trainable_only: bool = False) -> int:
         parameters = self.parameters()
         if trainable_only:
-            parameters = (parameter for parameter in parameters if parameter.requires_grad)
+            parameters = (
+                parameter for parameter in parameters if parameter.requires_grad
+            )
         return sum(parameter.numel() for parameter in parameters)
 
     @classmethod
@@ -529,21 +611,27 @@ class MiniGPT(nn.Module):
     ) -> MiniGPT:
         """Build a complete model from model configuration values."""
         if config.get("planning_only", False):
-            raise ValueError("planning-only model: use scripts/inspect_model.py or scripts/plan_training.py; "
-                             "the runtime is not validated for this profile")
+            raise ValueError(
+                "planning-only model: use scripts/inspect_model.py or scripts/plan_training.py; "
+                "the runtime is not validated for this profile"
+            )
         config = normalize_model_config(config)
         validate_moe_config(config)
         pos_type = str(config.get("position_type", "learned")).lower()
         valid_pos_types = {"learned", "rotary", "sinusoidal", "none"}
         if pos_type not in valid_pos_types:
-            raise ValueError(f"position_type must be one of {sorted(valid_pos_types)}, got {pos_type!r}")
+            raise ValueError(
+                f"position_type must be one of {sorted(valid_pos_types)}, got {pos_type!r}"
+            )
 
         return cls(
             vocab_size=int(config["vocab_size"]),
             dim=int(config["hidden_size"]),
             layers=int(config["layers"]),
             heads=int(config["heads"]),
-            kv_heads=(int(config["kv_heads"]) if config.get("kv_heads") is not None else None),
+            kv_heads=(
+                int(config["kv_heads"]) if config.get("kv_heads") is not None else None
+            ),
             max_pos=int(config["max_position"]),
             position_type=pos_type,
             rope_base=float(config.get("rope_base", 10000.0)),
@@ -551,11 +639,14 @@ class MiniGPT(nn.Module):
             rope_scaling_type=str(config.get("rope_scaling_type", "none")).lower(),
             rope_original_max_position=(
                 int(config["rope_original_max_position"])
-                if config.get("rope_original_max_position") is not None else None
+                if config.get("rope_original_max_position") is not None
+                else None
             ),
             initializer_range=float(config.get("initializer_range", 0.02)),
             position_initializer_range=float(
-                config.get("position_initializer_range", config.get("initializer_range", 0.02))
+                config.get(
+                    "position_initializer_range", config.get("initializer_range", 0.02)
+                )
             ),
             padding_idx=config.get("padding_idx"),
             embedding_dropout=float(config.get("embedding_dropout", 0.0)),
@@ -589,23 +680,38 @@ class MiniGPT(nn.Module):
             experts_per_token=int(config.get("experts_per_token", 1)),
             router_bias=bool(config.get("router_bias", False)),
             router_jitter=float(config.get("router_jitter", 0.0)),
-            moe_capacity_factor=(float(config["moe_capacity_factor"]) if config.get("moe_capacity_factor") is not None else None),
+            moe_capacity_factor=(
+                float(config["moe_capacity_factor"])
+                if config.get("moe_capacity_factor") is not None
+                else None
+            ),
             moe_min_capacity=int(config.get("moe_min_capacity", 0)),
             gradient_checkpointing=bool(config.get("gradient_checkpointing", False)),
             logit_softcap=(
                 float(config["logit_softcap"])
-                if config.get("logit_softcap") is not None else None
+                if config.get("logit_softcap") is not None
+                else None
             ),
             mtp_num_predictions=config.get("mtp_num_predictions", 0),
             attention_pattern=str(config.get("attention_pattern", "dense")),
             attention_layer_pattern=(
                 list(config["attention_layer_pattern"])
                 if isinstance(config.get("attention_layer_pattern"), (list, tuple))
-                else ([str(config["attention_layer_pattern"])] if config.get("attention_layer_pattern") is not None else None)
+                else (
+                    [str(config["attention_layer_pattern"])]
+                    if config.get("attention_layer_pattern") is not None
+                    else None
+                )
             ),
-            attention_window=(int(config["attention_window"]) if config.get("attention_window") is not None else None),
+            attention_window=(
+                int(config["attention_window"])
+                if config.get("attention_window") is not None
+                else None
+            ),
             linear_attention_eps=float(config.get("linear_attention_eps", 1e-6)),
-            linear_attention_chunk_size=int(config.get("linear_attention_chunk_size", 128)),
+            linear_attention_chunk_size=int(
+                config.get("linear_attention_chunk_size", 128)
+            ),
             device=device,
             dtype=dtype,
         )
@@ -644,7 +750,11 @@ class MiniGPT(nn.Module):
 
     @staticmethod
     def _cache_length(cache: KeyValueCache) -> int:
-        if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False) or getattr(cache, "is_linear_attention_state", False):
+        if (
+            isinstance(cache, StaticLayerKVCache)
+            or getattr(cache, "is_paged_kv_cache", False)
+            or getattr(cache, "is_linear_attention_state", False)
+        ):
             return int(cache.length)
         if isinstance(cache, tuple) and len(cache) == 2:
             return int(cache[0].shape[2])
@@ -652,9 +762,17 @@ class MiniGPT(nn.Module):
 
     @staticmethod
     def _cache_value_length_mismatch(cache: KeyValueCache, expected: int) -> bool:
-        if isinstance(cache, StaticLayerKVCache) or getattr(cache, "is_paged_kv_cache", False) or getattr(cache, "is_linear_attention_state", False):
+        if (
+            isinstance(cache, StaticLayerKVCache)
+            or getattr(cache, "is_paged_kv_cache", False)
+            or getattr(cache, "is_linear_attention_state", False)
+        ):
             return False
-        return bool(isinstance(cache, tuple) and len(cache) == 2 and cache[1].shape[2] != expected)
+        return bool(
+            isinstance(cache, tuple)
+            and len(cache) == 2
+            and cache[1].shape[2] != expected
+        )
 
     @staticmethod
     def _validate_attention_mask(
@@ -681,7 +799,10 @@ class MiniGPT(nn.Module):
 
     @staticmethod
     def _validate_position_ids(
-        position_ids: Tensor, batch_size: int, sequence_length: int, device: torch.device
+        position_ids: Tensor,
+        batch_size: int,
+        sequence_length: int,
+        device: torch.device,
     ) -> Tensor:
         if not isinstance(position_ids, Tensor):
             raise TypeError("position_ids must be a torch.Tensor")
@@ -690,9 +811,15 @@ class MiniGPT(nn.Module):
         if position_ids.ndim == 1 and position_ids.shape[0] == sequence_length:
             position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
         elif position_ids.shape != (batch_size, sequence_length):
-            raise ValueError("position_ids must have shape [sequence] or [batch, sequence]")
+            raise ValueError(
+                "position_ids must have shape [sequence] or [batch, sequence]"
+            )
         if position_ids.device != device:
             raise ValueError("position_ids and token_ids must be on the same device")
-        if not torch.compiler.is_compiling() and position_ids.numel() and int(position_ids.min()) < 0:
+        if (
+            not torch.compiler.is_compiling()
+            and position_ids.numel()
+            and int(position_ids.min()) < 0
+        ):
             raise IndexError("position IDs must be non-negative")
         return position_ids.to(dtype=torch.long)

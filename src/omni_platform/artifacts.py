@@ -1,4 +1,5 @@
 """Unified artifact metadata and storage backends."""
+
 from __future__ import annotations
 
 import hashlib
@@ -58,7 +59,15 @@ class LocalArtifactStorage:
         self.meta.mkdir(exist_ok=True)
         self.data.mkdir(exist_ok=True)
 
-    def create_record(self, source: str | Path, *, job_id: str | None, type: str, model: str | None = None, generation_parameters: dict | None = None) -> ArtifactRecord:
+    def create_record(
+        self,
+        source: str | Path,
+        *,
+        job_id: str | None,
+        type: str,
+        model: str | None = None,
+        generation_parameters: dict | None = None,
+    ) -> ArtifactRecord:
         src = Path(source)
         artifact_id = f"art_{uuid.uuid4().hex}"
         mime = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
@@ -81,7 +90,9 @@ class LocalArtifactStorage:
             raise ValueError("storage_key must not contain a path")
         dst = self.data / record.storage_key
         shutil.copy2(source, dst)
-        (self.meta / f"{record.id}.json").write_text(json.dumps(asdict(record), sort_keys=True), encoding="utf-8")
+        (self.meta / f"{record.id}.json").write_text(
+            json.dumps(asdict(record), sort_keys=True), encoding="utf-8"
+        )
         return record
 
     def resolve(self, artifact_id: str) -> Path:
@@ -106,11 +117,20 @@ class LocalArtifactStorage:
 class S3ArtifactStorage:
     """S3-compatible artifact backend with persisted metadata and a bounded local cache."""
 
-    def __init__(self, *, bucket: str, prefix: str = "artifacts", endpoint_url: str | None = None, cache_dir: str | Path = ".cache/gopi-artifacts") -> None:
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        prefix: str = "artifacts",
+        endpoint_url: str | None = None,
+        cache_dir: str | Path = ".cache/gopi-artifacts",
+    ) -> None:
         try:
             import boto3  # type: ignore
         except ImportError as exc:
-            raise DependencyMissingError("install boto3 to use S3 artifact storage") from exc
+            raise DependencyMissingError(
+                "install boto3 to use S3 artifact storage"
+            ) from exc
         self._client = boto3.client("s3", endpoint_url=endpoint_url)
         self.bucket = bucket
         self.prefix = prefix.strip("/")
@@ -122,7 +142,12 @@ class S3ArtifactStorage:
 
     def put(self, source: Path, record: ArtifactRecord) -> ArtifactRecord:
         object_key = f"{self.prefix}/objects/{record.storage_key}"
-        self._client.upload_file(str(source), self.bucket, object_key, ExtraArgs={"ContentType": record.mime_type})
+        self._client.upload_file(
+            str(source),
+            self.bucket,
+            object_key,
+            ExtraArgs={"ContentType": record.mime_type},
+        )
         record.storage_key = object_key
         self._client.put_object(
             Bucket=self.bucket,
@@ -134,7 +159,9 @@ class S3ArtifactStorage:
 
     def _load_record(self, artifact_id: str) -> ArtifactRecord:
         try:
-            obj = self._client.get_object(Bucket=self.bucket, Key=self._meta_key(artifact_id))
+            obj = self._client.get_object(
+                Bucket=self.bucket, Key=self._meta_key(artifact_id)
+            )
             payload = json.loads(obj["Body"].read().decode("utf-8"))
             return ArtifactRecord(**payload)
         except Exception as exc:

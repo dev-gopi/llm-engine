@@ -1,4 +1,5 @@
 """Release manifests, model cards and dataset cards with reproducibility hashes."""
+
 from __future__ import annotations
 
 import hashlib
@@ -21,7 +22,9 @@ def sha256_file(path: str | Path) -> str:
 
 def git_revision(root: str | Path = ".") -> str | None:
     try:
-        value = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+        value = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL
+        ).strip()
         return value or None
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -55,11 +58,40 @@ class ModelCard:
     provenance: Mapping[str, Any]
 
     def to_markdown(self) -> str:
-        lines = [f"# {self.model_name}", "", f"Version: `{self.version}`", "", f"Architecture: `{self.architecture}`", "", "## Intended use", self.intended_use, "", "## Limitations"]
+        lines = [
+            f"# {self.model_name}",
+            "",
+            f"Version: `{self.version}`",
+            "",
+            f"Architecture: `{self.architecture}`",
+            "",
+            "## Intended use",
+            self.intended_use,
+            "",
+            "## Limitations",
+        ]
         lines.extend(f"- {item}" for item in self.limitations)
         lines.extend(["", "## Training data"])
         lines.extend(f"- {item}" for item in self.training_data)
-        lines.extend(["", "## Evaluation", "```json", json.dumps(dict(self.evaluation_summary), indent=2, sort_keys=True), "```", "", "## Safety", "```json", json.dumps(dict(self.safety_summary), indent=2, sort_keys=True), "```", "", "## Provenance", "```json", json.dumps(dict(self.provenance), indent=2, sort_keys=True), "```"])
+        lines.extend(
+            [
+                "",
+                "## Evaluation",
+                "```json",
+                json.dumps(dict(self.evaluation_summary), indent=2, sort_keys=True),
+                "```",
+                "",
+                "## Safety",
+                "```json",
+                json.dumps(dict(self.safety_summary), indent=2, sort_keys=True),
+                "```",
+                "",
+                "## Provenance",
+                "```json",
+                json.dumps(dict(self.provenance), indent=2, sort_keys=True),
+                "```",
+            ]
+        )
         return "\n".join(lines) + "\n"
 
 
@@ -76,15 +108,37 @@ class DatasetCard:
     hashes: Mapping[str, str]
 
     def to_markdown(self) -> str:
-        lines=[f"# Dataset Card: {self.name}", "", f"Version: `{self.version}`", "", "## Sources"]
+        lines = [
+            f"# Dataset Card: {self.name}",
+            "",
+            f"Version: `{self.version}`",
+            "",
+            "## Sources",
+        ]
         lines.extend(f"- {x}" for x in self.sources)
         lines.extend(["", "## License", self.license_notes, "", "## Preprocessing"])
         lines.extend(f"- {x}" for x in self.preprocessing)
-        lines.extend(["", "## Deduplication", self.deduplication, "", "## Contamination controls"])
+        lines.extend(
+            [
+                "",
+                "## Deduplication",
+                self.deduplication,
+                "",
+                "## Contamination controls",
+            ]
+        )
         lines.extend(f"- {x}" for x in self.contamination_controls)
         lines.extend(["", "## Limitations"])
         lines.extend(f"- {x}" for x in self.limitations)
-        lines.extend(["", "## Artifact hashes", "```json", json.dumps(dict(self.hashes), indent=2, sort_keys=True), "```"])
+        lines.extend(
+            [
+                "",
+                "## Artifact hashes",
+                "```json",
+                json.dumps(dict(self.hashes), indent=2, sort_keys=True),
+                "```",
+            ]
+        )
         return "\n".join(lines) + "\n"
 
 
@@ -99,15 +153,48 @@ def build_reproducibility_manifest(
     import sys
 
     import torch
+
     root = Path(root)
-    config_hashes = {str(Path(path)): sha256_file(path) for path in config_paths if Path(path).is_file()}
-    dataset_hashes = {str(Path(path)): sha256_file(path) for path in dataset_paths if Path(path).is_file()}
-    tokenizer_hash = sha256_file(tokenizer_path) if tokenizer_path and Path(tokenizer_path).is_file() else None
-    checkpoint_hash = sha256_file(checkpoint_path) if checkpoint_path and Path(checkpoint_path).is_file() else None
-    environment = {key: os.environ[key] for key in ("CUDA_VISIBLE_DEVICES", "GOPI_DEVICE", "GOPI_MODEL_NAME") if key in os.environ}
-    return ReproducibilityManifest(git_revision(root), sys.version, torch.__version__, config_hashes, tokenizer_hash, dataset_hashes, checkpoint_hash, environment)
+    config_hashes = {
+        str(Path(path)): sha256_file(path)
+        for path in config_paths
+        if Path(path).is_file()
+    }
+    dataset_hashes = {
+        str(Path(path)): sha256_file(path)
+        for path in dataset_paths
+        if Path(path).is_file()
+    }
+    tokenizer_hash = (
+        sha256_file(tokenizer_path)
+        if tokenizer_path and Path(tokenizer_path).is_file()
+        else None
+    )
+    checkpoint_hash = (
+        sha256_file(checkpoint_path)
+        if checkpoint_path and Path(checkpoint_path).is_file()
+        else None
+    )
+    environment = {
+        key: os.environ[key]
+        for key in ("CUDA_VISIBLE_DEVICES", "GOPI_DEVICE", "GOPI_MODEL_NAME")
+        if key in os.environ
+    }
+    return ReproducibilityManifest(
+        git_revision(root),
+        sys.version,
+        torch.__version__,
+        config_hashes,
+        tokenizer_hash,
+        dataset_hashes,
+        checkpoint_hash,
+        environment,
+    )
 
 
 def write_json(path: str | Path, value: Mapping[str, Any]) -> None:
-    target=Path(path); target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(dict(value), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(dict(value), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )

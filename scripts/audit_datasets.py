@@ -17,7 +17,8 @@ src_directory = str(Path(project_root) / "src")
 # move our source root ahead of site-packages rather than only adding it when
 # absent.
 sys.path[:] = [
-    entry for entry in sys.path
+    entry
+    for entry in sys.path
     if str(Path(entry or ".").resolve()) not in {script_directory, src_directory}
 ]
 sys.path.insert(0, src_directory)
@@ -34,17 +35,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", type=Path)
     parser.add_argument("--training-config", type=Path)
-    parser.add_argument("--stage", help="override dataset_governance.stage from the training config")
     parser.add_argument(
-        "--output", type=Path,
+        "--stage", help="override dataset_governance.stage from the training config"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
         help="also write the JSON result atomically (for example reports/data_quality.json)",
     )
     parser.add_argument(
-        "--commercial-use", action=argparse.BooleanOptionalAction, default=None,
+        "--commercial-use",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="override dataset_governance.commercial_use from the training config",
     )
     parser.add_argument(
-        "--capability-audit", action="store_true",
+        "--capability-audit",
+        action="store_true",
         help="run the strict DATA-003 provenance, quality, contamination, and domain audit",
     )
     args = parser.parse_args()
@@ -80,13 +87,17 @@ def main() -> None:
         "required_domains": governance.get("required_domains", ()),
     }
     findings = audit_dataset_files(paths, **audit_kwargs)
-    capability_findings = audit_manifest_files(
-        capability_manifests,
-        stage=audit_kwargs["stage"],
-        commercial_use=audit_kwargs["commercial_use"],
-        required_domains=audit_kwargs["required_domains"],
-        expected_domains=expected_domains,
-    ) if strict else []
+    capability_findings = (
+        audit_manifest_files(
+            capability_manifests,
+            stage=audit_kwargs["stage"],
+            commercial_use=audit_kwargs["commercial_use"],
+            required_domains=audit_kwargs["required_domains"],
+            expected_domains=expected_domains,
+        )
+        if strict
+        else []
+    )
     if capability_findings:
         findings.extend(capability_findings)
     result = (
@@ -104,7 +115,9 @@ def main() -> None:
     rendered = json.dumps(result, indent=2) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix=f".{args.output.name}.", dir=args.output.parent)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{args.output.name}.", dir=args.output.parent
+        )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 stream.write(rendered)

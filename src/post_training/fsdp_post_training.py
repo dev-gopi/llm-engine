@@ -5,6 +5,7 @@ preserve the existing single-file checkpoint format for non-FSDP runs. FSDP
 runs use one shard per rank plus a compact manifest; optimizer state is restored
 with PyTorch's FSDP optimizer-state conversion APIs.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,11 +18,13 @@ from torch import nn
 
 try:
     from torch.distributed.fsdp import (
-        FullyShardedDataParallel as FSDP,
         FullStateDictConfig,
         ShardedOptimStateDictConfig,
         ShardedStateDictConfig,
         StateDictType,
+    )
+    from torch.distributed.fsdp import (
+        FullyShardedDataParallel as FSDP,
     )
 except ImportError:  # pragma: no cover - depends on installed PyTorch
     FSDP = None
@@ -37,7 +40,12 @@ def read_fsdp_manifest(path: str | Path) -> dict[str, Any]:
     if not manifest.is_file():
         raise FileNotFoundError(f"FSDP checkpoint manifest not found: {manifest}")
     payload = json.loads(manifest.read_text(encoding="utf8"))
-    if payload.get("format") not in {FORMAT, RLHF_FORMAT, "gopi-fsdp-post-v1", "gopi-fsdp-rlhf-v1"}:
+    if payload.get("format") not in {
+        FORMAT,
+        RLHF_FORMAT,
+        "gopi-fsdp-post-v1",
+        "gopi-fsdp-rlhf-v1",
+    }:
         raise ValueError("unsupported FSDP checkpoint manifest")
     return payload
 
@@ -51,7 +59,12 @@ def is_fsdp_checkpoint(path: str | Path) -> bool:
         payload = json.loads(manifest.read_text(encoding="utf8"))
     except (OSError, json.JSONDecodeError):
         return False
-    return payload.get("format") in {FORMAT, RLHF_FORMAT, "gopi-fsdp-post-v1", "gopi-fsdp-rlhf-v1"}
+    return payload.get("format") in {
+        FORMAT,
+        RLHF_FORMAT,
+        "gopi-fsdp-post-v1",
+        "gopi-fsdp-rlhf-v1",
+    }
 
 
 def _require_fsdp(model: nn.Module) -> None:
@@ -61,8 +74,6 @@ def _require_fsdp(model: nn.Module) -> None:
         raise TypeError("model must be an FSDP instance")
     if not dist.is_initialized():
         raise RuntimeError("FSDP checkpointing requires an initialized process group")
-
-
 
 
 def is_fsdp_model(model: nn.Module) -> bool:
@@ -83,7 +94,10 @@ def copy_fsdp_weights_to_model(source: nn.Module, target: nn.Module) -> None:
         state = source.state_dict()
     target.load_state_dict(state, strict=True)
 
-def wrap_post_training(model: nn.Module, *, context, mixed_precision: str = "bf16", strategy: str = "fsdp") -> nn.Module:
+
+def wrap_post_training(
+    model: nn.Module, *, context, mixed_precision: str = "bf16", strategy: str = "fsdp"
+) -> nn.Module:
     if FSDP is None:
         raise RuntimeError("PyTorch FSDP is unavailable")
     if context.world_size < 2 or context.device.type != "cuda":
@@ -115,7 +129,9 @@ def save_sharded_post_training(
     root.mkdir(parents=True, exist_ok=True)
     state_cfg = ShardedStateDictConfig(offload_to_cpu=True)
     optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
-    with FSDP.state_dict_type(model, StateDictType.SHARDED_STATE_DICT, state_cfg, optim_cfg):
+    with FSDP.state_dict_type(
+        model, StateDictType.SHARDED_STATE_DICT, state_cfg, optim_cfg
+    ):
         payload = {
             "format": FORMAT,
             "model": model.state_dict(),
@@ -163,15 +179,21 @@ def load_sharded_post_training(
             f"FSDP checkpoint world_size={saved_world_size} does not match current world_size={dist.get_world_size()}"
         )
     payload = torch.load(
-        root / f"rank-{dist.get_rank():05d}.pt", map_location=map_location, weights_only=False
+        root / f"rank-{dist.get_rank():05d}.pt",
+        map_location=map_location,
+        weights_only=False,
     )
     if payload.get("format") not in {FORMAT, "gopi-fsdp-post-v1"}:
         raise ValueError("unsupported FSDP post-training checkpoint format")
     state_cfg = ShardedStateDictConfig(offload_to_cpu=True)
     optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
-    with FSDP.state_dict_type(model, StateDictType.SHARDED_STATE_DICT, state_cfg, optim_cfg):
+    with FSDP.state_dict_type(
+        model, StateDictType.SHARDED_STATE_DICT, state_cfg, optim_cfg
+    ):
         model.load_state_dict(payload["model"])
-        optim_state = FSDP.optim_state_dict_to_load(model, optimizer, payload["optimizer"])
+        optim_state = FSDP.optim_state_dict_to_load(
+            model, optimizer, payload["optimizer"]
+        )
         optimizer.load_state_dict(optim_state)
     if scheduler is not None and payload.get("scheduler") is not None:
         scheduler.load_state_dict(payload["scheduler"])
@@ -211,7 +233,9 @@ def save_sharded_rlhf_checkpoint(
         with FSDP.state_dict_type(model, StateDictType.SHARDED_STATE_DICT, cfg, ocfg):
             payload["models"][name] = model.state_dict()
             if name in optimizers:
-                payload["optimizers"][name] = FSDP.optim_state_dict(model, optimizers[name])
+                payload["optimizers"][name] = FSDP.optim_state_dict(
+                    model, optimizers[name]
+                )
     torch.save(payload, root / f"rank-{dist.get_rank():05d}.pt")
     if dist.get_rank() == 0:
         (root / "manifest.json").write_text(
@@ -250,7 +274,9 @@ def load_sharded_rlhf_checkpoint(
             f"FSDP checkpoint world_size={saved_world_size} does not match current world_size={dist.get_world_size()}"
         )
     payload = torch.load(
-        root / f"rank-{dist.get_rank():05d}.pt", map_location=map_location, weights_only=False
+        root / f"rank-{dist.get_rank():05d}.pt",
+        map_location=map_location,
+        weights_only=False,
     )
     optimizers = optimizers or {}
     if payload.get("format") not in {RLHF_FORMAT, "gopi-fsdp-rlhf-v1"}:

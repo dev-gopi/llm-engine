@@ -41,9 +41,10 @@ def test_device_and_logger_helpers() -> None:
 
 
 def test_cuda_health_check_executes_and_synchronizes() -> None:
-    with patch("utils.device.torch.zeros") as zeros, patch(
-        "utils.device.torch.cuda.synchronize"
-    ) as synchronize:
+    with (
+        patch("utils.device.torch.zeros") as zeros,
+        patch("utils.device.torch.cuda.synchronize") as synchronize,
+    ):
         verify_cuda_health()
 
     zeros.assert_called_once_with(1, device="cuda")
@@ -74,11 +75,18 @@ def test_logging_can_append_to_a_report_file(tmp_path) -> None:
 
 
 def test_yaml_inheritance_merges_nested_defaults_and_replaces_lists(tmp_path):
-    (tmp_path / "base.yaml").write_text("runtime:\n  device: cpu\n  count: 2\nfiles: [a, b]\n")
+    (tmp_path / "base.yaml").write_text(
+        "runtime:\n  device: cpu\n  count: 2\nfiles: [a, b]\n"
+    )
     (tmp_path / "second.yaml").write_text("runtime:\n  count: 4\n")
     child = tmp_path / "child.yaml"
-    child.write_text("extends: [base.yaml, second.yaml]\nruntime:\n  device: cuda\nfiles: [c]\n")
-    assert load_yaml(child) == {"runtime": {"device": "cuda", "count": 4}, "files": ["c"]}
+    child.write_text(
+        "extends: [base.yaml, second.yaml]\nruntime:\n  device: cuda\nfiles: [c]\n"
+    )
+    assert load_yaml(child) == {
+        "runtime": {"device": "cuda", "count": 4},
+        "files": ["c"],
+    }
     assert load_yaml(tmp_path / "base.yaml")["runtime"]["count"] == 2
 
 
@@ -97,9 +105,13 @@ def test_cli_overrides_config_and_preserves_explicit_zero():
     from pathlib import Path
 
     from utils.config import apply_cli_defaults
+
     args = Namespace(count=0, output=None, device=None)
-    apply_cli_defaults(args, {"count": 5, "output": "custom.pt"},
-                       {"count": 2, "output": Path("default.pt"), "device": "cpu"})
+    apply_cli_defaults(
+        args,
+        {"count": 5, "output": "custom.pt"},
+        {"count": 2, "output": Path("default.pt"), "device": "cpu"},
+    )
     assert args.count == 0
     assert args.output == Path("custom.pt")
     assert args.device == "cpu"
@@ -107,6 +119,7 @@ def test_cli_overrides_config_and_preserves_explicit_zero():
 
 def test_every_repository_yaml_loads_with_shared_defaults():
     from pathlib import Path
+
     root = Path(__file__).resolve().parents[1]
     for path in (root / "configs").rglob("*.yaml"):
         assert isinstance(load_yaml(path), dict)

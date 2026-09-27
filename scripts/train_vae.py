@@ -27,58 +27,97 @@ logger = get_logger(__name__)
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path("configs/diffusion/latent.production.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/diffusion/latent.production.yaml")
+    )
     parser.add_argument("--data", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--resume", type=Path)
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
+    )
     args = parser.parse_args()
     config = load_yaml(args.config)
     if config.get("planning_only", False):
-        parser.error("planning-only VAE profile; provide its datasets and remove planning_only first")
+        parser.error(
+            "planning-only VAE profile; provide its datasets and remove planning_only first"
+        )
     torch.manual_seed(int(config.get("seed", 42)))
     device = torch.device(args.device)
     model = AutoencoderKL.from_config(config).to(device)
     dataset = ImageDataset(
-        args.data or config["train_data"], int(config["image_size"]),
+        args.data or config["train_data"],
+        int(config["image_size"]),
         processor=ImageProcessor.from_config(config, training=True),
     )
-    loader = DataLoader(dataset, batch_size=int(config.get("vae_batch_size", 16)), shuffle=True,
-                        num_workers=int(config.get("num_workers", 4)), pin_memory=device.type == "cuda")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(config.get("vae_learning_rate", 1e-4)),
-                                  weight_decay=float(config.get("vae_weight_decay", 0.01)))
+    loader = DataLoader(
+        dataset,
+        batch_size=int(config.get("vae_batch_size", 16)),
+        shuffle=True,
+        num_workers=int(config.get("num_workers", 4)),
+        pin_memory=device.type == "cuda",
+    )
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(config.get("vae_learning_rate", 1e-4)),
+        weight_decay=float(config.get("vae_weight_decay", 0.01)),
+    )
     scheduler = Scheduler.from_config(
-        optimizer, config, total_steps=max(1, int(config.get("vae_epochs", 50)) * len(loader))
+        optimizer,
+        config,
+        total_steps=max(1, int(config.get("vae_epochs", 50)) * len(loader)),
     )
     mixed_precision = str(config.get("mixed_precision", "none"))
     dtype = torch.float16 if mixed_precision == "fp16" else torch.bfloat16
-    scaler = torch.amp.GradScaler("cuda", enabled=mixed_precision == "fp16" and device.type == "cuda")
+    scaler = torch.amp.GradScaler(
+        "cuda", enabled=mixed_precision == "fp16" and device.type == "cuda"
+    )
     step = 0
     if args.resume:
-        step = load_checkpoint(args.resume, model, optimizer=optimizer, scheduler=scheduler,
-                               scaler=scaler, map_location=device)["step"]
-    output = args.output or Path(config.get("vae_output", "checkpoints/diffusion/vae.pt"))
+        step = load_checkpoint(
+            args.resume,
+            model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            map_location=device,
+        )["step"]
+    output = args.output or Path(
+        config.get("vae_output", "checkpoints/diffusion/vae.pt")
+    )
     model.train()
     for epoch in range(int(config.get("vae_epochs", 50))):
         for images in loader:
             images = images.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            with torch.autocast(device_type=device.type, dtype=dtype,
-                                enabled=mixed_precision != "none"):
+            with torch.autocast(
+                device_type=device.type, dtype=dtype, enabled=mixed_precision != "none"
+            ):
                 result = model(images)
-                loss = model.loss(result, images, kl_weight=float(config.get("kl_weight", 1e-6)))
+                loss = model.loss(
+                    result, images, kl_weight=float(config.get("kl_weight", 1e-6))
+                )
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"non-finite VAE loss at step {step}")
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), float(config.get("max_grad_norm", 1.0)))
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), float(config.get("max_grad_norm", 1.0))
+            )
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
             step += 1
         print(f"epoch={epoch + 1} step={step} vae_loss={loss.item():.6f}", flush=True)
-        save_checkpoint(output, model, optimizer=optimizer, scheduler=scheduler, scaler=scaler,
-                        step=step, metadata={"task": "vae", "config": config})
+        save_checkpoint(
+            output,
+            model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            step=step,
+            metadata={"task": "vae", "config": config},
+        )
     print(output)
 
 

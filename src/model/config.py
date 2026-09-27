@@ -25,8 +25,12 @@ def normalize_model_config(config: Mapping[str, Any]) -> dict[str, Any]:
     """
     normalized = dict(config)
     for canonical, aliases in _ALIASES.items():
-        candidates = [(canonical, normalized[canonical])] if canonical in normalized else []
-        candidates.extend((name, normalized[name]) for name in aliases if name in normalized)
+        candidates = (
+            [(canonical, normalized[canonical])] if canonical in normalized else []
+        )
+        candidates.extend(
+            (name, normalized[name]) for name in aliases if name in normalized
+        )
         if not candidates:
             continue
         value = candidates[0][1]
@@ -51,7 +55,9 @@ class ModelSize:
     linear_attention_layers: int = 0
 
 
-def resolve_attention_layer_pattern(config: Mapping[str, Any], layers: int | None = None) -> tuple[str, ...]:
+def resolve_attention_layer_pattern(
+    config: Mapping[str, Any], layers: int | None = None
+) -> tuple[str, ...]:
     """Expand the configured attention pattern to one validated value per layer.
 
     ``attention_layer_pattern`` is a compact repeating cycle, for example
@@ -59,7 +65,9 @@ def resolve_attention_layer_pattern(config: Mapping[str, Any], layers: int | Non
     configs fully compatible while allowing hybrid-attention research
     profiles without duplicating dozens of layer entries.
     """
-    total_layers = layers if layers is not None else _positive_int(config["layers"], "layers")
+    total_layers = (
+        layers if layers is not None else _positive_int(config["layers"], "layers")
+    )
     raw = config.get("attention_layer_pattern")
     if raw is None:
         raw = [str(config.get("attention_pattern", "dense")).lower()]
@@ -75,7 +83,9 @@ def resolve_attention_layer_pattern(config: Mapping[str, Any], layers: int | Non
     if "sliding_window" in cycle:
         window = config.get("attention_window")
         if not isinstance(window, int) or isinstance(window, bool) or window < 1:
-            raise ValueError("attention_window must be a positive integer when sliding_window is used")
+            raise ValueError(
+                "attention_window must be a positive integer when sliding_window is used"
+            )
     return tuple(cycle[index % len(cycle)] for index in range(total_layers))
 
 
@@ -86,7 +96,9 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
     required = ("vocab_size", "hidden_size", "layers", "heads", "max_position")
     missing = [key for key in required if key not in cfg]
     if missing:
-        raise ValueError(f"missing required model configuration keys: {', '.join(missing)}")
+        raise ValueError(
+            f"missing required model configuration keys: {', '.join(missing)}"
+        )
 
     vocab = _positive_int(cfg["vocab_size"], "vocab_size")
     dim = _positive_int(cfg["hidden_size"], "hidden_size")
@@ -100,7 +112,9 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
         raise ValueError("heads must be divisible by kv_heads")
     head_dim = dim // heads
     if str(cfg.get("position_type", "learned")).lower() == "rotary" and head_dim % 2:
-        raise ValueError("attention head dimension must be even when using rotary positions")
+        raise ValueError(
+            "attention head dimension must be even when using rotary positions"
+        )
 
     multiple = _positive_int(cfg.get("ffn_multiple_of", 1), "ffn_multiple_of")
     requested_ffn = cfg.get("ffn_hidden_size")
@@ -109,7 +123,9 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
         if not math.isfinite(expansion) or expansion <= 0:
             raise ValueError("ffn_expansion_factor must be finite and positive")
         requested_ffn = math.ceil(dim * expansion)
-    ffn = math.ceil(_positive_int(requested_ffn, "ffn_hidden_size") / multiple) * multiple
+    ffn = (
+        math.ceil(_positive_int(requested_ffn, "ffn_hidden_size") / multiple) * multiple
+    )
 
     attention_bias = bool(cfg.get("attention_bias", True))
     ffn_bias = bool(cfg.get("ffn_bias", True))
@@ -128,12 +144,26 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
         feed_forward += ffn * (2 if gated else 1) + dim
     norm = 2 * dim * (2 if norm_bias else 1)
     ffn_type = str(cfg.get("ffn_type", "dense")).lower()
-    experts = _positive_int(cfg.get("num_experts", 1), "num_experts") if ffn_type == "moe" else 1
-    active_experts = (_positive_int(cfg.get("experts_per_token", 1), "experts_per_token")
-                      if ffn_type == "moe" else 1)
+    experts = (
+        _positive_int(cfg.get("num_experts", 1), "num_experts")
+        if ffn_type == "moe"
+        else 1
+    )
+    active_experts = (
+        _positive_int(cfg.get("experts_per_token", 1), "experts_per_token")
+        if ffn_type == "moe"
+        else 1
+    )
     router = dim * experts + (experts if bool(cfg.get("router_bias", False)) else 0)
-    total_per_layer = attention + feed_forward * experts + norm + (router if ffn_type == "moe" else 0)
-    active_per_layer = attention + feed_forward * active_experts + norm + (router if ffn_type == "moe" else 0)
+    total_per_layer = (
+        attention + feed_forward * experts + norm + (router if ffn_type == "moe" else 0)
+    )
+    active_per_layer = (
+        attention
+        + feed_forward * active_experts
+        + norm
+        + (router if ffn_type == "moe" else 0)
+    )
     parameters += layers * total_per_layer
     parameters += dim * (2 if norm_bias else 1)
     if not bool(cfg.get("tie_word_embeddings", True)):
@@ -146,7 +176,9 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
     # Auxiliary MTP heads are independent vocabulary projections. They are
     # materialized with the model and used during training, so include them in
     # both parameter storage and per-token training-compute estimates.
-    parameters += mtp_predictions * (vocab * dim + (vocab if bool(cfg.get("lm_head_bias", False)) else 0))
+    parameters += mtp_predictions * (
+        vocab * dim + (vocab if bool(cfg.get("lm_head_bias", False)) else 0)
+    )
 
     layer_patterns = resolve_attention_layer_pattern(cfg, layers)
     linear_layers = sum(pattern == "linear" for pattern in layer_patterns)
@@ -188,10 +220,16 @@ def validate_moe_config(config: Mapping[str, Any]) -> None:
     if not math.isfinite(jitter) or jitter < 0:
         raise ValueError("router_jitter must be finite and non-negative")
     capacity = config.get("moe_capacity_factor")
-    if capacity is not None and (not math.isfinite(float(capacity)) or float(capacity) <= 0):
+    if capacity is not None and (
+        not math.isfinite(float(capacity)) or float(capacity) <= 0
+    ):
         raise ValueError("moe_capacity_factor must be finite and positive, or None")
     min_capacity = config.get("moe_min_capacity", 0)
-    if not isinstance(min_capacity, int) or isinstance(min_capacity, bool) or min_capacity < 0:
+    if (
+        not isinstance(min_capacity, int)
+        or isinstance(min_capacity, bool)
+        or min_capacity < 0
+    ):
         raise ValueError("moe_min_capacity must be a non-negative integer")
     _validate_attention_backend(config)
 
@@ -202,13 +240,17 @@ def _validate_attention_backend(config: Mapping[str, Any]) -> None:
     else:
         pattern = str(config.get("attention_pattern", "dense")).lower()
         if pattern not in {"dense", "sliding_window", "linear"}:
-            raise ValueError("attention_pattern must be dense, sliding_window, or linear")
+            raise ValueError(
+                "attention_pattern must be dense, sliding_window, or linear"
+            )
         if pattern == "sliding_window" and (
             not isinstance(config.get("attention_window"), int)
             or isinstance(config.get("attention_window"), bool)
             or config["attention_window"] < 1
         ):
-            raise ValueError("attention_window must be a positive integer for sliding_window attention")
+            raise ValueError(
+                "attention_window must be a positive integer for sliding_window attention"
+            )
     eps = float(config.get("linear_attention_eps", 1e-6))
     if not math.isfinite(eps) or eps <= 0:
         raise ValueError("linear_attention_eps must be finite and positive")
@@ -232,8 +274,20 @@ def _non_negative_int(value: Any, name: str) -> int:
     return value
 
 
-def context_scaling_profile(config: Mapping[str, Any], lengths=(512,1024,2048,4096,8192)) -> list[dict[str,int|str]]:
+def context_scaling_profile(
+    config: Mapping[str, Any], lengths=(512, 1024, 2048, 4096, 8192)
+) -> list[dict[str, int | str]]:
     """Return validated context variants without mutating the base model config."""
-    cfg=normalize_model_config(config); base=int(cfg["max_position"])
-    if any(int(x)<=0 for x in lengths): raise ValueError("context lengths must be positive")
-    return [{"base_context":base,"context_length":int(x),"position_type":str(cfg.get("position_type","learned")),"rope_scaling_type":str(cfg.get("rope_scaling_type","none"))} for x in lengths]
+    cfg = normalize_model_config(config)
+    base = int(cfg["max_position"])
+    if any(int(x) <= 0 for x in lengths):
+        raise ValueError("context lengths must be positive")
+    return [
+        {
+            "base_context": base,
+            "context_length": int(x),
+            "position_type": str(cfg.get("position_type", "learned")),
+            "rope_scaling_type": str(cfg.get("rope_scaling_type", "none")),
+        }
+        for x in lengths
+    ]

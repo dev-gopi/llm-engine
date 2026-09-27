@@ -12,6 +12,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from local_dataset.loader import iter_records
 from tokenizer.encoder import Tokenizer
+
 from .preference_data import _response_mask
 
 
@@ -22,7 +23,13 @@ class GRPODataset(Dataset[dict[str, Any]]):
     remain intact because advantages are normalized within each prompt group.
     """
 
-    def __init__(self, records: Iterable[Mapping[str, Any]], tokenizer: Tokenizer, *, max_length: int) -> None:
+    def __init__(
+        self,
+        records: Iterable[Mapping[str, Any]],
+        tokenizer: Tokenizer,
+        *,
+        max_length: int,
+    ) -> None:
         if max_length < 2:
             raise ValueError("max_length must be at least 2")
         self.examples: list[dict[str, Any]] = []
@@ -30,7 +37,11 @@ class GRPODataset(Dataset[dict[str, Any]]):
             prompt = record.get("prompt")
             completions = record.get("completions")
             rewards = record.get("rewards")
-            if not isinstance(prompt, str) or not isinstance(completions, list) or not isinstance(rewards, list):
+            if (
+                not isinstance(prompt, str)
+                or not isinstance(completions, list)
+                or not isinstance(rewards, list)
+            ):
                 continue
             prompt = prompt.strip()
             if not prompt or len(completions) < 2 or len(completions) != len(rewards):
@@ -39,7 +50,9 @@ class GRPODataset(Dataset[dict[str, Any]]):
                 numeric_rewards = [float(value) for value in rewards]
             except (TypeError, ValueError):
                 continue
-            if not all(torch.isfinite(torch.tensor(value)) for value in numeric_rewards):
+            if not all(
+                torch.isfinite(torch.tensor(value)) for value in numeric_rewards
+            ):
                 continue
             prefix = f"<|user|>\n{prompt}\n<|assistant|>\n"
             prefix_ids = tokenizer.encode(prefix, add_bos=True, allowed_special="all")
@@ -49,20 +62,31 @@ class GRPODataset(Dataset[dict[str, Any]]):
                 if not isinstance(completion, str) or not completion.strip():
                     valid = False
                     break
-                ids = prefix_ids + tokenizer.encode(completion.strip(), add_eos=True, allowed_special="all")
+                ids = prefix_ids + tokenizer.encode(
+                    completion.strip(), add_eos=True, allowed_special="all"
+                )
                 if len(ids) < 2 or len(ids) > max_length:
                     valid = False
                     break
-                group.append({
-                    "ids": torch.tensor(ids, dtype=torch.long),
-                    "mask": _response_mask(len(ids), min(len(prefix_ids), max_length)),
-                })
+                group.append(
+                    {
+                        "ids": torch.tensor(ids, dtype=torch.long),
+                        "mask": _response_mask(
+                            len(ids), min(len(prefix_ids), max_length)
+                        ),
+                    }
+                )
             if not valid:
                 continue
             # Equal rewards provide no group-relative learning signal.
             if max(numeric_rewards) == min(numeric_rewards):
                 continue
-            self.examples.append({"group": group, "rewards": torch.tensor(numeric_rewards, dtype=torch.float32)})
+            self.examples.append(
+                {
+                    "group": group,
+                    "rewards": torch.tensor(numeric_rewards, dtype=torch.float32),
+                }
+            )
 
     def __len__(self) -> int:
         return len(self.examples)
@@ -76,7 +100,9 @@ def grpo_collate(batch: list[dict[str, Any]], pad_id: int) -> dict[str, torch.Te
         raise ValueError("GRPO batch cannot be empty")
     group_sizes = {len(item["group"]) for item in batch}
     if len(group_sizes) != 1:
-        raise ValueError("all GRPO groups in a minibatch must have the same number of completions")
+        raise ValueError(
+            "all GRPO groups in a minibatch must have the same number of completions"
+        )
     group_size = group_sizes.pop()
     width = max(example["ids"].numel() for item in batch for example in item["group"])
     ids = torch.full((len(batch), group_size, width), pad_id, dtype=torch.long)
@@ -99,9 +125,16 @@ def grpo_collate(batch: list[dict[str, Any]], pad_id: int) -> dict[str, torch.Te
 
 
 def build_grpo_loader_from_records(
-    records: Iterable[Mapping[str, Any]], tokenizer: Tokenizer, *, max_length: int,
-    batch_size: int, shuffle: bool, seed: int = 42, num_workers: int = 0,
-    rank: int = 0, world_size: int = 1,
+    records: Iterable[Mapping[str, Any]],
+    tokenizer: Tokenizer,
+    *,
+    max_length: int,
+    batch_size: int,
+    shuffle: bool,
+    seed: int = 42,
+    num_workers: int = 0,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> DataLoader:
     """Build a GRPO loader from in-memory groups.
 
@@ -124,12 +157,20 @@ def build_grpo_loader_from_records(
     sampler = None
     if world_size > 1:
         sampler = DistributedSampler(
-            dataset, num_replicas=world_size, rank=rank, shuffle=shuffle,
-            seed=seed, drop_last=False,
+            dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=shuffle,
+            seed=seed,
+            drop_last=False,
         )
     loader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle if sampler is None else False,
-        sampler=sampler, generator=generator, num_workers=num_workers,
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle if sampler is None else False,
+        sampler=sampler,
+        generator=generator,
+        num_workers=num_workers,
         collate_fn=partial(grpo_collate, pad_id=pad_id),
     )
     loader.gopi_shuffle_seed = seed
@@ -137,12 +178,26 @@ def build_grpo_loader_from_records(
 
 
 def build_grpo_loader(
-    paths: Iterable[str], tokenizer: Tokenizer, *, max_length: int,
-    batch_size: int, shuffle: bool, seed: int = 42, num_workers: int = 0,
-    rank: int = 0, world_size: int = 1,
+    paths: Iterable[str],
+    tokenizer: Tokenizer,
+    *,
+    max_length: int,
+    batch_size: int,
+    shuffle: bool,
+    seed: int = 42,
+    num_workers: int = 0,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> DataLoader:
     records = (record for path in paths for record in iter_records(path))
     return build_grpo_loader_from_records(
-        records, tokenizer, max_length=max_length, batch_size=batch_size, shuffle=shuffle,
-        seed=seed, num_workers=num_workers, rank=rank, world_size=world_size,
+        records,
+        tokenizer,
+        max_length=max_length,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        seed=seed,
+        num_workers=num_workers,
+        rank=rank,
+        world_size=world_size,
     )

@@ -3,6 +3,7 @@
 The lifecycle manager deliberately exposes only configured backend factories;
 it never accepts arbitrary filesystem paths from an HTTP request.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,7 +24,9 @@ class ModelLifecycleManager:
     @property
     def state(self) -> LifecycleState:
         return LifecycleState(
-            status="loaded" if bool(getattr(self.backend, "ready", False)) else "unloaded",
+            status="loaded"
+            if bool(getattr(self.backend, "ready", False))
+            else "unloaded",
             version=getattr(self.backend, "version", None),
             ready=bool(getattr(self.backend, "ready", False)),
         )

@@ -32,7 +32,8 @@ async def generate_stream(websocket: WebSocket) -> None:
     if settings.api_key:
         supplied = websocket.headers.get("authorization", "").removeprefix("Bearer ")
         protocols = [
-            value.strip() for value in websocket.headers.get("sec-websocket-protocol", "").split(",")
+            value.strip()
+            for value in websocket.headers.get("sec-websocket-protocol", "").split(",")
         ]
         if len(protocols) >= 2 and protocols[0].lower() == "bearer":
             supplied = protocols[1]
@@ -51,11 +52,18 @@ async def generate_stream(websocket: WebSocket) -> None:
         request_id: str | None = None
         try:
             payload = await websocket.receive_json()
-            identity = websocket.client.host if getattr(websocket, "client", None) else "unknown"
+            identity = (
+                websocket.client.host
+                if getattr(websocket, "client", None)
+                else "unknown"
+            )
             if not await websocket.app.state.rate_limiter.allow(identity):
                 await websocket.send_json(
                     StreamErrorEvent(
-                        error=ErrorDetail(code="rate_limit_exceeded", message="request rate limit exceeded")
+                        error=ErrorDetail(
+                            code="rate_limit_exceeded",
+                            message="request rate limit exceeded",
+                        )
                     ).model_dump(mode="json")
                 )
                 continue
@@ -101,7 +109,11 @@ async def generate_stream(websocket: WebSocket) -> None:
             return
         except ValidationError as error:
             details = error.errors(include_url=False)
-            first = details[0] if details else {"loc": ("request",), "msg": "invalid request"}
+            first = (
+                details[0]
+                if details
+                else {"loc": ("request",), "msg": "invalid request"}
+            )
             path = ".".join(str(part) for part in first.get("loc", ("request",)))
             message = f"Invalid {path}: {first.get('msg', 'invalid value')}."
             await websocket.send_json(

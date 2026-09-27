@@ -9,4 +9,11 @@ from .trainer import (
     create_tokenizer_trainer,
 )
 
-__all__ = ["BPETokenizerTrainer", "Decoder", "Tokenizer", "TrainingStats", "VocabularyTokenizerTrainer", "create_tokenizer_trainer"]
+__all__ = [
+    "BPETokenizerTrainer",
+    "Decoder",
+    "Tokenizer",
+    "TrainingStats",
+    "VocabularyTokenizerTrainer",
+    "create_tokenizer_trainer",
+]

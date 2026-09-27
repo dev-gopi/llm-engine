@@ -9,9 +9,13 @@ def test_ppo_cli_has_fsdp_rlhf_checkpoint_wiring() -> None:
     assert "save_sharded_rlhf_checkpoint" in source
     assert "load_sharded_rlhf_checkpoint" in source
     assert "copy_fsdp_weights_to_model" in source
-    assert "distributed PPO requires at least one usable rollout on every rank" in source
+    assert (
+        "distributed PPO requires at least one usable rollout on every rank" in source
+    )
     assert Path("configs/ppo.fsdp.yaml").is_file()
-    assert "distributed_strategy: fsdp" in Path("configs/ppo.fsdp.yaml").read_text(encoding="utf8")
+    assert "distributed_strategy: fsdp" in Path("configs/ppo.fsdp.yaml").read_text(
+        encoding="utf8"
+    )
 
 
 def test_online_grpo_cli_has_fsdp_wiring() -> None:
@@ -22,7 +26,9 @@ def test_online_grpo_cli_has_fsdp_wiring() -> None:
     assert "copy_fsdp_weights_to_model" in source
     assert "supports distributed_strategy=ddp only" not in source
     assert Path("configs/grpo.online.fsdp.yaml").is_file()
-    assert "distributed_strategy: fsdp" in Path("configs/grpo.online.fsdp.yaml").read_text(encoding="utf8")
+    assert "distributed_strategy: fsdp" in Path(
+        "configs/grpo.online.fsdp.yaml"
+    ).read_text(encoding="utf8")
 
 
 def test_fsdp_replica_copy_helper_uses_collective_full_state() -> None:

@@ -34,7 +34,9 @@ def test_vocab_resize_init_strategies() -> None:
 
 
 def test_minigpt_vocab_resize_with_init_strategy() -> None:
-    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8, lm_head_bias=True)
+    model = MiniGPT(
+        vocab_size=16, dim=8, layers=1, heads=2, max_pos=8, lm_head_bias=True
+    )
     new_size = model.resize_token_embeddings(20, init_strategy="zero")
     assert new_size == 20
     assert model.vocab_size == 20
@@ -70,28 +72,32 @@ def test_sinusoidal_positional_embedding() -> None:
 
 def test_minigpt_rotary_and_sinusoidal_from_config() -> None:
     # Test rotary model construction & forward pass
-    model_rope = MiniGPT.from_config({
-        "vocab_size": 32,
-        "hidden_size": 16,
-        "layers": 2,
-        "heads": 4,
-        "max_position": 64,
-        "position_type": "rotary",
-        "rope_base": 10000.0,
-    })
+    model_rope = MiniGPT.from_config(
+        {
+            "vocab_size": 32,
+            "hidden_size": 16,
+            "layers": 2,
+            "heads": 4,
+            "max_position": 64,
+            "position_type": "rotary",
+            "rope_base": 10000.0,
+        }
+    )
     tokens = torch.randint(0, 32, (2, 8))
     logits = model_rope(tokens)
     assert logits.shape == (2, 8, 32)
 
     # Test sinusoidal model construction & forward pass
-    model_sin = MiniGPT.from_config({
-        "vocab_size": 32,
-        "hidden_size": 16,
-        "layers": 2,
-        "heads": 4,
-        "max_position": 64,
-        "position_type": "sinusoidal",
-    })
+    model_sin = MiniGPT.from_config(
+        {
+            "vocab_size": 32,
+            "hidden_size": 16,
+            "layers": 2,
+            "heads": 4,
+            "max_position": 64,
+            "position_type": "sinusoidal",
+        }
+    )
     logits_sin = model_sin(tokens)
     assert logits_sin.shape == (2, 8, 32)
 
@@ -116,15 +122,26 @@ def test_qk_normalization_stabilizes_projected_head_norms() -> None:
     attention = MultiHeadAttention(dim=16, heads=4, kv_heads=2, qk_norm=True)
     query, key, _ = attention.project_qkv(torch.randn(2, 5, 16))
     expected = torch.full(query.shape[:-1], 2.0)
-    torch.testing.assert_close(query.float().norm(dim=-1), expected, atol=1e-5, rtol=1e-5)
-    torch.testing.assert_close(key.float().norm(dim=-1), expected[:, :2], atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        query.float().norm(dim=-1), expected, atol=1e-5, rtol=1e-5
+    )
+    torch.testing.assert_close(
+        key.float().norm(dim=-1), expected[:, :2], atol=1e-5, rtol=1e-5
+    )
 
 
 def test_logit_softcap_bounds_outputs_and_loads_from_config() -> None:
-    model = MiniGPT.from_config({
-        "vocab_size": 32, "hidden_size": 16, "layers": 2, "heads": 4,
-        "max_position": 32, "qk_norm": True, "logit_softcap": 0.5,
-    })
+    model = MiniGPT.from_config(
+        {
+            "vocab_size": 32,
+            "hidden_size": 16,
+            "layers": 2,
+            "heads": 4,
+            "max_position": 32,
+            "qk_norm": True,
+            "logit_softcap": 0.5,
+        }
+    )
     logits = model(torch.randint(0, 32, (2, 8)))
     assert model.blocks[0].attn.qk_norm
     assert logits.abs().max() <= 0.5
@@ -138,29 +155,33 @@ def test_invalid_stability_options_are_rejected() -> None:
 
 
 def test_minigpt_with_gqa() -> None:
-    model = MiniGPT.from_config({
-        "vocab_size": 32,
-        "hidden_size": 16,
-        "layers": 2,
-        "heads": 8,
-        "kv_heads": 2,
-        "max_position": 64,
-    })
+    model = MiniGPT.from_config(
+        {
+            "vocab_size": 32,
+            "hidden_size": 16,
+            "layers": 2,
+            "heads": 8,
+            "kv_heads": 2,
+            "max_position": 64,
+        }
+    )
     tokens = torch.randint(0, 32, (2, 8))
     logits = model(tokens)
     assert logits.shape == (2, 8, 32)
 
 
 def test_gqa_rope_kv_cache_matches_full_sequence() -> None:
-    model = MiniGPT.from_config({
-        "vocab_size": 32,
-        "hidden_size": 24,
-        "layers": 2,
-        "heads": 6,
-        "kv_heads": 2,
-        "max_position": 64,
-        "position_type": "rotary",
-    }).eval()
+    model = MiniGPT.from_config(
+        {
+            "vocab_size": 32,
+            "hidden_size": 24,
+            "layers": 2,
+            "heads": 6,
+            "kv_heads": 2,
+            "max_position": 64,
+            "position_type": "rotary",
+        }
+    ).eval()
     tokens = torch.randint(0, 32, (1, 7))
     with torch.no_grad():
         full = model(tokens)
@@ -172,7 +193,14 @@ def test_gqa_rope_kv_cache_matches_full_sequence() -> None:
 
 
 def test_minigpt_gradient_checkpointing() -> None:
-    model = MiniGPT(vocab_size=32, dim=16, layers=2, heads=4, max_pos=32, gradient_checkpointing=True)
+    model = MiniGPT(
+        vocab_size=32,
+        dim=16,
+        layers=2,
+        heads=4,
+        max_pos=32,
+        gradient_checkpointing=True,
+    )
     model.train()
     tokens = torch.randint(0, 32, (2, 8))
     logits = model(tokens)

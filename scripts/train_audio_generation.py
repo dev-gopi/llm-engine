@@ -38,7 +38,10 @@ logger = get_logger(__name__)
 
 def _features(model, tokenizer, texts, device):
     tokens = tokenize_prompts(
-        texts, tokenizer, max_length=model.text_conditioner.encoder.max_length, device=device
+        texts,
+        tokenizer,
+        max_length=model.text_conditioner.encoder.max_length,
+        device=device,
     )
     return model.text_conditioner.encode_features(tokens.ids, tokens.mask)
 
@@ -50,7 +53,9 @@ def _make_loader(dataset, config, *, batch_size: int, shuffle: bool, generator=N
         shuffle=shuffle,
         num_workers=workers,
         pin_memory=bool(config.get("pin_memory", True)) and torch.cuda.is_available(),
-        drop_last=shuffle and len(dataset) >= batch_size and bool(config.get("drop_last", True)),
+        drop_last=shuffle
+        and len(dataset) >= batch_size
+        and bool(config.get("drop_last", True)),
         generator=generator,
     )
     if workers > 0:
@@ -71,9 +76,15 @@ def _checkpoint_metadata(config, tokenizer):
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path("configs/audio_generation/high_quality.yaml"))
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/audio_generation/high_quality.yaml"),
+    )
     parser.add_argument("--resume", type=Path)
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
+    )
     args = parser.parse_args()
 
     config = load_yaml(args.config)
@@ -82,7 +93,9 @@ def main() -> None:
     device = torch.device(args.device)
     configure_torch_runtime(config, device)
     seed = int(config.get("seed", 42))
-    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     if device.type == "cuda":
         torch.cuda.manual_seed_all(seed)
 
@@ -108,7 +121,9 @@ def main() -> None:
     )
     loader_generator = torch.Generator()
     batch_size = int(config.get("batch_size", 4))
-    loader = _make_loader(dataset, config, batch_size=batch_size, shuffle=True, generator=loader_generator)
+    loader = _make_loader(
+        dataset, config, batch_size=batch_size, shuffle=True, generator=loader_generator
+    )
 
     validation_loader = None
     if config.get("validation_manifest"):
@@ -141,10 +156,14 @@ def main() -> None:
     lr_scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
     ema = EMA(model, decay=float(config.get("ema_decay", 0.9999)))
 
-    mixed = str(config.get("mixed_precision", "bf16" if device.type == "cuda" else "none"))
+    mixed = str(
+        config.get("mixed_precision", "bf16" if device.type == "cuda" else "none")
+    )
     amp_dtype = torch.bfloat16 if mixed == "bf16" else torch.float16
     amp_enabled = mixed in {"bf16", "fp16"} and device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=mixed == "fp16" and device.type == "cuda")
+    scaler = torch.amp.GradScaler(
+        "cuda", enabled=mixed == "fp16" and device.type == "cuda"
+    )
 
     step = 0
     start_epoch = 0
@@ -171,7 +190,9 @@ def main() -> None:
         )
 
     output = Path(config.get("output", "checkpoints/audio_generation/latest.pt"))
-    best_output = Path(config.get("best_output", "checkpoints/audio_generation/best.pt"))
+    best_output = Path(
+        config.get("best_output", "checkpoints/audio_generation/best.pt")
+    )
     metadata = _checkpoint_metadata(config, tokenizer)
     optimizer.zero_grad(set_to_none=True)
 
@@ -186,7 +207,9 @@ def main() -> None:
                 group_start = batch_index
             current_group = min(accumulation, len(loader) - group_start)
             waveforms = waveforms.to(device, non_blocking=True)
-            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
+            with torch.autocast(
+                device_type=device.type, dtype=amp_dtype, enabled=amp_enabled
+            ):
                 features = _features(model, tokenizer, texts, device)
                 loss, metrics = pipeline.training_loss(
                     waveforms,
@@ -194,16 +217,22 @@ def main() -> None:
                     context=features.context,
                     context_mask=features.mask,
                     condition_dropout=float(config.get("condition_dropout", 0.1)),
-                    reconstruction_weight=float(config.get("reconstruction_weight", 0.1)),
+                    reconstruction_weight=float(
+                        config.get("reconstruction_weight", 0.1)
+                    ),
                     min_snr_gamma=float(config.get("min_snr_gamma", 0.0)),
                     noise_offset=float(config.get("noise_offset", 0.0)),
                     input_perturbation=float(config.get("input_perturbation", 0.0)),
                 )
                 scaled_loss = loss / current_group
             if not torch.isfinite(loss):
-                raise FloatingPointError(f"non-finite audio generation loss at step {step}")
+                raise FloatingPointError(
+                    f"non-finite audio generation loss at step {step}"
+                )
             scaler.scale(scaled_loss).backward()
-            flush = (batch_index + 1) % accumulation == 0 or batch_index + 1 == len(loader)
+            flush = (batch_index + 1) % accumulation == 0 or batch_index + 1 == len(
+                loader
+            )
             if not flush:
                 continue
             scaler.unscale_(optimizer)
@@ -211,7 +240,9 @@ def main() -> None:
                 model.parameters(), float(config.get("max_grad_norm", 1.0))
             )
             if not torch.isfinite(torch.as_tensor(grad_norm)):
-                raise FloatingPointError(f"non-finite audio gradient norm at step {step}")
+                raise FloatingPointError(
+                    f"non-finite audio gradient norm at step {step}"
+                )
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
@@ -237,7 +268,11 @@ def main() -> None:
                     scaler=scaler,
                     step=step,
                     metadata=metadata,
-                    trainer={"epoch": epoch, "next_batch": batch_index + 1, "best_loss": best_loss},
+                    trainer={
+                        "epoch": epoch,
+                        "next_batch": batch_index + 1,
+                        "best_loss": best_loss,
+                    },
                 )
 
         if validation_loader is not None:
@@ -256,7 +291,9 @@ def main() -> None:
                         context=features.context,
                         context_mask=features.mask,
                         condition_dropout=0.0,
-                        reconstruction_weight=float(config.get("reconstruction_weight", 0.1)),
+                        reconstruction_weight=float(
+                            config.get("reconstruction_weight", 0.1)
+                        ),
                         min_snr_gamma=float(config.get("min_snr_gamma", 0.0)),
                         noise_offset=0.0,
                         input_perturbation=0.0,
@@ -265,7 +302,9 @@ def main() -> None:
                     total += loss.item()
                     count += 1
             validation_loss = total / max(count, 1)
-            print(f"epoch={epoch + 1} validation_loss={validation_loss:.6f}", flush=True)
+            print(
+                f"epoch={epoch + 1} validation_loss={validation_loss:.6f}", flush=True
+            )
             if validation_loss < best_loss:
                 best_loss = validation_loss
                 with ema.average_parameters(model):
@@ -273,7 +312,11 @@ def main() -> None:
                         best_output,
                         model,
                         step=step,
-                        metadata={**metadata, "validation_loss": validation_loss, "inference_only": True},
+                        metadata={
+                            **metadata,
+                            "validation_loss": validation_loss,
+                            "inference_only": True,
+                        },
                     )
 
         save_checkpoint(

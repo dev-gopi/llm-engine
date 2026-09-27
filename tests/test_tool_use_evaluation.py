@@ -7,10 +7,17 @@ from inference.local_tools import ToolCallError, calculate, validate_json_schema
 
 
 def test_tool_use_fixture_covers_required_reliability_cases() -> None:
-    cases = [json.loads(line) for line in Path("configs/evaluation.tool_use.jsonl").read_text().splitlines()]
+    cases = [
+        json.loads(line)
+        for line in Path("configs/evaluation.tool_use.jsonl").read_text().splitlines()
+    ]
     assert [case["id"] for case in cases] == [
-        "calculator_selection", "schema_rejection", "result_handling",
-        "error_recovery", "parallel_read_intent", "permission_denial",
+        "calculator_selection",
+        "schema_rejection",
+        "result_handling",
+        "error_recovery",
+        "parallel_read_intent",
+        "permission_denial",
     ]
     assert cases[4]["mode"] == "parallel_intent"
 

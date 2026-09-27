@@ -16,7 +16,11 @@ def validate_generation_config(config: Mapping[str, Any], *, kind: str) -> None:
     if kind not in {"audio", "video"}:
         raise ValueError("kind must be audio or video")
     required = ["tokenizer", "train_manifest"]
-    required += ["sample_rate", "duration_seconds"] if kind == "audio" else ["frames", "height", "width", "fps"]
+    required += (
+        ["sample_rate", "duration_seconds"]
+        if kind == "audio"
+        else ["frames", "height", "width", "fps"]
+    )
     missing = [key for key in required if key not in config]
     if missing:
         raise ValueError(f"missing {kind} generation config keys: {', '.join(missing)}")
@@ -36,17 +40,23 @@ def validate_generation_config(config: Mapping[str, Any], *, kind: str) -> None:
         factor = 2 ** int(config.get("spatial_stages", 3))
         height, width = int(config["height"]), int(config["width"])
         if height % factor or width % factor:
-            raise ValueError(f"video height/width must be divisible by spatial autoencoder factor {factor}")
+            raise ValueError(
+                f"video height/width must be divisible by spatial autoencoder factor {factor}"
+            )
         channels = int(config.get("model_channels", 192))
         heads = int(config.get("temporal_heads", 8))
         cross_heads = int(config.get("cross_attention_heads", heads))
         if channels % heads or channels % cross_heads:
-            raise ValueError("model_channels must be divisible by temporal and cross-attention heads")
+            raise ValueError(
+                "model_channels must be divisible by temporal and cross-attention heads"
+            )
     else:
         channels = int(config.get("model_channels", 256))
         cross_heads = int(config.get("cross_attention_heads", 8))
         if channels % cross_heads:
-            raise ValueError("audio model_channels must be divisible by cross_attention_heads")
+            raise ValueError(
+                "audio model_channels must be divisible by cross_attention_heads"
+            )
     if str(config.get("mixed_precision", "none")) not in {"none", "fp16", "bf16"}:
         raise ValueError("mixed_precision must be none, fp16, or bf16")
 
@@ -79,22 +89,41 @@ def diffusion_loss(
     if min_snr_gamma > 0:
         alpha = alpha_bars.to(timesteps.device)[timesteps].float().clamp(1e-8, 1 - 1e-8)
         snr = alpha / (1 - alpha)
-        weights = torch.minimum(snr, torch.full_like(snr, min_snr_gamma)) / snr.clamp_min(1e-8)
+        weights = torch.minimum(
+            snr, torch.full_like(snr, min_snr_gamma)
+        ) / snr.clamp_min(1e-8)
         per = per * weights
     return per.mean()
 
 
-def make_noise(reference: Tensor, *, generator: torch.Generator | None = None,
-               noise_offset: float = 0.0, input_perturbation: float = 0.0) -> tuple[Tensor, Tensor]:
+def make_noise(
+    reference: Tensor,
+    *,
+    generator: torch.Generator | None = None,
+    noise_offset: float = 0.0,
+    input_perturbation: float = 0.0,
+) -> tuple[Tensor, Tensor]:
     """Return training noise and optional perturbed noise used for the noised input."""
-    noise = torch.randn(reference.shape, device=reference.device, dtype=reference.dtype, generator=generator)
+    noise = torch.randn(
+        reference.shape,
+        device=reference.device,
+        dtype=reference.dtype,
+        generator=generator,
+    )
     if noise_offset:
         shape = (reference.shape[0], reference.shape[1]) + (1,) * (reference.ndim - 2)
-        offset = torch.randn(shape, device=reference.device, dtype=reference.dtype, generator=generator)
+        offset = torch.randn(
+            shape, device=reference.device, dtype=reference.dtype, generator=generator
+        )
         noise = noise + float(noise_offset) * offset
     noisy_noise = noise
     if input_perturbation:
-        perturb = torch.randn(reference.shape, device=reference.device, dtype=reference.dtype, generator=generator)
+        perturb = torch.randn(
+            reference.shape,
+            device=reference.device,
+            dtype=reference.dtype,
+            generator=generator,
+        )
         noisy_noise = noise + float(input_perturbation) * perturb
     return noise, noisy_noise
 

@@ -9,8 +9,10 @@ _script_dir = str(Path(__file__).resolve().parent)
 sys.path[:] = [e for e in sys.path if str(Path(e or ".").resolve()) != _script_dir]
 
 import argparse
+
 import uvicorn
 from fastapi import FastAPI
+
 from serving.report_router import router as report_router
 
 app = FastAPI(
@@ -21,10 +23,12 @@ app = FastAPI(
 
 app.include_router(report_router)
 
+
 # Also expose / directly for root access
 @app.get("/")
 def root_redirect():
     from serving.report_router import get_dashboard
+
     return get_dashboard()
 
 
@@ -33,10 +37,21 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--host", default="0.0.0.0", help="Host interface to bind (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=7860, help="Port to serve dashboard on (default: 7860)")
-    parser.add_argument("--log-level", default="info", help="Uvicorn log level (default: info)")
-    parser.add_argument("--reload", action="store_true", help="Auto-reload on code changes")
+    parser.add_argument(
+        "--host", default="0.0.0.0", help="Host interface to bind (default: 0.0.0.0)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=7860,
+        help="Port to serve dashboard on (default: 7860)",
+    )
+    parser.add_argument(
+        "--log-level", default="info", help="Uvicorn log level (default: info)"
+    )
+    parser.add_argument(
+        "--reload", action="store_true", help="Auto-reload on code changes"
+    )
     args = parser.parse_args()
 
     print("=" * 60)

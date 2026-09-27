@@ -25,20 +25,27 @@ def main() -> None:
     args = parser.parse_args()
     config = normalize_model_config(load_yaml(args.model_config))
     size = estimate_model_size(config)
-    print(json.dumps({
-        "model_config": str(args.model_config),
-        "parameters": size.parameters,
-        "parameters_billions": round(size.parameters / 1e9, 3),
-        "active_parameters_per_token": size.active_parameters_per_token,
-        "active_parameters_billions_per_token": round(size.active_parameters_per_token / 1e9, 3),
-        "weights_fp32_gib": round(_gib(size.parameter_bytes_fp32), 3),
-        "weights_bf16_fp16_gib": round(_gib(size.parameter_bytes_bf16), 3),
-        "kv_cache_bf16_gib_per_max_length_sequence": round(
-            _gib(size.kv_cache_bytes_bf16_per_sequence), 3
-        ),
-        "context_length": int(config["max_position"]),
-        "note": "Training also needs gradients, optimizer states, activations, and temporary buffers.",
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "model_config": str(args.model_config),
+                "parameters": size.parameters,
+                "parameters_billions": round(size.parameters / 1e9, 3),
+                "active_parameters_per_token": size.active_parameters_per_token,
+                "active_parameters_billions_per_token": round(
+                    size.active_parameters_per_token / 1e9, 3
+                ),
+                "weights_fp32_gib": round(_gib(size.parameter_bytes_fp32), 3),
+                "weights_bf16_fp16_gib": round(_gib(size.parameter_bytes_bf16), 3),
+                "kv_cache_bf16_gib_per_max_length_sequence": round(
+                    _gib(size.kv_cache_bytes_bf16_per_sequence), 3
+                ),
+                "context_length": int(config["max_position"]),
+                "note": "Training also needs gradients, optimizer states, activations, and temporary buffers.",
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -51,9 +51,13 @@ def audit_images(root: str | Path) -> ImageAudit:
         except (OSError, ValueError):
             corrupt += 1
     return ImageAudit(
-        images=len(paths), readable=readable, corrupt=corrupt,
+        images=len(paths),
+        readable=readable,
+        corrupt=corrupt,
         exact_duplicates=duplicates,
-        min_width=min(widths, default=0), min_height=min(heights, default=0),
-        max_width=max(widths, default=0), max_height=max(heights, default=0),
+        min_width=min(widths, default=0),
+        min_height=min(heights, default=0),
+        max_width=max(widths, default=0),
+        max_height=max(heights, default=0),
         total_bytes=total_bytes,
     )

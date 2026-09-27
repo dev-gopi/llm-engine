@@ -6,8 +6,8 @@ import json
 import math
 import re
 import sqlite3
-import zipfile
 import unicodedata
+import zipfile
 from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass
@@ -23,14 +23,68 @@ logger = get_logger(__name__)
 
 INDEX_VERSION = 1
 SUPPORTED_SUFFIXES = {
-    ".txt", ".md", ".markdown", ".json", ".jsonl", ".csv", ".tsv",
-    ".yaml", ".yml", ".html", ".htm", ".pdf", ".docx", ".xlsx", ".xlsm",
-    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".java", ".c", ".h",
-    ".cc", ".cpp", ".cxx", ".hpp", ".cs", ".go", ".rs", ".rb", ".php",
-    ".swift", ".kt", ".kts", ".scala", ".sh", ".bash", ".zsh", ".ps1",
-    ".sql", ".r", ".lua", ".pl", ".pm", ".dart", ".ex", ".exs", ".erl",
-    ".hrl", ".vue", ".svelte", ".css", ".scss", ".sass", ".less", ".xml",
-    ".toml", ".ini", ".cfg", ".conf",
+    ".txt",
+    ".md",
+    ".markdown",
+    ".json",
+    ".jsonl",
+    ".csv",
+    ".tsv",
+    ".yaml",
+    ".yml",
+    ".html",
+    ".htm",
+    ".pdf",
+    ".docx",
+    ".xlsx",
+    ".xlsm",
+    ".py",
+    ".pyi",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".java",
+    ".c",
+    ".h",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".hpp",
+    ".cs",
+    ".go",
+    ".rs",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".ps1",
+    ".sql",
+    ".r",
+    ".lua",
+    ".pl",
+    ".pm",
+    ".dart",
+    ".ex",
+    ".exs",
+    ".erl",
+    ".hrl",
+    ".vue",
+    ".svelte",
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
+    ".xml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
 }
 SUPPORTED_FILENAMES = {"Dockerfile", "Makefile", "CMakeLists.txt", ".env"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
@@ -72,8 +126,9 @@ def _terms(text: str) -> list[str]:
         if len(word) > 1:
             words.append(word)
     character_terms = [
-        f"~{word[index:index + 3]}"
-        for word in words if len(word) >= 5
+        f"~{word[index : index + 3]}"
+        for word in words
+        if len(word) >= 5
         for index in range(len(word) - 2)
     ]
     return [*words, *character_terms]
@@ -89,7 +144,9 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data.strip())
 
 
-def chunk_text(text: str, *, chunk_chars: int = 900, overlap_chars: int = 120) -> list[str]:
+def chunk_text(
+    text: str, *, chunk_chars: int = 900, overlap_chars: int = 120
+) -> list[str]:
     """Split text on paragraph/word boundaries with bounded overlap."""
     if chunk_chars < 100:
         raise ValueError("chunk_chars must be at least 100")
@@ -103,7 +160,9 @@ def chunk_text(text: str, *, chunk_chars: int = 900, overlap_chars: int = 120) -
     while start < len(normalized):
         end = min(start + chunk_chars, len(normalized))
         if end < len(normalized):
-            boundary = max(normalized.rfind("\n", start, end), normalized.rfind(" ", start, end))
+            boundary = max(
+                normalized.rfind("\n", start, end), normalized.rfind(" ", start, end)
+            )
             if boundary > start + chunk_chars // 2:
                 end = boundary
         value = normalized[start:end].strip()
@@ -119,7 +178,12 @@ def read_document(path: str | Path) -> str:
     """Read a supported local document without executing embedded content."""
     source = Path(path)
     suffix = source.suffix.lower()
-    if suffix not in SUPPORTED_SUFFIXES and suffix not in IMAGE_SUFFIXES and suffix not in ARCHIVE_SUFFIXES and source.name not in SUPPORTED_FILENAMES:
+    if (
+        suffix not in SUPPORTED_SUFFIXES
+        and suffix not in IMAGE_SUFFIXES
+        and suffix not in ARCHIVE_SUFFIXES
+        and source.name not in SUPPORTED_FILENAMES
+    ):
         raise ValueError(f"unsupported document type {suffix!r}: {source}")
     if suffix in IMAGE_SUFFIXES:
         try:
@@ -140,9 +204,13 @@ def read_document(path: str | Path) -> str:
     if suffix == ".zip":
         try:
             with zipfile.ZipFile(source) as archive:
-                members = [member for member in archive.infolist() if not member.is_dir()]
+                members = [
+                    member for member in archive.infolist() if not member.is_dir()
+                ]
                 if len(members) > MAX_ARCHIVE_MEMBERS:
-                    raise ValueError(f"archive has too many members (maximum {MAX_ARCHIVE_MEMBERS})")
+                    raise ValueError(
+                        f"archive has too many members (maximum {MAX_ARCHIVE_MEMBERS})"
+                    )
                 total_size = sum(member.file_size for member in members)
                 if total_size > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
                     raise ValueError("archive exceeds the uncompressed size limit")
@@ -150,10 +218,21 @@ def read_document(path: str | Path) -> str:
                 for member in members:
                     member_path = Path(member.filename)
                     member_suffix = member_path.suffix.lower()
-                    if member_suffix not in SUPPORTED_SUFFIXES or member_suffix in {".pdf", ".docx", ".xlsx", ".xlsm"}:
+                    if member_suffix not in SUPPORTED_SUFFIXES or member_suffix in {
+                        ".pdf",
+                        ".docx",
+                        ".xlsx",
+                        ".xlsm",
+                    }:
                         continue
-                    if member.compress_size and member.file_size / member.compress_size > MAX_ARCHIVE_COMPRESSION_RATIO:
-                        raise ValueError(f"archive member has an unsafe compression ratio: {member.filename}")
+                    if (
+                        member.compress_size
+                        and member.file_size / member.compress_size
+                        > MAX_ARCHIVE_COMPRESSION_RATIO
+                    ):
+                        raise ValueError(
+                            f"archive member has an unsafe compression ratio: {member.filename}"
+                        )
                     try:
                         content = archive.read(member).decode("utf-8")
                     except UnicodeDecodeError:
@@ -167,29 +246,49 @@ def read_document(path: str | Path) -> str:
         try:
             from pypdf import PdfReader
         except ImportError as error:
-            raise RuntimeError("PDF ingestion requires the optional pypdf package") from error
-        return "\n\n".join(page.extract_text() or "" for page in PdfReader(source).pages)
+            raise RuntimeError(
+                "PDF ingestion requires the optional pypdf package"
+            ) from error
+        return "\n\n".join(
+            page.extract_text() or "" for page in PdfReader(source).pages
+        )
     if suffix == ".docx":
         try:
             from docx import Document
         except ImportError as error:
-            raise RuntimeError("DOCX ingestion requires the optional RAG dependencies") from error
+            raise RuntimeError(
+                "DOCX ingestion requires the optional RAG dependencies"
+            ) from error
         document = Document(source)
-        paragraphs = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
-        tables = ["\t".join(cell.text.strip() for cell in row.cells) for table in document.tables for row in table.rows]
+        paragraphs = [
+            paragraph.text.strip()
+            for paragraph in document.paragraphs
+            if paragraph.text.strip()
+        ]
+        tables = [
+            "\t".join(cell.text.strip() for cell in row.cells)
+            for table in document.tables
+            for row in table.rows
+        ]
         return "\n".join([*paragraphs, *tables])
     if suffix in {".xlsx", ".xlsm"}:
         try:
             from openpyxl import load_workbook
         except ImportError as error:
-            raise RuntimeError("Excel ingestion requires the optional RAG dependencies") from error
+            raise RuntimeError(
+                "Excel ingestion requires the optional RAG dependencies"
+            ) from error
         workbook = load_workbook(source, read_only=True, data_only=True)
         try:
             lines = []
             for sheet in workbook.worksheets:
                 lines.append(f"Sheet: {sheet.title}")
                 for row in sheet.iter_rows(values_only=True):
-                    values = [str(value).strip() for value in row if value is not None and str(value).strip()]
+                    values = [
+                        str(value).strip()
+                        for value in row
+                        if value is not None and str(value).strip()
+                    ]
                     if values:
                         lines.append("\t".join(values))
             return "\n".join(lines)
@@ -201,7 +300,9 @@ def read_document(path: str | Path) -> str:
         return "\n".join(parser.parts)
     if suffix == ".json":
         try:
-            return json.dumps(json.loads(source.read_text(encoding="utf-8")), ensure_ascii=False)
+            return json.dumps(
+                json.loads(source.read_text(encoding="utf-8")), ensure_ascii=False
+            )
         except json.JSONDecodeError as error:
             raise ValueError(f"invalid JSON: {source}") from error
     if suffix == ".jsonl":
@@ -213,8 +314,14 @@ def read_document(path: str | Path) -> str:
                 try:
                     value = json.loads(line)
                 except json.JSONDecodeError as error:
-                    raise ValueError(f"invalid JSONL at {source}:{line_number}") from error
-                lines.append(value if isinstance(value, str) else json.dumps(value, ensure_ascii=False))
+                    raise ValueError(
+                        f"invalid JSONL at {source}:{line_number}"
+                    ) from error
+                lines.append(
+                    value
+                    if isinstance(value, str)
+                    else json.dumps(value, ensure_ascii=False)
+                )
         return "\n".join(lines)
     return source.read_text(encoding="utf-8")
 
@@ -230,12 +337,31 @@ def iter_chunks(
                 f"document path does not exist: {path}. Create it and add supported documents first"
             )
         files = (
-            sorted(item for item in path.rglob("*") if item.is_file() and (item.suffix.lower() in SUPPORTED_SUFFIXES or item.suffix.lower() in IMAGE_SUFFIXES or item.suffix.lower() in ARCHIVE_SUFFIXES or item.name in SUPPORTED_FILENAMES))
-            if path.is_dir() else [path]
+            sorted(
+                item
+                for item in path.rglob("*")
+                if item.is_file()
+                and (
+                    item.suffix.lower() in SUPPORTED_SUFFIXES
+                    or item.suffix.lower() in IMAGE_SUFFIXES
+                    or item.suffix.lower() in ARCHIVE_SUFFIXES
+                    or item.name in SUPPORTED_FILENAMES
+                )
+            )
+            if path.is_dir()
+            else [path]
         )
-        if path.is_file() and path.suffix.lower() not in SUPPORTED_SUFFIXES and path.suffix.lower() not in IMAGE_SUFFIXES and path.suffix.lower() not in ARCHIVE_SUFFIXES and path.name not in SUPPORTED_FILENAMES:
+        if (
+            path.is_file()
+            and path.suffix.lower() not in SUPPORTED_SUFFIXES
+            and path.suffix.lower() not in IMAGE_SUFFIXES
+            and path.suffix.lower() not in ARCHIVE_SUFFIXES
+            and path.name not in SUPPORTED_FILENAMES
+        ):
             supported = ", ".join(sorted(SUPPORTED_SUFFIXES))
-            raise ValueError(f"unsupported document type {path.suffix!r}: {path}; supported: {supported}")
+            raise ValueError(
+                f"unsupported document type {path.suffix!r}: {path}; supported: {supported}"
+            )
         for file_path in files:
             if file_path.suffix.lower() == ".jsonl":
                 with file_path.open(encoding="utf-8") as stream:
@@ -245,24 +371,53 @@ def iter_chunks(
                         try:
                             record = json.loads(line)
                         except json.JSONDecodeError as error:
-                            raise ValueError(f"invalid JSONL at {file_path}:{line_number}") from error
+                            raise ValueError(
+                                f"invalid JSONL at {file_path}:{line_number}"
+                            ) from error
                         if isinstance(record, str):
-                            text, source_name, title = record, str(file_path.resolve()), None
+                            text, source_name, title = (
+                                record,
+                                str(file_path.resolve()),
+                                None,
+                            )
                         elif isinstance(record, dict):
                             value = record.get("text") or record.get("content")
-                            text = str(value).strip() if value else json.dumps(record, ensure_ascii=False)
+                            text = (
+                                str(value).strip()
+                                if value
+                                else json.dumps(record, ensure_ascii=False)
+                            )
                             source_name = str(record.get("url") or file_path.resolve())
-                            title = str(record.get("title") or record.get("id") or "").strip() or None
+                            title = (
+                                str(
+                                    record.get("title") or record.get("id") or ""
+                                ).strip()
+                                or None
+                            )
                         else:
-                            text, source_name, title = json.dumps(record, ensure_ascii=False), str(file_path.resolve()), None
+                            text, source_name, title = (
+                                json.dumps(record, ensure_ascii=False),
+                                str(file_path.resolve()),
+                                None,
+                            )
                         for index, value in enumerate(
-                            chunk_text(text, chunk_chars=chunk_chars, overlap_chars=overlap_chars), 1
+                            chunk_text(
+                                text,
+                                chunk_chars=chunk_chars,
+                                overlap_chars=overlap_chars,
+                            ),
+                            1,
                         ):
                             found = True
                             yield DocumentChunk(source_name, value, index, title)
                 continue
             for index, text in enumerate(
-                chunk_text(read_document(file_path), chunk_chars=chunk_chars, overlap_chars=overlap_chars), 1
+                chunk_text(
+                    read_document(file_path),
+                    chunk_chars=chunk_chars,
+                    overlap_chars=overlap_chars,
+                ),
+                1,
             ):
                 found = True
                 yield DocumentChunk(str(file_path.resolve()), text, index)
@@ -273,7 +428,9 @@ def iter_chunks(
 def build_chunks(
     paths: Iterable[str | Path], *, chunk_chars: int = 900, overlap_chars: int = 120
 ) -> list[DocumentChunk]:
-    return list(iter_chunks(paths, chunk_chars=chunk_chars, overlap_chars=overlap_chars))
+    return list(
+        iter_chunks(paths, chunk_chars=chunk_chars, overlap_chars=overlap_chars)
+    )
 
 
 class RagIndex:
@@ -290,7 +447,9 @@ class RagIndex:
             term for counts in self._counts for term in counts
         )
 
-    def search(self, query: str, *, top_k: int = 3, min_score: float = 0.01) -> list[RetrievalResult]:
+    def search(
+        self, query: str, *, top_k: int = 3, min_score: float = 0.01
+    ) -> list[RetrievalResult]:
         if top_k < 1:
             raise ValueError("top_k must be positive")
         if not math.isfinite(min_score) or min_score < 0:
@@ -310,8 +469,13 @@ class RagIndex:
                 if not frequency:
                     continue
                 document_frequency = self._document_frequency[term]
-                inverse_frequency = math.log(1.0 + (total - document_frequency + 0.5) / (document_frequency + 0.5))
-                denominator = frequency + 1.5 * (1.0 - 0.75 + 0.75 * length / max(self._average_length, 1.0))
+                inverse_frequency = math.log(
+                    1.0
+                    + (total - document_frequency + 0.5) / (document_frequency + 0.5)
+                )
+                denominator = frequency + 1.5 * (
+                    1.0 - 0.75 + 0.75 * length / max(self._average_length, 1.0)
+                )
                 score += inverse_frequency * frequency * 2.5 / denominator
             if score >= min_score:
                 scored.append((score, index))
@@ -333,7 +497,10 @@ class RagIndex:
     def save(self, path: str | Path) -> Path:
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"version": INDEX_VERSION, "chunks": [asdict(chunk) for chunk in self.chunks]}
+        payload = {
+            "version": INDEX_VERSION,
+            "chunks": [asdict(chunk) for chunk in self.chunks],
+        }
         temporary = destination.with_suffix(destination.suffix + ".tmp")
         temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         temporary.replace(destination)
@@ -343,9 +510,13 @@ class RagIndex:
     def load(cls, path: str | Path) -> RagIndex:
         source = Path(path)
         payload = json.loads(source.read_text(encoding="utf-8"))
-        if payload.get("version") != INDEX_VERSION or not isinstance(payload.get("chunks"), list):
+        if payload.get("version") != INDEX_VERSION or not isinstance(
+            payload.get("chunks"), list
+        ):
             raise ValueError(f"unsupported or invalid RAG index: {source}")
-        logger.debug("Loaded JSON RAG index from %s (%d chunks)", source, len(payload["chunks"]))
+        logger.debug(
+            "Loaded JSON RAG index from %s (%d chunks)", source, len(payload["chunks"])
+        )
         return cls(DocumentChunk(**chunk) for chunk in payload["chunks"])
 
 
@@ -361,7 +532,9 @@ class SQLiteRagIndex:
                 "SELECT value FROM metadata WHERE key = 'version'"
             ).fetchone()
             if version is None or int(version[0]) != INDEX_VERSION:
-                raise ValueError(f"unsupported or invalid SQLite RAG index: {self.path}")
+                raise ValueError(
+                    f"unsupported or invalid SQLite RAG index: {self.path}"
+                )
         logger.debug("Loaded SQLite RAG index from %s", self.path)
 
     @property
@@ -369,20 +542,52 @@ class SQLiteRagIndex:
         with sqlite3.connect(self.path) as connection:
             return int(connection.execute("SELECT count(*) FROM chunks").fetchone()[0])
 
-    def search(self, query: str, *, top_k: int = 3, min_score: float = 0.01) -> list[RetrievalResult]:
+    def search(
+        self, query: str, *, top_k: int = 3, min_score: float = 0.01
+    ) -> list[RetrievalResult]:
         if top_k < 1:
             raise ValueError("top_k must be positive")
         words = [term for term in _terms(query) if not term.startswith("~")]
         if not words:
             return []
         stopwords = {
-            "the", "and", "for", "from", "how", "what", "when", "where", "who", "why",
-            "are", "is", "was", "were", "this", "that", "with", "into", "can", "does",
-            "का", "की", "के", "और", "क्या", "है", "हैं", "একটি", "এবং", "কি", "কী",
+            "the",
+            "and",
+            "for",
+            "from",
+            "how",
+            "what",
+            "when",
+            "where",
+            "who",
+            "why",
+            "are",
+            "is",
+            "was",
+            "were",
+            "this",
+            "that",
+            "with",
+            "into",
+            "can",
+            "does",
+            "का",
+            "की",
+            "के",
+            "और",
+            "क्या",
+            "है",
+            "हैं",
+            "একটি",
+            "এবং",
+            "কি",
+            "কী",
         }
-        selected = list(dict.fromkeys(
-            word for word in words if len(word) > 2 and word not in stopwords
-        )) or list(dict.fromkeys(words))
+        selected = list(
+            dict.fromkeys(
+                word for word in words if len(word) > 2 and word not in stopwords
+            )
+        ) or list(dict.fromkeys(words))
         selected = sorted(selected, key=len, reverse=True)[:6]
 
         def token(word: str) -> str:
@@ -405,15 +610,18 @@ class SQLiteRagIndex:
         results = []
         for source, title, chunk, text, rank in rows:
             url = (
-                f"{source}#chunk-{chunk}" if str(source).startswith(("https://", "http://"))
+                f"{source}#chunk-{chunk}"
+                if str(source).startswith(("https://", "http://"))
                 else f"document://{quote(Path(source).name)}#chunk-{chunk}"
             )
-            results.append(RetrievalResult(
-                title=title or Path(source).name,
-                url=url,
-                description=text,
-                score=max(float(-rank), min_score),
-            ))
+            results.append(
+                RetrievalResult(
+                    title=title or Path(source).name,
+                    url=url,
+                    description=text,
+                    score=max(float(-rank), min_score),
+                )
+            )
         return results
 
     @classmethod
@@ -436,7 +644,9 @@ class SQLiteRagIndex:
             with sqlite3.connect(temporary) as connection:
                 connection.execute("PRAGMA journal_mode=OFF")
                 connection.execute("PRAGMA synchronous=OFF")
-                connection.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                connection.execute(
+                    "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
                 connection.execute(
                     "CREATE VIRTUAL TABLE chunks USING fts5("
                     "source UNINDEXED, title UNINDEXED, chunk UNINDEXED, text, "
@@ -453,13 +663,15 @@ class SQLiteRagIndex:
                     pending.append((item.source, item.title, item.chunk, item.text))
                     if len(pending) >= batch_size:
                         connection.executemany(
-                            "INSERT INTO chunks(source, title, chunk, text) VALUES (?, ?, ?, ?)", pending
+                            "INSERT INTO chunks(source, title, chunk, text) VALUES (?, ?, ?, ?)",
+                            pending,
                         )
                         connection.commit()
                         pending.clear()
                 if pending:
                     connection.executemany(
-                        "INSERT INTO chunks(source, title, chunk, text) VALUES (?, ?, ?, ?)", pending
+                        "INSERT INTO chunks(source, title, chunk, text) VALUES (?, ?, ?, ?)",
+                        pending,
                     )
                 connection.execute("INSERT INTO chunks(chunks) VALUES ('optimize')")
                 connection.commit()
@@ -471,11 +683,15 @@ class SQLiteRagIndex:
         return cls(target)
 
 
-def build_rag_prompt(query: str, results: list[RetrievalResult], *, char_limit: int = 600) -> str:
+def build_rag_prompt(
+    query: str, results: list[RetrievalResult], *, char_limit: int = 600
+) -> str:
     return build_rag_prompt_with_budget(query, results, char_limit=char_limit)
 
 
-def rerank_results(query: str, results: Iterable[RetrievalResult]) -> list[RetrievalResult]:
+def rerank_results(
+    query: str, results: Iterable[RetrievalResult]
+) -> list[RetrievalResult]:
     """Deterministically favor query coverage while retaining retrieval score."""
     query_terms = {term for term in _terms(query) if not term.startswith("~")}
 
@@ -485,7 +701,13 @@ def rerank_results(query: str, results: Iterable[RetrievalResult]) -> list[Retri
         coverage = len(query_terms & searchable) / max(len(query_terms), 1)
         # Local BM25 and web-search scores are not calibrated against each
         # other, so lexical coverage is the primary deterministic signal.
-        return (-coverage, -float(getattr(result, "score", 0.0)), index, result.title, result.url)
+        return (
+            -coverage,
+            -float(getattr(result, "score", 0.0)),
+            index,
+            result.title,
+            result.url,
+        )
 
     return [result for _, result in sorted(enumerate(results), key=rank)]
 
@@ -507,7 +729,7 @@ def build_rag_prompt_with_budget(
         available = remaining - len(prefix)
         if available < 1:
             break
-        excerpt = result.description[:min(char_limit, available)]
+        excerpt = result.description[: min(char_limit, available)]
         sections.append(prefix + excerpt)
         remaining -= len(prefix) + len(excerpt)
     context = "\n\n".join(sections) or "(no relevant sources retrieved)"
@@ -533,8 +755,16 @@ __all__ = [
     "rerank_results",
 ]
 
+
 # Dedicated embedding retrieval API (lexical BM25 remains the default fallback).
-def embedding_search(chunks: Iterable[DocumentChunk], query: str, embedding_model, *, top_k: int = 5, reranker=None) -> list[RetrievalResult]:
+def embedding_search(
+    chunks: Iterable[DocumentChunk],
+    query: str,
+    embedding_model,
+    *,
+    top_k: int = 5,
+    reranker=None,
+) -> list[RetrievalResult]:
     items = list(chunks)
     if not items or not isinstance(query, str) or not query.strip():
         return []
@@ -543,8 +773,21 @@ def embedding_search(chunks: Iterable[DocumentChunk], query: str, embedding_mode
     scores = torch.nn.functional.cosine_similarity(q, d, dim=-1).tolist()
     order = sorted(range(len(items)), key=lambda i: scores[i], reverse=True)
     if reranker is not None:
-        candidates = order[:max(top_k, top_k * 4)]
+        candidates = order[: max(top_k, top_k * 4)]
         reranked = reranker(query, [items[i].text for i in candidates])
-        candidates = [candidates[i] for i in sorted(range(len(candidates)), key=lambda i: reranked[i], reverse=True)]
+        candidates = [
+            candidates[i]
+            for i in sorted(
+                range(len(candidates)), key=lambda i: reranked[i], reverse=True
+            )
+        ]
         order = candidates + [i for i in order if i not in candidates]
-    return [RetrievalResult(items[i].title or Path(items[i].source).name, items[i].source, items[i].text, float(scores[i])) for i in order[:top_k]]
+    return [
+        RetrievalResult(
+            items[i].title or Path(items[i].source).name,
+            items[i].source,
+            items[i].text,
+            float(scores[i]),
+        )
+        for i in order[:top_k]
+    ]

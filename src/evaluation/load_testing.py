@@ -34,7 +34,9 @@ def summarize(samples: list[LoadSample], elapsed_seconds: float) -> dict:
         raise ValueError("elapsed_seconds must be positive")
     latencies = [sample.latency_seconds for sample in samples if not sample.cancelled]
     successful = [sample for sample in samples if sample.status_code == 200]
-    failures = [sample for sample in samples if sample.error or (sample.status_code or 0) >= 500]
+    failures = [
+        sample for sample in samples if sample.error or (sample.status_code or 0) >= 500
+    ]
     overloads = [sample for sample in samples if sample.status_code in {429, 503}]
     report = {
         "requests": len(samples),
@@ -43,7 +45,8 @@ def summarize(samples: list[LoadSample], elapsed_seconds: float) -> dict:
         "overloaded": len(overloads),
         "cancelled": sum(sample.cancelled for sample in samples),
         "requests_per_second": len(samples) / elapsed_seconds,
-        "tokens_per_second": sum(sample.completion_tokens for sample in successful) / elapsed_seconds,
+        "tokens_per_second": sum(sample.completion_tokens for sample in successful)
+        / elapsed_seconds,
         "latency_seconds": {
             "p50": percentile(latencies, 0.50),
             "p95": percentile(latencies, 0.95),
@@ -55,9 +58,14 @@ def summarize(samples: list[LoadSample], elapsed_seconds: float) -> dict:
     return report
 
 
-def release_gate(report: dict, *, max_p95_seconds: float, max_failure_rate: float) -> bool:
+def release_gate(
+    report: dict, *, max_p95_seconds: float, max_failure_rate: float
+) -> bool:
     requests = int(report.get("requests", 0))
     if requests < 1:
         return False
     failure_rate = int(report.get("failed", 0)) / requests
-    return failure_rate <= max_failure_rate and float(report["latency_seconds"]["p95"]) <= max_p95_seconds
+    return (
+        failure_rate <= max_failure_rate
+        and float(report["latency_seconds"]["p95"]) <= max_p95_seconds
+    )

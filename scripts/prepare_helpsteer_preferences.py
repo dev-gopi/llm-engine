@@ -20,8 +20,22 @@ def extract_pair(record: dict) -> tuple[str, str] | None:
     messages = record.get("messages")
     if not isinstance(messages, list):
         return None
-    prompt = next((message.get("content", "").strip() for message in messages if message.get("role") == "user"), "")
-    answer = next((message.get("content", "").strip() for message in reversed(messages) if message.get("role") == "assistant"), "")
+    prompt = next(
+        (
+            message.get("content", "").strip()
+            for message in messages
+            if message.get("role") == "user"
+        ),
+        "",
+    )
+    answer = next(
+        (
+            message.get("content", "").strip()
+            for message in reversed(messages)
+            if message.get("role") == "assistant"
+        ),
+        "",
+    )
     return (prompt, answer) if prompt and answer else None
 
 
@@ -38,22 +52,32 @@ def convert(source: Path) -> list[dict]:
     preferences = []
     for index, prompt in enumerate(sorted(groups)):
         candidates = sorted(groups[prompt], key=lambda item: (item[0], item[1]))
-        if len(candidates) < 2 or candidates[0][1] == candidates[-1][1] or candidates[0][0] == candidates[-1][0]:
+        if (
+            len(candidates) < 2
+            or candidates[0][1] == candidates[-1][1]
+            or candidates[0][0] == candidates[-1][0]
+        ):
             continue
-        preferences.append({
-            "id": f"helpsteer-preference-{index}",
-            "source": "nvidia/HelpSteer",
-            "prompt": prompt,
-            "chosen": candidates[-1][1],
-            "rejected": candidates[0][1],
-        })
+        preferences.append(
+            {
+                "id": f"helpsteer-preference-{index}",
+                "source": "nvidia/HelpSteer",
+                "prompt": prompt,
+                "chosen": candidates[-1][1],
+                "rejected": candidates[0][1],
+            }
+        )
     return preferences
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-dir", type=Path, default=Path("data/processed/helpsteer"))
-    parser.add_argument("--output-dir", type=Path, default=Path("data/processed/preferences"))
+    parser.add_argument(
+        "--input-dir", type=Path, default=Path("data/processed/helpsteer")
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=Path("data/processed/preferences")
+    )
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 

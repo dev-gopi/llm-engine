@@ -1,4 +1,5 @@
 """Centralized media request validation and safe limits."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,13 +29,19 @@ def validate_prompt(prompt: str, limits: GenerationLimits) -> str:
 
 def validate_image_size(width: int, height: int, limits: GenerationLimits) -> None:
     if width < 16 or height < 16 or width * height > limits.max_image_pixels:
-        raise GenerationValidationError("requested image dimensions exceed configured limits")
+        raise GenerationValidationError(
+            "requested image dimensions exceed configured limits"
+        )
 
 
 def validate_video(*, frames: int, fps: int, limits: GenerationLimits) -> None:
     if frames < 1 or frames > limits.max_video_frames:
-        raise GenerationValidationError("requested frame count exceeds configured limits")
+        raise GenerationValidationError(
+            "requested frame count exceeds configured limits"
+        )
     if fps < 1 or fps > limits.max_video_fps:
         raise GenerationValidationError("requested FPS exceeds configured limits")
     if frames / fps > limits.max_video_seconds:
-        raise GenerationValidationError("requested video duration exceeds configured limits")
+        raise GenerationValidationError(
+            "requested video duration exceeds configured limits"
+        )

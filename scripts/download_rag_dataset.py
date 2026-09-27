@@ -28,7 +28,10 @@ def merged_manifest(manifest_path: Path, counts: dict[str, int]) -> dict:
     if manifest_path.is_file():
         try:
             existing = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if existing.get("dataset") == DATASET and existing.get("snapshot") == SNAPSHOT:
+            if (
+                existing.get("dataset") == DATASET
+                and existing.get("snapshot") == SNAPSHOT
+            ):
                 existing_counts = dict(existing.get("languages") or {})
         except (OSError, ValueError, TypeError):
             existing_counts = {}
@@ -70,24 +73,35 @@ def download_language(
             parquet_path = Path(temporary_name)
             try:
                 print(f"Downloading {language}: {url}", flush=True)
-                request = urllib.request.Request(url, headers={"User-Agent": "Gopi-RAG/0.1"})
-                with urllib.request.urlopen(request, timeout=timeout) as response, parquet_path.open("wb") as stream:
+                request = urllib.request.Request(
+                    url, headers={"User-Agent": "Gopi-RAG/0.1"}
+                )
+                with (
+                    urllib.request.urlopen(request, timeout=timeout) as response,
+                    parquet_path.open("wb") as stream,
+                ):
                     shutil.copyfileobj(response, stream, length=1024 * 1024)
                 for batch in pq.ParquetFile(parquet_path).iter_batches(batch_size=256):
                     for row in batch.to_pylist():
                         text = str(row.get("text") or "").strip()
                         if not text:
                             continue
-                        output.write(json.dumps({
-                            "id": str(row.get("id") or f"{language}-{count}"),
-                            "language": language,
-                            "title": str(row.get("title") or "Untitled"),
-                            "url": str(row.get("url") or ""),
-                            "text": text,
-                            "source": DATASET,
-                            "snapshot": SNAPSHOT,
-                            "license": "CC-BY-SA-3.0 and GFDL",
-                        }, ensure_ascii=False) + "\n")
+                        output.write(
+                            json.dumps(
+                                {
+                                    "id": str(row.get("id") or f"{language}-{count}"),
+                                    "language": language,
+                                    "title": str(row.get("title") or "Untitled"),
+                                    "url": str(row.get("url") or ""),
+                                    "text": text,
+                                    "source": DATASET,
+                                    "snapshot": SNAPSHOT,
+                                    "license": "CC-BY-SA-3.0 and GFDL",
+                                },
+                                ensure_ascii=False,
+                            )
+                            + "\n"
+                        )
                         count += 1
                         if count >= max_articles:
                             break

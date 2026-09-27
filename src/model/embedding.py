@@ -99,14 +99,20 @@ class TokenEmbedding(nn.Module):
             raise ValueError("new_vocab_size must be positive")
         valid_strategies = {"normal", "mean", "zero"}
         if init_strategy not in valid_strategies:
-            raise ValueError(f"init_strategy must be one of {sorted(valid_strategies)}, got {init_strategy!r}")
+            raise ValueError(
+                f"init_strategy must be one of {sorted(valid_strategies)}, got {init_strategy!r}"
+            )
 
         if pad_to_multiple_of is not None:
-            if not isinstance(pad_to_multiple_of, int) or isinstance(pad_to_multiple_of, bool):
+            if not isinstance(pad_to_multiple_of, int) or isinstance(
+                pad_to_multiple_of, bool
+            ):
                 raise TypeError("pad_to_multiple_of must be an integer")
             if pad_to_multiple_of < 1:
                 raise ValueError("pad_to_multiple_of must be positive")
-            new_vocab_size = math.ceil(new_vocab_size / pad_to_multiple_of) * pad_to_multiple_of
+            new_vocab_size = (
+                math.ceil(new_vocab_size / pad_to_multiple_of) * pad_to_multiple_of
+            )
         if self.padding_idx is not None and self.padding_idx >= new_vocab_size:
             raise ValueError("new vocabulary would remove the configured padding token")
         if new_vocab_size == self.vocab_size:
@@ -125,17 +131,27 @@ class TokenEmbedding(nn.Module):
             if init_strategy == "zero":
                 new_embedding.weight.zero_()
             elif init_strategy == "normal":
-                nn.init.normal_(new_embedding.weight, mean=0.0, std=self.initializer_range)
+                nn.init.normal_(
+                    new_embedding.weight, mean=0.0, std=self.initializer_range
+                )
             elif init_strategy == "mean":
                 if self.padding_idx is not None and self.vocab_size > 1:
-                    mask = torch.ones(self.vocab_size, dtype=torch.bool, device=old_embedding.weight.device)
+                    mask = torch.ones(
+                        self.vocab_size,
+                        dtype=torch.bool,
+                        device=old_embedding.weight.device,
+                    )
                     mask[self.padding_idx] = False
                     mean_vec = old_embedding.weight[mask].mean(dim=0)
                 else:
                     mean_vec = old_embedding.weight.mean(dim=0)
-                new_embedding.weight.copy_(mean_vec.unsqueeze(0).expand(new_vocab_size, -1))
+                new_embedding.weight.copy_(
+                    mean_vec.unsqueeze(0).expand(new_vocab_size, -1)
+                )
 
-            new_embedding.weight[:rows_to_copy].copy_(old_embedding.weight[:rows_to_copy])
+            new_embedding.weight[:rows_to_copy].copy_(
+                old_embedding.weight[:rows_to_copy]
+            )
             if self.padding_idx is not None:
                 new_embedding.weight[self.padding_idx].zero_()
         new_embedding.weight.requires_grad_(old_embedding.weight.requires_grad)
@@ -176,7 +192,11 @@ class TokenEmbedding(nn.Module):
         return cls(
             vocab_size=int(config["vocab_size"]),
             dim=int(config["hidden_size"]),
-            padding_idx=(int(config["padding_idx"]) if config.get("padding_idx") is not None else None),
+            padding_idx=(
+                int(config["padding_idx"])
+                if config.get("padding_idx") is not None
+                else None
+            ),
             initializer_range=float(config.get("initializer_range", 0.02)),
             scale_embeddings=bool(config.get("scale_embeddings", False)),
             freeze=bool(config.get("freeze_embeddings", False)),

@@ -18,8 +18,12 @@ def _config():
 
 
 def test_q1_and_int4_kv_reduce_analytical_memory():
-    bf16 = estimate_inference_memory(_config(), context_length=2048, weight_precision="bf16", kv_precision="bf16")
-    compact = estimate_inference_memory(_config(), context_length=2048, weight_precision="q1_0", kv_precision="int4")
+    bf16 = estimate_inference_memory(
+        _config(), context_length=2048, weight_precision="bf16", kv_precision="bf16"
+    )
+    compact = estimate_inference_memory(
+        _config(), context_length=2048, weight_precision="q1_0", kv_precision="int4"
+    )
     assert compact.weight_bytes < bf16.weight_bytes
     assert compact.kv_cache_bytes < bf16.kv_cache_bytes
     assert compact.estimated_total_bytes < bf16.estimated_total_bytes
@@ -27,7 +31,9 @@ def test_q1_and_int4_kv_reduce_analytical_memory():
 
 
 def test_deployment_matrix_is_sorted_and_budget_aware():
-    rows = deployment_matrix(_config(), context_length=1024, memory_budget_bytes=50_000_000)
+    rows = deployment_matrix(
+        _config(), context_length=1024, memory_budget_bytes=50_000_000
+    )
     totals = [row["estimated_total_bytes"] for row in rows]
     assert totals == sorted(totals)
     assert all(row["fits_budget"] is not None for row in rows)

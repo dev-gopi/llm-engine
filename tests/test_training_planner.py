@@ -50,8 +50,12 @@ def test_training_planner_estimates_steps_flops_runtime_cost_and_memory() -> Non
 
 def test_fsdp_planner_shards_model_state_but_not_activations() -> None:
     common = {"batch_size": 1, "max_sequence_length": 64}
-    ddp = plan_training(MODEL, {**common, "distributed_strategy": "ddp"}, training_tokens=1000, gpus=4)
-    fsdp = plan_training(MODEL, {**common, "distributed_strategy": "fsdp"}, training_tokens=1000, gpus=4)
+    ddp = plan_training(
+        MODEL, {**common, "distributed_strategy": "ddp"}, training_tokens=1000, gpus=4
+    )
+    fsdp = plan_training(
+        MODEL, {**common, "distributed_strategy": "fsdp"}, training_tokens=1000, gpus=4
+    )
     assert fsdp.model_state_gib_per_gpu < ddp.model_state_gib_per_gpu
     assert fsdp.activation_gib_per_gpu == ddp.activation_gib_per_gpu
 
@@ -60,13 +64,25 @@ def test_training_planner_cli_emits_json_without_allocating_model() -> None:
     root = Path(__file__).resolve().parents[1]
     completed = subprocess.run(
         [
-            sys.executable, "scripts/plan_training.py",
-            "--model-config", "configs/model.gpu.yaml",
-            "--training-config", "configs/pretraining.gpu.yaml",
-            "--training-tokens", "1000000", "--gpus", "1",
-            "--hardware-tflops", "10", "--gpu-memory-gib", "4",
+            sys.executable,
+            "scripts/plan_training.py",
+            "--model-config",
+            "configs/model.gpu.yaml",
+            "--training-config",
+            "configs/pretraining.gpu.yaml",
+            "--training-tokens",
+            "1000000",
+            "--gpus",
+            "1",
+            "--hardware-tflops",
+            "10",
+            "--gpu-memory-gib",
+            "4",
         ],
-        cwd=root, text=True, capture_output=True, check=False,
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
@@ -79,13 +95,22 @@ def test_training_planner_cli_can_enforce_feasibility_constraints() -> None:
     root = Path(__file__).resolve().parents[1]
     completed = subprocess.run(
         [
-            sys.executable, "scripts/plan_training.py",
-            "--model-config", "configs/text/model.future.1b.yaml",
-            "--training-config", "configs/text/pretraining.future.fsdp.yaml",
-            "--training-tokens", "1000000", "--gpu-memory-gib", "0.01",
+            sys.executable,
+            "scripts/plan_training.py",
+            "--model-config",
+            "configs/text/model.future.1b.yaml",
+            "--training-config",
+            "configs/text/pretraining.future.fsdp.yaml",
+            "--training-tokens",
+            "1000000",
+            "--gpu-memory-gib",
+            "0.01",
             "--require-fit",
         ],
-        cwd=root, text=True, capture_output=True, check=False,
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert completed.returncode == 2
     payload = json.loads(completed.stdout)

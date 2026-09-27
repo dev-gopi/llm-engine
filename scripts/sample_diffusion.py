@@ -22,10 +22,16 @@ from utils.config import load_yaml
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path("configs/diffusion/model.small.yaml"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("configs/diffusion/model.small.yaml")
+    )
     parser.add_argument("--checkpoint", type=Path)
-    parser.add_argument("--output", type=Path, default=Path("outputs/generated_images/sample.png"))
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--output", type=Path, default=Path("outputs/generated_images/sample.png")
+    )
+    parser.add_argument(
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--steps", type=int)
@@ -37,8 +43,9 @@ def main() -> None:
     device = torch.device(args.device)
     model = SmallUNet.from_config(config).to(device)
     if args.checkpoint:
-        load_checkpoint(args.checkpoint, model, map_location=device, use_ema=True,
-                        restore_rng=False)
+        load_checkpoint(
+            args.checkpoint, model, map_location=device, use_ema=True, restore_rng=False
+        )
     scheduler = DiffusionScheduler(
         timesteps=int(config.get("timesteps", 100)),
         beta_start=float(config.get("beta_start", 1e-4)),
@@ -53,17 +60,30 @@ def main() -> None:
             parser.error("--class-id requires num_classes in the model config")
         if not 0 <= args.class_id < model.num_classes:
             parser.error(f"--class-id must be between 0 and {model.num_classes - 1}")
-        class_labels = torch.full((args.batch_size,), args.class_id, device=device, dtype=torch.long)
+        class_labels = torch.full(
+            (args.batch_size,), args.class_id, device=device, dtype=torch.long
+        )
     sample = DiffusionPipeline(model, scheduler).sample(
-        args.batch_size, int(config["image_size"]), device=device, generator=generator,
-        inference_steps=args.steps or config.get("inference_steps"), eta=args.eta,
+        args.batch_size,
+        int(config["image_size"]),
+        device=device,
+        generator=generator,
+        inference_steps=args.steps or config.get("inference_steps"),
+        eta=args.eta,
         class_labels=class_labels,
-        guidance_scale=(args.guidance_scale if args.guidance_scale is not None
-                        else float(config.get("guidance_scale", 1.0))),
+        guidance_scale=(
+            args.guidance_scale
+            if args.guidance_scale is not None
+            else float(config.get("guidance_scale", 1.0))
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     for index, image in enumerate(sample):
-        output = args.output if args.batch_size == 1 else args.output.with_stem(f"{args.output.stem}-{index:03d}")
+        output = (
+            args.output
+            if args.batch_size == 1
+            else args.output.with_stem(f"{args.output.stem}-{index:03d}")
+        )
         tensor_to_image(image).save(output)
         print(output)
 

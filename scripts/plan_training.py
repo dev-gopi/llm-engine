@@ -56,12 +56,18 @@ def main() -> None:
         tokens_per_epoch = None
         token_source = "explicit"
     plan = plan_training(
-        model_config, training_config, training_tokens=training_tokens, gpus=args.gpus,
-        hardware_tflops=args.hardware_tflops, utilization=args.utilization,
-        gpu_memory_gib=args.gpu_memory_gib, hourly_cost_per_gpu=args.hourly_cost_per_gpu,
+        model_config,
+        training_config,
+        training_tokens=training_tokens,
+        gpus=args.gpus,
+        hardware_tflops=args.hardware_tflops,
+        utilization=args.utilization,
+        gpu_memory_gib=args.gpu_memory_gib,
+        hourly_cost_per_gpu=args.hourly_cost_per_gpu,
     ).to_dict()
     plan["token_estimate"] = {
-        "source": token_source, "input_bytes": input_bytes,
+        "source": token_source,
+        "input_bytes": input_bytes,
         "bytes_per_token": args.bytes_per_token if token_source != "explicit" else None,
         "tokens_per_epoch": tokens_per_epoch,
     }
@@ -71,7 +77,9 @@ def main() -> None:
     if args.max_hours is not None and (
         plan["estimated_hours"] is None or plan["estimated_hours"] > args.max_hours
     ):
-        violations.append("estimated runtime exceeds --max-hours or cannot be calculated")
+        violations.append(
+            "estimated runtime exceeds --max-hours or cannot be calculated"
+        )
     if args.max_cost is not None and (
         plan["estimated_cost"] is None or plan["estimated_cost"] > args.max_cost
     ):

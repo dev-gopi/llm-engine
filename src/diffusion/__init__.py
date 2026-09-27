@@ -7,4 +7,12 @@ from .text_encoder import DiffusionTextEncoder
 from .unet import SmallUNet
 from .vae import AutoencoderKL, VAEOutput
 
-__all__ = ["AutoencoderKL", "DiffusionPipeline", "DiffusionScheduler", "DiffusionTextEncoder", "LatentDiffusionPipeline", "SmallUNet", "VAEOutput"]
+__all__ = [
+    "AutoencoderKL",
+    "DiffusionPipeline",
+    "DiffusionScheduler",
+    "DiffusionTextEncoder",
+    "LatentDiffusionPipeline",
+    "SmallUNet",
+    "VAEOutput",
+]

@@ -30,7 +30,9 @@ class DiffusionScheduler:
             self.betas = torch.linspace(beta_start, beta_end, timesteps, device=device)
         else:
             steps = torch.linspace(0, timesteps, timesteps + 1, device=device)
-            alpha_bar = torch.cos(((steps / timesteps + 0.008) / 1.008) * math.pi / 2).square()
+            alpha_bar = torch.cos(
+                ((steps / timesteps + 0.008) / 1.008) * math.pi / 2
+            ).square()
             alpha_bar = alpha_bar / alpha_bar[0]
             self.betas = (1 - alpha_bar[1:] / alpha_bar[:-1]).clamp(1e-5, 0.999)
         self.alphas = 1.0 - self.betas
@@ -72,8 +74,12 @@ class DiffusionScheduler:
             raise ValueError("timestep is outside the diffusion schedule")
         beta = self.betas[timestep].to(device=sample.device, dtype=sample.dtype)
         alpha = self.alphas[timestep].to(device=sample.device, dtype=sample.dtype)
-        alpha_bar = self.alpha_bars[timestep].to(device=sample.device, dtype=sample.dtype)
-        mean = (sample - beta * predicted_noise / (1.0 - alpha_bar).sqrt()) / alpha.sqrt()
+        alpha_bar = self.alpha_bars[timestep].to(
+            device=sample.device, dtype=sample.dtype
+        )
+        mean = (
+            sample - beta * predicted_noise / (1.0 - alpha_bar).sqrt()
+        ) / alpha.sqrt()
         if timestep == 0:
             return mean
         previous_alpha_bar = self.alpha_bars[timestep - 1].to(
@@ -89,8 +95,14 @@ class DiffusionScheduler:
         return mean + posterior_variance.clamp_min(0).sqrt() * noise
 
     def ddim_step(
-        self, predicted_noise: Tensor, timestep: int, previous_timestep: int,
-        sample: Tensor, *, eta: float = 0.0, generator: torch.Generator | None = None,
+        self,
+        predicted_noise: Tensor,
+        timestep: int,
+        previous_timestep: int,
+        sample: Tensor,
+        *,
+        eta: float = 0.0,
+        generator: torch.Generator | None = None,
     ) -> Tensor:
         """One DDIM update, allowing fewer inference steps than training."""
         if not 0.0 <= eta <= 1.0:
@@ -98,18 +110,28 @@ class DiffusionScheduler:
         alpha_bar = self.alpha_bars[timestep].to(sample)
         previous_alpha_bar = (
             self.alpha_bars[previous_timestep].to(sample)
-            if previous_timestep >= 0 else torch.ones((), device=sample.device, dtype=sample.dtype)
+            if previous_timestep >= 0
+            else torch.ones((), device=sample.device, dtype=sample.dtype)
         )
         clean = (sample - (1 - alpha_bar).sqrt() * predicted_noise) / alpha_bar.sqrt()
-        variance = ((1 - previous_alpha_bar) / (1 - alpha_bar) *
-                    (1 - alpha_bar / previous_alpha_bar)).clamp_min(0)
+        variance = (
+            (1 - previous_alpha_bar)
+            / (1 - alpha_bar)
+            * (1 - alpha_bar / previous_alpha_bar)
+        ).clamp_min(0)
         sigma = eta * variance.sqrt()
-        direction = (1 - previous_alpha_bar - sigma.square()).clamp_min(0).sqrt() * predicted_noise
+        direction = (1 - previous_alpha_bar - sigma.square()).clamp_min(
+            0
+        ).sqrt() * predicted_noise
         if previous_timestep < 0 or eta == 0:
             noise = 0.0
         else:
-            noise = torch.randn(sample.shape, device=sample.device, dtype=sample.dtype,
-                                generator=generator)
+            noise = torch.randn(
+                sample.shape,
+                device=sample.device,
+                dtype=sample.dtype,
+                generator=generator,
+            )
         return previous_alpha_bar.sqrt() * clean + direction + sigma * noise
 
     def _validate_timesteps(self, timesteps: Tensor, batch_size: int) -> None:
@@ -117,5 +139,9 @@ class DiffusionScheduler:
             raise ValueError("timesteps must have shape [batch]")
         if timesteps.dtype not in (torch.int32, torch.int64):
             raise TypeError("timesteps must use an integer dtype")
-        if timesteps.numel() and (int(timesteps.min()) < 0 or int(timesteps.max()) >= self.timesteps):
-            raise ValueError("timesteps contain an index outside the diffusion schedule")
+        if timesteps.numel() and (
+            int(timesteps.min()) < 0 or int(timesteps.max()) >= self.timesteps
+        ):
+            raise ValueError(
+                "timesteps contain an index outside the diffusion schedule"
+            )

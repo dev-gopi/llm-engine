@@ -21,7 +21,9 @@ def test_split_dailydialog_keeps_dialogues_in_one_split(tmp_path) -> None:
     train = [json.loads(line) for line in train_path.read_text().splitlines()]
     validation = [json.loads(line) for line in validation_path.read_text().splitlines()]
     train_dialogues = {record["id"].rsplit("-pair-", 1)[0] for record in train}
-    validation_dialogues = {record["id"].rsplit("-pair-", 1)[0] for record in validation}
+    validation_dialogues = {
+        record["id"].rsplit("-pair-", 1)[0] for record in validation
+    }
     assert train_count == 16
     assert validation_count == 4
     assert train_dialogues.isdisjoint(validation_dialogues)

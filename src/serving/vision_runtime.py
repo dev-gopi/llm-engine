@@ -4,6 +4,7 @@ Vision is capability-gated: this code is only activated when a trained
 VisionLanguageModel checkpoint is explicitly configured and successfully
 loaded. Text-only checkpoints never advertise or silently simulate vision.
 """
+
 from __future__ import annotations
 
 import base64
@@ -86,7 +87,9 @@ def _host_is_public(hostname: str) -> bool:
     return True
 
 
-async def _download_remote_image(url: str, *, max_bytes: int, timeout_seconds: float) -> bytes:
+async def _download_remote_image(
+    url: str, *, max_bytes: int, timeout_seconds: float
+) -> bytes:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("remote image URL must use http or https")
@@ -94,12 +97,21 @@ async def _download_remote_image(url: str, *, max_bytes: int, timeout_seconds: f
         raise ValueError("remote image URL must resolve only to public addresses")
     # Redirects are disabled so an approved public host cannot redirect into a
     # private network. Content length is checked before and during streaming.
-    async with httpx.AsyncClient(follow_redirects=False, timeout=timeout_seconds) as client:
+    async with httpx.AsyncClient(
+        follow_redirects=False, timeout=timeout_seconds
+    ) as client:
         async with client.stream("GET", url, headers={"Accept": "image/*"}) as response:
             response.raise_for_status()
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            content_type = (
+                response.headers.get("content-type", "")
+                .split(";", 1)[0]
+                .strip()
+                .lower()
+            )
             if content_type and not content_type.startswith("image/"):
-                raise ValueError("remote vision URL did not return an image content type")
+                raise ValueError(
+                    "remote vision URL did not return an image content type"
+                )
             declared = response.headers.get("content-length")
             if declared and int(declared) > max_bytes:
                 raise ValueError(f"image exceeds the {max_bytes}-byte serving limit")
@@ -108,7 +120,9 @@ async def _download_remote_image(url: str, *, max_bytes: int, timeout_seconds: f
             async for chunk in response.aiter_bytes():
                 total += len(chunk)
                 if total > max_bytes:
-                    raise ValueError(f"image exceeds the {max_bytes}-byte serving limit")
+                    raise ValueError(
+                        f"image exceeds the {max_bytes}-byte serving limit"
+                    )
                 chunks.append(chunk)
             return b"".join(chunks)
 
@@ -134,7 +148,9 @@ async def image_url_to_bytes(
             "native vision accepts base64 image data URLs; set GOPI_VISION_ALLOW_REMOTE_IMAGES=true "
             "to permit public http/https image URLs"
         )
-    return await _download_remote_image(url, max_bytes=max_bytes, timeout_seconds=timeout_seconds)
+    return await _download_remote_image(
+        url, max_bytes=max_bytes, timeout_seconds=timeout_seconds
+    )
 
 
 def image_bytes_to_tensor(
@@ -147,9 +163,13 @@ def image_bytes_to_tensor(
     try:
         from PIL import Image, ImageOps
     except ImportError as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError("native vision requires: pip install -e '.[images]'") from exc
+        raise RuntimeError(
+            "native vision requires: pip install -e '.[images]'"
+        ) from exc
     if normalization not in {"zero_one", "minus_one_one", "imagenet"}:
-        raise ValueError("vision normalization must be zero_one, minus_one_one, or imagenet")
+        raise ValueError(
+            "vision normalization must be zero_one, minus_one_one, or imagenet"
+        )
     if max_source_pixels < 1:
         raise ValueError("max_source_pixels must be positive")
     try:
@@ -185,7 +205,9 @@ async def load_image_tensors(
     if not urls:
         raise ValueError("at least one image is required")
     if len(urls) > max_images:
-        raise ValueError(f"native vision accepts at most {max_images} images per request")
+        raise ValueError(
+            f"native vision accepts at most {max_images} images per request"
+        )
     tensors: list[torch.Tensor] = []
     for url in urls:
         payload = await image_url_to_bytes(
@@ -273,7 +295,9 @@ class MultimodalGenerator:
         all_ids = list(prompt_ids)
         stop_sequences = stop or []
         finish_reason = "length"
-        constraint = JSONSchemaConstraint(json_schema) if json_schema is not None else None
+        constraint = (
+            JSONSchemaConstraint(json_schema) if json_schema is not None else None
+        )
 
         for step in range(limit):
             logits = self.model._language_forward_from_embeddings(embeddings)
@@ -291,14 +315,16 @@ class MultimodalGenerator:
                 next_logits = constraint.filter_logits(
                     next_logits, generated, self.tokenizer, candidate_k=256
                 )
-            next_id = int(self.text_generator.sampler(
-                next_logits,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                min_p=min_p,
-                generator=random,
-            ).item())
+            next_id = int(
+                self.text_generator.sampler(
+                    next_logits,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    min_p=min_p,
+                    generator=random,
+                ).item()
+            )
             if self.eos_token_id is not None and next_id == self.eos_token_id:
                 finish_reason = "stop"
                 break
@@ -309,7 +335,9 @@ class MultimodalGenerator:
                 finish_reason = "stop"
                 text = self.text_generator._trim_stop(text, stop_sequences)
                 if constraint is not None and not constraint.validate(text):
-                    raise ValueError("generated text failed the requested output constraint")
+                    raise ValueError(
+                        "generated text failed the requested output constraint"
+                    )
                 return GenerationResult(text, tuple(generated), used, finish_reason)
             if step + 1 < limit:
                 token = torch.tensor([[next_id]], dtype=torch.long, device=self.device)

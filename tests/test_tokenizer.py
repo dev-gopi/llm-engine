@@ -90,12 +90,17 @@ def test_training_is_deterministic():
     assert first.bpe.merges == second.bpe.merges
 
 
-def test_append_only_extension_preserves_ids_and_records_lineage(tokenizer: Tokenizer, tmp_path):
+def test_append_only_extension_preserves_ids_and_records_lineage(
+    tokenizer: Tokenizer, tmp_path
+):
     original_mapping = dict(tokenizer.vocab)
     extended = tokenizer.extend(["hyperdomainterm", " বাংলা"])
 
     assert extended.vocab_size > tokenizer.vocab_size
-    assert all(extended.vocab[token] == identifier for token, identifier in original_mapping.items())
+    assert all(
+        extended.vocab[token] == identifier
+        for token, identifier in original_mapping.items()
+    )
     assert tokenizer.fingerprint in extended.compatible_base_fingerprints
     assert extended.base_vocab_size == tokenizer.vocab_size
     assert len(extended.encode("hyperdomainterm")) == 1
@@ -103,10 +108,14 @@ def test_append_only_extension_preserves_ids_and_records_lineage(tokenizer: Toke
 
     restored = Tokenizer.load(extended.save(tmp_path))
     assert restored.fingerprint == extended.fingerprint
-    assert restored.compatible_base_fingerprints == extended.compatible_base_fingerprints
+    assert (
+        restored.compatible_base_fingerprints == extended.compatible_base_fingerprints
+    )
 
 
-def test_append_only_extension_supports_phrases_and_rejects_specials(tokenizer: Tokenizer):
+def test_append_only_extension_supports_phrases_and_rejects_specials(
+    tokenizer: Tokenizer,
+):
     extended = tokenizer.extend(["two words", "👨‍👩‍👧‍👦"])
     assert len(extended.encode("two words")) == 1
     assert len(extended.encode("👨‍👩‍👧‍👦")) == 1
@@ -114,14 +123,25 @@ def test_append_only_extension_supports_phrases_and_rejects_specials(tokenizer: 
         tokenizer.extend(["<|eos|>"])
 
 
-def test_append_only_special_extension_is_atomic_and_persistent(tokenizer: Tokenizer, tmp_path):
-    protocol = ("<|system|>", "<|user|>", "<|assistant|>", "<|tool|>", "<|thinking|>", "<|end|>")
+def test_append_only_special_extension_is_atomic_and_persistent(
+    tokenizer: Tokenizer, tmp_path
+):
+    protocol = (
+        "<|system|>",
+        "<|user|>",
+        "<|assistant|>",
+        "<|tool|>",
+        "<|thinking|>",
+        "<|end|>",
+    )
     original = dict(tokenizer.vocab)
     extended = tokenizer.extend_special_tokens(protocol)
     text = "<|system|>rules<|tool|>{}<|end|>"
     encoded = extended.encode(text, allowed_special=set(protocol))
 
-    assert all(extended.vocab[token] == identifier for token, identifier in original.items())
+    assert all(
+        extended.vocab[token] == identifier for token, identifier in original.items()
+    )
     assert encoded[0] == extended.special_tokens["<|system|>"]
     assert extended.special_tokens["<|tool|>"] in encoded
     assert encoded[-1] == extended.special_tokens["<|end|>"]

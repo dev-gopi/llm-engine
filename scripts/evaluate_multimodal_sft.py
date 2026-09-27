@@ -1,4 +1,5 @@
 """Evaluate a frozen-backbone multimodal projector on an image-text JSONL split."""
+
 from __future__ import annotations
 
 import argparse
@@ -19,10 +20,16 @@ from vision.encoder import VisionEncoder
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--vision-config", type=Path, default=Path("configs/vision/model.small.yaml"))
-    parser.add_argument("--language-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument(
+        "--vision-config", type=Path, default=Path("configs/vision/model.small.yaml")
+    )
+    parser.add_argument(
+        "--language-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
     parser.add_argument("--language-checkpoint", type=Path, required=True)
-    parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer-finetuning"))
+    parser.add_argument(
+        "--tokenizer", type=Path, default=Path("data/tokenizer-finetuning")
+    )
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--max-batches", type=int, default=0)
     parser.add_argument("--device", default="cpu")
@@ -34,22 +41,54 @@ def main() -> None:
     tokenizer = Tokenizer.load(args.tokenizer)
     language_config = load_yaml(args.language_config)
     language = MiniGPT.from_config(language_config, device=device)
-    load_checkpoint(args.language_checkpoint, language, map_location=device, restore_rng=False)
+    load_checkpoint(
+        args.language_checkpoint, language, map_location=device, restore_rng=False
+    )
     vision_config = load_yaml(args.vision_config)
-    vision = VisionEncoder(**{key: value for key, value in vision_config.items() if key in {
-        "image_size", "patch_size", "channels", "hidden_size", "layers", "heads",
-        "ffn_hidden_size", "dropout", "initializer_range", "strict_image_size", "pool_type"
-    }})
-    model = VisionLanguageModel(vision, language, visual_tokens=16, freeze_vision=True, freeze_language=True).to(device).eval()
-    dataset = ImageTextSFTDataset(args.manifest, tokenizer, image_size=vision.patch_embedding.image_size)
+    vision = VisionEncoder(
+        **{
+            key: value
+            for key, value in vision_config.items()
+            if key
+            in {
+                "image_size",
+                "patch_size",
+                "channels",
+                "hidden_size",
+                "layers",
+                "heads",
+                "ffn_hidden_size",
+                "dropout",
+                "initializer_range",
+                "strict_image_size",
+                "pool_type",
+            }
+        }
+    )
+    model = (
+        VisionLanguageModel(
+            vision, language, visual_tokens=16, freeze_vision=True, freeze_language=True
+        )
+        .to(device)
+        .eval()
+    )
+    dataset = ImageTextSFTDataset(
+        args.manifest, tokenizer, image_size=vision.patch_embedding.image_size
+    )
     totals = {"tokens": 0.0, "correct": 0.0, "loss": 0.0}
     batches = 0
     for start in range(0, len(dataset), args.batch_size):
         if args.max_batches and batches >= args.max_batches:
             break
-        examples = [dataset[index] for index in range(start, min(start + args.batch_size, len(dataset)))]
+        examples = [
+            dataset[index]
+            for index in range(start, min(start + args.batch_size, len(dataset)))
+        ]
         batch = collate_image_text_sft(examples)
-        batch = {key: value.to(device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+        batch = {
+            key: value.to(device) if isinstance(value, torch.Tensor) else value
+            for key, value in batch.items()
+        }
         metrics = evaluate_projector_batch(model, batch)
         tokens = metrics["tokens"]
         totals["tokens"] += tokens

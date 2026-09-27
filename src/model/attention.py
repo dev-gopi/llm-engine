@@ -33,7 +33,9 @@ class LinearAttentionState:
         return True
 
 
-KeyValueCache: TypeAlias = tuple[Tensor, Tensor] | StaticLayerKVCache | LinearAttentionState | Any
+KeyValueCache: TypeAlias = (
+    tuple[Tensor, Tensor] | StaticLayerKVCache | LinearAttentionState | Any
+)
 AttentionOutput: TypeAlias = Tensor | tuple[Tensor, KeyValueCache]
 
 
@@ -85,7 +87,9 @@ class MultiHeadAttention(nn.Module):
             raise ValueError("attention_pattern must be dense or sliding_window")
         if self.attention_pattern == "sliding_window":
             if attention_window is None or int(attention_window) < 1:
-                raise ValueError("sliding_window attention requires a positive attention_window")
+                raise ValueError(
+                    "sliding_window attention requires a positive attention_window"
+                )
             self.attention_window = int(attention_window)
         else:
             self.attention_window = None
@@ -99,8 +103,12 @@ class MultiHeadAttention(nn.Module):
         else:
             self.qkv_proj = None
             self.q_proj = nn.Linear(dim, dim, bias=bias, **factory_kwargs)
-            self.k_proj = nn.Linear(dim, self.kv_heads * self.head_dim, bias=bias, **factory_kwargs)
-            self.v_proj = nn.Linear(dim, self.kv_heads * self.head_dim, bias=bias, **factory_kwargs)
+            self.k_proj = nn.Linear(
+                dim, self.kv_heads * self.head_dim, bias=bias, **factory_kwargs
+            )
+            self.v_proj = nn.Linear(
+                dim, self.kv_heads * self.head_dim, bias=bias, **factory_kwargs
+            )
 
         self.out_proj = nn.Linear(dim, dim, bias=bias, **factory_kwargs)
         self._mask_cache: dict[tuple[Any, ...], Tensor] = {}
@@ -130,18 +138,42 @@ class MultiHeadAttention(nn.Module):
 
         if self.qkv_proj is not None:
             projected = self.qkv_proj(hidden_states)
-            projected = projected.view(batch_size, sequence_length, 3, self.heads, self.head_dim)
+            projected = projected.view(
+                batch_size, sequence_length, 3, self.heads, self.head_dim
+            )
             query, key, value = projected.permute(2, 0, 3, 1, 4).unbind(0)
         else:
-            assert self.q_proj is not None and self.k_proj is not None and self.v_proj is not None
-            query = self.q_proj(hidden_states).view(batch_size, sequence_length, self.heads, self.head_dim).transpose(1, 2)
-            key = self.k_proj(hidden_states).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
-            value = self.v_proj(hidden_states).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
+            assert (
+                self.q_proj is not None
+                and self.k_proj is not None
+                and self.v_proj is not None
+            )
+            query = (
+                self.q_proj(hidden_states)
+                .view(batch_size, sequence_length, self.heads, self.head_dim)
+                .transpose(1, 2)
+            )
+            key = (
+                self.k_proj(hidden_states)
+                .view(batch_size, sequence_length, self.kv_heads, self.head_dim)
+                .transpose(1, 2)
+            )
+            value = (
+                self.v_proj(hidden_states)
+                .view(batch_size, sequence_length, self.kv_heads, self.head_dim)
+                .transpose(1, 2)
+            )
 
         if self.qk_norm:
             scale = math.sqrt(self.head_dim)
-            query = F.normalize(query.float(), dim=-1, eps=self.qk_norm_eps).to(query.dtype) * scale
-            key = F.normalize(key.float(), dim=-1, eps=self.qk_norm_eps).to(key.dtype) * scale
+            query = (
+                F.normalize(query.float(), dim=-1, eps=self.qk_norm_eps).to(query.dtype)
+                * scale
+            )
+            key = (
+                F.normalize(key.float(), dim=-1, eps=self.qk_norm_eps).to(key.dtype)
+                * scale
+            )
         return query, key, value
 
     def forward(
@@ -159,7 +191,9 @@ class MultiHeadAttention(nn.Module):
 
         if rotary_pos_emb is not None:
             cos, sin = rotary_pos_emb
-            query, key = apply_rotary_pos_emb(query, key, cos, sin, position_ids=position_ids)
+            query, key = apply_rotary_pos_emb(
+                query, key, cos, sin, position_ids=position_ids
+            )
 
         batch_size, _, query_length, _ = query.shape
         past_length = 0
@@ -174,7 +208,11 @@ class MultiHeadAttention(nn.Module):
             past_key_value.record_pending(key, value)
             present_key_value = past_key_value if use_cache else None
             output_width = self.heads * self.head_dim
-            output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, output_width)
+            output = (
+                attended.transpose(1, 2)
+                .contiguous()
+                .view(batch_size, query_length, output_width)
+            )
             output = self.out_proj(output)
             if self.tensor_parallel_group is not None:
                 torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
@@ -190,9 +228,11 @@ class MultiHeadAttention(nn.Module):
             key = torch.cat((past_key, key), dim=2)
             value = torch.cat((past_value, value), dim=2)
 
-        present_key_value = past_key_value if use_cache and isinstance(
-            past_key_value, StaticLayerKVCache
-        ) else ((key, value) if use_cache else None)
+        present_key_value = (
+            past_key_value
+            if use_cache and isinstance(past_key_value, StaticLayerKVCache)
+            else ((key, value) if use_cache else None)
+        )
         key_length = key.size(2)
 
         apply_causal = self.causal if is_causal is None else bool(is_causal)
@@ -234,7 +274,11 @@ class MultiHeadAttention(nn.Module):
             )
 
         output_width = self.heads * self.head_dim
-        output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, output_width)
+        output = (
+            attended.transpose(1, 2)
+            .contiguous()
+            .view(batch_size, query_length, output_width)
+        )
         output = self.out_proj(output)
         if self.tensor_parallel_group is not None:
             torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
@@ -243,20 +287,31 @@ class MultiHeadAttention(nn.Module):
             return output, present_key_value
         return output
 
-    def _paged_attention(self, query: Tensor, key: Tensor, value: Tensor, cache: Any) -> Tensor:
+    def _paged_attention(
+        self, query: Tensor, key: Tensor, value: Tensor, cache: Any
+    ) -> Tensor:
         """Attend to page-table KV without rebuilding a contiguous cache tensor."""
         score_chunks: list[Tensor] = []
         value_chunks: list[Tensor] = []
         for page_key, page_value, valid in cache.pages():
             page_key = page_key.repeat_interleave(self.num_kv_groups, dim=1)
             page_value = page_value.repeat_interleave(self.num_kv_groups, dim=1)
-            scores = torch.matmul(query, page_key.transpose(-2, -1)) / math.sqrt(self.head_dim)
-            score_chunks.append(scores.masked_fill(~valid[:, None, None, :], float("-inf")))
+            scores = torch.matmul(query, page_key.transpose(-2, -1)) / math.sqrt(
+                self.head_dim
+            )
+            score_chunks.append(
+                scores.masked_fill(~valid[:, None, None, :], float("-inf"))
+            )
             value_chunks.append(page_value)
         current_key = key.repeat_interleave(self.num_kv_groups, dim=1)
         current_value = value.repeat_interleave(self.num_kv_groups, dim=1)
-        score_chunks.append(torch.matmul(query, current_key.transpose(-2, -1)) / math.sqrt(self.head_dim))
-        probabilities = torch.softmax(torch.cat(score_chunks, dim=-1), dim=-1, dtype=torch.float32).to(query.dtype)
+        score_chunks.append(
+            torch.matmul(query, current_key.transpose(-2, -1))
+            / math.sqrt(self.head_dim)
+        )
+        probabilities = torch.softmax(
+            torch.cat(score_chunks, dim=-1), dim=-1, dtype=torch.float32
+        ).to(query.dtype)
         widths = [chunk.shape[-1] for chunk in score_chunks]
         weights = probabilities.split(widths, dim=-1)
         attended = torch.zeros_like(query)
@@ -316,11 +371,16 @@ class MultiHeadAttention(nn.Module):
             if cache_key in self._mask_cache:
                 causal_mask = self._mask_cache[cache_key]
             else:
-                query_positions = torch.arange(query_length, device=device) + past_length
+                query_positions = (
+                    torch.arange(query_length, device=device) + past_length
+                )
                 key_positions = torch.arange(key_length, device=device)
-                causal_mask = (key_positions.unsqueeze(0) <= query_positions.unsqueeze(1))
+                causal_mask = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
                 if self.attention_pattern == "sliding_window":
-                    causal_mask = causal_mask & (key_positions.unsqueeze(0) >= query_positions.unsqueeze(1) - self.attention_window + 1)
+                    causal_mask = causal_mask & (
+                        key_positions.unsqueeze(0)
+                        >= query_positions.unsqueeze(1) - self.attention_window + 1
+                    )
                 causal_mask = causal_mask.view(1, 1, query_length, key_length)
                 if len(self._mask_cache) < 32:
                     self._mask_cache[cache_key] = causal_mask
@@ -361,11 +421,17 @@ class MultiHeadAttention(nn.Module):
             mask = mask[:, None, :, :]
         elif mask.ndim == 4:
             if mask.shape[0] not in (1, batch_size):
-                raise ValueError("4D attention_mask batch dimension is not broadcastable")
+                raise ValueError(
+                    "4D attention_mask batch dimension is not broadcastable"
+                )
             if mask.shape[1] not in (1, self.heads):
-                raise ValueError("4D attention_mask head dimension is not broadcastable")
+                raise ValueError(
+                    "4D attention_mask head dimension is not broadcastable"
+                )
             if mask.shape[2] not in (1, query_length) or mask.shape[3] != key_length:
-                raise ValueError("4D attention_mask query/key dimensions are not broadcastable")
+                raise ValueError(
+                    "4D attention_mask query/key dimensions are not broadcastable"
+                )
         else:
             raise ValueError("attention_mask must have 2, 3, or 4 dimensions")
 
@@ -389,9 +455,13 @@ class MultiHeadAttention(nn.Module):
             if not isinstance(tensor, Tensor) or tensor.ndim != 4:
                 raise ValueError(f"cached {name} must have four dimensions")
             if tensor.shape[:2] != expected_prefix or tensor.shape[3] != self.head_dim:
-                raise ValueError(f"cached {name} has incompatible shape {tuple(tensor.shape)}")
+                raise ValueError(
+                    f"cached {name} has incompatible shape {tuple(tensor.shape)}"
+                )
             if tensor.device != current_key.device or tensor.dtype != current_key.dtype:
-                raise ValueError(f"cached {name} must match the current tensor device and dtype")
+                raise ValueError(
+                    f"cached {name} must match the current tensor device and dtype"
+                )
         if key.shape != value.shape:
             raise ValueError("cached key and value shapes must match")
         return key, value
@@ -416,9 +486,13 @@ class MultiHeadAttention(nn.Module):
                 scores = scores.masked_fill(~mask, float("-inf"))
             else:
                 scores = scores + mask
-        probabilities = torch.softmax(scores, dim=-1, dtype=torch.float32).to(query.dtype)
+        probabilities = torch.softmax(scores, dim=-1, dtype=torch.float32).to(
+            query.dtype
+        )
         probabilities = torch.nan_to_num(probabilities)
-        probabilities = F.dropout(probabilities, p=dropout_probability, training=self.training)
+        probabilities = F.dropout(
+            probabilities, p=dropout_probability, training=self.training
+        )
         return torch.matmul(probabilities, value)
 
     @classmethod
@@ -432,7 +506,9 @@ class MultiHeadAttention(nn.Module):
         return cls(
             dim=int(config["hidden_size"]),
             heads=int(config["heads"]),
-            kv_heads=(int(config["kv_heads"]) if config.get("kv_heads") is not None else None),
+            kv_heads=(
+                int(config["kv_heads"]) if config.get("kv_heads") is not None else None
+            ),
             dropout=float(config.get("attention_dropout", 0.0)),
             bias=bool(config.get("attention_bias", True)),
             causal=bool(config.get("causal_attention", True)),
@@ -443,7 +519,8 @@ class MultiHeadAttention(nn.Module):
             attention_pattern=str(config.get("attention_pattern", "dense")),
             attention_window=(
                 int(config["attention_window"])
-                if config.get("attention_window") is not None else None
+                if config.get("attention_window") is not None
+                else None
             ),
             device=device,
             dtype=dtype,
@@ -456,7 +533,9 @@ class MultiHeadAttention(nn.Module):
             f"attention_backend={self.attention_backend}"
         )
 
-    def resolve_attention_backend(self, device: torch.device, dtype: torch.dtype) -> str:
+    def resolve_attention_backend(
+        self, device: torch.device, dtype: torch.dtype
+    ) -> str:
         """Select the fastest safe kernel without changing numerical contracts.
 
         PyTorch SDPA dispatches to FlashAttention/memory-efficient kernels on
@@ -499,7 +578,11 @@ class MultiHeadAttention(nn.Module):
 
     @staticmethod
     def _validate_configuration(
-        dim: int, heads: int, kv_heads: int | None, dropout: float, initializer_range: float
+        dim: int,
+        heads: int,
+        kv_heads: int | None,
+        dropout: float,
+        initializer_range: float,
     ) -> None:
         for name, value in (("dim", dim), ("heads", heads)):
             if not isinstance(value, int) or isinstance(value, bool):
@@ -509,7 +592,11 @@ class MultiHeadAttention(nn.Module):
         if dim % heads:
             raise ValueError("dim must be divisible by heads")
         if kv_heads is not None:
-            if not isinstance(kv_heads, int) or isinstance(kv_heads, bool) or kv_heads < 1:
+            if (
+                not isinstance(kv_heads, int)
+                or isinstance(kv_heads, bool)
+                or kv_heads < 1
+            ):
                 raise ValueError("kv_heads must be a positive integer")
             if heads % kv_heads != 0:
                 raise ValueError("heads must be divisible by kv_heads")
@@ -557,7 +644,11 @@ class CausalLinearAttention(MultiHeadAttention):
             raise ValueError("CausalLinearAttention requires causal=True")
         if not math.isfinite(eps) or eps <= 0:
             raise ValueError("linear attention eps must be finite and positive")
-        if not isinstance(chunk_size, int) or isinstance(chunk_size, bool) or chunk_size < 1:
+        if (
+            not isinstance(chunk_size, int)
+            or isinstance(chunk_size, bool)
+            or chunk_size < 1
+        ):
             raise ValueError("linear attention chunk_size must be a positive integer")
         super().__init__(
             dim,
@@ -592,8 +683,13 @@ class CausalLinearAttention(MultiHeadAttention):
         if attention_mask is None:
             return None
         if not isinstance(attention_mask, Tensor) or attention_mask.ndim != 2:
-            raise ValueError("linear attention supports only a 2D padding attention_mask")
-        if attention_mask.shape[0] != batch_size or attention_mask.shape[1] < query_length:
+            raise ValueError(
+                "linear attention supports only a 2D padding attention_mask"
+            )
+        if (
+            attention_mask.shape[0] != batch_size
+            or attention_mask.shape[1] < query_length
+        ):
             raise ValueError("linear attention_mask has incompatible shape")
         return attention_mask[:, -query_length:].to(dtype=torch.bool)
 
@@ -619,15 +715,22 @@ class CausalLinearAttention(MultiHeadAttention):
         if state is None:
             return self._initial_state(query)
         if not isinstance(state, LinearAttentionState):
-            raise TypeError("linear attention past_key_value must be LinearAttentionState")
+            raise TypeError(
+                "linear attention past_key_value must be LinearAttentionState"
+            )
         expected_key = (query.shape[0], self.heads, self.head_dim)
         expected_kv = (*expected_key, self.head_dim)
         if tuple(state.key_sum.shape) != expected_key:
             raise ValueError("linear attention key_sum has incompatible shape")
         if tuple(state.key_value_sum.shape) != expected_kv:
             raise ValueError("linear attention key_value_sum has incompatible shape")
-        if state.key_sum.device != query.device or state.key_value_sum.device != query.device:
-            raise ValueError("linear attention state must match the current tensor device")
+        if (
+            state.key_sum.device != query.device
+            or state.key_value_sum.device != query.device
+        ):
+            raise ValueError(
+                "linear attention state must match the current tensor device"
+            )
         if state.length < 0:
             raise ValueError("linear attention state length cannot be negative")
         return state.key_sum.float(), state.key_value_sum.float(), int(state.length)
@@ -648,7 +751,9 @@ class CausalLinearAttention(MultiHeadAttention):
         query, key, value = self.project_qkv(hidden_states)
         if rotary_pos_emb is not None:
             cos, sin = rotary_pos_emb
-            query, key = apply_rotary_pos_emb(query, key, cos, sin, position_ids=position_ids)
+            query, key = apply_rotary_pos_emb(
+                query, key, cos, sin, position_ids=position_ids
+            )
 
         batch_size, _, query_length, _ = query.shape
         current_mask = self._validate_linear_mask(
@@ -681,7 +786,9 @@ class CausalLinearAttention(MultiHeadAttention):
             key_prefix = k_chunk.cumsum(dim=2) + key_sum.unsqueeze(2)
             kv_prefix = outer.cumsum(dim=2) + key_value_sum.unsqueeze(2)
             numerator = torch.einsum("bhtd,bhtde->bhte", q_chunk, kv_prefix)
-            denominator = torch.einsum("bhtd,bhtd->bht", q_chunk, key_prefix).unsqueeze(-1)
+            denominator = torch.einsum("bhtd,bhtd->bht", q_chunk, key_prefix).unsqueeze(
+                -1
+            )
             chunk_output = numerator / denominator.clamp_min(self.linear_attention_eps)
             if current_mask is not None:
                 chunk_output = chunk_output * current_mask[:, None, start:stop, None]
@@ -692,7 +799,11 @@ class CausalLinearAttention(MultiHeadAttention):
         attended = torch.cat(outputs, dim=2).to(query.dtype)
         if self.training and self.dropout:
             attended = F.dropout(attended, p=self.dropout, training=True)
-        output = attended.transpose(1, 2).contiguous().view(batch_size, query_length, self.dim)
+        output = (
+            attended.transpose(1, 2)
+            .contiguous()
+            .view(batch_size, query_length, self.dim)
+        )
         output = self.out_proj(output)
         if self.tensor_parallel_group is not None:
             torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
@@ -702,7 +813,9 @@ class CausalLinearAttention(MultiHeadAttention):
             return output
         state = LinearAttentionState(
             key_sum=key_sum.detach() if not self.training else key_sum,
-            key_value_sum=key_value_sum.detach() if not self.training else key_value_sum,
+            key_value_sum=key_value_sum.detach()
+            if not self.training
+            else key_value_sum,
             length=past_length + query_length,
         )
         return output, state

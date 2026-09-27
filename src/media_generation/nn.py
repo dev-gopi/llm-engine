@@ -16,7 +16,9 @@ def timestep_embedding(timesteps: Tensor, dim: int, max_period: int = 10_000) ->
         raise ValueError("embedding dimension must be at least two")
     half = dim // 2
     frequencies = torch.exp(
-        -math.log(max_period) * torch.arange(half, device=timesteps.device, dtype=torch.float32) / half
+        -math.log(max_period)
+        * torch.arange(half, device=timesteps.device, dtype=torch.float32)
+        / half
     )
     values = timesteps.float()[:, None] * frequencies[None]
     result = torch.cat([torch.cos(values), torch.sin(values)], dim=-1)
@@ -37,7 +39,9 @@ class FiLM(nn.Module):
 
     def __init__(self, embedding_size: int, channels: int) -> None:
         super().__init__()
-        self.projection = nn.Sequential(nn.SiLU(), nn.Linear(embedding_size, channels * 2))
+        self.projection = nn.Sequential(
+            nn.SiLU(), nn.Linear(embedding_size, channels * 2)
+        )
 
     def forward(self, features: Tensor, embedding: Tensor) -> Tensor:
         scale, shift = self.projection(embedding).chunk(2, dim=-1)

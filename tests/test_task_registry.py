@@ -4,7 +4,9 @@ from scripts.audit_task_registry import audit_task_registry
 
 
 def test_repository_task_registry_has_unique_resolved_ids() -> None:
-    report = audit_task_registry(Path(__file__).resolve().parents[1] / "docs" / "TASKS.md")
+    report = audit_task_registry(
+        Path(__file__).resolve().parents[1] / "docs" / "TASKS.md"
+    )
     assert report["passed"], report
     assert report["sections"] == report["unique_ids"]
 

@@ -1,4 +1,3 @@
-
 import pytest
 
 from serving.api import ServingSettings, create_app
@@ -33,10 +32,16 @@ class LifecycleBackend:
 def test_admin_lifecycle_requires_dedicated_admin_key():
     class Backend:
         ready = True
-        async def startup(self): pass
-        async def shutdown(self): pass
+
+        async def startup(self):
+            pass
+
+        async def shutdown(self):
+            pass
+
         async def generate(self, request):
             return BackendGeneration("ok", 1, 1, FinishReason.STOP)
+
         async def stream(self, request):
             yield
 
@@ -48,7 +53,12 @@ def test_admin_lifecycle_requires_dedicated_admin_key():
         allowed_hosts=("testserver", "test", "localhost", "127.0.0.1"),
     )
     with ASGIClient(create_app(Backend(), settings=settings)) as client:
-        assert client.post("/admin/models/unload", headers={"Authorization": "Bearer normal-key"}).status_code == 403
+        assert (
+            client.post(
+                "/admin/models/unload", headers={"Authorization": "Bearer normal-key"}
+            ).status_code
+            == 403
+        )
 
 
 def test_admin_load_unload_reload_endpoints_are_functional_and_audited():
@@ -61,6 +71,7 @@ def test_admin_load_unload_reload_endpoints_are_functional_and_audited():
 
     initial, version = factory()
     from serving.orchestration import ReloadableBackend
+
     wrapper = ReloadableBackend(initial, version=version, factory=factory)
     settings = ServingSettings(
         model_name="gopi-test",
@@ -70,8 +81,14 @@ def test_admin_load_unload_reload_endpoints_are_functional_and_audited():
     )
     with ASGIClient(create_app(wrapper, settings=settings)) as client:
         headers = {"Authorization": "Bearer admin-key"}
-        assert client.post("/admin/models/unload", headers=headers).json()["status"] == "unloaded"
-        assert client.post("/admin/models/load", headers=headers).json()["status"] == "loaded"
+        assert (
+            client.post("/admin/models/unload", headers=headers).json()["status"]
+            == "unloaded"
+        )
+        assert (
+            client.post("/admin/models/load", headers=headers).json()["status"]
+            == "loaded"
+        )
         reloaded = client.post("/admin/models/reload", headers=headers)
         assert reloaded.status_code == 200
         assert reloaded.json()["status"] == "loaded"

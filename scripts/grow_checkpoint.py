@@ -10,8 +10,7 @@ from pathlib import Path
 
 script_directory = os.path.dirname(os.path.realpath(__file__))
 sys.path[:] = [
-    entry for entry in sys.path
-    if os.path.realpath(entry or ".") != script_directory
+    entry for entry in sys.path if os.path.realpath(entry or ".") != script_directory
 ]
 
 import torch
@@ -28,17 +27,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument(
-        "--source-model-config", type=Path,
+        "--source-model-config",
+        type=Path,
         default=Path("configs/model.source.gpu.yaml"),
     )
-    parser.add_argument("--target-model-config", type=Path, default=Path("configs/model.gpu.yaml"))
+    parser.add_argument(
+        "--target-model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
     parser.add_argument("--source-tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--target-tokenizer", type=Path, default=Path("data/tokenizer"))
-    parser.add_argument("--output", type=Path, default=Path("checkpoints/grown/init.pt"))
-    parser.add_argument("--embedding-init", choices=("mean", "normal", "zero"), default="mean")
-    parser.add_argument("--use-ema", action="store_true", help="grow EMA weights instead of live weights")
     parser.add_argument(
-        "--verify-prompt", type=str,
+        "--output", type=Path, default=Path("checkpoints/grown/init.pt")
+    )
+    parser.add_argument(
+        "--embedding-init", choices=("mean", "normal", "zero"), default="mean"
+    )
+    parser.add_argument(
+        "--use-ema",
+        action="store_true",
+        help="grow EMA weights instead of live weights",
+    )
+    parser.add_argument(
+        "--verify-prompt",
+        type=str,
         help="verify shared-vocabulary logits are unchanged for this source-tokenizer prompt",
     )
     args = parser.parse_args()
@@ -56,8 +67,13 @@ def main() -> None:
 
     source_tokenizer = Tokenizer.load(args.source_tokenizer)
     target_tokenizer = Tokenizer.load(args.target_tokenizer)
-    if source_tokenizer.fingerprint not in target_tokenizer.compatible_base_fingerprints:
-        parser.error("target tokenizer is not a verified append-only extension of source tokenizer")
+    if (
+        source_tokenizer.fingerprint
+        not in target_tokenizer.compatible_base_fingerprints
+    ):
+        parser.error(
+            "target tokenizer is not a verified append-only extension of source tokenizer"
+        )
 
     try:
         source_config = adapt_config_to_tokenizer(
@@ -103,7 +119,16 @@ def main() -> None:
             "growth": report.__dict__,
         },
     )
-    print(json.dumps({"output": str(args.output), **report.__dict__, "identity_error": identity_error}, indent=2))
+    print(
+        json.dumps(
+            {
+                "output": str(args.output),
+                **report.__dict__,
+                "identity_error": identity_error,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

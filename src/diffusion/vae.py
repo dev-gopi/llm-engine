@@ -21,8 +21,13 @@ class VAEOutput:
 class AutoencoderKL(nn.Module):
     """Encode images into spatial Gaussian latents and reconstruct them."""
 
-    def __init__(self, image_channels: int = 3, latent_channels: int = 4,
-                 base_channels: int = 64, downsample_factor: int = 4) -> None:
+    def __init__(
+        self,
+        image_channels: int = 3,
+        latent_channels: int = 4,
+        base_channels: int = 64,
+        downsample_factor: int = 4,
+    ) -> None:
         super().__init__()
         if downsample_factor not in {2, 4, 8}:
             raise ValueError("downsample_factor must be 2, 4, or 8")
@@ -32,30 +37,53 @@ class AutoencoderKL(nn.Module):
         self.latent_channels = latent_channels
         self.downsample_factor = downsample_factor
         levels = downsample_factor.bit_length() - 1
-        encoder: list[nn.Module] = [nn.Conv2d(image_channels, base_channels, 3, padding=1), nn.SiLU()]
+        encoder: list[nn.Module] = [
+            nn.Conv2d(image_channels, base_channels, 3, padding=1),
+            nn.SiLU(),
+        ]
         channels = base_channels
         for _ in range(levels):
-            encoder.extend((nn.Conv2d(channels, channels * 2, 4, stride=2, padding=1), nn.SiLU()))
+            encoder.extend(
+                (nn.Conv2d(channels, channels * 2, 4, stride=2, padding=1), nn.SiLU())
+            )
             channels *= 2
         encoder.append(nn.Conv2d(channels, latent_channels * 2, 3, padding=1))
         self.encoder = nn.Sequential(*encoder)
-        decoder: list[nn.Module] = [nn.Conv2d(latent_channels, channels, 3, padding=1), nn.SiLU()]
+        decoder: list[nn.Module] = [
+            nn.Conv2d(latent_channels, channels, 3, padding=1),
+            nn.SiLU(),
+        ]
         for _ in range(levels):
-            decoder.extend((nn.ConvTranspose2d(channels, channels // 2, 4, stride=2, padding=1), nn.SiLU()))
+            decoder.extend(
+                (
+                    nn.ConvTranspose2d(channels, channels // 2, 4, stride=2, padding=1),
+                    nn.SiLU(),
+                )
+            )
             channels //= 2
         decoder.extend((nn.Conv2d(channels, image_channels, 3, padding=1), nn.Tanh()))
         self.decoder = nn.Sequential(*decoder)
 
-    def encode(self, images: Tensor, *, sample: bool = True,
-               generator: torch.Generator | None = None) -> tuple[Tensor, Tensor, Tensor]:
+    def encode(
+        self,
+        images: Tensor,
+        *,
+        sample: bool = True,
+        generator: torch.Generator | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor]:
         if images.ndim != 4 or images.shape[1] != self.image_channels:
             raise ValueError("images have an incompatible shape")
-        if images.shape[-2] % self.downsample_factor or images.shape[-1] % self.downsample_factor:
+        if (
+            images.shape[-2] % self.downsample_factor
+            or images.shape[-1] % self.downsample_factor
+        ):
             raise ValueError("image dimensions must be divisible by downsample_factor")
         mean, log_variance = self.encoder(images).chunk(2, dim=1)
         log_variance = log_variance.clamp(-30, 20)
         if sample:
-            noise = torch.randn(mean.shape, device=mean.device, dtype=mean.dtype, generator=generator)
+            noise = torch.randn(
+                mean.shape, device=mean.device, dtype=mean.dtype, generator=generator
+            )
             latent = mean + (0.5 * log_variance).exp() * noise
         else:
             latent = mean
@@ -66,7 +94,9 @@ class AutoencoderKL(nn.Module):
             raise ValueError("latents have an incompatible shape")
         return self.decoder(latents)
 
-    def forward(self, images: Tensor, *, generator: torch.Generator | None = None) -> VAEOutput:
+    def forward(
+        self, images: Tensor, *, generator: torch.Generator | None = None
+    ) -> VAEOutput:
         latent, mean, log_variance = self.encode(images, generator=generator)
         return VAEOutput(self.decode(latent), mean, log_variance)
 
@@ -75,7 +105,9 @@ class AutoencoderKL(nn.Module):
         if kl_weight < 0:
             raise ValueError("kl_weight must be non-negative")
         reconstruction = F.l1_loss(output.reconstruction.float(), target.float())
-        kl = -0.5 * (1 + output.log_variance - output.mean.square() - output.log_variance.exp())
+        kl = -0.5 * (
+            1 + output.log_variance - output.mean.square() - output.log_variance.exp()
+        )
         return reconstruction + kl_weight * kl.float().mean()
 
     @classmethod

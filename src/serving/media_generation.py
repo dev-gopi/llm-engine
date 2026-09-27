@@ -1,4 +1,5 @@
 """Production audio/video generation routes with sync and asynchronous job APIs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +44,9 @@ class AudioGenerationRequest(_Strict):
     guidance_scale: float | None = Field(default=None, ge=0, le=20)
     steps: int | None = Field(default=None, ge=1, le=250)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
-    preset: str | None = Field(default=None, pattern="^(draft|balanced|quality|max_quality)$")
+    preset: str | None = Field(
+        default=None, pattern="^(draft|balanced|quality|max_quality)$"
+    )
     style: str | None = None
     long_form: bool = False
     overlap_seconds: float = Field(default=0.5, ge=0, le=10)
@@ -65,7 +68,9 @@ class VideoGenerationRequest(_Strict):
     steps: int | None = Field(default=None, ge=1, le=250)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     crf: int = Field(default=18, ge=0, le=51)
-    preset: str | None = Field(default=None, pattern="^(draft|balanced|quality|max_quality)$")
+    preset: str | None = Field(
+        default=None, pattern="^(draft|balanced|quality|max_quality)$"
+    )
     style: str | None = None
     segments: int = Field(default=1, ge=1, le=16)
     overlap_frames: int = Field(default=2, ge=0, le=32)
@@ -84,7 +89,9 @@ class MediaGenerationRequest(_Strict):
     model: str | None = None
     prompt: str = Field(min_length=1, max_length=4096)
     negative_prompt: str = Field(default="", max_length=4096)
-    preset: str | None = Field(default=None, pattern="^(draft|balanced|quality|max_quality)$")
+    preset: str | None = Field(
+        default=None, pattern="^(draft|balanced|quality|max_quality)$"
+    )
     style: str | None = None
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     steps: int | None = Field(default=None, ge=1, le=250)
@@ -129,8 +136,12 @@ class _BusyError(RuntimeError):
 
 class _Gate:
     def __init__(self) -> None:
-        self.sem = threading.BoundedSemaphore(max(1, int(os.getenv("GOPI_MEDIA_MAX_CONCURRENCY", "1"))))
-        self.timeout = max(0.0, float(os.getenv("GOPI_MEDIA_QUEUE_TIMEOUT_SECONDS", "2")))
+        self.sem = threading.BoundedSemaphore(
+            max(1, int(os.getenv("GOPI_MEDIA_MAX_CONCURRENCY", "1")))
+        )
+        self.timeout = max(
+            0.0, float(os.getenv("GOPI_MEDIA_QUEUE_TIMEOUT_SECONDS", "2"))
+        )
 
     def __enter__(self):
         if not self.sem.acquire(timeout=self.timeout):
@@ -146,9 +157,18 @@ _cache_lock = threading.Lock()
 _cache: OrderedDict[tuple[str, str], object] = OrderedDict()
 _active_lock = threading.Lock()
 _active_tokens: dict[str, CancellationToken] = {}
-_job_workers = max(1, int(os.getenv("GOPI_MEDIA_JOB_WORKERS", os.getenv("GOPI_MEDIA_MAX_CONCURRENCY", "1"))))
+_job_workers = max(
+    1,
+    int(
+        os.getenv(
+            "GOPI_MEDIA_JOB_WORKERS", os.getenv("GOPI_MEDIA_MAX_CONCURRENCY", "1")
+        )
+    ),
+)
 _job_queue_limit = max(0, int(os.getenv("GOPI_MEDIA_MAX_QUEUED_JOBS", "16")))
-_executor = ThreadPoolExecutor(max_workers=_job_workers, thread_name_prefix="gopi-media")
+_executor = ThreadPoolExecutor(
+    max_workers=_job_workers, thread_name_prefix="gopi-media"
+)
 _job_slots = threading.BoundedSemaphore(_job_workers + _job_queue_limit)
 _job_store_instance: MediaJobStore | None = None
 _asset_store_instance: AssetStore | None = None
@@ -157,14 +177,18 @@ _asset_store_instance: AssetStore | None = None
 def _job_store() -> MediaJobStore:
     global _job_store_instance
     if _job_store_instance is None:
-        _job_store_instance = MediaJobStore(os.getenv("GOPI_MEDIA_JOB_DB", "outputs/api_media/media_jobs.sqlite3"))
+        _job_store_instance = MediaJobStore(
+            os.getenv("GOPI_MEDIA_JOB_DB", "outputs/api_media/media_jobs.sqlite3")
+        )
     return _job_store_instance
 
 
 def _asset_store() -> AssetStore:
     global _asset_store_instance
     if _asset_store_instance is None:
-        _asset_store_instance = AssetStore(os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets"))
+        _asset_store_instance = AssetStore(
+            os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets")
+        )
     return _asset_store_instance
 
 
@@ -177,14 +201,20 @@ def _specs() -> dict[str, MediaModelSpec]:
         result.setdefault(
             "default-audio",
             MediaModelSpec(
-                "default-audio", "audio", Path(os.environ["GOPI_AUDIO_CONFIG"]), Path(os.environ["GOPI_AUDIO_CHECKPOINT"])
+                "default-audio",
+                "audio",
+                Path(os.environ["GOPI_AUDIO_CONFIG"]),
+                Path(os.environ["GOPI_AUDIO_CHECKPOINT"]),
             ),
         )
     if os.getenv("GOPI_VIDEO_CONFIG") and os.getenv("GOPI_VIDEO_CHECKPOINT"):
         result.setdefault(
             "default-video",
             MediaModelSpec(
-                "default-video", "video", Path(os.environ["GOPI_VIDEO_CONFIG"]), Path(os.environ["GOPI_VIDEO_CHECKPOINT"])
+                "default-video",
+                "video",
+                Path(os.environ["GOPI_VIDEO_CONFIG"]),
+                Path(os.environ["GOPI_VIDEO_CHECKPOINT"]),
             ),
         )
     return result
@@ -196,15 +226,26 @@ def _runtime(kind: str, model_id: str | None):
     if model_id:
         spec = specs.get(model_id)
     else:
-        spec = next((s for s in candidates if s.id == f"default-{kind}"), candidates[0] if candidates else None)
+        spec = next(
+            (s for s in candidates if s.id == f"default-{kind}"),
+            candidates[0] if candidates else None,
+        )
     if spec is None or spec.kind != kind:
-        raise RuntimeError(f"no configured {kind} model" if not model_id else f"unknown {kind} model: {model_id}")
+        raise RuntimeError(
+            f"no configured {kind} model"
+            if not model_id
+            else f"unknown {kind} model: {model_id}"
+        )
     key = (kind, spec.id)
     with _cache_lock:
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-        runtime = AudioGenerator(spec.config, spec.checkpoint) if kind == "audio" else VideoGenerator(spec.config, spec.checkpoint)
+        runtime = (
+            AudioGenerator(spec.config, spec.checkpoint)
+            if kind == "audio"
+            else VideoGenerator(spec.config, spec.checkpoint)
+        )
         _cache[key] = runtime
         limit = max(1, int(os.getenv("GOPI_MEDIA_RUNTIME_CACHE_SIZE", "2")))
         while len(_cache) > limit:
@@ -225,7 +266,9 @@ def _asset_path(asset_id: str | None) -> Path | None:
         raise ValueError(f"unknown media asset: {asset_id}") from error
 
 
-def _video_scene_prompts(req: VideoGenerationRequest | MediaGenerationRequest) -> list[str] | None:
+def _video_scene_prompts(
+    req: VideoGenerationRequest | MediaGenerationRequest,
+) -> list[str] | None:
     if not req.scene_prompts and not req.camera:
         return None
     shots = build_storyboard(req.prompt, req.scene_prompts, camera=req.camera)
@@ -235,7 +278,13 @@ def _video_scene_prompts(req: VideoGenerationRequest | MediaGenerationRequest) -
     return [shots[0].prompt for _ in range(req.segments)]
 
 
-def _run_audio(req: AudioGenerationRequest | MediaGenerationRequest, out: Path, *, progress_callback=None, cancellation_token=None):
+def _run_audio(
+    req: AudioGenerationRequest | MediaGenerationRequest,
+    out: Path,
+    *,
+    progress_callback=None,
+    cancellation_token=None,
+):
     return _runtime("audio", req.model).generate(
         prompt=req.prompt,
         negative_prompt=req.negative_prompt,
@@ -258,7 +307,13 @@ def _run_audio(req: AudioGenerationRequest | MediaGenerationRequest, out: Path, 
     )
 
 
-def _run_video(req: VideoGenerationRequest | MediaGenerationRequest, out: Path, *, progress_callback=None, cancellation_token=None):
+def _run_video(
+    req: VideoGenerationRequest | MediaGenerationRequest,
+    out: Path,
+    *,
+    progress_callback=None,
+    cancellation_token=None,
+):
     scene_prompts = _video_scene_prompts(req)
     if scene_prompts and len(scene_prompts) != req.segments:
         raise ValueError("scene_prompts length must equal segments")
@@ -346,9 +401,13 @@ def _execute_job(job_id: str) -> None:
 
         with _gate:
             if request.kind == "audio":
-                path, details = _run_audio(request, out, progress_callback=progress, cancellation_token=token)
+                path, details = _run_audio(
+                    request, out, progress_callback=progress, cancellation_token=token
+                )
             else:
-                path, details = _run_video(request, out, progress_callback=progress, cancellation_token=token)
+                path, details = _run_video(
+                    request, out, progress_callback=progress, cancellation_token=token
+                )
         if token.cancelled or store.is_cancel_requested(job_id):
             Path(path).unlink(missing_ok=True)
             store.update(job_id, status="cancelled", progress=0.0)
@@ -362,15 +421,26 @@ def _execute_job(job_id: str) -> None:
         }
         store.update(job_id, status="succeeded", progress=1.0, result=result)
     except Exception as error:
-        status = "cancelled" if token.cancelled or store.is_cancel_requested(job_id) else "failed"
-        store.update(job_id, status=status, error=str(error), progress=0.0 if status == "cancelled" else None)
+        status = (
+            "cancelled"
+            if token.cancelled or store.is_cancel_requested(job_id)
+            else "failed"
+        )
+        store.update(
+            job_id,
+            status=status,
+            error=str(error),
+            progress=0.0 if status == "cancelled" else None,
+        )
     finally:
         with _active_lock:
             _active_tokens.pop(job_id, None)
         _job_slots.release()
 
 
-def _submit_job(request: MediaGenerationRequest, *, idempotency_key: str | None = None) -> MediaJob:
+def _submit_job(
+    request: MediaGenerationRequest, *, idempotency_key: str | None = None
+) -> MediaJob:
     if idempotency_key:
         existing = _job_store().get_by_idempotency(idempotency_key.strip())
         if existing is not None:
@@ -379,7 +449,9 @@ def _submit_job(request: MediaGenerationRequest, *, idempotency_key: str | None 
         raise _BusyError("media job queue is full; retry later")
     try:
         job, created = _job_store().create_or_get(
-            request.kind, request.model_dump(exclude_none=True), idempotency_key=idempotency_key
+            request.kind,
+            request.model_dump(exclude_none=True),
+            idempotency_key=idempotency_key,
         )
         if not created:
             _job_slots.release()
@@ -400,9 +472,13 @@ def create_media_router() -> APIRouter:
             "object": "list",
             "data": [
                 {
-                    "id": s.id, "kind": s.kind, "description": s.description,
-                    "revision": s.revision, "capabilities": list(s.capabilities),
-                    "metadata": s.metadata, "object": "media.model",
+                    "id": s.id,
+                    "kind": s.kind,
+                    "description": s.description,
+                    "revision": s.revision,
+                    "capabilities": list(s.capabilities),
+                    "metadata": s.metadata,
+                    "object": "media.model",
                 }
                 for s in _specs().values()
             ],
@@ -414,9 +490,13 @@ def create_media_router() -> APIRouter:
         if spec is None:
             raise HTTPException(404, "media model not found")
         return {
-            "id": spec.id, "kind": spec.kind, "description": spec.description,
-            "revision": spec.revision, "capabilities": list(spec.capabilities),
-            "metadata": spec.metadata, "object": "media.model",
+            "id": spec.id,
+            "kind": spec.kind,
+            "description": spec.description,
+            "revision": spec.revision,
+            "capabilities": list(spec.capabilities),
+            "metadata": spec.metadata,
+            "object": "media.model",
         }
 
     @router.get("/media/capabilities")
@@ -438,8 +518,19 @@ def create_media_router() -> APIRouter:
             "job_events": True,
             "named_models": len(specs),
             "presets": ["draft", "balanced", "quality", "max_quality"],
-            "camera_presets": ["static", "dolly_in", "dolly_out", "pan_left", "pan_right", "orbit", "handheld", "drone"],
-            "max_concurrency": max(1, int(os.getenv("GOPI_MEDIA_MAX_CONCURRENCY", "1"))),
+            "camera_presets": [
+                "static",
+                "dolly_in",
+                "dolly_out",
+                "pan_left",
+                "pan_right",
+                "orbit",
+                "handheld",
+                "drone",
+            ],
+            "max_concurrency": max(
+                1, int(os.getenv("GOPI_MEDIA_MAX_CONCURRENCY", "1"))
+            ),
             "job_workers": _job_workers,
             "max_queued_jobs": _job_queue_limit,
         }
@@ -450,7 +541,9 @@ def create_media_router() -> APIRouter:
         return {"object": "platform.resources", "gpus": gpu_report()}
 
     @router.post("/platform/route")
-    async def platform_route(payload: dict[str, Any], authorization: str | None = Header(default=None)):
+    async def platform_route(
+        payload: dict[str, Any], authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         try:
             decision = route_multimodal(
@@ -468,7 +561,11 @@ def create_media_router() -> APIRouter:
         }
 
     @router.post("/media/assets")
-    async def upload_asset(request: Request, authorization: str | None = Header(default=None), x_filename: str | None = Header(default=None)):
+    async def upload_asset(
+        request: Request,
+        authorization: str | None = Header(default=None),
+        x_filename: str | None = Header(default=None),
+    ):
         _require_auth(authorization)
         max_bytes = _asset_store().max_bytes
         content_length = request.headers.get("content-length")
@@ -476,7 +573,13 @@ def create_media_router() -> APIRouter:
             raise HTTPException(413, "asset is too large")
         body = await request.body()
         try:
-            record = _asset_store().put(body, mime_type=request.headers.get("content-type", "application/octet-stream"), filename=x_filename)
+            record = _asset_store().put(
+                body,
+                mime_type=request.headers.get(
+                    "content-type", "application/octet-stream"
+                ),
+                filename=x_filename,
+            )
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
         return {
@@ -490,7 +593,9 @@ def create_media_router() -> APIRouter:
         }
 
     @router.get("/media/assets/{asset_id}")
-    async def get_asset(asset_id: str, authorization: str | None = Header(default=None)):
+    async def get_asset(
+        asset_id: str, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         try:
             record = _asset_store().get(asset_id)
@@ -507,7 +612,9 @@ def create_media_router() -> APIRouter:
         }
 
     @router.delete("/media/assets/{asset_id}")
-    async def delete_asset(asset_id: str, authorization: str | None = Header(default=None)):
+    async def delete_asset(
+        asset_id: str, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         if not _asset_store().delete(asset_id):
             raise HTTPException(404, "asset not found")
@@ -520,15 +627,28 @@ def create_media_router() -> APIRouter:
         idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ):
         _require_auth(authorization)
-        if req.kind == "audio" and (req.init_image_asset_id or req.init_video_asset_id or req.scene_prompts or req.camera):
-            raise HTTPException(422, "video-only fields were provided for an audio generation")
+        if req.kind == "audio" and (
+            req.init_image_asset_id
+            or req.init_video_asset_id
+            or req.scene_prompts
+            or req.camera
+        ):
+            raise HTTPException(
+                422, "video-only fields were provided for an audio generation"
+            )
         if req.kind == "video" and req.init_audio_asset_id:
-            raise HTTPException(422, "audio-only fields were provided for a video generation")
+            raise HTTPException(
+                422, "audio-only fields were provided for a video generation"
+            )
         if req.scene_prompts and len(req.scene_prompts) != req.segments:
             raise HTTPException(422, "scene_prompts length must equal segments")
         try:
             # Validate asset references before queueing.
-            for asset_id in (req.init_audio_asset_id, req.init_image_asset_id, req.init_video_asset_id):
+            for asset_id in (
+                req.init_audio_asset_id,
+                req.init_image_asset_id,
+                req.init_video_asset_id,
+            ):
                 if asset_id:
                     _asset_path(asset_id)
         except ValueError as error:
@@ -536,12 +656,19 @@ def create_media_router() -> APIRouter:
         try:
             return _job_dict(_submit_job(req, idempotency_key=idempotency_key))
         except _BusyError as error:
-            raise HTTPException(429, str(error), headers={"Retry-After": "2"}) from error
+            raise HTTPException(
+                429, str(error), headers={"Retry-After": "2"}
+            ) from error
 
     @router.get("/media/jobs")
-    async def list_jobs(limit: int = 50, authorization: str | None = Header(default=None)):
+    async def list_jobs(
+        limit: int = 50, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
-        return {"object": "list", "data": [_job_dict(job) for job in _job_store().list(limit=limit)]}
+        return {
+            "object": "list",
+            "data": [_job_dict(job) for job in _job_store().list(limit=limit)],
+        }
 
     @router.get("/media/jobs/{job_id}")
     async def get_job(job_id: str, authorization: str | None = Header(default=None)):
@@ -577,10 +704,14 @@ def create_media_router() -> APIRouter:
         try:
             return _job_dict(_submit_job(req))
         except _BusyError as error:
-            raise HTTPException(429, str(error), headers={"Retry-After": "2"}) from error
+            raise HTTPException(
+                429, str(error), headers={"Retry-After": "2"}
+            ) from error
 
     @router.get("/media/jobs/{job_id}/content", response_class=FileResponse)
-    async def job_content(job_id: str, authorization: str | None = Header(default=None)):
+    async def job_content(
+        job_id: str, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         try:
             job = _job_store().get(job_id)
@@ -591,7 +722,11 @@ def create_media_router() -> APIRouter:
         path = Path(str(job.result["path"]))
         if not path.exists():
             raise HTTPException(410, "generated artifact is no longer available")
-        return FileResponse(path, media_type=str(job.result.get("media_type") or "application/octet-stream"), filename=path.name)
+        return FileResponse(
+            path,
+            media_type=str(job.result.get("media_type") or "application/octet-stream"),
+            filename=path.name,
+        )
 
     @router.get("/media/jobs/{job_id}/events")
     async def job_events(job_id: str, authorization: str | None = Header(default=None)):
@@ -607,7 +742,7 @@ def create_media_router() -> APIRouter:
                 try:
                     job = _job_store().get(job_id)
                 except KeyError:
-                    yield "event: error\ndata: {\"error\":\"job not found\"}\n\n"
+                    yield 'event: error\ndata: {"error":"job not found"}\n\n'
                     return
                 payload = json.dumps(_job_dict(job), separators=(",", ":"))
                 if payload != last:
@@ -617,19 +752,30 @@ def create_media_router() -> APIRouter:
                     return
                 await asyncio.sleep(0.5)
 
-        return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     # Backward-compatible synchronous endpoints.
     @router.post("/audio/generations", response_class=FileResponse)
-    async def audio(req: AudioGenerationRequest, authorization: str | None = Header(default=None)):
+    async def audio(
+        req: AudioGenerationRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
-        out = Path(os.getenv("GOPI_MEDIA_OUTPUT_DIR", "outputs/api_media")) / f"audio-{uuid.uuid4().hex}.wav"
+        out = (
+            Path(os.getenv("GOPI_MEDIA_OUTPUT_DIR", "outputs/api_media"))
+            / f"audio-{uuid.uuid4().hex}.wav"
+        )
         out.parent.mkdir(parents=True, exist_ok=True)
         try:
             with _gate:
                 path, _ = await run_in_threadpool(_run_audio, req, out)
         except _BusyError as error:
-            raise HTTPException(429, str(error), headers={"Retry-After": "2"}) from error
+            raise HTTPException(
+                429, str(error), headers={"Retry-After": "2"}
+            ) from error
         except (RuntimeError, FileNotFoundError) as error:
             raise HTTPException(503, str(error)) from error
         except ValueError as error:
@@ -637,17 +783,24 @@ def create_media_router() -> APIRouter:
         return _response(path)
 
     @router.post("/video/generations", response_class=FileResponse)
-    async def video(req: VideoGenerationRequest, authorization: str | None = Header(default=None)):
+    async def video(
+        req: VideoGenerationRequest, authorization: str | None = Header(default=None)
+    ):
         _require_auth(authorization)
         if req.scene_prompts and len(req.scene_prompts) != req.segments:
             raise HTTPException(422, "scene_prompts length must equal segments")
-        out = Path(os.getenv("GOPI_MEDIA_OUTPUT_DIR", "outputs/api_media")) / f"video-{uuid.uuid4().hex}.mp4"
+        out = (
+            Path(os.getenv("GOPI_MEDIA_OUTPUT_DIR", "outputs/api_media"))
+            / f"video-{uuid.uuid4().hex}.mp4"
+        )
         out.parent.mkdir(parents=True, exist_ok=True)
         try:
             with _gate:
                 path, _ = await run_in_threadpool(_run_video, req, out)
         except _BusyError as error:
-            raise HTTPException(429, str(error), headers={"Retry-After": "2"}) from error
+            raise HTTPException(
+                429, str(error), headers={"Retry-After": "2"}
+            ) from error
         except (RuntimeError, FileNotFoundError) as error:
             raise HTTPException(503, str(error)) from error
         except ValueError as error:

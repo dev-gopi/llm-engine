@@ -41,7 +41,9 @@ def _initialize_tokenizer_worker(path: str) -> None:
 def _encode_document(text: str) -> list[int]:
     if _WORKER_TOKENIZER is None:
         raise RuntimeError("tokenizer worker was not initialized")
-    return _WORKER_TOKENIZER.encode(text, add_bos=True, add_eos=True, allowed_special="all")
+    return _WORKER_TOKENIZER.encode(
+        text, add_bos=True, add_eos=True, allowed_special="all"
+    )
 
 
 def _encode_response_record(record: dict) -> tuple[list[int], list[bool]]:
@@ -60,36 +62,51 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sequence-length", type=int, default=2048)
     parser.add_argument(
-        "--objective", choices=("causal", "response_only"), default="causal",
+        "--objective",
+        choices=("causal", "response_only"),
+        default="causal",
         help="response_only stores assistant-token loss masks for supervised fine-tuning",
     )
     parser.add_argument("--sequences-per-shard", type=int, default=8192)
     parser.add_argument(
-        "--workers", type=int, default=1,
+        "--workers",
+        type=int,
+        default=1,
         help="parallel tokenizer processes; filtering and output order remain deterministic",
     )
     parser.add_argument(
-        "--dtype", choices=("auto", "uint16", "uint32"), default="auto",
+        "--dtype",
+        choices=("auto", "uint16", "uint32"),
+        default="auto",
         help="token storage type; auto uses uint16 when the vocabulary fits",
     )
     parser.add_argument("--english-only", action="store_true")
     parser.add_argument("--keep-pii", action="store_true")
     parser.add_argument(
-        "--exclude", action="append", default=[], type=Path,
+        "--exclude",
+        action="append",
+        default=[],
+        type=Path,
         help="JSON/JSONL benchmark or test file to exclude; may be repeated",
     )
     parser.add_argument(
-        "--near-duplicate-distance", type=int, default=3,
+        "--near-duplicate-distance",
+        type=int,
+        default=3,
         help="maximum 64-bit SimHash Hamming distance; use -1 to disable",
     )
     parser.add_argument(
-        "--contamination-distance", type=int, default=8,
+        "--contamination-distance",
+        type=int,
+        default=8,
         help="SimHash distance for excluded benchmark text; use -1 to disable fuzzy matching",
     )
     parser.add_argument("--max-fingerprints", type=int, default=1_000_000)
     args = parser.parse_args()
     if args.sequence_length < 2 or args.sequences_per_shard < 1 or args.workers < 1:
-        parser.error("sequence length must be >= 2; shard size and workers must be positive")
+        parser.error(
+            "sequence length must be >= 2; shard size and workers must be positive"
+        )
 
     if args.near_duplicate_distance < -1 or args.near_duplicate_distance > 15:
         parser.error("near duplicate distance must be -1 or between 0 and 15")
@@ -100,7 +117,11 @@ def main() -> None:
     tokenizer = Tokenizer.load(args.tokenizer)
     dtype_name = args.dtype
     if dtype_name == "auto":
-        dtype_name = "uint16" if tokenizer.vocab_size <= np.iinfo(np.uint16).max + 1 else "uint32"
+        dtype_name = (
+            "uint16"
+            if tokenizer.vocab_size <= np.iinfo(np.uint16).max + 1
+            else "uint32"
+        )
     dtype = np.dtype(dtype_name)
     if tokenizer.vocab_size - 1 > np.iinfo(dtype).max:
         parser.error(f"tokenizer vocabulary does not fit in {dtype_name}")
@@ -110,7 +131,9 @@ def main() -> None:
         for record in iter_records(path)
         for text in _exclusion_texts(record)
     ]
-    distance = None if args.near_duplicate_distance == -1 else args.near_duplicate_distance
+    distance = (
+        None if args.near_duplicate_distance == -1 else args.near_duplicate_distance
+    )
     contamination_distance = (
         None if args.contamination_distance == -1 else args.contamination_distance
     )
@@ -167,7 +190,9 @@ def main() -> None:
             encoded_documents = (
                 (identifiers, [True] * len(identifiers))
                 for identifiers in (
-                    tokenizer.encode(text, add_bos=True, add_eos=True, allowed_special="all")
+                    tokenizer.encode(
+                        text, add_bos=True, add_eos=True, allowed_special="all"
+                    )
                     for text in filtered_texts()
                 )
             )
@@ -179,11 +204,15 @@ def main() -> None:
             initargs=(str(args.tokenizer),),
         )
         if args.objective == "response_only":
-            encoded_documents = pool.imap(_encode_response_record, filtered_records(), chunksize=32)
+            encoded_documents = pool.imap(
+                _encode_response_record, filtered_records(), chunksize=32
+            )
         else:
             encoded_documents = (
                 (identifiers, [True] * len(identifiers))
-                for identifiers in pool.imap(_encode_document, filtered_texts(), chunksize=32)
+                for identifiers in pool.imap(
+                    _encode_document, filtered_texts(), chunksize=32
+                )
             )
 
     try:
@@ -191,10 +220,10 @@ def main() -> None:
             buffer.extend(identifiers)
             mask_buffer.extend(loss_mask)
             while len(buffer) >= args.sequence_length:
-                sequences.append(buffer[:args.sequence_length])
-                mask_sequences.append(mask_buffer[:args.sequence_length])
-                del buffer[:args.sequence_length]
-                del mask_buffer[:args.sequence_length]
+                sequences.append(buffer[: args.sequence_length])
+                mask_sequences.append(mask_buffer[: args.sequence_length])
+                del buffer[: args.sequence_length]
+                del mask_buffer[: args.sequence_length]
                 if len(sequences) >= args.sequences_per_shard:
                     flush()
     finally:
@@ -220,7 +249,9 @@ def main() -> None:
         "shards": shards,
         "filter_stats": asdict(corpus_filter.stats),
     }
-    (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (args.output / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
     print(json.dumps(manifest, indent=2))
 
 

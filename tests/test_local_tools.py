@@ -16,7 +16,9 @@ def test_calculator_evaluates_arithmetic() -> None:
     assert calculate("2 ** 8") == 256
 
 
-@pytest.mark.parametrize("expression", ["__import__('os')", "2 ** 1000", "[1, 2]", "1 / 0"])
+@pytest.mark.parametrize(
+    "expression", ["__import__('os')", "2 ** 1000", "[1, 2]", "1 / 0"]
+)
 def test_calculator_rejects_unsafe_or_unbounded_input(expression: str) -> None:
     with pytest.raises(ValueError):
         calculate(expression)
@@ -24,7 +26,8 @@ def test_calculator_rejects_unsafe_or_unbounded_input(expression: str) -> None:
 
 def test_tool_context_includes_selected_results() -> None:
     result = tool_context(
-        "6 / 2", ["calculator", "datetime"],
+        "6 / 2",
+        ["calculator", "datetime"],
         now=datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc),
     )
     assert "Calculator result: 3.0" in result
@@ -51,16 +54,22 @@ def test_direct_datetime_answer_is_human_readable() -> None:
     answer = direct_tool_answer(
         "/time", [], now=datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
     )
-    assert answer == "Current local date and time: Thursday, 27 August 2026 at 12:00:00 PM (UTC)"
+    assert (
+        answer
+        == "Current local date and time: Thursday, 27 August 2026 at 12:00:00 PM (UTC)"
+    )
 
 
 def test_tool_call_parser_requires_one_valid_envelope_and_schema() -> None:
     schema = {
-        "type": "object", "properties": {"expression": {"type": "string"}},
-        "required": ["expression"], "additionalProperties": False,
+        "type": "object",
+        "properties": {"expression": {"type": "string"}},
+        "required": ["expression"],
+        "additionalProperties": False,
     }
     call = parse_tool_call(
-        '<tool_call>{"name":"calculator","arguments":{"expression":"6 * 7"}}</tool_call>', schema,
+        '<tool_call>{"name":"calculator","arguments":{"expression":"6 * 7"}}</tool_call>',
+        schema,
     )
     assert call.name == "calculator"
     assert call.arguments == {"expression": "6 * 7"}

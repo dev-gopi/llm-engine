@@ -36,7 +36,9 @@ class TextConditioner(nn.Module):
         self.encoder = encoder
         self.output_size = encoder.hidden_size
 
-    def encode_features(self, token_ids: Tensor, attention_mask: Tensor) -> TextConditioning:
+    def encode_features(
+        self, token_ids: Tensor, attention_mask: Tensor
+    ) -> TextConditioning:
         context = self.encoder(token_ids, attention_mask)
         weights = attention_mask.to(context.dtype).unsqueeze(-1)
         pooled = (context * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1)
@@ -55,7 +57,9 @@ class TextConditioner(nn.Module):
         device: torch.device | str,
         return_features: bool = False,
     ) -> Tensor | TextConditioning:
-        batch = tokenize_prompts(prompts, tokenizer, max_length=self.encoder.max_length, device=device)
+        batch = tokenize_prompts(
+            prompts, tokenizer, max_length=self.encoder.max_length, device=device
+        )
         features = self.encode_features(batch.ids, batch.mask)
         return features if return_features else features.pooled
 
@@ -71,17 +75,30 @@ def tokenize_prompts(
         raise ValueError("prompts must be a non-empty sequence of strings")
     if max_length <= 0:
         raise ValueError("max_length must be positive")
-    sequences = [tokenizer.encode(prompt, add_bos=True, add_eos=True, allowed_special="all")[:max_length] for prompt in prompts]
+    sequences = [
+        tokenizer.encode(prompt, add_bos=True, add_eos=True, allowed_special="all")[
+            :max_length
+        ]
+        for prompt in prompts
+    ]
     width = max(1, max(len(sequence) for sequence in sequences))
     padding_id = tokenizer.special_tokens.get("<|pad|>", 0)
-    ids = torch.full((len(sequences), width), padding_id, dtype=torch.long, device=device)
+    ids = torch.full(
+        (len(sequences), width), padding_id, dtype=torch.long, device=device
+    )
     mask = torch.zeros((len(sequences), width), dtype=torch.bool, device=device)
     for row, sequence in enumerate(sequences):
         if sequence:
-            ids[row, : len(sequence)] = torch.tensor(sequence, dtype=torch.long, device=device)
+            ids[row, : len(sequence)] = torch.tensor(
+                sequence, dtype=torch.long, device=device
+            )
             mask[row, : len(sequence)] = True
     return TokenBatch(ids, mask)
 
 
-def build_text_conditioner(config: Mapping[str, Any], tokenizer: Tokenizer) -> TextConditioner:
-    return TextConditioner(DiffusionTextEncoder.from_config(config, vocab_size=tokenizer.vocab_size))
+def build_text_conditioner(
+    config: Mapping[str, Any], tokenizer: Tokenizer
+) -> TextConditioner:
+    return TextConditioner(
+        DiffusionTextEncoder.from_config(config, vocab_size=tokenizer.vocab_size)
+    )

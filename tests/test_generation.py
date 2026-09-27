@@ -50,12 +50,18 @@ class PredictBThenEos(nn.Module):
         self.eos_id = eos_id
         self.anchor = nn.Parameter(torch.zeros(()))
 
-    def forward(self, token_ids: torch.Tensor, *, past_key_values=None, use_cache=False):
-        logits = torch.full((*token_ids.shape, self.vocab_size), -100.0, device=token_ids.device)
+    def forward(
+        self, token_ids: torch.Tensor, *, past_key_values=None, use_cache=False
+    ):
+        logits = torch.full(
+            (*token_ids.shape, self.vocab_size), -100.0, device=token_ids.device
+        )
         next_id = self.b_id if past_key_values is None else self.eos_id
         logits[:, -1, next_id] = 100.0
         if use_cache:
-            length = token_ids.shape[1] + (past_key_values[0][0].shape[2] if past_key_values else 0)
+            length = token_ids.shape[1] + (
+                past_key_values[0][0].shape[2] if past_key_values else 0
+            )
             cache = torch.zeros((1, 1, length, 1), device=token_ids.device)
             return logits, ((cache, cache.clone()),)
         return logits
@@ -71,12 +77,18 @@ class PredictSpecialThenB(nn.Module):
         self.b_id = b_id
         self.anchor = nn.Parameter(torch.zeros(()))
 
-    def forward(self, token_ids: torch.Tensor, *, past_key_values=None, use_cache=False):
-        logits = torch.full((*token_ids.shape, self.vocab_size), -100.0, device=token_ids.device)
+    def forward(
+        self, token_ids: torch.Tensor, *, past_key_values=None, use_cache=False
+    ):
+        logits = torch.full(
+            (*token_ids.shape, self.vocab_size), -100.0, device=token_ids.device
+        )
         logits[:, -1, self.special_id] = 100.0
         logits[:, -1, self.b_id] = 90.0
         if use_cache:
-            length = token_ids.shape[1] + (past_key_values[0][0].shape[2] if past_key_values else 0)
+            length = token_ids.shape[1] + (
+                past_key_values[0][0].shape[2] if past_key_values else 0
+            )
             cache = torch.zeros((1, 1, length, 1), device=token_ids.device)
             return logits, ((cache, cache.clone()),)
         return logits
@@ -108,7 +120,9 @@ def test_generator_suppresses_non_eos_special_tokens() -> None:
     )
 
     result = Generator(model, tokenizer, device="cpu").generate(
-        "a", max_tokens=1, temperature=0,
+        "a",
+        max_tokens=1,
+        temperature=0,
     )
 
     assert result.text == "b"
@@ -118,11 +132,15 @@ def test_generator_suppresses_non_eos_special_tokens() -> None:
 def test_special_token_suppression_applies_to_every_decode_mode() -> None:
     tokenizer = make_tokenizer()
     b_id = tokenizer.token_to_id(BYTE_ENCODER[ord("b")])
-    generator = Generator(PredictSpecialThenB(
-        tokenizer.vocab_size,
-        tokenizer.token_to_id("<|assistant|>"),
-        b_id,
-    ), tokenizer, device="cpu")
+    generator = Generator(
+        PredictSpecialThenB(
+            tokenizer.vocab_size,
+            tokenizer.token_to_id("<|assistant|>"),
+            b_id,
+        ),
+        tokenizer,
+        device="cpu",
+    )
 
     batch = generator.generate_batch(["a"], max_tokens=1, temperature=0)
     stream = list(generator.stream("a", max_tokens=1, temperature=0))
@@ -137,8 +155,16 @@ def test_special_token_suppression_applies_to_every_decode_mode() -> None:
 
 def test_generator_stream_yields_before_final_event() -> None:
     tokenizer = make_tokenizer()
-    model = PredictBThenEos(tokenizer.vocab_size, tokenizer.token_to_id(BYTE_ENCODER[ord("b")]), tokenizer.token_to_id("<|eos|>"))
-    events = list(Generator(model, tokenizer, device="cpu").stream("a", max_tokens=4, temperature=0))
+    model = PredictBThenEos(
+        tokenizer.vocab_size,
+        tokenizer.token_to_id(BYTE_ENCODER[ord("b")]),
+        tokenizer.token_to_id("<|eos|>"),
+    )
+    events = list(
+        Generator(model, tokenizer, device="cpu").stream(
+            "a", max_tokens=4, temperature=0
+        )
+    )
     assert events[0].token == "b"
     assert events[0].finish_reason is None
     assert events[-1].finish_reason == "stop"
@@ -147,7 +173,8 @@ def test_generator_stream_yields_before_final_event() -> None:
 def test_all_generation_modes_validate_unsafe_options() -> None:
     tokenizer = make_tokenizer()
     model = PredictBThenEos(
-        tokenizer.vocab_size, tokenizer.token_to_id(BYTE_ENCODER[ord("b")]),
+        tokenizer.vocab_size,
+        tokenizer.token_to_id(BYTE_ENCODER[ord("b")]),
         tokenizer.token_to_id("<|eos|>"),
     )
     generator = Generator(model, tokenizer, device="cpu")
@@ -183,7 +210,8 @@ def test_nonrepetitive_text_is_not_trimmed() -> None:
 def test_generator_reuses_prefix_cache_without_repeating_prefill() -> None:
     tokenizer = make_tokenizer()
     model = PredictBThenEos(
-        tokenizer.vocab_size, tokenizer.token_to_id(BYTE_ENCODER[ord("b")]),
+        tokenizer.vocab_size,
+        tokenizer.token_to_id(BYTE_ENCODER[ord("b")]),
         tokenizer.token_to_id("<|eos|>"),
     )
     generator = Generator(model, tokenizer, device="cpu", prefix_cache_capacity=2)
@@ -195,10 +223,16 @@ def test_generator_reuses_prefix_cache_without_repeating_prefill() -> None:
 
 def test_paged_prefix_cache_skips_second_prefill_without_changing_output() -> None:
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32
+    )
     generator = Generator(
-        model, tokenizer, device="cpu", prefix_cache_capacity=2,
-        paged_kv_pages=8, paged_kv_page_size=4,
+        model,
+        tokenizer,
+        device="cpu",
+        prefix_cache_capacity=2,
+        paged_kv_pages=8,
+        paged_kv_page_size=4,
     )
     calls = 0
     forward = model.forward
@@ -220,10 +254,16 @@ def test_paged_prefix_cache_skips_second_prefill_without_changing_output() -> No
 
 def test_generator_reuses_paged_prefix_cache() -> None:
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32
+    )
     generator = Generator(
-        model, tokenizer, device="cpu", prefix_cache_capacity=2,
-        paged_kv_pages=8, paged_kv_page_size=4,
+        model,
+        tokenizer,
+        device="cpu",
+        prefix_cache_capacity=2,
+        paged_kv_pages=8,
+        paged_kv_page_size=4,
     )
     first = generator.generate("hello", max_tokens=1, temperature=0)
     second = generator.generate("hello", max_tokens=1, temperature=0)
@@ -233,9 +273,15 @@ def test_generator_reuses_paged_prefix_cache() -> None:
 
 def test_active_paged_cache_appends_and_reclaims_pages() -> None:
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32
+    )
     generator = Generator(
-        model, tokenizer, device="cpu", paged_kv_pages=8, paged_kv_page_size=4,
+        model,
+        tokenizer,
+        device="cpu",
+        paged_kv_pages=8,
+        paged_kv_page_size=4,
     )
     available = len(generator.paged_kv_allocator.free_pages)
     state = generator.start_batched_stream("hello", max_tokens=2, temperature=0)
@@ -249,13 +295,20 @@ def test_active_paged_cache_appends_and_reclaims_pages() -> None:
     assert len(generator.paged_kv_allocator.free_pages) == available
 
 
-def test_active_paged_decode_uses_page_tables_without_materializing_kv(monkeypatch) -> None:
+def test_active_paged_decode_uses_page_tables_without_materializing_kv(
+    monkeypatch,
+) -> None:
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)
-    generator = Generator(model, tokenizer, device="cpu", paged_kv_pages=8, paged_kv_page_size=4)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32
+    )
+    generator = Generator(
+        model, tokenizer, device="cpu", paged_kv_pages=8, paged_kv_page_size=4
+    )
     state = generator.start_batched_stream("hello", max_tokens=2, temperature=0)
     monkeypatch.setattr(
-        generator.paged_kv_allocator, "materialize",
+        generator.paged_kv_allocator,
+        "materialize",
         lambda _: pytest.fail("active paged decode materialized KV"),
     )
     generator.decode_batched_stream([state])
@@ -264,12 +317,16 @@ def test_active_paged_decode_uses_page_tables_without_materializing_kv(monkeypat
 
 def test_generator_tensor_batches_equal_length_prompts() -> None:
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32
+    )
     seen_batches: list[int] = []
     original = model.forward
+
     def recording_forward(token_ids, *args, **kwargs):
         seen_batches.append(token_ids.shape[0])
         return original(token_ids, *args, **kwargs)
+
     model.forward = recording_forward
     results = Generator(model, tokenizer, device="cpu").generate_batch(
         ["hello", "world"], max_tokens=2, temperature=0
@@ -282,8 +339,12 @@ def test_generator_tensor_batches_equal_length_prompts() -> None:
 def test_token_step_generation_batches_different_prompt_lengths(position_type) -> None:
     tokenizer = make_tokenizer()
     model = MiniGPT(
-        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2,
-        max_pos=32, position_type=position_type,
+        vocab_size=tokenizer.vocab_size,
+        dim=8,
+        layers=1,
+        heads=2,
+        max_pos=32,
+        position_type=position_type,
     )
     seen_batches = []
     original = model.forward
@@ -302,7 +363,9 @@ def test_token_step_generation_batches_different_prompt_lengths(position_type) -
     assert len(first) == 2
     assert all(not done for _, done in first)
     second = generator.decode_batched_stream(states)
-    assert all(done and step.finish_reason in {"length", "stop"} for step, done in second)
+    assert all(
+        done and step.finish_reason in {"length", "stop"} for step, done in second
+    )
     assert 2 in seen_batches
 
 
@@ -329,7 +392,9 @@ def test_checkpoint_to_serving_backend_integration(tmp_path) -> None:
         "ffn_multiple_of": 1,
     }
     config_path = tmp_path / "model.yaml"
-    config_path.write_text("\n".join(f"{key}: {value}" for key, value in config.items()), encoding="utf-8")
+    config_path.write_text(
+        "\n".join(f"{key}: {value}" for key, value in config.items()), encoding="utf-8"
+    )
     model = MiniGPT.from_config(config)
     checkpoint = save_checkpoint(tmp_path / "model.pt", model, step=7)
     backend = ConfiguredModelBackend(
@@ -357,22 +422,33 @@ def test_configured_backend_token_step_adapter(tmp_path) -> None:
     tokenizer = make_tokenizer()
     tokenizer.save(tmp_path / "tokenizer")
     config = {
-        "vocab_size": tokenizer.vocab_size, "hidden_size": 8, "layers": 1,
-        "heads": 2, "max_position": 64, "position_type": "rotary",
-        "ffn_hidden_size": 16, "ffn_multiple_of": 1,
+        "vocab_size": tokenizer.vocab_size,
+        "hidden_size": 8,
+        "layers": 1,
+        "heads": 2,
+        "max_position": 64,
+        "position_type": "rotary",
+        "ffn_hidden_size": 16,
+        "ffn_multiple_of": 1,
     }
     config_path = tmp_path / "model.yaml"
-    config_path.write_text("\n".join(f"{key}: {value}" for key, value in config.items()))
+    config_path.write_text(
+        "\n".join(f"{key}: {value}" for key, value in config.items())
+    )
     checkpoint = save_checkpoint(tmp_path / "model.pt", MiniGPT.from_config(config))
     backend = ConfiguredModelBackend(
-        model_config=config_path, tokenizer_path=tmp_path / "tokenizer",
-        checkpoint_path=checkpoint, device="cpu",
+        model_config=config_path,
+        tokenizer_path=tmp_path / "tokenizer",
+        checkpoint_path=checkpoint,
+        device="cpu",
     )
 
     async def exercise():
         await backend.startup()
         states = [
-            await backend.start_stream(GenerateRequest(prompt=value, max_tokens=2, temperature=0))
+            await backend.start_stream(
+                GenerateRequest(prompt=value, max_tokens=2, temperature=0)
+            )
             for value in ("a", "longer")
         ]
         events = [[], []]
@@ -398,11 +474,14 @@ def test_configured_backend_token_step_adapter(tmp_path) -> None:
 
 def test_minigpt_generation_projects_only_last_token_and_skips_final_forward():
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=16, layers=1,
-                    heads=2, max_pos=64)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=16, layers=1, heads=2, max_pos=64
+    )
     generator = Generator(model, tokenizer, device="cpu")
     shapes = []
-    hook = model.head.register_forward_pre_hook(lambda module, args: shapes.append(args[0].shape))
+    hook = model.head.register_forward_pre_hook(
+        lambda module, args: shapes.append(args[0].shape)
+    )
     try:
         result = generator.generate("hello", max_tokens=1, temperature=0)
         assert len(result.token_ids) == 1
@@ -416,11 +495,17 @@ def test_minigpt_generation_projects_only_last_token_and_skips_final_forward():
 
 
 @pytest.mark.parametrize("position_type", ["learned", "rotary"])
-def test_chunked_prefill_matches_one_pass_prefill_and_uses_static_kv_cache(position_type):
+def test_chunked_prefill_matches_one_pass_prefill_and_uses_static_kv_cache(
+    position_type,
+):
     tokenizer = make_tokenizer()
     model = MiniGPT(
-        vocab_size=tokenizer.vocab_size, dim=16, layers=2, heads=2,
-        max_pos=64, position_type=position_type,
+        vocab_size=tokenizer.vocab_size,
+        dim=16,
+        layers=2,
+        heads=2,
+        max_pos=64,
+        position_type=position_type,
     ).eval()
     prompt_ids = tokenizer.encode("a longer prompt for chunked prefill", add_bos=True)
     one_pass = Generator(model, tokenizer, device="cpu")
@@ -440,8 +525,9 @@ def test_chunked_prefill_matches_one_pass_prefill_and_uses_static_kv_cache(posit
 @pytest.mark.parametrize("streaming", [False, True])
 def test_generation_does_not_mutate_prefix_logits(streaming):
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=16, layers=1,
-                    heads=2, max_pos=64)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=16, layers=1, heads=2, max_pos=64
+    )
     generator = Generator(model, tokenizer, device="cpu", prefix_cache_capacity=2)
     prompt_ids = tokenizer.encode("hello", add_bos=True)
     with torch.inference_mode():
@@ -460,7 +546,9 @@ def test_generation_does_not_mutate_prefix_logits(streaming):
 
 
 @pytest.mark.parametrize("temperature", [0, 1])
-@pytest.mark.parametrize("values", [[float("-inf"), float("-inf")], [float("nan"), 0.0], [float("inf"), 0.0]])
+@pytest.mark.parametrize(
+    "values", [[float("-inf"), float("-inf")], [float("nan"), 0.0], [float("inf"), 0.0]]
+)
 def test_sampler_rejects_invalid_rows_for_greedy_and_sampling(temperature, values):
     with pytest.raises(ValueError, match="logits"):
         TopKSampler()(torch.tensor([values]), temperature=temperature)
@@ -468,7 +556,9 @@ def test_sampler_rejects_invalid_rows_for_greedy_and_sampling(temperature, value
 
 @pytest.mark.parametrize("temperature", [0, 1])
 def test_sampler_preserves_blocked_tokens(temperature):
-    result = TopKSampler()(torch.tensor([[float("-inf"), 1.0]]), temperature=temperature)
+    result = TopKSampler()(
+        torch.tensor([[float("-inf"), 1.0]]), temperature=temperature
+    )
     assert result.tolist() == [1]
 
 
@@ -479,14 +569,27 @@ def test_sampler_rejects_noninteger_or_negative_top_k(top_k):
 
 
 @pytest.mark.parametrize("position_type", ["learned", "rotary", "sinusoidal"])
-def test_batch_static_cache_reuses_storage_and_matches_single_generation(position_type, monkeypatch):
+def test_batch_static_cache_reuses_storage_and_matches_single_generation(
+    position_type, monkeypatch
+):
     torch.manual_seed(7)
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=16, layers=2, heads=2,
-                    max_pos=32, position_type=position_type)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size,
+        dim=16,
+        layers=2,
+        heads=2,
+        max_pos=32,
+        position_type=position_type,
+    )
     generator = Generator(model, tokenizer, device="cpu")
-    options = dict(max_tokens=5, min_tokens=5, temperature=0,
-                   repetition_penalty=1.0, no_repeat_ngram_size=0)
+    options = dict(
+        max_tokens=5,
+        min_tokens=5,
+        temperature=0,
+        repetition_penalty=1.0,
+        no_repeat_ngram_size=0,
+    )
     expected = [generator.generate(prompt, **options) for prompt in ("a", "b")]
     pointers = []
     forward = model.forward
@@ -516,14 +619,18 @@ def test_batch_static_cache_reuses_storage_and_matches_single_generation(positio
 
 def test_batch_static_cache_compacts_finished_rows_and_preserves_stop_text(monkeypatch):
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16
+    )
     generator = Generator(model, tokenizer, device="cpu")
     # First request reaches its stop string immediately; second continues.
     a = tokenizer.encode("a")[0]
     b = tokenizer.encode("b")[0]
     c = tokenizer.encode("c")[0]
     samples = iter([a, b, c, c])
-    monkeypatch.setattr(generator, "sampler", lambda *args, **kwargs: torch.tensor([next(samples)]))
+    monkeypatch.setattr(
+        generator, "sampler", lambda *args, **kwargs: torch.tensor([next(samples)])
+    )
     shapes = []
     forward = model.forward
 
@@ -532,22 +639,33 @@ def test_batch_static_cache_compacts_finished_rows_and_preserves_stop_text(monke
         return forward(ids, **kwargs)
 
     monkeypatch.setattr(model, "forward", recording_forward)
-    results = generator.generate_batch(["x", "y"], max_tokens=3, stop=["a"], temperature=0)
+    results = generator.generate_batch(
+        ["x", "y"], max_tokens=3, stop=["a"], temperature=0
+    )
     assert [result.text for result in results] == ["", "bcc"]
     assert [result.finish_reason for result in results] == ["stop", "length"]
     assert shapes == [2, 1, 1]
 
 
-@pytest.mark.parametrize("completion,expected,reason", [
-    ("bEND", "b", "stop"),
-    ("bENx", "bENx", "length"),
-])
-def test_batched_stream_holds_stop_prefix_and_flushes_at_limit(monkeypatch, completion, expected, reason):
+@pytest.mark.parametrize(
+    "completion,expected,reason",
+    [
+        ("bEND", "b", "stop"),
+        ("bENx", "bENx", "length"),
+    ],
+)
+def test_batched_stream_holds_stop_prefix_and_flushes_at_limit(
+    monkeypatch, completion, expected, reason
+):
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16
+    )
     generator = Generator(model, tokenizer, device="cpu")
     tokens = iter(tokenizer.encode(completion))
-    monkeypatch.setattr(generator, "sampler", lambda *args, **kwargs: torch.tensor([next(tokens)]))
+    monkeypatch.setattr(
+        generator, "sampler", lambda *args, **kwargs: torch.tensor([next(tokens)])
+    )
     state = generator.start_batched_stream("a", max_tokens=4, stop=["END"])
     events = []
     for _ in range(4):
@@ -583,7 +701,9 @@ def test_min_p_rejects_invalid_cutoffs(value):
 
 def test_min_p_reaches_all_generation_modes(monkeypatch):
     tokenizer = make_tokenizer()
-    model = MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16)
+    model = MiniGPT(
+        vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=16
+    )
     generator = Generator(model, tokenizer, device="cpu")
     observed = []
 
@@ -606,8 +726,11 @@ def test_min_p_api_validation_and_chat_conversion():
     from pydantic import ValidationError
 
     from serving.schemas import OpenAIChatCompletionRequest
+
     request = OpenAIChatCompletionRequest(
-        model="gopi", messages=[{"role": "user", "content": "hello"}], min_p=0.2,
+        model="gopi",
+        messages=[{"role": "user", "content": "hello"}],
+        min_p=0.2,
     )
     assert request.generation_request("gopi").min_p == 0.2
     with pytest.raises(ValidationError):
@@ -621,16 +744,30 @@ def test_speculative_greedy_matches_target_generation() -> None:
 
     class GreedySequence(nn.Module):
         max_positions = 16
+
         def __init__(self):
             super().__init__()
             self.anchor = nn.Parameter(torch.zeros(()))
+
         def forward(self, token_ids, *, past_key_values=None, use_cache=False):
-            logits = torch.full((*token_ids.shape, tokenizer.vocab_size), -100.0, device=token_ids.device)
+            logits = torch.full(
+                (*token_ids.shape, tokenizer.vocab_size),
+                -100.0,
+                device=token_ids.device,
+            )
             for row in range(token_ids.shape[0]):
                 for pos in range(token_ids.shape[1]):
-                    logits[row, pos, eos_id if token_ids[row, : pos + 1].tolist()[-1] == b_id else b_id] = 100.0
+                    logits[
+                        row,
+                        pos,
+                        eos_id
+                        if token_ids[row, : pos + 1].tolist()[-1] == b_id
+                        else b_id,
+                    ] = 100.0
             if use_cache:
-                length = token_ids.shape[1] + (past_key_values[0][0].shape[2] if past_key_values else 0)
+                length = token_ids.shape[1] + (
+                    past_key_values[0][0].shape[2] if past_key_values else 0
+                )
                 cache = torch.zeros((1, 1, length, 1), device=token_ids.device)
                 return logits, ((cache, cache.clone()),)
             return logits
@@ -639,14 +776,23 @@ def test_speculative_greedy_matches_target_generation() -> None:
     draft = GreedySequence()
     generator = Generator(target, tokenizer, device="cpu")
     ordinary = generator.generate("a", max_tokens=4, temperature=0)
-    speculative = generator.generate_speculative("a", draft, max_tokens=4, draft_tokens=3)
+    speculative = generator.generate_speculative(
+        "a", draft, max_tokens=4, draft_tokens=3
+    )
     assert speculative == ordinary
     assert generator.last_speculative_stats["proposed_tokens"] >= 1
 
 
 def test_json_schema_constraint_validates_complete_json() -> None:
     from inference.sampler import JSONSchemaConstraint
-    constraint = JSONSchemaConstraint({"type": "object", "required": ["answer"], "properties": {"answer": {"type": "string"}}})
+
+    constraint = JSONSchemaConstraint(
+        {
+            "type": "object",
+            "required": ["answer"],
+            "properties": {"answer": {"type": "string"}},
+        }
+    )
     assert constraint._prefix_valid('{"answer":"ok"}')
     assert constraint._prefix_valid('{"answer":"')
     assert not constraint._prefix_valid('{"answer":}')
@@ -673,9 +819,15 @@ def test_presence_and_frequency_penalty_validation():
 def test_generator_returns_selected_and_top_logprobs() -> None:
     tokenizer = make_tokenizer()
     b_id = tokenizer.token_to_id(BYTE_ENCODER[ord("b")])
-    model = PredictBThenEos(tokenizer.vocab_size, b_id, tokenizer.token_to_id("<|eos|>"))
+    model = PredictBThenEos(
+        tokenizer.vocab_size, b_id, tokenizer.token_to_id("<|eos|>")
+    )
     result = Generator(model, tokenizer, device="cpu").generate(
-        "a", max_tokens=1, temperature=0, logprobs=True, top_logprobs=2,
+        "a",
+        max_tokens=1,
+        temperature=0,
+        logprobs=True,
+        top_logprobs=2,
     )
     assert len(result.logprobs) == 1
     record = result.logprobs[0]
@@ -684,9 +836,15 @@ def test_generator_returns_selected_and_top_logprobs() -> None:
     assert record.logprob <= 0.0
     assert len(record.top_logprobs) == 2
 
-    streamed = list(Generator(model, tokenizer, device="cpu").stream(
-        "a", max_tokens=1, temperature=0, logprobs=True, top_logprobs=2,
-    ))
+    streamed = list(
+        Generator(model, tokenizer, device="cpu").stream(
+            "a",
+            max_tokens=1,
+            temperature=0,
+            logprobs=True,
+            top_logprobs=2,
+        )
+    )
     token_step = next(step for step in streamed if step.token_id is not None)
     assert token_step.logprob is not None
     assert token_step.logprob.token_id == b_id

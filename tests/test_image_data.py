@@ -19,17 +19,24 @@ def test_processor_resize_normalization_and_round_trip(tmp_path: Path) -> None:
     legacy = load_image(source, 8)
     assert legacy.shape == (3, 8, 8)
     assert legacy.min() >= -1 and legacy.max() <= 1
-    center = ImageProcessor(8, resize_mode="center_crop", normalization="zero_one")(source)
+    center = ImageProcessor(8, resize_mode="center_crop", normalization="zero_one")(
+        source
+    )
     assert center.shape == (3, 8, 8)
     assert center.min() >= 0 and center.max() <= 1
     assert tensor_to_image(legacy).size == (8, 8)
 
 
 def test_processor_config_and_validation() -> None:
-    processor = ImageProcessor.from_config({
-        "image_size": 16, "image_normalization": "imagenet",
-        "horizontal_flip": False, "color_jitter": 0.2,
-    }, training=True)
+    processor = ImageProcessor.from_config(
+        {
+            "image_size": 16,
+            "image_normalization": "imagenet",
+            "horizontal_flip": False,
+            "color_jitter": 0.2,
+        },
+        training=True,
+    )
     assert processor.resize_mode == "random_crop"
     assert processor.horizontal_flip_probability == 0
     with pytest.raises(ValueError, match="resize_mode"):

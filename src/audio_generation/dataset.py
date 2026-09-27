@@ -36,15 +36,21 @@ class AudioCaptionDataset(Dataset):
                 if not line.strip():
                     continue
                 record = json.loads(line)
-                if not isinstance(record.get("audio"), str) or not isinstance(record.get("text"), str):
-                    raise ValueError(f"invalid audio manifest record at line {line_number}")
+                if not isinstance(record.get("audio"), str) or not isinstance(
+                    record.get("text"), str
+                ):
+                    raise ValueError(
+                        f"invalid audio manifest record at line {line_number}"
+                    )
                 if not record["text"].strip():
                     raise ValueError(f"empty audio caption at line {line_number}")
                 path = Path(record["audio"])
                 if not path.is_absolute():
                     path = self.manifest.parent / path
                 if validate_files and not path.is_file():
-                    raise FileNotFoundError(f"audio file not found at line {line_number}: {path}")
+                    raise FileNotFoundError(
+                        f"audio file not found at line {line_number}: {path}"
+                    )
                 self.records.append(record)
         if not self.records:
             raise ValueError("audio manifest is empty")

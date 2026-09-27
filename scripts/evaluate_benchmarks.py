@@ -37,15 +37,25 @@ from utils.device import resolve_device
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cases", type=Path, default=Path("configs/evaluation.core.jsonl"))
-    parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
-    parser.add_argument("--inference-config", type=Path, default=Path("configs/inference.yaml"))
+    parser.add_argument(
+        "--cases", type=Path, default=Path("configs/evaluation.core.jsonl")
+    )
+    parser.add_argument(
+        "--model-config", type=Path, default=Path("configs/model.gpu.yaml")
+    )
+    parser.add_argument(
+        "--inference-config", type=Path, default=Path("configs/inference.yaml")
+    )
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--weights", choices=("ema", "model"), default="ema")
     parser.add_argument("--threads", type=int, default=4)
-    parser.add_argument("--baseline", type=Path, help="compare against a saved report; exit 2 for regressions")
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        help="compare against a saved report; exit 2 for regressions",
+    )
     parser.add_argument("--max-tokens", type=int, default=64)
     parser.add_argument("--repetition-penalty", type=float)
     parser.add_argument("--no-repeat-ngram-size", type=int)
@@ -54,20 +64,26 @@ def main() -> None:
         help="comma-separated CTX-002 retrieval lengths; generates deterministic passkey probes instead of --cases",
     )
     parser.add_argument(
-        "--needle-positions", default="0.10,0.50,0.90",
+        "--needle-positions",
+        default="0.10,0.50,0.90",
         help="comma-separated normalized needle positions for --long-context-lengths",
     )
     parser.add_argument(
-        "--output", type=Path,
+        "--output",
+        type=Path,
         help="also write the JSON result atomically (for example reports/generation_quality.json)",
     )
     args = parser.parse_args()
     if args.threads < 1 or args.max_tokens < 1:
         parser.error("threads and max-tokens must be positive")
-    if args.long_context_lengths and args.cases != Path("configs/evaluation.core.jsonl"):
+    if args.long_context_lengths and args.cases != Path(
+        "configs/evaluation.core.jsonl"
+    ):
         parser.error("use either --cases or --long-context-lengths, not both")
     if args.output and args.output.exists():
-        parser.error("output already exists; choose a new path to preserve evaluation evidence")
+        parser.error(
+            "output already exists; choose a new path to preserve evaluation evidence"
+        )
     torch.set_num_threads(args.threads)
     for label, path in (
         ("benchmark cases", args.cases),
@@ -82,7 +98,9 @@ def main() -> None:
             if label == "checkpoint":
                 available = sorted(Path("checkpoints").glob("**/*.pt"))
                 if available:
-                    message += "\nAvailable checkpoints:\n  " + "\n  ".join(map(str, available))
+                    message += "\nAvailable checkpoints:\n  " + "\n  ".join(
+                        map(str, available)
+                    )
                 message += "\nFor an external checkpoint, mount its drive and select its matching tokenizer."
             parser.error(message)
     cases = []
@@ -93,8 +111,16 @@ def main() -> None:
     model_config = load_yaml(args.model_config)
     if args.long_context_lengths:
         try:
-            long_context_lengths = [int(value) for value in args.long_context_lengths.split(",") if value.strip()]
-            needle_positions = [float(value) for value in args.needle_positions.split(",") if value.strip()]
+            long_context_lengths = [
+                int(value)
+                for value in args.long_context_lengths.split(",")
+                if value.strip()
+            ]
+            needle_positions = [
+                float(value)
+                for value in args.needle_positions.split(",")
+                if value.strip()
+            ]
         except ValueError as error:
             parser.error(f"invalid long-context values: {error}")
         if not long_context_lengths or not needle_positions:
@@ -110,7 +136,11 @@ def main() -> None:
                     f"{model_config.get('max_position')}; select a matching CTX-002 model config"
                 )
             for position in needle_positions:
-                cases.append(NeedleInHaystackCase(length, f"ctx{length}-{position:g}", position).benchmark_case())
+                cases.append(
+                    NeedleInHaystackCase(
+                        length, f"ctx{length}-{position:g}", position
+                    ).benchmark_case()
+                )
     else:
         with args.cases.open(encoding="utf-8") as stream:
             for line in stream:
@@ -132,17 +162,25 @@ def main() -> None:
         parser.error(str(error))
     model = MiniGPT.from_config(model_config, device="cpu")
     checkpoint_info = load_checkpoint(
-        args.checkpoint, model, use_ema=args.weights == "ema", restore_rng=False,
+        args.checkpoint,
+        model,
+        use_ema=args.weights == "ema",
+        restore_rng=False,
         **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
     )
     generator = Generator(model, tokenizer, device=device)
     response_format = str(inference_config.get("response_format", "plain"))
     system_prompt = format_system_prompt(
-        str(inference_config.get(
-            "system_prompt", "You are Gopi, a helpful, honest, and friendly AI assistant."
-        )),
+        str(
+            inference_config.get(
+                "system_prompt",
+                "You are Gopi, a helpful, honest, and friendly AI assistant.",
+            )
+        ),
         response_format,
-        include_safety_instruction=bool(inference_config.get("embed_safety_instruction", True)),
+        include_safety_instruction=bool(
+            inference_config.get("embed_safety_instruction", True)
+        ),
     )
     repetition_penalty = (
         args.repetition_penalty
@@ -161,19 +199,27 @@ def main() -> None:
 
     protocol = {
         "scorer_version": 2,
-        "cases_sha256": (hashlib.sha256(args.cases.read_bytes()).hexdigest() if not args.long_context_lengths else None),
+        "cases_sha256": (
+            hashlib.sha256(args.cases.read_bytes()).hexdigest()
+            if not args.long_context_lengths
+            else None
+        ),
         "long_context_lengths": long_context_lengths,
         "needle_positions": needle_positions,
         "system_prompt": system_prompt,
         "max_tokens": args.max_tokens,
-        "temperature": 0.0, "top_k": 0,
+        "temperature": 0.0,
+        "top_k": 0,
         "repetition_penalty": repetition_penalty,
         "no_repeat_ngram_size": no_repeat_ngram_size,
-        "min_tokens": 1, "tools": False,
+        "min_tokens": 1,
+        "tools": False,
     }
     baseline = json.loads(args.baseline.read_text()) if args.baseline else None
     if baseline is not None and baseline.get("protocol") != protocol:
-        parser.error("baseline protocol differs; rerun the baseline with the same settings")
+        parser.error(
+            "baseline protocol differs; rerun the baseline with the same settings"
+        )
 
     from local_dataset.preprocessor import format_messages
 
@@ -199,26 +245,47 @@ def main() -> None:
         )
         score = score_answer(result.text, case)
         scored.append((case, score))
-        details.append({"category": case.category, "prompt": case.prompt, "answer": result.text, "score": score,
-                        "completion_tokens": len(result.token_ids), "prompt_tokens": result.prompt_tokens,
-                        "finish_reason": result.finish_reason, "seconds": time.perf_counter() - started})
+        details.append(
+            {
+                "category": case.category,
+                "prompt": case.prompt,
+                "answer": result.text,
+                "score": score,
+                "completion_tokens": len(result.token_ids),
+                "prompt_tokens": result.prompt_tokens,
+                "finish_reason": result.finish_reason,
+                "seconds": time.perf_counter() - started,
+            }
+        )
     report = {
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "checkpoint": str(args.checkpoint), "step": checkpoint_info["step"],
+        "checkpoint": str(args.checkpoint),
+        "step": checkpoint_info["step"],
         "checkpoint_size_bytes": args.checkpoint.stat().st_size,
         "checkpoint_mtime_ns": args.checkpoint.stat().st_mtime_ns,
-        "tokenizer_fingerprint": tokenizer.fingerprint, "tokenizer": str(args.tokenizer),
-        "weights_requested": args.weights, "ema_applied": checkpoint_info["ema_applied"],
-        "model_config": model_config, "device": str(device), "torch_version": str(torch.__version__),
-        "protocol": protocol, "summary": summarize_scores(scored), "results": details,
+        "tokenizer_fingerprint": tokenizer.fingerprint,
+        "tokenizer": str(args.tokenizer),
+        "weights_requested": args.weights,
+        "ema_applied": checkpoint_info["ema_applied"],
+        "model_config": model_config,
+        "device": str(device),
+        "torch_version": str(torch.__version__),
+        "protocol": protocol,
+        "summary": summarize_scores(scored),
+        "results": details,
         "long_context": bool(args.long_context_lengths),
         "retrieval_validation": (
             {
                 "requested_lengths": long_context_lengths,
                 "requested_positions": needle_positions,
-                "all_cases_passed": bool(scored) and all(score == 1.0 for _, score in scored),
-                "claim_status": "validated" if scored and all(score == 1.0 for _, score in scored) else "not_validated",
-            } if args.long_context_lengths else None
+                "all_cases_passed": bool(scored)
+                and all(score == 1.0 for _, score in scored),
+                "claim_status": "validated"
+                if scored and all(score == 1.0 for _, score in scored)
+                else "not_validated",
+            }
+            if args.long_context_lengths
+            else None
         ),
         "note": "Deterministic checkpoint-backed diagnostic. Passing retrieval probes does not establish broad long-context quality; audit training overlap and memory measurements separately.",
     }
@@ -227,7 +294,9 @@ def main() -> None:
     rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix=f".{args.output.name}.", dir=args.output.parent)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{args.output.name}.", dir=args.output.parent
+        )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 stream.write(rendered)

@@ -15,7 +15,9 @@ def optimizer_steps_for_epochs(
 ) -> int:
     """Count optimizer updates when partial accumulation is flushed per epoch."""
     if min(batches_per_epoch, epochs, accumulation_steps) < 1:
-        raise ValueError("batches_per_epoch, epochs, and accumulation_steps must be positive")
+        raise ValueError(
+            "batches_per_epoch, epochs, and accumulation_steps must be positive"
+        )
     return epochs * math.ceil(batches_per_epoch / accumulation_steps)
 
 
@@ -39,9 +41,14 @@ class TrainingPlan:
 
 
 def plan_training(
-    model_config: Mapping[str, Any], training_config: Mapping[str, Any], *,
-    training_tokens: int, gpus: int = 1, hardware_tflops: float | None = None,
-    utilization: float = 0.35, gpu_memory_gib: float | None = None,
+    model_config: Mapping[str, Any],
+    training_config: Mapping[str, Any],
+    *,
+    training_tokens: int,
+    gpus: int = 1,
+    hardware_tflops: float | None = None,
+    utilization: float = 0.35,
+    gpu_memory_gib: float | None = None,
     hourly_cost_per_gpu: float | None = None,
 ) -> TrainingPlan:
     if training_tokens < 1 or gpus < 1:
@@ -86,7 +93,11 @@ def plan_training(
     if hardware_tflops is not None:
         effective_flops_per_second = hardware_tflops * 1e12 * utilization * gpus
         hours = flops / effective_flops_per_second / 3600
-    cost = hours * hourly_cost_per_gpu * gpus if hours is not None and hourly_cost_per_gpu is not None else None
+    cost = (
+        hours * hourly_cost_per_gpu * gpus
+        if hours is not None and hourly_cost_per_gpu is not None
+        else None
+    )
     fits = peak_gib <= gpu_memory_gib if gpu_memory_gib is not None else None
     return TrainingPlan(
         parameters=size.parameters,

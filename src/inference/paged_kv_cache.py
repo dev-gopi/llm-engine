@@ -26,14 +26,19 @@ class PagedKVCache:
         if quantization not in {"none", "int8"}:
             raise ValueError("quantization must be none or int8")
         if quantization == "int8" and not dtype.is_floating_point:
-            raise ValueError("INT8 KV quantization requires a floating-point output dtype")
+            raise ValueError(
+                "INT8 KV quantization requires a floating-point output dtype"
+            )
         shape = (num_pages, layers, 2, kv_heads, page_size, head_dim)
         self.quantization = quantization
         self.dtype = dtype
-        self.storage = torch.empty(shape, device=device, dtype=torch.int8 if quantization == "int8" else dtype)
+        self.storage = torch.empty(
+            shape, device=device, dtype=torch.int8 if quantization == "int8" else dtype
+        )
         self.scales = (
             torch.ones((*shape[:-1], 1), device=device, dtype=torch.float32)
-            if quantization == "int8" else None
+            if quantization == "int8"
+            else None
         )
         self.page_size = page_size
         self.free_pages = list(range(num_pages - 1, -1, -1))
@@ -43,7 +48,11 @@ class PagedKVCache:
     def reserve(self, request_id: str, token_capacity: int) -> None:
         if not request_id:
             raise ValueError("request_id cannot be empty")
-        if not isinstance(token_capacity, int) or isinstance(token_capacity, bool) or token_capacity < 1:
+        if (
+            not isinstance(token_capacity, int)
+            or isinstance(token_capacity, bool)
+            or token_capacity < 1
+        ):
             raise ValueError("token_capacity must be a positive integer")
         if request_id in self.tables:
             raise ValueError(f"request already exists: {request_id}")
@@ -57,12 +66,22 @@ class PagedKVCache:
         if request_id not in self.tables:
             raise KeyError(f"unknown request: {request_id}")
         if keys.shape != values.shape or keys.ndim != 4:
-            raise ValueError("keys and values must match [layers, kv_heads, tokens, head_dim]")
+            raise ValueError(
+                "keys and values must match [layers, kv_heads, tokens, head_dim]"
+            )
         expected = self.storage.shape
-        if keys.shape[0] != expected[1] or keys.shape[1] != expected[3] or keys.shape[3] != expected[5]:
-            raise ValueError("keys and values do not match the configured cache dimensions")
+        if (
+            keys.shape[0] != expected[1]
+            or keys.shape[1] != expected[3]
+            or keys.shape[3] != expected[5]
+        ):
+            raise ValueError(
+                "keys and values do not match the configured cache dimensions"
+            )
         if keys.device != self.storage.device or keys.dtype != self.dtype:
-            raise ValueError("keys and values must match the cache device and configured dtype")
+            raise ValueError(
+                "keys and values must match the cache device and configured dtype"
+            )
         start = self.lengths[request_id]
         count = keys.shape[2]
         if start + count > len(self.tables[request_id]) * self.page_size:
@@ -92,13 +111,21 @@ class PagedKVCache:
     def storage_nbytes(self) -> int:
         """Allocated KV payload plus scales, for explicit precision trade-offs."""
         total = self.storage.numel() * self.storage.element_size()
-        return total + (0 if self.scales is None else self.scales.numel() * self.scales.element_size())
+        return total + (
+            0
+            if self.scales is None
+            else self.scales.numel() * self.scales.element_size()
+        )
 
     def _store_int8(self, page: int, kind: int, slot: int, values: Tensor) -> None:
         assert self.scales is not None
         scale = values.detach().abs().amax(dim=-1, keepdim=True).to(torch.float32) / 127
         scale = torch.where(scale == 0, torch.ones_like(scale), scale)
-        self.storage[page, :, kind, :, slot].copy_(torch.clamp(torch.round(values / scale.to(values.dtype)), -127, 127).to(torch.int8))
+        self.storage[page, :, kind, :, slot].copy_(
+            torch.clamp(torch.round(values / scale.to(values.dtype)), -127, 127).to(
+                torch.int8
+            )
+        )
         self.scales[page, :, kind, :, slot].copy_(scale)
 
     def _read_page(self, page: int) -> Tensor:
@@ -115,7 +142,9 @@ class PagedKVCache:
 
     def layer_cache(self, request_ids: list[str], layer: int) -> PagedLayerKVCache:
         """Expose page tables for one transformer layer without materializing KV."""
-        if not request_ids or any(request_id not in self.tables for request_id in request_ids):
+        if not request_ids or any(
+            request_id not in self.tables for request_id in request_ids
+        ):
             raise KeyError("all paged-cache request IDs must be reserved")
         if not 0 <= layer < self.storage.shape[1]:
             raise ValueError("layer is outside the configured paged cache")
@@ -128,7 +157,10 @@ class PagedKVCache:
             total += int(logits.numel() * logits.element_size())
             if request_id in self.allocator.tables:
                 total += sum(
-                    int(self.allocator.storage[page].numel() * self.allocator.storage.element_size())
+                    int(
+                        self.allocator.storage[page].numel()
+                        * self.allocator.storage.element_size()
+                    )
                     for page in self.allocator.tables[request_id]
                 )
         return total
@@ -144,7 +176,9 @@ class PagedLayerKVCache:
 
     is_paged_kv_cache = True
 
-    def __init__(self, allocator: PagedKVCache, request_ids: tuple[str, ...], layer: int) -> None:
+    def __init__(
+        self, allocator: PagedKVCache, request_ids: tuple[str, ...], layer: int
+    ) -> None:
         self.allocator = allocator
         self.request_ids = request_ids
         self.layer = layer
@@ -152,7 +186,9 @@ class PagedLayerKVCache:
 
     @property
     def length(self) -> int:
-        return max(self.allocator.lengths[request_id] for request_id in self.request_ids)
+        return max(
+            self.allocator.lengths[request_id] for request_id in self.request_ids
+        )
 
     def pages(self) -> list[tuple[Tensor, Tensor, Tensor]]:
         """Return ``(key, value, valid)`` page tensors for every table slot.
@@ -175,17 +211,22 @@ class PagedLayerKVCache:
             )
             stored = self.allocator.storage[identifiers, self.layer]
             if self.allocator.scales is not None:
-                stored = (stored.to(torch.float32) * self.allocator.scales[identifiers, self.layer]).to(self.allocator.dtype)
-            valid = (
-                torch.arange(self.allocator.page_size, device=stored.device)
-                .unsqueeze(0)
-                < (lengths - slot * self.allocator.page_size).unsqueeze(1)
-            )
+                stored = (
+                    stored.to(torch.float32)
+                    * self.allocator.scales[identifiers, self.layer]
+                ).to(self.allocator.dtype)
+            valid = torch.arange(
+                self.allocator.page_size, device=stored.device
+            ).unsqueeze(0) < (lengths - slot * self.allocator.page_size).unsqueeze(1)
             pages.append((stored[:, 0], stored[:, 1], valid))
         return pages
 
     def record_pending(self, key: Tensor, value: Tensor) -> None:
-        if key.shape != value.shape or key.ndim != 4 or key.shape[0] != len(self.request_ids):
+        if (
+            key.shape != value.shape
+            or key.ndim != 4
+            or key.shape[0] != len(self.request_ids)
+        ):
             raise ValueError("pending paged KV must match the active batch")
         self.pending = (key.detach(), value.detach())
 
@@ -219,9 +260,15 @@ class PrefixCache:
         for value in self._values.values():
             if isinstance(value, tuple) and len(value) == 2:
                 logits, cache = value
-                total += int(getattr(logits, "numel", lambda: 0)() * getattr(logits, "element_size", lambda: 0)())
+                total += int(
+                    getattr(logits, "numel", lambda: 0)()
+                    * getattr(logits, "element_size", lambda: 0)()
+                )
                 for key, val in cache:
-                    total += int(key.numel() * key.element_size() + val.numel() * val.element_size())
+                    total += int(
+                        key.numel() * key.element_size()
+                        + val.numel() * val.element_size()
+                    )
         return total
 
 
@@ -237,7 +284,9 @@ class PagedPrefixCache:
         self.counter = 0
         self.evictions = 0
 
-    def get(self, tokens: tuple[int, ...]) -> tuple[Tensor, tuple[tuple[Tensor, Tensor], ...]] | None:
+    def get(
+        self, tokens: tuple[int, ...]
+    ) -> tuple[Tensor, tuple[tuple[Tensor, Tensor], ...]] | None:
         entry = self.entries.get(tokens)
         if entry is None:
             return None
@@ -260,12 +309,17 @@ class PagedPrefixCache:
         if tokens in self.entries:
             request_id, _ = self.entries.pop(tokens)
             self.allocator.release(request_id)
-        required_pages = (len(tokens) + self.allocator.page_size - 1) // self.allocator.page_size
+        required_pages = (
+            len(tokens) + self.allocator.page_size - 1
+        ) // self.allocator.page_size
         if required_pages > len(self.allocator.free_pages) + sum(
-            len(self.allocator.tables[request_id]) for request_id, _ in self.entries.values()
+            len(self.allocator.tables[request_id])
+            for request_id, _ in self.entries.values()
         ):
             raise MemoryError("prefix requires more pages than the cache capacity")
-        while len(self.entries) >= self.capacity or required_pages > len(self.allocator.free_pages):
+        while len(self.entries) >= self.capacity or required_pages > len(
+            self.allocator.free_pages
+        ):
             _, (expired, _) = self.entries.popitem(last=False)
             self.allocator.release(expired)
             self.evictions += 1

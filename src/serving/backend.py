@@ -13,17 +13,16 @@ from pathlib import Path
 import httpx
 import torch
 
-from local_dataset.preprocessor import format_messages
-from inference.sampler import EBNFConstraint
-from inference.context import SQLiteSessionStore, format_system_prompt
-from serving.distributed_state import RedisSessionStore
-from inference.generator import BatchedGenerationState, Generator
-from inference.speculative import DraftModelRegistry
+from agents.mcp import RemoteMCPClient
 from inference.backend_adapters import VLLMBackend as NativeVLLMBackend
+from inference.context import SQLiteSessionStore, format_system_prompt
+from inference.generator import BatchedGenerationState, Generator
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
 from inference.quantization import prepare_model_for_inference
 from inference.rag import RagIndex, SQLiteRagIndex, build_rag_prompt
+from inference.sampler import EBNFConstraint
+from inference.speculative import DraftModelRegistry
 from inference.tensor_parallel import parallelize_minigpt, validate_tensor_parallel_size
 from inference.web_search import (
     build_search_prompt,
@@ -31,7 +30,7 @@ from inference.web_search import (
     search_brave,
     search_searxng,
 )
-from agents.mcp import RemoteMCPClient
+from local_dataset.preprocessor import format_messages
 from mcp.client import MCPClient, MCPTool
 from mcp.orchestration import (
     parse_explicit_tool_call,
@@ -42,13 +41,18 @@ from mcp.orchestration import (
 )
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
-from rag.reranker import HybridReranker, LexicalCrossEncoderBaseline, SentenceTransformersCrossEncoder
+from rag.reranker import (
+    HybridReranker,
+    LexicalCrossEncoderBaseline,
+    SentenceTransformersCrossEncoder,
+)
 from runtime.reasoning import resolve_reasoning_budget
 from schema.structured_outputs import (
     StructuredOutputError,
     make_spec,
     validate_structured_output,
 )
+from serving.distributed_state import RedisSessionStore
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint
 from utils.config import load_yaml
@@ -80,7 +84,6 @@ from .vision_runtime import (
 )
 
 logger = get_logger(__name__)
-
 
 
 class VLLMServingBackend:
@@ -115,7 +118,9 @@ class VLLMServingBackend:
                 "vLLM backend currently supports sampling requests only; use native backend for beam/speculative decoding"
             )
         if request.chat_tools:
-            raise InvalidGenerationRequestError("vLLM backend tool calling is not configured in this adapter")
+            raise InvalidGenerationRequestError(
+                "vLLM backend tool calling is not configured in this adapter"
+            )
         kwargs = {
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,
@@ -138,13 +143,19 @@ class VLLMServingBackend:
                 if isinstance(content, list):
                     # Text-only vLLM adapter: image/multimodal inputs require a
                     # provider-specific backend with explicit capability support.
-                    parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+                    parts = [
+                        part.get("text", "")
+                        for part in content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    ]
                     content = "\n".join(part for part in parts if part)
                 if isinstance(content, str) and content:
                     messages.append({"role": role, "content": content})
             outputs = await asyncio.to_thread(self.adapter.chat, [messages], **kwargs)
         else:
-            outputs = await asyncio.to_thread(self.adapter.generate, [request.prompt], **kwargs)
+            outputs = await asyncio.to_thread(
+                self.adapter.generate, [request.prompt], **kwargs
+            )
         if not outputs or not getattr(outputs[0], "outputs", None):
             raise BackendUnavailableError("vLLM returned no completion")
         root = outputs[0]
@@ -160,22 +171,28 @@ class VLLMServingBackend:
             finish_reason=reason,
         )
 
-    async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
+    async def stream(
+        self, request: GenerateRequest
+    ) -> AsyncIterator[BackendStreamEvent]:
         # The stable synchronous vLLM LLM API is buffered. Expose it through the
         # streaming contract without pretending token-level latency.
         result = await self.generate(request)
         if result.text:
             yield BackendStreamEvent(
-                token=result.text, prompt_tokens=result.prompt_tokens,
+                token=result.text,
+                prompt_tokens=result.prompt_tokens,
                 completion_tokens=result.completion_tokens,
             )
         yield BackendStreamEvent(
-            finish_reason=result.finish_reason, prompt_tokens=result.prompt_tokens,
+            finish_reason=result.finish_reason,
+            prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
         )
 
 
-DEFAULT_EMPTY_RESPONSE = "Sorry, I couldn't generate a response. Please try rephrasing your prompt."
+DEFAULT_EMPTY_RESPONSE = (
+    "Sorry, I couldn't generate a response. Please try rephrasing your prompt."
+)
 DEFAULT_NO_RESULTS = "Sorry, I couldn't find any results for that search."
 COMPACT_SAFETY_PROMPT = "Be safe. Refuse harm."
 
@@ -183,6 +200,7 @@ COMPACT_SAFETY_PROMPT = "Be safe. Refuse harm."
 def _serialize_token_logprob(record) -> dict[str, object] | None:
     if record is None:
         return None
+
     def item(token: str, token_id: int, logprob: float) -> dict[str, object]:
         return {
             "token": token,
@@ -190,9 +208,13 @@ def _serialize_token_logprob(record) -> dict[str, object] | None:
             "logprob": float(logprob),
             "bytes": list(token.encode("utf-8", errors="replace")),
         }
+
     return {
         **item(record.token, record.token_id, record.logprob),
-        "top_logprobs": [item(token, token_id, logprob) for token, token_id, logprob in record.top_logprobs],
+        "top_logprobs": [
+            item(token, token_id, logprob)
+            for token, token_id, logprob in record.top_logprobs
+        ],
     }
 
 
@@ -256,7 +278,9 @@ class ConfiguredModelBackend:
         # active language checkpoint can consume images.
         self.supports_vision = False
         self.multimodal_config = Path(multimodal_config) if multimodal_config else None
-        self.multimodal_checkpoint = Path(multimodal_checkpoint) if multimodal_checkpoint else None
+        self.multimodal_checkpoint = (
+            Path(multimodal_checkpoint) if multimodal_checkpoint else None
+        )
         self.vision_checkpoint = Path(vision_checkpoint) if vision_checkpoint else None
         self.vision_allow_remote_images = bool(vision_allow_remote_images)
         self.vision_max_image_bytes = int(vision_max_image_bytes)
@@ -266,7 +290,9 @@ class ConfiguredModelBackend:
         self.multimodal_generator: MultimodalGenerator | None = None
         self.vision_image_size = 0
         self.vision_normalization = "zero_one"
-        self.session_store_path = Path(session_store_path) if session_store_path else None
+        self.session_store_path = (
+            Path(session_store_path) if session_store_path else None
+        )
         self.system_prompt = system_prompt
         self.embed_safety_instruction = embed_safety_instruction
         self.response_format = response_format
@@ -290,7 +316,9 @@ class ConfiguredModelBackend:
         if self.quantization not in {"none", "int8_dynamic"}:
             raise ValueError("quantization must be none or int8_dynamic")
         if self.quantization != "none" and self.tensor_parallel_size > 1:
-            raise ValueError("quantized inference cannot be combined with tensor parallelism")
+            raise ValueError(
+                "quantized inference cannot be combined with tensor parallelism"
+            )
         self.mcp_clients: dict[str, MCPClient] = {}
         self.mcp_tools: dict[str, list[MCPTool]] = {}
         self.sessions: SQLiteSessionStore | None = None
@@ -298,22 +326,42 @@ class ConfiguredModelBackend:
         self._session_lock_users: dict[str, int] = defaultdict(int)
         self.draft_models = DraftModelRegistry()
         self.speculative_draft_model_id = speculative_draft_model_id
-        self.speculative_draft_checkpoint = Path(speculative_draft_checkpoint) if speculative_draft_checkpoint else None
-        self.speculative_draft_model_config = Path(speculative_draft_model_config) if speculative_draft_model_config else None
+        self.speculative_draft_checkpoint = (
+            Path(speculative_draft_checkpoint) if speculative_draft_checkpoint else None
+        )
+        self.speculative_draft_model_config = (
+            Path(speculative_draft_model_config)
+            if speculative_draft_model_config
+            else None
+        )
 
     @staticmethod
     def _build_reranker(config: dict):
         kind = str(config.get("reranker", "lexical")).strip().lower()
         if kind in {"lexical", "baseline"}:
             return LexicalCrossEncoderBaseline()
-        if kind in {"sentence_transformers", "sentence-transformers", "cross_encoder", "hybrid"}:
+        if kind in {
+            "sentence_transformers",
+            "sentence-transformers",
+            "cross_encoder",
+            "hybrid",
+        }:
             primary = SentenceTransformersCrossEncoder(
-                str(config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")),
+                str(
+                    config.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+                ),
                 batch_size=int(config.get("reranker_batch_size", 16)),
-                device=str(config["reranker_device"]) if config.get("reranker_device") else None,
+                device=str(config["reranker_device"])
+                if config.get("reranker_device")
+                else None,
             )
             if kind == "hybrid":
-                return HybridReranker(primary, primary_weight=float(config.get("reranker_primary_weight", 0.75)), rrf_k=int(config.get("reranker_rrf_k", 60)), fail_open=bool(config.get("reranker_fail_open", True)))
+                return HybridReranker(
+                    primary,
+                    primary_weight=float(config.get("reranker_primary_weight", 0.75)),
+                    rrf_k=int(config.get("reranker_rrf_k", 60)),
+                    fail_open=bool(config.get("reranker_fail_open", True)),
+                )
             return primary
         raise ValueError(f"unsupported RAG reranker: {kind}")
 
@@ -333,13 +381,23 @@ class ConfiguredModelBackend:
             ]
             for fallback in candidates:
                 if fallback.exists():
-                    logger.info("Configured checkpoint %s not found; falling back to latest checkpoint %s", self.checkpoint_path, fallback)
+                    logger.info(
+                        "Configured checkpoint %s not found; falling back to latest checkpoint %s",
+                        self.checkpoint_path,
+                        fallback,
+                    )
                     self.checkpoint_path = fallback
                     break
 
-        missing = [path for path in (self.model_config, self.tokenizer_path, self.checkpoint_path) if not path.exists()]
+        missing = [
+            path
+            for path in (self.model_config, self.tokenizer_path, self.checkpoint_path)
+            if not path.exists()
+        ]
         if missing:
-            logger.warning("Model backend not loaded; missing: %s", ", ".join(map(str, missing)))
+            logger.warning(
+                "Model backend not loaded; missing: %s", ", ".join(map(str, missing))
+            )
             return
         try:
             self._load()
@@ -376,24 +434,44 @@ class ConfiguredModelBackend:
             if transport == "streamable_http":
                 url = settings.get("url")
                 if not isinstance(url, str) or not url:
-                    logger.warning("MCP server %s has no streamable_http URL; skipping", name)
+                    logger.warning(
+                        "MCP server %s has no streamable_http URL; skipping", name
+                    )
                     continue
-                client = RemoteMCPClient(url, timeout=float(settings.get("timeout_seconds", 30)), server_label=str(name))
+                client = RemoteMCPClient(
+                    url,
+                    timeout=float(settings.get("timeout_seconds", 30)),
+                    server_label=str(name),
+                )
             elif transport == "stdio":
                 client = MCPClient(
-                    [str(settings["command"]), *(str(value) for value in settings.get("args", []))],
-                    cwd=settings.get("cwd"), env=settings.get("env"),
+                    [
+                        str(settings["command"]),
+                        *(str(value) for value in settings.get("args", [])),
+                    ],
+                    cwd=settings.get("cwd"),
+                    env=settings.get("env"),
                     timeout=float(settings.get("timeout_seconds", 30)),
                     protocol=str(settings.get("protocol", "auto")),
-                    max_message_bytes=int(settings.get("max_message_bytes", 16 * 1024 * 1024)),
-                    inherit_environment=bool(settings.get("inherit_environment", False)),
+                    max_message_bytes=int(
+                        settings.get("max_message_bytes", 16 * 1024 * 1024)
+                    ),
+                    inherit_environment=bool(
+                        settings.get("inherit_environment", False)
+                    ),
                 )
             else:
-                logger.warning("MCP server %s has unsupported transport %r; skipping", name, transport)
+                logger.warning(
+                    "MCP server %s has unsupported transport %r; skipping",
+                    name,
+                    transport,
+                )
                 continue
             try:
                 await client.start()
-                tools = [tool for tool in await client.list_tools() if tool.name in allowed]
+                tools = [
+                    tool for tool in await client.list_tools() if tool.name in allowed
+                ]
             except Exception:
                 logger.exception("MCP server %s could not be started", name)
                 await client.close()
@@ -405,7 +483,9 @@ class ConfiguredModelBackend:
     def _load(self) -> None:
         if self.tensor_parallel_size > 1:
             if not torch.distributed.is_available():
-                raise RuntimeError("this PyTorch build does not provide distributed support")
+                raise RuntimeError(
+                    "this PyTorch build does not provide distributed support"
+                )
             if not torch.distributed.is_initialized():
                 backend = "nccl" if torch.cuda.is_available() else "gloo"
                 if backend == "nccl":
@@ -426,20 +506,33 @@ class ConfiguredModelBackend:
         try:
             model = MiniGPT.from_config(config, device="cpu")
             load_checkpoint(
-                self.checkpoint_path, model, use_ema=True, restore_rng=False,
+                self.checkpoint_path,
+                model,
+                use_ema=True,
+                restore_rng=False,
                 low_memory=self.low_memory_loading,
                 **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
             )
         except RuntimeError as error:
             # Retry with the other v2 hardware profile if architecture selection was wrong.
-            alt_config_path = Path("configs/model.gpu.yaml") if self.model_config.name == "model.cpu.yaml" else Path("configs/model.cpu.yaml")
+            alt_config_path = (
+                Path("configs/model.gpu.yaml")
+                if self.model_config.name == "model.cpu.yaml"
+                else Path("configs/model.cpu.yaml")
+            )
             if alt_config_path.exists():
-                logger.info("Retrying checkpoint load with alternate config: %s", alt_config_path)
+                logger.info(
+                    "Retrying checkpoint load with alternate config: %s",
+                    alt_config_path,
+                )
                 alt_config = load_yaml(alt_config_path)
                 alt_config = adapt_config_to_tokenizer(alt_config, tokenizer)
                 model = MiniGPT.from_config(alt_config, device="cpu")
                 load_checkpoint(
-                    self.checkpoint_path, model, use_ema=True, restore_rng=False,
+                    self.checkpoint_path,
+                    model,
+                    use_ema=True,
+                    restore_rng=False,
                     low_memory=self.low_memory_loading,
                     **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
                 )
@@ -449,14 +542,18 @@ class ConfiguredModelBackend:
                 raise error
 
         model = prepare_model_for_inference(
-            model, device=device, weight_dtype=self.weight_dtype,
+            model,
+            device=device,
+            weight_dtype=self.weight_dtype,
             quantization=self.quantization,
         )
         if self.tensor_parallel_size > 1:
             parallelize_minigpt(model)
 
         self.generator = Generator(
-            model, tokenizer, device=device,
+            model,
+            tokenizer,
+            device=device,
             prefix_cache_capacity=self.prefix_cache_capacity,
             paged_kv_pages=self.paged_kv_pages,
             paged_kv_page_size=self.paged_kv_page_size,
@@ -466,40 +563,65 @@ class ConfiguredModelBackend:
             draft_id = self.speculative_draft_model_id or "default"
             draft_config_path = self.speculative_draft_model_config or self.model_config
             if not self.speculative_draft_checkpoint.is_file():
-                raise ValueError(f"speculative draft checkpoint not found: {self.speculative_draft_checkpoint}")
+                raise ValueError(
+                    f"speculative draft checkpoint not found: {self.speculative_draft_checkpoint}"
+                )
             if not Path(draft_config_path).is_file():
-                raise ValueError(f"speculative draft model config not found: {draft_config_path}")
-            draft_config = adapt_config_to_tokenizer(load_yaml(draft_config_path), tokenizer)
+                raise ValueError(
+                    f"speculative draft model config not found: {draft_config_path}"
+                )
+            draft_config = adapt_config_to_tokenizer(
+                load_yaml(draft_config_path), tokenizer
+            )
             draft_model = MiniGPT.from_config(draft_config, device="cpu")
             load_checkpoint(
-                self.speculative_draft_checkpoint, draft_model, use_ema=True, restore_rng=False,
+                self.speculative_draft_checkpoint,
+                draft_model,
+                use_ema=True,
+                restore_rng=False,
                 low_memory=self.low_memory_loading,
                 **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
             )
             draft_model = prepare_model_for_inference(
-                draft_model, device=device, weight_dtype=self.weight_dtype, quantization=self.quantization,
+                draft_model,
+                device=device,
+                weight_dtype=self.weight_dtype,
+                quantization=self.quantization,
             )
             self.draft_models.register(draft_id, draft_model)
-            logger.info("Loaded speculative draft model %s from %s", draft_id, self.speculative_draft_checkpoint)
+            logger.info(
+                "Loaded speculative draft model %s from %s",
+                draft_id,
+                self.speculative_draft_checkpoint,
+            )
         self._load_multimodal_runtime(device=device)
         if self.session_store_path:
-            session_redis_url = os.getenv("GOPI_SESSION_REDIS_URL") or os.getenv("GOPI_DISTRIBUTED_STATE_REDIS_URL")
+            session_redis_url = os.getenv("GOPI_SESSION_REDIS_URL") or os.getenv(
+                "GOPI_DISTRIBUTED_STATE_REDIS_URL"
+            )
             if session_redis_url:
                 self.sessions = RedisSessionStore(
-                    session_redis_url, tokenizer,
+                    session_redis_url,
+                    tokenizer,
                     max_tokens=min(self.context_tokens, model.max_positions),
                     system_prompt=self.system_prompt,
-                    key_prefix=os.getenv("GOPI_SESSION_REDIS_PREFIX", "llm-engine:sessions"),
+                    key_prefix=os.getenv(
+                        "GOPI_SESSION_REDIS_PREFIX", "llm-engine:sessions"
+                    ),
                 )
             else:
                 self.sessions = SQLiteSessionStore(
-                    self.session_store_path, tokenizer,
+                    self.session_store_path,
+                    tokenizer,
                     max_tokens=min(self.context_tokens, model.max_positions),
                     system_prompt=self.system_prompt,
                 )
-        rag_path = Path(os.getenv(
-            "GOPI_RAG_INDEX", str(self.rag_config.get("index_path", "data/rag/index.sqlite"))
-        ))
+        rag_path = Path(
+            os.getenv(
+                "GOPI_RAG_INDEX",
+                str(self.rag_config.get("index_path", "data/rag/index.sqlite")),
+            )
+        )
         if bool(self.rag_config.get("enabled", False)):
             if rag_path.is_file():
                 self.rag_index = (
@@ -507,11 +629,18 @@ class ConfiguredModelBackend:
                     if rag_path.suffix.lower() in {".sqlite", ".db"}
                     else RagIndex.load(rag_path)
                 )
-                count = getattr(self.rag_index, "count", len(getattr(self.rag_index, "chunks", [])))
+                count = getattr(
+                    self.rag_index, "count", len(getattr(self.rag_index, "chunks", []))
+                )
                 logger.info("Loaded RAG index %s with %d chunks", rag_path, count)
             else:
                 logger.warning("RAG is enabled but index does not exist: %s", rag_path)
-        logger.info("Successfully loaded model checkpoint %s using config %s on %s", self.checkpoint_path, self.model_config, device)
+        logger.info(
+            "Successfully loaded model checkpoint %s using config %s on %s",
+            self.checkpoint_path,
+            self.model_config,
+            device,
+        )
 
     def _load_multimodal_runtime(self, *, device: torch.device) -> None:
         """Load trained vision/projector weights without risking the text model.
@@ -526,7 +655,10 @@ class ConfiguredModelBackend:
         self.supports_vision = False
         if self.multimodal_config is None or self.multimodal_checkpoint is None:
             return
-        if not self.multimodal_config.is_file() or not self.multimodal_checkpoint.is_file():
+        if (
+            not self.multimodal_config.is_file()
+            or not self.multimodal_checkpoint.is_file()
+        ):
             logger.warning(
                 "Native vision disabled; multimodal config/checkpoint is missing: %s, %s",
                 self.multimodal_config,
@@ -542,9 +674,13 @@ class ConfiguredModelBackend:
             profile = load_yaml(self.multimodal_config)
             if not isinstance(profile, dict):
                 raise ValueError("multimodal config must be a mapping")
-            vision_config_path = Path(profile.get("vision_config", "configs/vision/model.small.yaml"))
+            vision_config_path = Path(
+                profile.get("vision_config", "configs/vision/model.small.yaml")
+            )
             if not vision_config_path.is_file():
-                raise FileNotFoundError(f"vision config not found: {vision_config_path}")
+                raise FileNotFoundError(
+                    f"vision config not found: {vision_config_path}"
+                )
             vision_config = load_yaml(vision_config_path)
             if not isinstance(vision_config, dict):
                 raise ValueError("vision config must be a mapping")
@@ -564,9 +700,13 @@ class ConfiguredModelBackend:
                 map_location="cpu",
                 weights_only=True,
             )
-            state = payload.get("model", payload) if isinstance(payload, dict) else payload
+            state = (
+                payload.get("model", payload) if isinstance(payload, dict) else payload
+            )
             if not isinstance(state, dict):
-                raise ValueError("multimodal checkpoint does not contain a model state mapping")
+                raise ValueError(
+                    "multimodal checkpoint does not contain a model state mapping"
+                )
             vision_state = {
                 key.removeprefix("vision_encoder."): value
                 for key, value in state.items()
@@ -580,7 +720,9 @@ class ConfiguredModelBackend:
 
             if not vision_state and self.vision_checkpoint is not None:
                 if not self.vision_checkpoint.is_file():
-                    raise FileNotFoundError(f"vision checkpoint not found: {self.vision_checkpoint}")
+                    raise FileNotFoundError(
+                        f"vision checkpoint not found: {self.vision_checkpoint}"
+                    )
                 vision_payload = torch.load(
                     self.vision_checkpoint,
                     map_location="cpu",
@@ -592,7 +734,9 @@ class ConfiguredModelBackend:
                     else vision_payload
                 )
                 if not isinstance(raw_vision_state, dict):
-                    raise ValueError("vision checkpoint does not contain a model state mapping")
+                    raise ValueError(
+                        "vision checkpoint does not contain a model state mapping"
+                    )
                 vision_state = {
                     key.removeprefix("encoder."): value
                     for key, value in raw_vision_state.items()
@@ -604,14 +748,24 @@ class ConfiguredModelBackend:
                     "multimodal checkpoint has no vision_encoder weights and no usable vision checkpoint was configured"
                 )
             if not projector_state:
-                raise ValueError("multimodal checkpoint has no trained projector weights")
+                raise ValueError(
+                    "multimodal checkpoint has no trained projector weights"
+                )
             wrapper.vision_encoder.load_state_dict(vision_state, strict=True)
             wrapper.projector.load_state_dict(projector_state, strict=True)
             wrapper = wrapper.to(device).eval()
             self.multimodal_generator = MultimodalGenerator(wrapper, self.generator)
-            self.vision_image_size = int(wrapper.vision_encoder.patch_embedding.image_size)
-            self.vision_normalization = str(profile.get("image_normalization", "zero_one"))
-            if self.vision_normalization not in {"zero_one", "minus_one_one", "imagenet"}:
+            self.vision_image_size = int(
+                wrapper.vision_encoder.patch_embedding.image_size
+            )
+            self.vision_normalization = str(
+                profile.get("image_normalization", "zero_one")
+            )
+            if self.vision_normalization not in {
+                "zero_one",
+                "minus_one_one",
+                "imagenet",
+            }:
                 raise ValueError("unsupported multimodal image_normalization")
             self.supports_vision = True
             logger.info(
@@ -622,7 +776,9 @@ class ConfiguredModelBackend:
         except Exception:
             # Vision is optional. A bad optional artifact must not take down a
             # valid text checkpoint.
-            logger.exception("Native vision could not be loaded; continuing with text-only serving")
+            logger.exception(
+                "Native vision could not be loaded; continuing with text-only serving"
+            )
             self.multimodal_generator = None
             self.supports_vision = False
 
@@ -652,7 +808,10 @@ class ConfiguredModelBackend:
         if (
             not tool_calls
             and request.chat_tools
-            and (request.tool_choice == "required" or not isinstance(request.tool_choice, str))
+            and (
+                request.tool_choice == "required"
+                or not isinstance(request.tool_choice, str)
+            )
             and tool_call_error is None
         ):
             tool_call_error = "model did not produce the required tool call"
@@ -673,8 +832,12 @@ class ConfiguredModelBackend:
             and request.response_format.get("type") == "json_schema"
         ):
             payload = request.response_format.get("json_schema")
-            if not isinstance(payload, dict) or not isinstance(payload.get("schema"), dict):
-                raise InvalidGenerationRequestError("response_format.json_schema.schema is required")
+            if not isinstance(payload, dict) or not isinstance(
+                payload.get("schema"), dict
+            ):
+                raise InvalidGenerationRequestError(
+                    "response_format.json_schema.schema is required"
+                )
             spec = make_spec(
                 name=str(payload.get("name", "response")),
                 schema=payload["schema"],
@@ -724,58 +887,100 @@ class ConfiguredModelBackend:
             return await self._generate_multimodal_unlocked(request)
         safety_refusal = blocked_prompt_message(request.prompt)
         if safety_refusal is not None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(safety_refusal))
             return BackendGeneration(
-                text=safety_refusal, prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
+                text=safety_refusal,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                finish_reason=FinishReason.STOP,
             )
         direct_answer = direct_tool_answer(request.prompt, request.tools)
         if direct_answer is not None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(direct_answer))
             return BackendGeneration(
-                text=direct_answer, prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
+                text=direct_answer,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                finish_reason=FinishReason.STOP,
             )
-        memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
-        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
+        memory = (
+            self.sessions.load(request.session_id)
+            if self.sessions and request.session_id
+            else None
+        )
+        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(
+            self, request
+        )
         if user_prompt is None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
             return BackendGeneration(
-                text=DEFAULT_NO_RESULTS, prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens, finish_reason=FinishReason.STOP,
+                text=DEFAULT_NO_RESULTS,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                finish_reason=FinishReason.STOP,
             )
-        user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
+        user_prompt = await ConfiguredModelBackend._augment_with_mcp(
+            self, request, user_prompt
+        )
         # Reasoning is part of the caller's completion budget; the budget helper
         # is only used later for reasoning-token accounting.
         effective_max_tokens = request.max_tokens
         options = dict(
-            max_tokens=effective_max_tokens, temperature=request.temperature,
-            top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
+            max_tokens=effective_max_tokens,
+            temperature=request.temperature,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            min_p=request.min_p,
             repetition_penalty=request.repetition_penalty,
-            presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
-            no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
-            seed=request.seed, stop=request.stop, allow_special_tokens=True,
-            logprobs=request.logprobs, top_logprobs=request.top_logprobs,
+            presence_penalty=request.presence_penalty,
+            frequency_penalty=request.frequency_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            min_tokens=request.min_tokens,
+            seed=request.seed,
+            stop=request.stop,
+            allow_special_tokens=True,
+            logprobs=request.logprobs,
+            top_logprobs=request.top_logprobs,
         )
-        forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
+        forced_tool_schema = forced_tool_json_schema(
+            request.chat_tools, request.tool_choice
+        )
         if request.grammar:
             try:
-                options["constraint"] = EBNFConstraint(request.grammar, start=request.grammar_start)
+                options["constraint"] = EBNFConstraint(
+                    request.grammar, start=request.grammar_start
+                )
             except Exception as exc:
                 raise InvalidGenerationRequestError(f"invalid grammar: {exc}") from exc
         if forced_tool_schema is not None:
             if request.grammar:
-                raise InvalidGenerationRequestError("grammar cannot be combined with required tool schema")
+                raise InvalidGenerationRequestError(
+                    "grammar cannot be combined with required tool schema"
+                )
             options["json_schema"] = forced_tool_schema
-        response_format = request.response_format or getattr(self, "response_format", None)
-        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
-                                             include_safety_instruction=getattr(self, "embed_safety_instruction", True))
+        response_format = request.response_format or getattr(
+            self, "response_format", None
+        )
+        system_prompt = format_system_prompt(
+            self.system_prompt,
+            response_format,
+            request.mode,
+            include_safety_instruction=getattr(self, "embed_safety_instruction", True),
+        )
         extra_system = [
             build_tool_system_instruction(
-                request.chat_tools, request.tool_choice, coding=request.mode == "coding",
+                request.chat_tools,
+                request.tool_choice,
+                coding=request.mode == "coding",
             ),
             build_reasoning_system_instruction(request.reasoning_effort),
         ]
@@ -788,7 +993,9 @@ class ConfiguredModelBackend:
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
-            maximum = int(getattr(self.generator, "max_positions", request.max_tokens + 1))
+            maximum = int(
+                getattr(self.generator, "max_positions", request.max_tokens + 1)
+            )
             reserve = min(request.max_tokens, max(1, maximum - 1))
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
         prompt_ids = ConfiguredModelBackend._validate_prompt(self, prompt)
@@ -802,8 +1009,11 @@ class ConfiguredModelBackend:
         prompt_tokens = len(prompt_ids)
         if request.decoding_strategy == "beam":
             result = await asyncio.to_thread(
-                self.generator.generate_beam, prompt, max_tokens=request.max_tokens,
-                num_beams=request.num_beams, length_penalty=request.length_penalty,
+                self.generator.generate_beam,
+                prompt,
+                max_tokens=request.max_tokens,
+                num_beams=request.num_beams,
+                length_penalty=request.length_penalty,
                 allow_special_tokens=True,
             )
             generated_ids.extend(result.token_ids)
@@ -818,8 +1028,11 @@ class ConfiguredModelBackend:
                     f"unknown speculative draft model: {request.draft_model_id}"
                 ) from exc
             result = await asyncio.to_thread(
-                self.generator.generate_speculative, prompt, draft_model,
-                max_tokens=request.max_tokens, draft_tokens=request.speculative_draft_tokens,
+                self.generator.generate_speculative,
+                prompt,
+                draft_model,
+                max_tokens=request.max_tokens,
+                draft_tokens=request.speculative_draft_tokens,
             )
             generated_ids.extend(result.token_ids)
             pieces.append(result.text)
@@ -832,7 +1045,9 @@ class ConfiguredModelBackend:
                     generated_ids.append(event.token_id)
                 if event.token:
                     pieces.append(event.token)
-                serialized_logprob = _serialize_token_logprob(getattr(event, "logprob", None))
+                serialized_logprob = _serialize_token_logprob(
+                    getattr(event, "logprob", None)
+                )
                 if serialized_logprob is not None:
                     token_logprobs.append(serialized_logprob)
                 if event.finish_reason is not None:
@@ -861,15 +1076,22 @@ class ConfiguredModelBackend:
             self.sessions.save(request.session_id, memory)
         visible_text = text
         if search_results:
-            visible_text = f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
+            visible_text = (
+                f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
+            )
         cache_hit = getattr(self.generator, "prefix_cache_hits", 0) > cache_hits_before
-        cache_miss = getattr(self.generator, "prefix_cache_misses", 0) > cache_misses_before
+        cache_miss = (
+            getattr(self.generator, "prefix_cache_misses", 0) > cache_misses_before
+        )
         return BackendGeneration(
-            text=visible_text, prompt_tokens=prompt_tokens,
-            completion_tokens=len(generated_ids), finish_reason=normalized_finish,
+            text=visible_text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=len(generated_ids),
+            finish_reason=normalized_finish,
             cached_tokens=prompt_tokens if cache_hit else 0,
             reasoning_tokens=reasoning_tokens,
-            structured_output_valid=structured_valid, structured_output_error=structured_error,
+            structured_output_valid=structured_valid,
+            structured_output_error=structured_error,
             reasoning_content=reasoning_content,
             tool_calls=tool_calls,
             tool_call_error=tool_call_error,
@@ -889,7 +1111,9 @@ class ConfiguredModelBackend:
             )
         safety_refusal = blocked_prompt_message(request.prompt)
         if safety_refusal is not None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(safety_refusal))
             return BackendGeneration(
                 text=safety_refusal,
@@ -911,10 +1135,18 @@ class ConfiguredModelBackend:
         except (OSError, RuntimeError, ValueError, httpx.HTTPError) as exc:
             raise InvalidGenerationRequestError(f"invalid vision input: {exc}") from exc
 
-        memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
-        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
+        memory = (
+            self.sessions.load(request.session_id)
+            if self.sessions and request.session_id
+            else None
+        )
+        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(
+            self, request
+        )
         if user_prompt is None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
             return BackendGeneration(
                 text=DEFAULT_NO_RESULTS,
@@ -922,28 +1154,40 @@ class ConfiguredModelBackend:
                 completion_tokens=completion_tokens,
                 finish_reason=FinishReason.STOP,
             )
-        user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
-        response_format = request.response_format or getattr(self, "response_format", None)
+        user_prompt = await ConfiguredModelBackend._augment_with_mcp(
+            self, request, user_prompt
+        )
+        response_format = request.response_format or getattr(
+            self, "response_format", None
+        )
         system_prompt = format_system_prompt(
             self.system_prompt,
             response_format,
             request.mode,
             include_safety_instruction=getattr(self, "embed_safety_instruction", True),
         )
-        system_prompt = "\n".join(part for part in (
-            system_prompt,
-            build_tool_system_instruction(
-                request.chat_tools, request.tool_choice, coding=request.mode == "coding",
-            ),
-            build_reasoning_system_instruction(request.reasoning_effort),
-        ) if part)
+        system_prompt = "\n".join(
+            part
+            for part in (
+                system_prompt,
+                build_tool_system_instruction(
+                    request.chat_tools,
+                    request.tool_choice,
+                    coding=request.mode == "coding",
+                ),
+                build_reasoning_system_instruction(request.reasoning_effort),
+            )
+            if part
+        )
         prompt = ConfiguredModelBackend._format_request_conversation(
             self, request, system_prompt, user_prompt
         )
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
-            maximum = int(getattr(self.generator, "max_positions", request.max_tokens + 1))
+            maximum = int(
+                getattr(self.generator, "max_positions", request.max_tokens + 1)
+            )
             reserve = min(request.max_tokens, max(1, maximum - 1))
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
         ConfiguredModelBackend._validate_prompt(self, prompt)
@@ -955,23 +1199,31 @@ class ConfiguredModelBackend:
             top_p=request.top_p,
             min_p=request.min_p,
             repetition_penalty=request.repetition_penalty,
-            presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
+            presence_penalty=request.presence_penalty,
+            frequency_penalty=request.frequency_penalty,
             no_repeat_ngram_size=request.no_repeat_ngram_size,
             min_tokens=request.min_tokens,
             seed=request.seed,
             stop=request.stop,
             allow_special_tokens=True,
-            logprobs=request.logprobs, top_logprobs=request.top_logprobs,
+            logprobs=request.logprobs,
+            top_logprobs=request.top_logprobs,
         )
-        forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
+        forced_tool_schema = forced_tool_json_schema(
+            request.chat_tools, request.tool_choice
+        )
         if request.grammar:
             try:
-                options["constraint"] = EBNFConstraint(request.grammar, start=request.grammar_start)
+                options["constraint"] = EBNFConstraint(
+                    request.grammar, start=request.grammar_start
+                )
             except Exception as exc:
                 raise InvalidGenerationRequestError(f"invalid grammar: {exc}") from exc
         if forced_tool_schema is not None:
             if request.grammar:
-                raise InvalidGenerationRequestError("grammar cannot be combined with required tool schema")
+                raise InvalidGenerationRequestError(
+                    "grammar cannot be combined with required tool schema"
+                )
             options["json_schema"] = forced_tool_schema
         try:
             result = await asyncio.to_thread(
@@ -992,7 +1244,9 @@ class ConfiguredModelBackend:
             structured_valid,
             structured_error,
             reasoning_tokens,
-        ) = self._interpret_generated_text(request, result.text.strip(), result.finish_reason)
+        ) = self._interpret_generated_text(
+            request, result.text.strip(), result.finish_reason
+        )
 
         memory_text = text
         if tool_calls:
@@ -1008,7 +1262,9 @@ class ConfiguredModelBackend:
 
         visible_text = text
         if search_results:
-            visible_text = f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
+            visible_text = (
+                f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
+            )
         return BackendGeneration(
             text=visible_text,
             prompt_tokens=result.prompt_tokens,
@@ -1023,7 +1279,9 @@ class ConfiguredModelBackend:
             tool_call_error=tool_call_error,
         )
 
-    async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
+    async def stream(
+        self, request: GenerateRequest
+    ) -> AsyncIterator[BackendStreamEvent]:
         if request.session_id:
             async with ConfiguredModelBackend._session_guard(self, request.session_id):
                 async for event in self._stream_unlocked(request):
@@ -1055,49 +1313,92 @@ class ConfiguredModelBackend:
             refusal = blocked_prompt_message(request.prompt)
             direct = refusal or direct_tool_answer(request.prompt, request.tools)
             if direct is not None:
-                prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+                prompt_tokens = len(
+                    self.generator.tokenizer.encode(request.prompt, add_bos=True)
+                )
                 completion_tokens = len(self.generator.tokenizer.encode(direct))
-                state.pending.extend((
-                    BackendStreamEvent(token=direct, prompt_tokens=prompt_tokens,
-                                       completion_tokens=completion_tokens),
-                    BackendStreamEvent(finish_reason=FinishReason.STOP,
-                                       prompt_tokens=prompt_tokens,
-                                       completion_tokens=completion_tokens),
-                ))
+                state.pending.extend(
+                    (
+                        BackendStreamEvent(
+                            token=direct,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                        ),
+                        BackendStreamEvent(
+                            finish_reason=FinishReason.STOP,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                        ),
+                    )
+                )
                 return state
-            memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
+            memory = (
+                self.sessions.load(request.session_id)
+                if self.sessions and request.session_id
+                else None
+            )
             user_prompt, search_results = await self._prepare_user_prompt(request)
             if user_prompt is None:
-                prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
-                completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
-                state.pending.extend((
-                    BackendStreamEvent(token=DEFAULT_NO_RESULTS, prompt_tokens=prompt_tokens,
-                                       completion_tokens=completion_tokens),
-                    BackendStreamEvent(finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
-                                       completion_tokens=completion_tokens),
-                ))
+                prompt_tokens = len(
+                    self.generator.tokenizer.encode(request.prompt, add_bos=True)
+                )
+                completion_tokens = len(
+                    self.generator.tokenizer.encode(DEFAULT_NO_RESULTS)
+                )
+                state.pending.extend(
+                    (
+                        BackendStreamEvent(
+                            token=DEFAULT_NO_RESULTS,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                        ),
+                        BackendStreamEvent(
+                            finish_reason=FinishReason.STOP,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                        ),
+                    )
+                )
                 return state
             user_prompt = await self._augment_with_mcp(request, user_prompt)
             response_format = request.response_format or self.response_format
-            system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
-                                                 include_safety_instruction=getattr(self, "embed_safety_instruction", True))
+            system_prompt = format_system_prompt(
+                self.system_prompt,
+                response_format,
+                request.mode,
+                include_safety_instruction=getattr(
+                    self, "embed_safety_instruction", True
+                ),
+            )
             prompt = self._format_request_conversation(
                 request, system_prompt, user_prompt
             )
             if memory:
                 memory.set_system_prompt(system_prompt)
                 memory.add("user", user_prompt)
-                reserve = min(request.max_tokens, max(1, self.generator.max_positions - 1))
-                prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
+                reserve = min(
+                    request.max_tokens, max(1, self.generator.max_positions - 1)
+                )
+                prompt = memory.render(
+                    add_generation_prompt=True, reserve_tokens=reserve
+                )
             self._validate_prompt(prompt)
             options = dict(
-                max_tokens=request.max_tokens, temperature=request.temperature,
-                top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                top_p=request.top_p,
+                min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
-                presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
-                no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens, seed=request.seed,
-                stop=request.stop, allow_special_tokens=True,
-                logprobs=request.logprobs, top_logprobs=request.top_logprobs,
+                presence_penalty=request.presence_penalty,
+                frequency_penalty=request.frequency_penalty,
+                no_repeat_ngram_size=request.no_repeat_ngram_size,
+                min_tokens=request.min_tokens,
+                seed=request.seed,
+                stop=request.stop,
+                allow_special_tokens=True,
+                logprobs=request.logprobs,
+                top_logprobs=request.top_logprobs,
             )
             state.generation = self.generator.start_batched_stream(prompt, **options)
             state.memory, state.search_results = memory, search_results
@@ -1110,13 +1411,18 @@ class ConfiguredModelBackend:
         self, states: list[_BackendBatchStream]
     ) -> list[tuple[BackendStreamEvent | None, bool]]:
         """Advance every active configured request by one scheduler tick."""
-        results: list[tuple[BackendStreamEvent | None, bool] | None] = [None] * len(states)
+        results: list[tuple[BackendStreamEvent | None, bool] | None] = [None] * len(
+            states
+        )
         decode_indexes = []
         decode_states = []
         for index, state in enumerate(states):
             if state.pending:
                 event = state.pending.popleft()
-                results[index] = (event, not state.pending and event.finish_reason is not None)
+                results[index] = (
+                    event,
+                    not state.pending and event.finish_reason is not None,
+                )
             elif state.generation is not None:
                 decode_indexes.append(index)
                 decode_states.append(state.generation)
@@ -1129,7 +1435,8 @@ class ConfiguredModelBackend:
                 if step.token:
                     state.pieces.append(step.token)
                 event = BackendStreamEvent(
-                    token=step.token, token_id=step.token_id,
+                    token=step.token,
+                    token_id=step.token_id,
                     prompt_tokens=step.prompt_tokens,
                     completion_tokens=step.completion_tokens,
                     logprob=_serialize_token_logprob(getattr(step, "logprob", None)),
@@ -1138,7 +1445,10 @@ class ConfiguredModelBackend:
                     self._finish_batched_stream(state, step)
                     if not step.token and state.pending:
                         event = state.pending.popleft()
-                    results[index] = (event, not state.pending and event.finish_reason is not None)
+                    results[index] = (
+                        event,
+                        not state.pending and event.finish_reason is not None,
+                    )
                 else:
                     results[index] = (event, False)
         return [result for result in results if result is not None]
@@ -1148,17 +1458,26 @@ class ConfiguredModelBackend:
         if not response:
             response = DEFAULT_EMPTY_RESPONSE
             count = len(self.generator.tokenizer.encode(response))
-            state.pending.append(BackendStreamEvent(token=response, completion_tokens=count))
+            state.pending.append(
+                BackendStreamEvent(token=response, completion_tokens=count)
+            )
         if state.memory is not None and state.session_id:
             state.memory.add("assistant", response)
             self.sessions.save(state.session_id, state.memory)
         if state.search_results:
-            state.pending.append(BackendStreamEvent(token=f"\n\n{format_sources(state.search_results)}"))
-        state.pending.append(BackendStreamEvent(
-            finish_reason=FinishReason(step.finish_reason),
-            prompt_tokens=step.prompt_tokens,
-            completion_tokens=(step.completion_tokens or len(self.generator.tokenizer.encode(response))),
-        ))
+            state.pending.append(
+                BackendStreamEvent(token=f"\n\n{format_sources(state.search_results)}")
+            )
+        state.pending.append(
+            BackendStreamEvent(
+                finish_reason=FinishReason(step.finish_reason),
+                prompt_tokens=step.prompt_tokens,
+                completion_tokens=(
+                    step.completion_tokens
+                    or len(self.generator.tokenizer.encode(response))
+                ),
+            )
+        )
 
     async def release_stream(self, state: _BackendBatchStream) -> None:
         """Release session ownership and references held by a completed request."""
@@ -1197,15 +1516,20 @@ class ConfiguredModelBackend:
                 self._session_lock_users.pop(session_id, None)
                 self._session_locks.pop(session_id, None)
 
-    async def _stream_unlocked(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
+    async def _stream_unlocked(
+        self, request: GenerateRequest
+    ) -> AsyncIterator[BackendStreamEvent]:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
         # Tool calls and explicit reasoning require post-processing the complete
         # native decode so protocol markers never leak as ordinary content.
         # The HTTP layer still streams a standards-compatible event sequence;
         # plain-text requests retain token-by-token streaming below.
-        if request.decoding_strategy != "sample" or has_image_input(request._chat_messages) or request.reasoning_effort != "none" or (
-            request.chat_tools and request.tool_choice != "none"
+        if (
+            request.decoding_strategy != "sample"
+            or has_image_input(request._chat_messages)
+            or request.reasoning_effort != "none"
+            or (request.chat_tools and request.tool_choice != "none")
         ):
             result = await self._generate_unlocked(request)
             if result.reasoning_content:
@@ -1230,85 +1554,130 @@ class ConfiguredModelBackend:
             return
         safety_refusal = blocked_prompt_message(request.prompt)
         if safety_refusal is not None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(safety_refusal))
             yield BackendStreamEvent(
-                token=safety_refusal, prompt_tokens=prompt_tokens,
+                token=safety_refusal,
+                prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )
             yield BackendStreamEvent(
-                finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
+                finish_reason=FinishReason.STOP,
+                prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )
             return
         direct_answer = direct_tool_answer(request.prompt, request.tools)
         if direct_answer is not None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(direct_answer))
             yield BackendStreamEvent(
-                token=direct_answer, prompt_tokens=prompt_tokens,
+                token=direct_answer,
+                prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )
             yield BackendStreamEvent(
-                finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
+                finish_reason=FinishReason.STOP,
+                prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )
             return
-        memory = self.sessions.load(request.session_id) if self.sessions and request.session_id else None
-        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(self, request)
+        memory = (
+            self.sessions.load(request.session_id)
+            if self.sessions and request.session_id
+            else None
+        )
+        user_prompt, search_results = await ConfiguredModelBackend._prepare_user_prompt(
+            self, request
+        )
         if user_prompt is None:
-            prompt_tokens = len(self.generator.tokenizer.encode(request.prompt, add_bos=True))
+            prompt_tokens = len(
+                self.generator.tokenizer.encode(request.prompt, add_bos=True)
+            )
             completion_tokens = len(self.generator.tokenizer.encode(DEFAULT_NO_RESULTS))
             yield BackendStreamEvent(
-                token=DEFAULT_NO_RESULTS, prompt_tokens=prompt_tokens,
+                token=DEFAULT_NO_RESULTS,
+                prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )
             yield BackendStreamEvent(
-                finish_reason=FinishReason.STOP, prompt_tokens=prompt_tokens,
+                finish_reason=FinishReason.STOP,
+                prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
             )
             return
-        user_prompt = await ConfiguredModelBackend._augment_with_mcp(self, request, user_prompt)
-        response_format = request.response_format or getattr(self, "response_format", None)
-        system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
-                                             include_safety_instruction=getattr(self, "embed_safety_instruction", True))
+        user_prompt = await ConfiguredModelBackend._augment_with_mcp(
+            self, request, user_prompt
+        )
+        response_format = request.response_format or getattr(
+            self, "response_format", None
+        )
+        system_prompt = format_system_prompt(
+            self.system_prompt,
+            response_format,
+            request.mode,
+            include_safety_instruction=getattr(self, "embed_safety_instruction", True),
+        )
         prompt = ConfiguredModelBackend._format_request_conversation(
             self, request, system_prompt, user_prompt
         )
         if memory:
             memory.set_system_prompt(system_prompt)
             memory.add("user", user_prompt)
-            maximum = int(getattr(self.generator, "max_positions", request.max_tokens + 1))
+            maximum = int(
+                getattr(self.generator, "max_positions", request.max_tokens + 1)
+            )
             reserve = min(request.max_tokens, max(1, maximum - 1))
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
         ConfiguredModelBackend._validate_prompt(self, prompt)
         generated_ids: list[int] = []
         pieces: list[str] = []
-        options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
-                       top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
-                       repetition_penalty=request.repetition_penalty,
-                       presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
-                       no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
-                       seed=request.seed, stop=request.stop,
-                       allow_special_tokens=True, logprobs=request.logprobs, top_logprobs=request.top_logprobs)
+        options = dict(
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            min_p=request.min_p,
+            repetition_penalty=request.repetition_penalty,
+            presence_penalty=request.presence_penalty,
+            frequency_penalty=request.frequency_penalty,
+            no_repeat_ngram_size=request.no_repeat_ngram_size,
+            min_tokens=request.min_tokens,
+            seed=request.seed,
+            stop=request.stop,
+            allow_special_tokens=True,
+            logprobs=request.logprobs,
+            top_logprobs=request.top_logprobs,
+        )
         async for step in self._stream_steps(prompt, options):
             if step.finish_reason is not None:
                 response_text = "".join(pieces).strip()
                 if not response_text:
                     response_text = DEFAULT_EMPTY_RESPONSE
-                    fallback_tokens = len(self.generator.tokenizer.encode(response_text))
-                    yield BackendStreamEvent(token=response_text, completion_tokens=fallback_tokens)
+                    fallback_tokens = len(
+                        self.generator.tokenizer.encode(response_text)
+                    )
+                    yield BackendStreamEvent(
+                        token=response_text, completion_tokens=fallback_tokens
+                    )
                 if memory and request.session_id:
                     memory.add("assistant", response_text)
                     self.sessions.save(request.session_id, memory)
                 if search_results:
-                    yield BackendStreamEvent(token=f"\n\n{format_sources(search_results)}")
+                    yield BackendStreamEvent(
+                        token=f"\n\n{format_sources(search_results)}"
+                    )
                 yield BackendStreamEvent(
                     finish_reason=FinishReason(step.finish_reason),
                     prompt_tokens=step.prompt_tokens,
                     completion_tokens=(
                         len(self.generator.tokenizer.encode(response_text))
-                        if not generated_ids else step.completion_tokens
+                        if not generated_ids
+                        else step.completion_tokens
                     ),
                 )
                 return
@@ -1317,14 +1686,18 @@ class ConfiguredModelBackend:
             if step.token:
                 pieces.append(step.token)
             yield BackendStreamEvent(
-                token=step.token, token_id=step.token_id,
-                prompt_tokens=step.prompt_tokens, completion_tokens=step.completion_tokens,
+                token=step.token,
+                token_id=step.token_id,
+                prompt_tokens=step.prompt_tokens,
+                completion_tokens=step.completion_tokens,
                 logprob=_serialize_token_logprob(getattr(step, "logprob", None)),
             )
 
     async def _prepare_user_prompt(self, request: GenerateRequest):
         raw_prompt = request.prompt.strip()
-        attachment_limit = int(getattr(self, "rag_config", {}).get("attachment_char_limit", 900))
+        attachment_limit = int(
+            getattr(self, "rag_config", {}).get("attachment_char_limit", 900)
+        )
         attachment_parts = []
         remaining = max(0, attachment_limit)
         for attachment in getattr(request, "attachments", []):
@@ -1346,16 +1719,28 @@ class ConfiguredModelBackend:
             selected_tools.append("calculator")
         if slash_datetime and "datetime" not in selected_tools:
             selected_tools.append("datetime")
-        slash_search = raw_prompt.lower() == "/search" or raw_prompt.lower().startswith("/search ")
-        slash_rag = raw_prompt.lower() == "/rag" or raw_prompt.lower().startswith("/rag ")
-        slash_hybrid = raw_prompt.lower() == "/hybrid" or raw_prompt.lower().startswith("/hybrid ")
+        slash_search = raw_prompt.lower() == "/search" or raw_prompt.lower().startswith(
+            "/search "
+        )
+        slash_rag = raw_prompt.lower() == "/rag" or raw_prompt.lower().startswith(
+            "/rag "
+        )
+        slash_hybrid = raw_prompt.lower() == "/hybrid" or raw_prompt.lower().startswith(
+            "/hybrid "
+        )
         rag_config = getattr(self, "rag_config", {})
-        use_web_search = bool(getattr(request, "web_search", False) or slash_search or slash_hybrid)
+        use_web_search = bool(
+            getattr(request, "web_search", False) or slash_search or slash_hybrid
+        )
         use_rag = bool(
-            getattr(request, "rag", False) or slash_rag or slash_hybrid
+            getattr(request, "rag", False)
+            or slash_rag
+            or slash_hybrid
             or rag_config.get("default_enabled", False)
         )
-        prefix_length = 8 if slash_hybrid else 7 if slash_search else 4 if slash_rag else 0
+        prefix_length = (
+            8 if slash_hybrid else 7 if slash_search else 4 if slash_rag else 0
+        )
         query = raw_prompt[prefix_length:].strip() if prefix_length else raw_prompt
         if (use_web_search or use_rag) and not query:
             raise ValueError("retrieval query cannot be empty")
@@ -1366,30 +1751,46 @@ class ConfiguredModelBackend:
             rag_index = getattr(self, "rag_index", None)
             if rag_index is None:
                 if not use_web_search:
-                    raise ValueError("RAG index is not loaded; build it with scripts/build_rag_index.py")
-                logger.warning("Hybrid retrieval is continuing without the unavailable RAG index")
+                    raise ValueError(
+                        "RAG index is not loaded; build it with scripts/build_rag_index.py"
+                    )
+                logger.warning(
+                    "Hybrid retrieval is continuing without the unavailable RAG index"
+                )
             else:
-                candidate_k = int(rag_config.get("candidate_k", max(10, int(rag_config.get("top_k", 3)) * 4)))
+                candidate_k = int(
+                    rag_config.get(
+                        "candidate_k", max(10, int(rag_config.get("top_k", 3)) * 4)
+                    )
+                )
                 rag_results = await asyncio.to_thread(
-                    rag_index.search, query, top_k=candidate_k,
+                    rag_index.search,
+                    query,
+                    top_k=candidate_k,
                     min_score=float(rag_config.get("min_score", 0.01)),
                 )
                 if bool(rag_config.get("rerank_enabled", False)) and rag_results:
                     ranked = await asyncio.to_thread(
-                        self.reranker.rerank, query, rag_results,
+                        self.reranker.rerank,
+                        query,
+                        rag_results,
                         top_k=int(rag_config.get("top_k", 3)),
                     )
                     rag_results = [item.document for item in ranked]
                 else:
-                    rag_results = rag_results[:int(rag_config.get("top_k", 3))]
+                    rag_results = rag_results[: int(rag_config.get("top_k", 3))]
         if not use_web_search:
             if not rag_results:
                 return None, []
             return build_rag_prompt(
-                query, rag_results, char_limit=int(rag_config.get("chunk_char_limit", 600))
+                query,
+                rag_results,
+                char_limit=int(rag_config.get("chunk_char_limit", 600)),
             ) + attachment_context, rag_results
         config = self.web_search
-        provider = os.getenv("GOPI_SEARCH_PROVIDER", str(config.get("provider", "searxng"))).lower()
+        provider = os.getenv(
+            "GOPI_SEARCH_PROVIDER", str(config.get("provider", "searxng"))
+        ).lower()
         maximum = int(config.get("max_results", 3))
         timeout = float(config.get("timeout_seconds", 10.0))
         try:
@@ -1399,7 +1800,14 @@ class ConfiguredModelBackend:
                     query,
                     max_results=maximum,
                     timeout=timeout,
-                    endpoint=os.getenv("GOPI_SEARXNG_URL", str(config.get("searxng_endpoint", "http://localhost:8080/search"))),
+                    endpoint=os.getenv(
+                        "GOPI_SEARXNG_URL",
+                        str(
+                            config.get(
+                                "searxng_endpoint", "http://localhost:8080/search"
+                            )
+                        ),
+                    ),
                 )
             elif provider == "brave":
                 web_results = await asyncio.to_thread(
@@ -1408,28 +1816,38 @@ class ConfiguredModelBackend:
                     os.getenv("GOPI_SEARCH_API_KEY", ""),
                     max_results=maximum,
                     timeout=timeout,
-                    endpoint=str(config.get("brave_endpoint", "https://api.search.brave.com/res/v1/web/search")),
+                    endpoint=str(
+                        config.get(
+                            "brave_endpoint",
+                            "https://api.search.brave.com/res/v1/web/search",
+                        )
+                    ),
                 )
             else:
                 raise ValueError(f"unsupported search provider: {provider}")
         except (OSError, TimeoutError, ValueError):
             if not rag_results:
                 raise
-            logger.warning("Hybrid retrieval is continuing without web results", exc_info=True)
+            logger.warning(
+                "Hybrid retrieval is continuing without web results", exc_info=True
+            )
             web_results = []
         results = [*rag_results, *web_results]
         if not results:
             return None, []
         search_prompt = (
             build_rag_prompt(
-                query, results,
+                query,
+                results,
                 char_limit=min(
                     int(rag_config.get("chunk_char_limit", 600)),
                     int(config.get("description_char_limit", 200)),
                 ),
             )
-            if rag_results else build_search_prompt(
-                query, web_results,
+            if rag_results
+            else build_search_prompt(
+                query,
+                web_results,
                 description_char_limit=int(config.get("description_char_limit", 200)),
             )
         )
@@ -1438,7 +1856,9 @@ class ConfiguredModelBackend:
             search_prompt = f"{search_prompt}\n\nAdditional user and trusted tool context:\n{local_context}"
         return search_prompt + attachment_context, results
 
-    async def _augment_with_mcp(self, request: GenerateRequest, user_prompt: str) -> str:
+    async def _augment_with_mcp(
+        self, request: GenerateRequest, user_prompt: str
+    ) -> str:
         if not request.mcp:
             return user_prompt
         catalogs = self.mcp_tools
@@ -1455,19 +1875,32 @@ class ConfiguredModelBackend:
         for step in range(max_steps):
             if call is None:
                 planning_catalogs = relevant_tools(context, catalogs)
-                planning_prompt = self._fit_mcp_planning_prompt(context, planning_catalogs)
+                planning_prompt = self._fit_mcp_planning_prompt(
+                    context, planning_catalogs
+                )
                 if planning_prompt is None:
-                    logger.warning("MCP planning skipped because no tool catalog fits the model context")
+                    logger.warning(
+                        "MCP planning skipped because no tool catalog fits the model context"
+                    )
                     return context
-                planning_tokens = min(int(self.mcp_config.get("planning_max_tokens", 96)), 96)
+                planning_tokens = min(
+                    int(self.mcp_config.get("planning_max_tokens", 96)), 96
+                )
                 try:
-                    decision = await self._generate_once(planning_prompt, {
-                        "max_tokens": planning_tokens,
-                        "temperature": 0.0, "top_k": 1, "top_p": 1.0,
-                        "repetition_penalty": 1.1, "no_repeat_ngram_size": 3,
-                        "seed": request.seed, "stop": [],
-                        "allow_special_tokens": True,
-                    })
+                    decision = await self._generate_once(
+                        planning_prompt,
+                        {
+                            "max_tokens": planning_tokens,
+                            "temperature": 0.0,
+                            "top_k": 1,
+                            "top_p": 1.0,
+                            "repetition_penalty": 1.1,
+                            "no_repeat_ngram_size": 3,
+                            "seed": request.seed,
+                            "stop": [],
+                            "allow_special_tokens": True,
+                        },
+                    )
                 except ValueError as error:
                     logger.warning("MCP planning skipped: %s", error)
                     return context
@@ -1476,14 +1909,25 @@ class ConfiguredModelBackend:
                 return context
             client = self.mcp_clients.get(call.server)
             if client is None:
-                return context + f"\n\nMCP tool error: unavailable server {call.server!r}."
+                return (
+                    context + f"\n\nMCP tool error: unavailable server {call.server!r}."
+                )
             schema = next(
-                (tool.input_schema for tool in catalogs[call.server] if tool.name == call.name), None
+                (
+                    tool.input_schema
+                    for tool in catalogs[call.server]
+                    if tool.name == call.name
+                ),
+                None,
             )
             try:
-                result = await client.call_tool(call.name, call.arguments, input_schema=schema)
+                result = await client.call_tool(
+                    call.name, call.arguments, input_schema=schema
+                )
             except Exception as error:
-                logger.warning("MCP tool %s/%s failed: %s", call.server, call.name, error)
+                logger.warning(
+                    "MCP tool %s/%s failed: %s", call.server, call.name, error
+                )
                 context += f"\n\nMCP tool error: {type(error).__name__}"
             else:
                 context = self._fit_mcp_result(context, call, result)
@@ -1495,33 +1939,55 @@ class ConfiguredModelBackend:
 
     def _fit_mcp_result(self, prompt: str, call, result: dict) -> str:
         maximum_chars = int(self.mcp_config.get("max_result_chars", 2000))
-        context = tool_result_context(prompt, call, result, max_result_chars=maximum_chars)
+        context = tool_result_context(
+            prompt, call, result, max_result_chars=maximum_chars
+        )
         maximum_tokens = max(32, int(getattr(self.generator, "max_positions", 0)) - 128)
-        while len(self.generator.tokenizer.encode(context, allowed_special="all")) > maximum_tokens and maximum_chars > 128:
+        while (
+            len(self.generator.tokenizer.encode(context, allowed_special="all"))
+            > maximum_tokens
+            and maximum_chars > 128
+        ):
             maximum_chars //= 2
-            context = tool_result_context(prompt, call, result, max_result_chars=maximum_chars)
+            context = tool_result_context(
+                prompt, call, result, max_result_chars=maximum_chars
+            )
         return context
 
-    def _fit_mcp_planning_prompt(self, user_prompt: str, catalogs: dict[str, list[MCPTool]]) -> str | None:
+    def _fit_mcp_planning_prompt(
+        self, user_prompt: str, catalogs: dict[str, list[MCPTool]]
+    ) -> str | None:
         candidates = {name: list(tools) for name, tools in catalogs.items()}
-        maximum = int(getattr(
-            self.generator, "max_positions", getattr(self.sessions, "max_tokens", 0)
-        ))
+        maximum = int(
+            getattr(
+                self.generator, "max_positions", getattr(self.sessions, "max_tokens", 0)
+            )
+        )
         if maximum < 2:
             return None
         while any(candidates.values()):
             selection = tool_selection_prompt(user_prompt, candidates)
             rendered = format_messages(
                 [
-                    {"role": "system", "content": "You are a strict JSON tool router. Output JSON only."},
+                    {
+                        "role": "system",
+                        "content": "You are a strict JSON tool router. Output JSON only.",
+                    },
                     {"role": "user", "content": selection},
                 ],
                 add_generation_prompt=True,
             )
-            length = len(self.generator.tokenizer.encode(rendered, add_bos=True, allowed_special="all"))
+            length = len(
+                self.generator.tokenizer.encode(
+                    rendered, add_bos=True, allowed_special="all"
+                )
+            )
             if length <= maximum - min(64, maximum // 4):
                 return rendered
-            largest = max((name for name, tools in candidates.items() if tools), key=lambda name: len(candidates[name]))
+            largest = max(
+                (name for name, tools in candidates.items() if tools),
+                key=lambda name: len(candidates[name]),
+            )
             candidates[largest].pop()
         return None
 
@@ -1537,7 +2003,10 @@ class ConfiguredModelBackend:
 
         def render(system: str, user: str) -> tuple[str, int]:
             candidate = format_messages(
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
                 add_generation_prompt=True,
             )
             identifiers = self.generator.tokenizer.encode(
@@ -1568,16 +2037,22 @@ class ConfiguredModelBackend:
         if fitted is not None:
             logger.warning(
                 "User/reference context truncated from %d tokens to fit model context %d",
-                length, maximum,
+                length,
+                maximum,
             )
             return fitted
 
-        logger.warning("System prompt leaves no room for truncation marker; using compact safety prompt")
+        logger.warning(
+            "System prompt leaves no room for truncation marker; using compact safety prompt"
+        )
         compact, _ = render(COMPACT_SAFETY_PROMPT, user_prompt)
         return compact
 
     def _format_request_conversation(
-        self, request: GenerateRequest, system_prompt: str, user_prompt: str,
+        self,
+        request: GenerateRequest,
+        system_prompt: str,
+        user_prompt: str,
     ) -> str:
         """Render OpenAI chat history when supplied by the compatibility API."""
         chat_messages = request._chat_messages
@@ -1604,7 +2079,9 @@ class ConfiguredModelBackend:
             candidate_ids = self.generator.tokenizer.encode(
                 candidate, add_bos=True, allowed_special="all"
             )
-            if len(candidate_ids) < getattr(self.generator, "max_positions", float("inf")):
+            if len(candidate_ids) < getattr(
+                self.generator, "max_positions", float("inf")
+            ):
                 return candidate
         return ConfiguredModelBackend._format_new_conversation(
             self, system_prompt, user_prompt
@@ -1614,9 +2091,11 @@ class ConfiguredModelBackend:
         identifiers = self.generator.tokenizer.encode(
             prompt, add_bos=True, allowed_special="all"
         )
-        maximum = int(getattr(
-            self.generator, "max_positions", getattr(self.sessions, "max_tokens", 0)
-        ))
+        maximum = int(
+            getattr(
+                self.generator, "max_positions", getattr(self.sessions, "max_tokens", 0)
+            )
+        )
         if maximum < 2 or len(identifiers) >= maximum:
             raise InvalidGenerationRequestError(
                 f"prompt has {len(identifiers)} tokens but model context is {maximum}; "
@@ -1629,23 +2108,45 @@ class ConfiguredModelBackend:
             yield step
             await asyncio.sleep(0)
 
-def _configured_from_environment(*, device: str | None = None) -> ConfiguredModelBackend:
+
+def _configured_from_environment(
+    *, device: str | None = None
+) -> ConfiguredModelBackend:
     inference_path = Path(os.getenv("GOPI_INFERENCE_CONFIG", "configs/inference.yaml"))
     inference = load_yaml(inference_path) if inference_path.is_file() else {}
     serving = inference.get("serving", {})
     if not isinstance(serving, dict):
         raise ValueError("inference serving configuration must be a mapping")
     return ConfiguredModelBackend(
-        model_config=os.getenv("GOPI_MODEL_CONFIG", str(serving.get("model_config", "configs/model.cpu.yaml"))),
-        tokenizer_path=os.getenv("GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer"))),
-        checkpoint_path=os.getenv("GOPI_CHECKPOINT_PATH", str(serving.get("checkpoint_path", "checkpoints/finetuning/best.pt"))),
+        model_config=os.getenv(
+            "GOPI_MODEL_CONFIG",
+            str(serving.get("model_config", "configs/model.cpu.yaml")),
+        ),
+        tokenizer_path=os.getenv(
+            "GOPI_TOKENIZER_PATH", str(serving.get("tokenizer_path", "data/tokenizer"))
+        ),
+        checkpoint_path=os.getenv(
+            "GOPI_CHECKPOINT_PATH",
+            str(serving.get("checkpoint_path", "checkpoints/finetuning/best.pt")),
+        ),
         device=device or os.getenv("GOPI_DEVICE", str(serving.get("device", "auto"))),
-        session_store_path=os.getenv("GOPI_SESSION_STORE", str(serving.get("session_store_path", "data/cache/sessions.sqlite"))),
-        system_prompt=str(inference.get("system_prompt", "You are Gopi, a helpful assistant.")),
+        session_store_path=os.getenv(
+            "GOPI_SESSION_STORE",
+            str(serving.get("session_store_path", "data/cache/sessions.sqlite")),
+        ),
+        system_prompt=str(
+            inference.get("system_prompt", "You are Gopi, a helpful assistant.")
+        ),
         embed_safety_instruction=bool(inference.get("embed_safety_instruction", True)),
-        response_format=os.getenv("GOPI_RESPONSE_FORMAT", str(inference.get("response_format", "plain"))),
-        context_tokens=int((inference.get("context_memory") or {}).get("max_tokens", 1536)),
-        web_search=inference.get("web_search") if isinstance(inference.get("web_search"), dict) else {},
+        response_format=os.getenv(
+            "GOPI_RESPONSE_FORMAT", str(inference.get("response_format", "plain"))
+        ),
+        context_tokens=int(
+            (inference.get("context_memory") or {}).get("max_tokens", 1536)
+        ),
+        web_search=inference.get("web_search")
+        if isinstance(inference.get("web_search"), dict)
+        else {},
         rag=inference.get("rag") if isinstance(inference.get("rag"), dict) else {},
         prefix_cache_capacity=int(serving.get("prefix_cache_capacity", 0)),
         paged_kv_pages=int(serving.get("paged_kv_pages", 0)),
@@ -1658,32 +2159,43 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
         weight_dtype=str(serving.get("weight_dtype", "float32")),
         quantization=str(serving.get("quantization", "none")),
         multimodal_config=(
-            os.getenv("GOPI_MULTIMODAL_CONFIG")
-            or serving.get("multimodal_config")
+            os.getenv("GOPI_MULTIMODAL_CONFIG") or serving.get("multimodal_config")
         ),
         multimodal_checkpoint=(
             os.getenv("GOPI_MULTIMODAL_CHECKPOINT")
             or serving.get("multimodal_checkpoint")
         ),
         vision_checkpoint=(
-            os.getenv("GOPI_VISION_CHECKPOINT")
-            or serving.get("vision_checkpoint")
+            os.getenv("GOPI_VISION_CHECKPOINT") or serving.get("vision_checkpoint")
         ),
         vision_allow_remote_images=_backend_environment_flag(
             "GOPI_VISION_ALLOW_REMOTE_IMAGES",
             bool(serving.get("vision_allow_remote_images", False)),
         ),
-        vision_max_image_bytes=int(os.getenv(
-            "GOPI_VISION_MAX_IMAGE_BYTES",
-            str(serving.get("vision_max_image_bytes", 10 * 1024 * 1024)),
-        )),
-        vision_max_images=int(os.getenv(
-            "GOPI_VISION_MAX_IMAGES",
-            str(serving.get("vision_max_images", 4)),
-        )),
-        speculative_draft_model_id=(os.getenv("GOPI_SPECULATIVE_DRAFT_MODEL_ID") or serving.get("speculative_draft_model_id")),
-        speculative_draft_checkpoint=(os.getenv("GOPI_SPECULATIVE_DRAFT_CHECKPOINT") or serving.get("speculative_draft_checkpoint")),
-        speculative_draft_model_config=(os.getenv("GOPI_SPECULATIVE_DRAFT_MODEL_CONFIG") or serving.get("speculative_draft_model_config")),
+        vision_max_image_bytes=int(
+            os.getenv(
+                "GOPI_VISION_MAX_IMAGE_BYTES",
+                str(serving.get("vision_max_image_bytes", 10 * 1024 * 1024)),
+            )
+        ),
+        vision_max_images=int(
+            os.getenv(
+                "GOPI_VISION_MAX_IMAGES",
+                str(serving.get("vision_max_images", 4)),
+            )
+        ),
+        speculative_draft_model_id=(
+            os.getenv("GOPI_SPECULATIVE_DRAFT_MODEL_ID")
+            or serving.get("speculative_draft_model_id")
+        ),
+        speculative_draft_checkpoint=(
+            os.getenv("GOPI_SPECULATIVE_DRAFT_CHECKPOINT")
+            or serving.get("speculative_draft_checkpoint")
+        ),
+        speculative_draft_model_config=(
+            os.getenv("GOPI_SPECULATIVE_DRAFT_MODEL_CONFIG")
+            or serving.get("speculative_draft_model_config")
+        ),
     )
 
 
@@ -1742,13 +2254,12 @@ def _reload_candidate():
             api_key=os.getenv("GOPI_EXTERNAL_API_KEY"),
             timeout_seconds=float(os.getenv("GOPI_EXTERNAL_TIMEOUT_SECONDS", "120")),
             context_length=int(os.getenv("GOPI_EXTERNAL_CONTEXT_LENGTH", "0")),
-            parameter_count=int(os.getenv("GOPI_EXTERNAL_PARAMETER_COUNT", "0")) or None,
+            parameter_count=int(os.getenv("GOPI_EXTERNAL_PARAMETER_COUNT", "0"))
+            or None,
             supports_tool_calling=_backend_environment_flag(
                 "GOPI_EXTERNAL_TOOL_CALLING", True
             ),
-            supports_vision=_backend_environment_flag(
-                "GOPI_EXTERNAL_VISION", False
-            ),
+            supports_vision=_backend_environment_flag("GOPI_EXTERNAL_VISION", False),
             supports_reasoning=_backend_environment_flag(
                 "GOPI_EXTERNAL_REASONING", True
             ),
@@ -1756,9 +2267,17 @@ def _reload_candidate():
         version = f"external:{backend.base_url}:{backend.model}"
         return backend, version
     if backend_kind != "native":
-        raise ValueError("GOPI_BACKEND must be native, vllm, llama_cpp, or openai_compatible")
-    devices = [value.strip() for value in os.getenv("GOPI_REPLICA_DEVICES", "").split(",") if value.strip()]
-    replicas = [_configured_from_environment(device=device) for device in devices] or [_configured_from_environment()]
+        raise ValueError(
+            "GOPI_BACKEND must be native, vllm, llama_cpp, or openai_compatible"
+        )
+    devices = [
+        value.strip()
+        for value in os.getenv("GOPI_REPLICA_DEVICES", "").split(",")
+        if value.strip()
+    ]
+    replicas = [_configured_from_environment(device=device) for device in devices] or [
+        _configured_from_environment()
+    ]
     backend = replicas[0] if len(replicas) == 1 else ReplicaPoolBackend(replicas)
     checkpoint = replicas[0].checkpoint_path
     version = f"{checkpoint}:{checkpoint.stat().st_mtime_ns if checkpoint.exists() else 'missing'}"

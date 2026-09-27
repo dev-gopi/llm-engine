@@ -1,8 +1,9 @@
 """Offline semantic-cache false-positive and answer-drift evaluation."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Callable, Iterable
+from collections.abc import Callable, Iterable
+from dataclasses import asdict, dataclass
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,9 @@ def evaluate_semantic_cache(
         return SemanticCacheEvalReport(0, 0.0, 0.0, 0.0, threshold)
     accepted = [row for row in rows if row.similarity >= threshold]
     false_positive = [row for row in accepted if not row.expected_same_answer]
-    drift = [row for row in accepted if row.expected_same_answer and not row.answer_match]
+    drift = [
+        row for row in accepted if row.expected_same_answer and not row.answer_match
+    ]
     return SemanticCacheEvalReport(
         cases=len(rows),
         false_positive_rate=len(false_positive) / len(accepted) if accepted else 0.0,
@@ -55,7 +58,9 @@ def evaluate_from_pairs(
     threshold: float,
 ) -> SemanticCacheEvalReport:
     cases = [
-        SemanticCacheEvalCase(query, cached, expected, answer_match, float(similarity(query, cached)))
+        SemanticCacheEvalCase(
+            query, cached, expected, answer_match, float(similarity(query, cached))
+        )
         for query, cached, expected, answer_match in rows
     ]
     return evaluate_semantic_cache(cases, threshold=threshold)

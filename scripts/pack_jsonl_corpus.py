@@ -47,7 +47,9 @@ def main() -> None:
     output_records = 0
     split_chunks = 0
 
-    def write_record(stream, identifiers: list[int], docs: int, source_names: set[str]) -> None:
+    def write_record(
+        stream, identifiers: list[int], docs: int, source_names: set[str]
+    ) -> None:
         nonlocal output_records
         output_records += 1
         row: dict[str, Any] = {
@@ -68,15 +70,19 @@ def main() -> None:
         for input_path in args.inputs:
             for record in iter_records(input_path):
                 if record.get("prepacked"):
-                    raise ValueError("input is already packed; repack from original documents")
-                document = tokenizer.encode(record_to_text(record), allowed_special="all")
+                    raise ValueError(
+                        "input is already packed; repack from original documents"
+                    )
+                document = tokenizer.encode(
+                    record_to_text(record), allowed_special="all"
+                )
                 source = str(record.get("source", input_path.stem))
                 # One EOS per document, never at artificial chunk boundaries.
                 document.append(eos)
                 offset = 0
                 while offset < len(document):
                     take = min(capacity - len(buffer), len(document) - offset)
-                    buffer.extend(document[offset:offset + take])
+                    buffer.extend(document[offset : offset + take])
                     offset += take
                     sources.add(source)
                     document_count += 1

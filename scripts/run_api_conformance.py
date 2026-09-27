@@ -4,6 +4,7 @@ Usage: python scripts/run_api_conformance.py
 The script intentionally runs the repository's deterministic contract suites,
 not a network-dependent external service.
 """
+
 from __future__ import annotations
 
 import subprocess

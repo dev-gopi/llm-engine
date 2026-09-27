@@ -27,8 +27,12 @@ class ASGIClient:
     def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         async def send() -> httpx.Response:
             async with self.app.router.lifespan_context(self.app):
-                transport = httpx.ASGITransport(app=self.app, raise_app_exceptions=False)
-                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                transport = httpx.ASGITransport(
+                    app=self.app, raise_app_exceptions=False
+                )
+                async with httpx.AsyncClient(
+                    transport=transport, base_url="http://test"
+                ) as client:
                     return await client.request(method, url, **kwargs)
 
         return asyncio.run(send())

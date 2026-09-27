@@ -13,11 +13,24 @@ from training.checkpoint import save_checkpoint
 def make_backend():
     pieces = list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
     vocab = {piece: index for index, piece in enumerate(pieces)}
-    tokenizer = Tokenizer(vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS})
-    config = dict(vocab_size=len(vocab), hidden_size=16, layers=1, heads=2,
-                  max_position=64, tie_word_embeddings=True)
-    return MiniGPTBackend(MiniGPT.from_config(config), tokenizer, config, device="cpu",
-                          generation_config={"max_tokens": 3, "temperature": 0})
+    tokenizer = Tokenizer(
+        vocab, special_tokens={piece: vocab[piece] for piece in DEFAULT_SPECIAL_TOKENS}
+    )
+    config = dict(
+        vocab_size=len(vocab),
+        hidden_size=16,
+        layers=1,
+        heads=2,
+        max_position=64,
+        tie_word_embeddings=True,
+    )
+    return MiniGPTBackend(
+        MiniGPT.from_config(config),
+        tokenizer,
+        config,
+        device="cpu",
+        generation_config={"max_tokens": 3, "temperature": 0},
+    )
 
 
 def test_bundle_roundtrip_preserves_weights_tying_and_generation(tmp_path):
@@ -46,9 +59,16 @@ def test_bundle_rejects_fingerprint_mismatch(tmp_path):
 
 def test_backend_loads_existing_training_checkpoint(tmp_path):
     backend = make_backend()
-    path = save_checkpoint(tmp_path / "latest.pt", backend.model,
-                           metadata={"tokenizer_fingerprint": backend.tokenizer.fingerprint})
-    restored = MiniGPTBackend.from_checkpoint(path, model_config=backend.model_config,
-                                              tokenizer=backend.tokenizer, device="cpu",
-                                              generation_config=backend.generation_config)
+    path = save_checkpoint(
+        tmp_path / "latest.pt",
+        backend.model,
+        metadata={"tokenizer_fingerprint": backend.tokenizer.fingerprint},
+    )
+    restored = MiniGPTBackend.from_checkpoint(
+        path,
+        model_config=backend.model_config,
+        tokenizer=backend.tokenizer,
+        device="cpu",
+        generation_config=backend.generation_config,
+    )
     assert restored.generate("hello") == backend.generate("hello")

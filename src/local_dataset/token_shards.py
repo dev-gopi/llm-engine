@@ -56,7 +56,9 @@ class TokenShardDataset(Dataset[dict[str, torch.Tensor]]):
                 mask_path = self.manifest_path.parent / item["loss_mask_file"]
                 expected_mask_bytes = count * self.sequence_length
                 if not mask_path.is_file():
-                    raise FileNotFoundError(f"token shard loss mask not found: {mask_path}")
+                    raise FileNotFoundError(
+                        f"token shard loss mask not found: {mask_path}"
+                    )
                 if mask_path.stat().st_size != expected_mask_bytes:
                     raise ValueError(
                         f"token shard loss-mask size mismatch for {mask_path}: "
@@ -78,21 +80,28 @@ class TokenShardDataset(Dataset[dict[str, torch.Tensor]]):
         if not 0 <= index < len(self):
             raise IndexError(index)
         import bisect
+
         shard_index = bisect.bisect_right(self.cumulative, index)
         previous = self.cumulative[shard_index - 1] if shard_index else 0
         path, mask_path, count = self.shards[shard_index]
         array = self._arrays.get(path)
         if array is None:
-            array = np.memmap(path, mode="r", dtype=self.dtype, shape=(count, self.sequence_length))
+            array = np.memmap(
+                path, mode="r", dtype=self.dtype, shape=(count, self.sequence_length)
+            )
             self._arrays[path] = array
-        tokens = torch.from_numpy(np.asarray(array[index - previous]).astype(np.int64, copy=True))
+        tokens = torch.from_numpy(
+            np.asarray(array[index - previous]).astype(np.int64, copy=True)
+        )
         if mask_path is None:
             loss_mask = torch.ones_like(tokens, dtype=torch.bool)
         else:
             mask_array = self._mask_arrays.get(mask_path)
             if mask_array is None:
                 mask_array = np.memmap(
-                    mask_path, mode="r", dtype=np.uint8,
+                    mask_path,
+                    mode="r",
+                    dtype=np.uint8,
                     shape=(count, self.sequence_length),
                 )
                 self._mask_arrays[mask_path] = mask_array

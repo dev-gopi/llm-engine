@@ -1,4 +1,5 @@
 """Cross-encoder/reranker contracts and deterministic evaluation utilities."""
+
 from __future__ import annotations
 
 import math
@@ -19,7 +20,9 @@ class RerankedDocument:
 
     @property
     def citation(self) -> str | None:
-        return getattr(self.document, "url", None) or getattr(self.document, "source", None)
+        return getattr(self.document, "url", None) or getattr(
+            self.document, "source", None
+        )
 
 
 class Reranker(Protocol):
@@ -48,7 +51,9 @@ class LexicalCrossEncoderBaseline:
     provides a stable ranking contract when an external reranker is unavailable.
     """
 
-    def rerank(self, query: str, documents: Sequence[object], *, top_k: int = 5) -> list[RerankedDocument]:
+    def rerank(
+        self, query: str, documents: Sequence[object], *, top_k: int = 5
+    ) -> list[RerankedDocument]:
         if top_k < 1:
             raise ValueError("top_k must be positive")
         query_terms = _tokens(query)
@@ -83,10 +88,14 @@ class CallableCrossEncoderReranker:
     of a particular ML library while allowing a real cross-encoder in production.
     """
 
-    def __init__(self, score_pairs: Callable[[list[tuple[str, str]]], Sequence[float]]) -> None:
+    def __init__(
+        self, score_pairs: Callable[[list[tuple[str, str]]], Sequence[float]]
+    ) -> None:
         self.score_pairs = score_pairs
 
-    def rerank(self, query: str, documents: Sequence[object], *, top_k: int = 5) -> list[RerankedDocument]:
+    def rerank(
+        self, query: str, documents: Sequence[object], *, top_k: int = 5
+    ) -> list[RerankedDocument]:
         if top_k < 1:
             raise ValueError("top_k must be positive")
         if not documents:
@@ -94,7 +103,9 @@ class CallableCrossEncoderReranker:
         pairs = [(query, _document_text(doc)) for doc in documents]
         scores = list(self.score_pairs(pairs))
         if len(scores) != len(documents):
-            raise ValueError("cross-encoder returned a score count different from the candidate count")
+            raise ValueError(
+                "cross-encoder returned a score count different from the candidate count"
+            )
         normalized: list[tuple[float, int, object]] = []
         for index, score in enumerate(scores):
             value = float(score)
@@ -116,7 +127,9 @@ class SentenceTransformersCrossEncoder:
     for CPU-only/basic RAG deployments.
     """
 
-    def __init__(self, model_name: str, *, batch_size: int = 16, device: str | None = None) -> None:
+    def __init__(
+        self, model_name: str, *, batch_size: int = 16, device: str | None = None
+    ) -> None:
         if not model_name.strip():
             raise ValueError("model_name cannot be empty")
         if batch_size < 1:
@@ -132,14 +145,20 @@ class SentenceTransformersCrossEncoder:
         self.batch_size = batch_size
         self.model_name = model_name
 
-    def rerank(self, query: str, documents: Sequence[object], *, top_k: int = 5) -> list[RerankedDocument]:
+    def rerank(
+        self, query: str, documents: Sequence[object], *, top_k: int = 5
+    ) -> list[RerankedDocument]:
         if top_k < 1:
             raise ValueError("top_k must be positive")
         if not documents:
             return []
         pairs = [(query, _document_text(doc)) for doc in documents]
-        scores = self.model.predict(pairs, batch_size=self.batch_size, show_progress_bar=False)
-        return CallableCrossEncoderReranker(lambda _: scores).rerank(query, documents, top_k=top_k)
+        scores = self.model.predict(
+            pairs, batch_size=self.batch_size, show_progress_bar=False
+        )
+        return CallableCrossEncoderReranker(lambda _: scores).rerank(
+            query, documents, top_k=top_k
+        )
 
 
 class HybridReranker:
@@ -169,7 +188,9 @@ class HybridReranker:
         self.rrf_k = int(rrf_k)
         self.fail_open = bool(fail_open)
 
-    def rerank(self, query: str, documents: Sequence[object], *, top_k: int = 5) -> list[RerankedDocument]:
+    def rerank(
+        self, query: str, documents: Sequence[object], *, top_k: int = 5
+    ) -> list[RerankedDocument]:
         if top_k < 1:
             raise ValueError("top_k must be positive")
         if not documents:
@@ -190,7 +211,9 @@ class HybridReranker:
         scores: dict[int, float] = {id(doc): 0.0 for doc in documents}
         for item in primary:
             if id(item.document) in scores:
-                scores[id(item.document)] += self.primary_weight / (self.rrf_k + item.rank)
+                scores[id(item.document)] += self.primary_weight / (
+                    self.rrf_k + item.rank
+                )
         lexical_weight = 1.0 - self.primary_weight
         for item in lexical:
             if id(item.document) in scores:

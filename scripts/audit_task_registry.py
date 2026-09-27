@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate stable task IDs and dependencies in docs/TASKS.md."""
+
 from __future__ import annotations
 
 import argparse
@@ -30,7 +31,9 @@ def audit_task_registry(path: Path) -> dict[str, object]:
         section = text[start:end]
         declared = ID_RE.search(section)
         if declared and declared.group(1) != heading.group(1):
-            mismatched_ids.append({"heading": heading.group(1), "declared": declared.group(1)})
+            mismatched_ids.append(
+                {"heading": heading.group(1), "declared": declared.group(1)}
+            )
         dependency = DEP_RE.search(section)
         if dependency:
             for task_id in TOKEN_RE.findall(dependency.group(1)):

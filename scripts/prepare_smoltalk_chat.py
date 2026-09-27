@@ -74,7 +74,9 @@ def clean_record(record: Mapping) -> dict | None:
     }
 
 
-def prepare(source: Path, destination: Path, *, excluded_ids: set[str] | None = None) -> tuple[int, set[str]]:
+def prepare(
+    source: Path, destination: Path, *, excluded_ids: set[str] | None = None
+) -> tuple[int, set[str]]:
     destination.parent.mkdir(parents=True, exist_ok=True)
     excluded_ids = excluded_ids or set()
     accepted: dict[str, dict] = {}
@@ -88,7 +90,9 @@ def prepare(source: Path, destination: Path, *, excluded_ids: set[str] | None = 
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             for key in sorted(accepted):
-                json.dump(accepted[key], stream, ensure_ascii=False, separators=(",", ":"))
+                json.dump(
+                    accepted[key], stream, ensure_ascii=False, separators=(",", ":")
+                )
                 stream.write("\n")
         os.replace(temporary, destination)
     except BaseException:
@@ -100,13 +104,16 @@ def prepare(source: Path, destination: Path, *, excluded_ids: set[str] | None = 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--output", type=Path, default=Path("data/processed/smoltalk_chat"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("data/processed/smoltalk_chat")
+    )
     args = parser.parse_args()
     validation_count, validation_ids = prepare(
         args.input / "validation.jsonl", args.output / "validation.jsonl"
     )
     train_count, _ = prepare(
-        args.input / "train.jsonl", args.output / "train.jsonl",
+        args.input / "train.jsonl",
+        args.output / "train.jsonl",
         excluded_ids=validation_ids,
     )
     print(json.dumps({"train": train_count, "validation": validation_count}))

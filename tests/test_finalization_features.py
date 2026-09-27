@@ -1,11 +1,10 @@
 import struct
 from pathlib import Path
 
-import pytest
 import torch
 
 from inference.quantized_formats import export_gguf
-from schema.grammar import GrammarConstraint, GrammarSpec, GrammarValidationError
+from schema.grammar import GrammarConstraint, GrammarSpec
 from serving.schemas import GenerateRequest
 
 
@@ -22,12 +21,18 @@ def test_real_gguf_v3_writer(tmp_path: Path):
 
 
 def test_grammar_constraint():
-    grammar = GrammarConstraint(GrammarSpec('''start: "hello" "/" WORD\n%import common.WORD\n%import common.WS\n%ignore WS'''))
+    grammar = GrammarConstraint(
+        GrammarSpec(
+            """start: "hello" "/" WORD\n%import common.WORD\n%import common.WS\n%ignore WS"""
+        )
+    )
     assert grammar.accepts("hello/world")
     assert not grammar.accepts("goodbye/world")
 
 
 def test_generate_request_cache_context_is_backward_compatible():
-    request = GenerateRequest(prompt="hello", temperature=0, tenant_id="tenant-a", route="/v1/chat")
+    request = GenerateRequest(
+        prompt="hello", temperature=0, tenant_id="tenant-a", route="/v1/chat"
+    )
     assert request.tenant_id == "tenant-a"
     assert request.route == "/v1/chat"

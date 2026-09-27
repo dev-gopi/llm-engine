@@ -35,16 +35,35 @@ def test_fit_evaluate_checkpoint_and_resume(tmp_path) -> None:
     loss_fn = CausalLanguageModelLoss(shift_labels=True)
     trainer = Trainer(model, optimizer, loss_fn, scheduler=scheduler, ema=ema)
     evaluator = Evaluator(model, loss_fn=loss_fn)
-    history = trainer.fit(make_loader(), epochs=1, evaluator=evaluator, validation_dataloader=make_loader(), log_every=0)
+    history = trainer.fit(
+        make_loader(),
+        epochs=1,
+        evaluator=evaluator,
+        validation_dataloader=make_loader(),
+        log_every=0,
+    )
     assert history[-1]["tokens"] == 5
     assert history[-1]["perplexity"] > 0
 
-    path = save_checkpoint(tmp_path / "model.pt", model, optimizer=optimizer, scheduler=scheduler, ema=ema, step=trainer.global_step)
+    path = save_checkpoint(
+        tmp_path / "model.pt",
+        model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        ema=ema,
+        step=trainer.global_step,
+    )
     restored = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     restored_optimizer = build_adamw(restored)
     restored_scheduler = Scheduler(restored_optimizer, warmup_steps=0, total_steps=2)
     restored_ema = EMA(restored)
-    state = load_checkpoint(path, restored, optimizer=restored_optimizer, scheduler=restored_scheduler, ema=restored_ema)
+    state = load_checkpoint(
+        path,
+        restored,
+        optimizer=restored_optimizer,
+        scheduler=restored_scheduler,
+        ema=restored_ema,
+    )
     assert state["step"] == 1
     assert restored_ema.num_updates == 1
     assert restored(torch.tensor([[1, 2]])).shape == (1, 2, 16)
@@ -84,7 +103,9 @@ def test_checkpoint_can_apply_ema_weights(tmp_path) -> None:
 def test_checkpoint_skips_empty_disabled_scaler_state(tmp_path) -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     disabled_scaler = torch.amp.GradScaler("cuda", enabled=False)
-    path = save_checkpoint(tmp_path / "disabled-scaler.pt", model, scaler=disabled_scaler)
+    path = save_checkpoint(
+        tmp_path / "disabled-scaler.pt", model, scaler=disabled_scaler
+    )
 
     class FreshEnabledScaler:
         def load_state_dict(self, _state):
@@ -104,7 +125,9 @@ def test_evaluator_uses_bf16_autocast_and_restores_training_mode() -> None:
         return original_forward(*args, **kwargs)
 
     model.forward = recording_forward
-    metrics = Evaluator(model, device="cpu", mixed_precision="bf16").evaluate(make_loader())
+    metrics = Evaluator(model, device="cpu", mixed_precision="bf16").evaluate(
+        make_loader()
+    )
 
     assert observed and all(observed)
     assert metrics["tokens"] == 5
@@ -119,7 +142,9 @@ def test_evaluator_does_not_update_training_state() -> None:
         parameter.grad = torch.ones_like(parameter)
 
     parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
-    gradients_before = [parameter.grad.detach().clone() for parameter in model.parameters()]
+    gradients_before = [
+        parameter.grad.detach().clone() for parameter in model.parameters()
+    ]
     optimizer_before = optimizer.state_dict()
     grad_modes = []
     original_forward = model.forward
@@ -143,8 +168,11 @@ def test_evaluator_does_not_update_training_state() -> None:
 
 def test_evaluator_validates_and_falls_back_from_cpu_fp16() -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
-    assert Evaluator(model, device="cpu", mixed_precision="fp16").mixed_precision == "none"
+    assert (
+        Evaluator(model, device="cpu", mixed_precision="fp16").mixed_precision == "none"
+    )
     import pytest
+
     with pytest.raises(ValueError, match="mixed_precision"):
         Evaluator(model, mixed_precision="fp8")
 
@@ -160,8 +188,12 @@ def test_evaluator_caps_batches_and_logs_progress() -> None:
 
     assert metrics["batches"] == 2
     messages = [call.args[0] % call.args[1:] for call in log_info.call_args_list]
-    assert any("validation_progress name=chat batches=1/2" in message for message in messages)
-    assert any("validation_progress name=chat batches=2/2" in message for message in messages)
+    assert any(
+        "validation_progress name=chat batches=1/2" in message for message in messages
+    )
+    assert any(
+        "validation_progress name=chat batches=2/2" in message for message in messages
+    )
 
 
 def test_trainer_applies_validation_limit_to_each_domain() -> None:
@@ -171,16 +203,25 @@ def test_trainer_applies_validation_limit_to_each_domain() -> None:
 
         def evaluate(self, _loader, **kwargs):
             self.calls.append(kwargs)
-            return {"loss": 2.0, "cross_entropy": 2.0, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": 2.0,
+                "cross_entropy": 2.0,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     evaluator = RecordingEvaluator()
     Trainer(model, build_adamw(model)).fit(
-        make_loader(), epochs=1, evaluator=evaluator,
+        make_loader(),
+        epochs=1,
+        evaluator=evaluator,
         validation_dataloader={"chat": make_loader(), "math": make_loader()},
         validation_weights={"chat": 0.5, "math": 0.5},
-        validation_max_batches=250, validation_progress_every=25,
+        validation_max_batches=250,
+        validation_progress_every=25,
         log_every=0,
     )
 
@@ -191,16 +232,27 @@ def test_trainer_applies_validation_limit_to_each_domain() -> None:
 
 
 def test_domain_validation_uses_explicit_capability_weights() -> None:
-    metrics = aggregate_domain_metrics({
-        "tinystories": {
-            "loss": 1.5, "cross_entropy": 1.4, "z_loss": 1.0,
-            "perplexity": 0.0, "tokens": 1000, "batches": 10,
+    metrics = aggregate_domain_metrics(
+        {
+            "tinystories": {
+                "loss": 1.5,
+                "cross_entropy": 1.4,
+                "z_loss": 1.0,
+                "perplexity": 0.0,
+                "tokens": 1000,
+                "batches": 10,
+            },
+            "wikitext_103": {
+                "loss": 3.5,
+                "cross_entropy": 3.4,
+                "z_loss": 3.0,
+                "perplexity": 0.0,
+                "tokens": 10,
+                "batches": 2,
+            },
         },
-        "wikitext_103": {
-            "loss": 3.5, "cross_entropy": 3.4, "z_loss": 3.0,
-            "perplexity": 0.0, "tokens": 10, "batches": 2,
-        },
-    }, {"tinystories": 0.35, "wikitext_103": 0.65})
+        {"tinystories": 0.35, "wikitext_103": 0.65},
+    )
 
     assert metrics["loss"] == pytest.approx(2.8)
     assert metrics["cross_entropy"] == pytest.approx(2.7)
@@ -222,8 +274,11 @@ def test_early_stopping_tracks_best_validation_epoch() -> None:
     trainer = Trainer(model, optimizer)
     best_epochs = []
     history = trainer.fit(
-        make_loader(), epochs=5, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), log_every=0,
+        make_loader(),
+        epochs=5,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        log_every=0,
         early_stopping_patience=2,
         best_checkpoint_callback=lambda _trainer, epoch: best_epochs.append(epoch),
     )
@@ -240,20 +295,29 @@ def test_validation_plateau_reduces_remaining_learning_rate_curve() -> None:
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
-    scheduler = Scheduler(
-        optimizer, warmup_steps=0, total_steps=2, schedule="constant"
-    )
+    scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=2, schedule="constant")
     trainer = Trainer(model, optimizer, scheduler=scheduler)
 
     trainer.fit(
-        list(make_loader()) * 2, epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
-        validation_lr_decay_factor=0.5, validation_lr_patience=1,
+        list(make_loader()) * 2,
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        evaluate_every=1,
+        log_every=0,
+        validation_lr_decay_factor=0.5,
+        validation_lr_patience=1,
         validation_lr_min_scale=0.25,
     )
 
@@ -269,8 +333,14 @@ def test_validation_lr_adaptation_can_be_disabled() -> None:
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -278,9 +348,14 @@ def test_validation_lr_adaptation_can_be_disabled() -> None:
     trainer = Trainer(model, optimizer, scheduler=scheduler)
 
     trainer.fit(
-        list(make_loader()) * 2, epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
-        validation_lr_adaptation_enabled=False, validation_lr_decay_factor=0.5,
+        list(make_loader()) * 2,
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        evaluate_every=1,
+        log_every=0,
+        validation_lr_adaptation_enabled=False,
+        validation_lr_decay_factor=0.5,
     )
 
     assert trainer.epochs_without_improvement == 1
@@ -303,8 +378,14 @@ def test_validation_lr_decay_spacing_survives_resume() -> None:
 def test_validation_lr_decay_respects_minimum_step_spacing() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):
-            return {"loss": 2.0, "cross_entropy": 2.0, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": 2.0,
+                "cross_entropy": 2.0,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -312,10 +393,16 @@ def test_validation_lr_decay_respects_minimum_step_spacing() -> None:
     trainer = Trainer(model, optimizer, scheduler=scheduler)
 
     trainer.fit(
-        list(make_loader()) * 4, epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
-        validation_lr_decay_factor=0.5, validation_lr_patience=1,
-        validation_lr_min_scale=0.1, validation_lr_min_steps_between_decays=2,
+        list(make_loader()) * 4,
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        evaluate_every=1,
+        log_every=0,
+        validation_lr_decay_factor=0.5,
+        validation_lr_patience=1,
+        validation_lr_min_scale=0.1,
+        validation_lr_min_steps_between_decays=2,
     )
 
     assert scheduler.validation_scale == pytest.approx(0.25)
@@ -328,8 +415,14 @@ def test_generation_accuracy_does_not_block_loss_best_checkpoint() -> None:
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
@@ -337,11 +430,17 @@ def test_generation_accuracy_does_not_block_loss_best_checkpoint() -> None:
     accuracies = iter([0.05, 0.25, 0.25])
 
     trainer.fit(
-        list(make_loader()) * 2, epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        list(make_loader()) * 2,
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        evaluate_every=1,
+        log_every=0,
         validation_callback=lambda *_args: {"accuracy": next(accuracies)},
         best_checkpoint_min_generation_accuracy=0.20,
-        best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
+        best_checkpoint_callback=lambda current, _epoch: saved.append(
+            current.global_step
+        ),
     )
 
     assert saved == [1, 2]
@@ -351,21 +450,34 @@ def test_generation_accuracy_does_not_block_loss_best_checkpoint() -> None:
 def test_retention_regression_does_not_block_loss_best_checkpoint() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):
-            return {"loss": 1.0, "cross_entropy": 1.0, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": 1.0,
+                "cross_entropy": 1.0,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
     saved = []
 
     trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        make_loader(),
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        evaluate_every=1,
+        log_every=0,
         validation_callback=lambda *_args: {
-            "accuracy": 0.9, "retention_passed": False,
+            "accuracy": 0.9,
+            "retention_passed": False,
         },
         best_checkpoint_min_generation_accuracy=0.20,
-        best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
+        best_checkpoint_callback=lambda current, _epoch: saved.append(
+            current.global_step
+        ),
     )
 
     assert saved == [1]
@@ -379,17 +491,26 @@ def test_chat_control_and_domain_gate_reject_hidden_regression() -> None:
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
     saved = []
     trainer.fit(
-        list(make_loader()) * 2, epochs=1, evaluator=DomainEvaluator(),
+        list(make_loader()) * 2,
+        epochs=1,
+        evaluator=DomainEvaluator(),
         validation_dataloader={"chat": make_loader(), "math": make_loader()},
         validation_weights={"chat": 0.5, "math": 0.5},
-        evaluate_every=1, log_every=0,
+        evaluate_every=1,
+        log_every=0,
         validation_control_domain="chat",
         best_checkpoint_domain_max_regression={"chat": 0.02},
         best_checkpoint_callback=lambda current, _epoch: saved.append(
@@ -410,19 +531,31 @@ def test_step_zero_validation_is_the_domain_retention_baseline() -> None:
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
     saved = []
     history = trainer.fit(
-        make_loader(), epochs=1, evaluator=DomainEvaluator(),
+        make_loader(),
+        epochs=1,
+        evaluator=DomainEvaluator(),
         validation_dataloader={"chat": make_loader(), "knowledge": make_loader()},
         validation_weights={"chat": 0.5, "knowledge": 0.5},
-        validation_evaluate_at_start=True, evaluate_every=1, log_every=0,
+        validation_evaluate_at_start=True,
+        evaluate_every=1,
+        log_every=0,
         best_checkpoint_domain_max_regression={"knowledge": 0.01},
-        best_checkpoint_callback=lambda current, _epoch: saved.append(current.global_step),
+        best_checkpoint_callback=lambda current, _epoch: saved.append(
+            current.global_step
+        ),
     )
 
     assert history[0]["initial_validation"] is True
@@ -434,9 +567,7 @@ def test_step_zero_validation_is_the_domain_retention_baseline() -> None:
 def test_validation_lr_scale_round_trips_in_scheduler_checkpoint() -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
-    scheduler = Scheduler(
-        optimizer, warmup_steps=0, total_steps=4, schedule="constant"
-    )
+    scheduler = Scheduler(optimizer, warmup_steps=0, total_steps=4, schedule="constant")
     scheduler.reduce_after_validation(0.5, min_scale=0.25)
 
     restored_optimizer = build_adamw(model, learning_rate=1e-3)
@@ -462,8 +593,14 @@ def test_periodic_validation_saves_best_checkpoint_immediately() -> None:
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -471,8 +608,12 @@ def test_periodic_validation_saves_best_checkpoint_immediately() -> None:
     saved = []
 
     trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), log_every=0, evaluate_every=1,
+        make_loader(),
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        log_every=0,
+        evaluate_every=1,
         best_checkpoint_callback=lambda current, epoch: saved.append(
             (current.global_step, epoch, current.best_validation_loss)
         ),
@@ -485,17 +626,27 @@ def test_periodic_validation_saves_best_checkpoint_immediately() -> None:
 def test_initial_validation_can_save_a_guaranteed_baseline_checkpoint() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):
-            return {"loss": 2.5, "cross_entropy": 2.5, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": 2.5,
+                "cross_entropy": 2.5,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
     saved = []
 
     history = trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), validation_evaluate_at_start=True,
-        save_initial_best_checkpoint=True, log_every=0,
+        make_loader(),
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        validation_evaluate_at_start=True,
+        save_initial_best_checkpoint=True,
+        log_every=0,
         best_checkpoint_min_generation_accuracy=1.0,
         best_checkpoint_callback=lambda current, epoch: saved.append(
             (current.global_step, epoch, current.best_validation_loss)
@@ -513,8 +664,14 @@ def test_initial_best_repairs_resumed_state_with_infinite_best_loss() -> None:
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
@@ -523,10 +680,13 @@ def test_initial_best_repairs_resumed_state_with_infinite_best_loss() -> None:
     saved = []
 
     trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedDomainEvaluator(),
+        make_loader(),
+        epochs=1,
+        evaluator=FixedDomainEvaluator(),
         validation_dataloader={"chat": make_loader(), "knowledge": make_loader()},
         validation_weights={"chat": 0.5, "knowledge": 0.5},
-        validation_evaluate_at_start=True, save_initial_best_checkpoint=True,
+        validation_evaluate_at_start=True,
+        save_initial_best_checkpoint=True,
         log_every=0,
         best_checkpoint_callback=lambda current, _epoch: saved.append(
             current.best_validation_loss
@@ -540,19 +700,30 @@ def test_initial_best_repairs_resumed_state_with_infinite_best_loss() -> None:
 def test_validation_callback_runs_after_periodic_validation() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):
-            return {"loss": 2.0, "cross_entropy": 2.0, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": 2.0,
+                "cross_entropy": 2.0,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
     observed = []
 
     history = trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), log_every=0, evaluate_every=1,
-        validation_callback=lambda current, epoch, metrics, domains: observed.append(
-            (current.global_step, epoch, metrics["loss"], domains)
-        ) or {"accuracy": 0.5},
+        make_loader(),
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        log_every=0,
+        evaluate_every=1,
+        validation_callback=lambda current, epoch, metrics, domains: (
+            observed.append((current.global_step, epoch, metrics["loss"], domains))
+            or {"accuracy": 0.5}
+        ),
     )
 
     assert observed[0] == (1, 0, 2.0, {})
@@ -566,8 +737,14 @@ def test_periodic_latest_checkpoint_contains_same_step_validation_state() -> Non
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -575,9 +752,13 @@ def test_periodic_latest_checkpoint_contains_same_step_validation_state() -> Non
     latest_states = []
 
     trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), log_every=0,
-        evaluate_every=1, checkpoint_every=1,
+        make_loader(),
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        log_every=0,
+        evaluate_every=1,
+        checkpoint_every=1,
         checkpoint_callback=lambda current, _epoch: latest_states.append(
             current.state_dict()
         ),
@@ -598,8 +779,14 @@ def test_best_checkpoint_keeps_small_improvement_below_early_stopping_delta() ->
 
         def evaluate(self, _loader):
             loss = next(self.losses)
-            return {"loss": loss, "cross_entropy": loss, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": loss,
+                "cross_entropy": loss,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -607,8 +794,12 @@ def test_best_checkpoint_keeps_small_improvement_below_early_stopping_delta() ->
     saved_losses = []
 
     trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), log_every=0, evaluate_every=1,
+        make_loader(),
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        log_every=0,
+        evaluate_every=1,
         early_stopping_min_delta=0.001,
         best_checkpoint_callback=lambda current, _epoch: saved_losses.append(
             current.best_validation_loss
@@ -623,8 +814,14 @@ def test_best_checkpoint_keeps_small_improvement_below_early_stopping_delta() ->
 def test_changed_validation_metric_resets_incompatible_best_baseline() -> None:
     class FixedEvaluator:
         def evaluate(self, _loader):
-            return {"loss": 2.8, "cross_entropy": 2.7, "perplexity": 1.0,
-                    "tokens": 1, "batches": 1, "z_loss": 0.0}
+            return {
+                "loss": 2.8,
+                "cross_entropy": 2.7,
+                "perplexity": 1.0,
+                "tokens": 1,
+                "batches": 1,
+                "z_loss": 0.0,
+            }
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     optimizer = build_adamw(model, learning_rate=1e-3)
@@ -634,8 +831,11 @@ def test_changed_validation_metric_resets_incompatible_best_baseline() -> None:
     saved = []
 
     trainer.fit(
-        make_loader(), epochs=1, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), log_every=0,
+        make_loader(),
+        epochs=1,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        log_every=0,
         validation_metric_name="dataset_weighted_v1",
         best_checkpoint_callback=lambda current, _epoch: saved.append(
             current.best_validation_loss
@@ -701,8 +901,13 @@ def test_resumed_progress_uses_full_epoch_length() -> None:
 
 def test_checkpoint_architecture_mismatch_error(tmp_path) -> None:
     import pytest
+
     model_small = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
-    path = save_checkpoint(tmp_path / "small.pt", model_small, metadata={"model_config": {"dim": 8, "layers": 1}})
+    path = save_checkpoint(
+        tmp_path / "small.pt",
+        model_small,
+        metadata={"model_config": {"dim": 8, "layers": 1}},
+    )
 
     model_large = MiniGPT(vocab_size=16, dim=16, layers=2, heads=2, max_pos=8)
     with pytest.raises(RuntimeError, match="architecture mismatch"):
@@ -721,6 +926,7 @@ def test_low_memory_checkpoint_load_preserves_weights_and_tying(tmp_path) -> Non
 
 def test_low_memory_checkpoint_requires_cpu_mapping(tmp_path) -> None:
     import pytest
+
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     path = save_checkpoint(tmp_path / "low-memory.pt", model)
     with pytest.raises(ValueError, match="map_location='cpu'"):
@@ -730,21 +936,22 @@ def test_low_memory_checkpoint_requires_cpu_mapping(tmp_path) -> None:
 def test_checkpoint_rejects_different_same_size_tokenizer(tmp_path) -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     path = save_checkpoint(
-        tmp_path / "model.pt", model,
+        tmp_path / "model.pt",
+        model,
         metadata={"tokenizer_fingerprint": "tokenizer-a"},
     )
 
     import pytest
+
     with pytest.raises(ValueError, match="tokenizer fingerprint"):
-        load_checkpoint(
-            path, model, expected_tokenizer_fingerprint="tokenizer-b"
-        )
+        load_checkpoint(path, model, expected_tokenizer_fingerprint="tokenizer-b")
 
 
 def test_checkpoint_loads_verified_append_only_vocabulary_extension(tmp_path) -> None:
     original = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     path = save_checkpoint(
-        tmp_path / "model.pt", original,
+        tmp_path / "model.pt",
+        original,
         metadata={"tokenizer_fingerprint": "base-tokenizer"},
     )
     extended = MiniGPT(vocab_size=19, dim=8, layers=1, heads=2, max_pos=8)
@@ -769,7 +976,9 @@ def test_checkpoint_expands_ema_for_append_only_vocabulary(tmp_path) -> None:
     ema = EMA(original, decay=0.9)
     expected_prefix = ema.shadow["tok.embedding.weight"].clone()
     path = save_checkpoint(
-        tmp_path / "model.pt", original, ema=ema,
+        tmp_path / "model.pt",
+        original,
+        ema=ema,
         metadata={"tokenizer_fingerprint": "base-tokenizer"},
     )
     extended = MiniGPT(vocab_size=19, dim=8, layers=1, heads=2, max_pos=8)
@@ -804,14 +1013,25 @@ def test_checkpoint_rng_state_loading(tmp_path) -> None:
 def test_evaluation_sum_and_mean_reductions_agree():
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     batches = [
-        {"input_ids": torch.tensor([[1, 2, 3, 4]]),
-         "labels": torch.tensor([[1, 2, 3, 4]])},
-        {"input_ids": torch.tensor([[2, 3, 4]]),
-         "labels": torch.tensor([[2, -100, 4]])},
+        {
+            "input_ids": torch.tensor([[1, 2, 3, 4]]),
+            "labels": torch.tensor([[1, 2, 3, 4]]),
+        },
+        {
+            "input_ids": torch.tensor([[2, 3, 4]]),
+            "labels": torch.tensor([[2, -100, 4]]),
+        },
     ]
-    results = [Evaluator(model, loss_fn=CausalLanguageModelLoss(
-        reduction=reduction, z_loss_coefficient=0.01,
-    )).evaluate(batches) for reduction in ("mean", "sum")]
+    results = [
+        Evaluator(
+            model,
+            loss_fn=CausalLanguageModelLoss(
+                reduction=reduction,
+                z_loss_coefficient=0.01,
+            ),
+        ).evaluate(batches)
+        for reduction in ("mean", "sum")
+    ]
     assert results[0] == pytest.approx(results[1])
 
 
@@ -823,11 +1043,13 @@ def test_train_step_reuses_loss_token_count_with_mask(monkeypatch):
         raise AssertionError("standard loss already counted the valid targets")
 
     monkeypatch.setattr(trainer, "_count_target_tokens", unexpected_recount)
-    value = trainer.train_step({
-        "input_ids": torch.tensor([[1, 2, 3, 4]]),
-        "labels": torch.tensor([[1, 2, -100, 4]]),
-        "loss_mask": torch.tensor([[1, 1, 1, 0]]),
-    })
+    value = trainer.train_step(
+        {
+            "input_ids": torch.tensor([[1, 2, 3, 4]]),
+            "labels": torch.tensor([[1, 2, -100, 4]]),
+            "loss_mask": torch.tensor([[1, 1, 1, 0]]),
+        }
+    )
     assert math.isfinite(value)
     assert trainer.tokens_processed == 1
 
@@ -838,11 +1060,15 @@ def test_custom_loss_keeps_tensor_contract_and_token_count():
         ignore_index = -100
 
         def forward(self, logits, labels, *, loss_mask=None):
-            return torch.nn.functional.cross_entropy(logits.flatten(0, 1), labels.flatten())
+            return torch.nn.functional.cross_entropy(
+                logits.flatten(0, 1), labels.flatten()
+            )
 
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
     trainer = Trainer(model, build_adamw(model), CustomLoss())
-    assert math.isfinite(trainer.train_step(torch.tensor([[1, 2]]), torch.tensor([[2, 3]])))
+    assert math.isfinite(
+        trainer.train_step(torch.tensor([[1, 2]]), torch.tensor([[2, 3]]))
+    )
     assert trainer.tokens_processed == 2
 
 
@@ -866,8 +1092,9 @@ def test_evaluator_reduces_metrics_before_host_conversion(monkeypatch):
 
 def test_log_timing_estimates_use_current_window_with_accumulation() -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
-    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3),
-                      gradient_accumulation_steps=2)
+    trainer = Trainer(
+        model, build_adamw(model, learning_rate=1e-3), gradient_accumulation_steps=2
+    )
     clock = [0.0]
 
     def train_step(_batch):
@@ -878,10 +1105,17 @@ def test_log_timing_estimates_use_current_window_with_accumulation() -> None:
         return 1.0
 
     trainer.train_step = train_step
-    with patch("training.trainer.time.perf_counter", side_effect=lambda: clock[0]), \
-            patch("training.trainer.logger.info") as log_info:
-        trainer.fit([{}] * 8, epochs=1, log_every=1, checkpoint_every=2,
-                    checkpoint_callback=lambda *_: None)
+    with (
+        patch("training.trainer.time.perf_counter", side_effect=lambda: clock[0]),
+        patch("training.trainer.logger.info") as log_info,
+    ):
+        trainer.fit(
+            [{}] * 8,
+            epochs=1,
+            log_every=1,
+            checkpoint_every=2,
+            checkpoint_callback=lambda *_: None,
+        )
     messages = [call.args[0] % call.args[1:] for call in log_info.call_args_list]
     assert "log_interval_seconds=4.00" in messages[0]
     assert "seconds_per_step=4.000" in messages[0]
@@ -889,7 +1123,9 @@ def test_log_timing_estimates_use_current_window_with_accumulation() -> None:
     assert "next_checkpoint_eta_seconds=4.0" in messages[0]
     assert "next_validation_eta_seconds=disabled" in messages[0]
     assert "next_checkpoint_eta_seconds=0.0" in messages[1]
-    assert any("checkpoint kind=latest step=2 duration_seconds=0.00" in m for m in messages)
+    assert any(
+        "checkpoint kind=latest step=2 duration_seconds=0.00" in m for m in messages
+    )
 
 
 def test_log_interval_seconds_uses_wall_clock_cadence() -> None:
@@ -904,21 +1140,28 @@ def test_log_interval_seconds_uses_wall_clock_cadence() -> None:
         return 1.0
 
     trainer.train_step = train_step
-    with patch("training.trainer.time.perf_counter", side_effect=lambda: clock[0]), \
-            patch("training.trainer.logger.info") as log_info:
+    with (
+        patch("training.trainer.time.perf_counter", side_effect=lambda: clock[0]),
+        patch("training.trainer.logger.info") as log_info,
+    ):
         trainer.fit([{}] * 6, epochs=1, log_every=1, log_interval_seconds=300)
 
     messages = [call.args[0] % call.args[1:] for call in log_info.call_args_list]
-    training_messages = [message for message in messages if message.startswith("epoch=")]
+    training_messages = [
+        message for message in messages if message.startswith("epoch=")
+    ]
     assert len(training_messages) == 1
     assert "step=5" in training_messages[0]
     assert "log_interval_seconds=300.00" in training_messages[0]
 
 
-@pytest.mark.parametrize('patience,losses,stop_step', [
-    (1, [2.0, 2.1], 2),
-    (2, [2.0, 2.1, 1.8, 1.9, 2.0], 5),
-])
+@pytest.mark.parametrize(
+    "patience,losses,stop_step",
+    [
+        (1, [2.0, 2.1], 2),
+        (2, [2.0, 2.1, 1.8, 1.9, 2.0], 5),
+    ],
+)
 def test_periodic_early_stopping_preserves_resume_position(patience, losses, stop_step):
     class FixedEvaluator:
         def __init__(self):
@@ -931,19 +1174,25 @@ def test_periodic_early_stopping_preserves_resume_position(patience, losses, sto
     trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
     saved, best = [], []
     history = trainer.fit(
-        list(make_loader()) * 8, epochs=3, evaluator=FixedEvaluator(),
-        validation_dataloader=make_loader(), evaluate_every=1, log_every=0,
+        list(make_loader()) * 8,
+        epochs=3,
+        evaluator=FixedEvaluator(),
+        validation_dataloader=make_loader(),
+        evaluate_every=1,
+        log_every=0,
         early_stopping_patience=patience,
         checkpoint_callback=lambda current, _epoch: saved.append(current.state_dict()),
-        best_checkpoint_callback=lambda current, _epoch: best.append(current.best_validation_loss),
+        best_checkpoint_callback=lambda current, _epoch: best.append(
+            current.best_validation_loss
+        ),
     )
     assert trainer.stopped_early
     assert trainer.global_step == stop_step
     assert trainer.current_epoch == 0
     assert trainer.batch_in_epoch == stop_step
     assert len(history) == stop_step
-    assert saved[-1]['batch_in_epoch'] == stop_step
-    assert saved[-1]['epochs_without_improvement'] == patience
+    assert saved[-1]["batch_in_epoch"] == stop_step
+    assert saved[-1]["epochs_without_improvement"] == patience
     assert best[-1] == min(losses)
 
 
@@ -961,14 +1210,25 @@ def test_evaluator_selects_ema_and_restores_training_weights():
 
 def test_reasoning_training_policy_requires_explicit_loss_mask() -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
-    trainer = Trainer(model, build_adamw(model), reasoning_trace_policy="assistant_only")
+    trainer = Trainer(
+        model, build_adamw(model), reasoning_trace_policy="assistant_only"
+    )
     with pytest.raises(ValueError, match="requires an explicit loss_mask"):
-        trainer.train_step({"input_ids": torch.tensor([[1, 2, 3]]), "labels": torch.tensor([[2, 3, 4]])})
+        trainer.train_step(
+            {
+                "input_ids": torch.tensor([[1, 2, 3]]),
+                "labels": torch.tensor([[2, 3, 4]]),
+            }
+        )
 
 
 def test_reasoning_training_policy_accepts_masked_sft_batch() -> None:
     model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
-    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3), reasoning_trace_policy="assistant_only")
+    trainer = Trainer(
+        model,
+        build_adamw(model, learning_rate=1e-3),
+        reasoning_trace_policy="assistant_only",
+    )
     batch = {
         "input_ids": torch.tensor([[1, 2, 3, 4]]),
         "labels": torch.tensor([[-100, -100, 3, 4]]),
@@ -979,18 +1239,30 @@ def test_reasoning_training_policy_accepts_masked_sft_batch() -> None:
 
 def test_reasoning_sft_profile_is_reproducible_and_covers_required_domains() -> None:
     import yaml
+
     config = yaml.safe_load(Path("configs/finetuning.reasoning.gpu.yaml").read_text())
     profile = config["reasoning_sft"]
     assert profile["schema_version"] == 1
     assert profile["trace_open"] == "<thinking>"
     assert profile["trace_close"] == "</thinking>"
     assert profile["allow_untraced_assistant_examples"] is False
-    assert set(profile["domains"]) == {"math", "code", "logic", "planning", "verification", "self_correction"}
+    assert set(profile["domains"]) == {
+        "math",
+        "code",
+        "logic",
+        "planning",
+        "verification",
+        "self_correction",
+    }
     assert math.isclose(sum(profile["weights"].values()), 1.0)
     assert config["reasoning_trace_policy"] == "assistant_only"
     assert config["seed"] == 20260921
-    paths = [Path(path) for path in [*config["train_files"], *config["validation_files"]]]
+    paths = [
+        Path(path) for path in [*config["train_files"], *config["validation_files"]]
+    ]
     if not all(path.is_file() for path in paths):
-        pytest.skip("reasoning-SFT fixtures are generated data and are not included in source checkouts")
+        pytest.skip(
+            "reasoning-SFT fixtures are generated data and are not included in source checkouts"
+        )
     for path in paths:
         assert (path.parent / "dataset-manifest.yaml").is_file()

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import sys
-# from pathlib import Path
+import argparse
+import os
 
+# from pathlib import Path
 # script_directory = str(Path(__file__).resolve().parent)
 # if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
 #     sys.path.pop(0)
@@ -12,10 +13,6 @@ import sys
 # This also ensures the project-local ``datasets`` package is selected over
 # the optional Hugging Face package with the same top-level name.
 import _bootstrap  # noqa: F401
-
-import argparse
-import os
-
 import uvicorn
 from dotenv import load_dotenv
 
@@ -55,7 +52,12 @@ def main() -> None:
     if args.config is not None:
         os.environ["GOPI_INFERENCE_CONFIG"] = args.config
     configure_logging(level=args.log_level)
-    logger.info("Starting serving backend on http://%s:%d (workers=%d)", args.host, args.port, args.workers)
+    logger.info(
+        "Starting serving backend on http://%s:%d (workers=%d)",
+        args.host,
+        args.port,
+        args.workers,
+    )
     uvicorn.run(
         "serving.api:app",
         host=args.host,

@@ -5,6 +5,7 @@ overlength chat, empty supervision, normalized exact duplicates, and held-out
 prompt overlap. Raw replay text is retained (the loader can truncate it).
 No semantic correctness or near-duplicate certification is implied.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,7 +45,7 @@ def has_valid_thinking_trace(messages) -> bool:
             return False
         start = content.index("<thinking>") + len("<thinking>")
         end = content.index("</thinking>")
-        if start >= end or not content[end + len("</thinking>"):].strip():
+        if start >= end or not content[end + len("</thinking>") :].strip():
             return False
     return True
 
@@ -52,8 +53,13 @@ def has_valid_thinking_trace(messages) -> bool:
 def record_key(record):
     messages = record.get("messages")
     if isinstance(messages, list):
-        text = "\n".join(m["content"] for m in messages if isinstance(m, dict)
-                         and m.get("role") == "user" and isinstance(m.get("content"), str))
+        text = "\n".join(
+            m["content"]
+            for m in messages
+            if isinstance(m, dict)
+            and m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+        )
     elif isinstance(record.get("prompt"), str):
         text = record["prompt"]
     else:
@@ -67,15 +73,26 @@ def record_key(record):
 def rejection_reason(record, tokenizer, max_length):
     messages = record.get("messages")
     if isinstance(record.get("prompt"), str) and isinstance(record.get("chosen"), str):
-        messages = [{"role": "user", "content": record["prompt"]},
-                    {"role": "assistant", "content": record["chosen"]}]
+        messages = [
+            {"role": "user", "content": record["prompt"]},
+            {"role": "assistant", "content": record["chosen"]},
+        ]
     if messages is not None:
-        if not isinstance(messages, list) or not messages or any(
-            not isinstance(m, dict) or m.get("role") not in {"system", "user", "assistant"}
-            or not isinstance(m.get("content"), str) or not m["content"].strip() for m in messages
+        if (
+            not isinstance(messages, list)
+            or not messages
+            or any(
+                not isinstance(m, dict)
+                or m.get("role") not in {"system", "user", "assistant"}
+                or not isinstance(m.get("content"), str)
+                or not m["content"].strip()
+                for m in messages
+            )
         ):
             return "invalid_chat"
-        if messages[-1]["role"] != "assistant" or not any(m["role"] == "user" for m in messages):
+        if messages[-1]["role"] != "assistant" or not any(
+            m["role"] == "user" for m in messages
+        ):
             return "incomplete_chat"
         if not has_valid_thinking_trace(messages):
             return "invalid_thinking_trace"
@@ -100,13 +117,19 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
     config = load_yaml(config_path)
     tokenizer_path = Path(tokenizer_path or config["runtime"]["tokenizer"])
     paths = list(dict.fromkeys([*config["train_files"], *config["validation_files"]]))
-    missing = [str(path) for path in [tokenizer_path, *map(Path, paths)] if not path.exists()]
+    missing = [
+        str(path) for path in [tokenizer_path, *map(Path, paths)] if not path.exists()
+    ]
     if missing:
         raise ValueError("required source artifacts unavailable: " + ", ".join(missing))
     if output.exists():
-        raise ValueError("output already exists; use a new directory to preserve prior evidence")
+        raise ValueError(
+            "output already exists; use a new directory to preserve prior evidence"
+        )
     tokenizer = Tokenizer.load(tokenizer_path)
-    names = {path: _mixture_name(path, config.get("dataset_weights", {})) for path in paths}
+    names = {
+        path: _mixture_name(path, config.get("dataset_weights", {})) for path in paths
+    }
     for split in ("train", "validation"):
         split_names = [names[p] for p in config[f"{split}_files"]]
         if len(set(split_names)) != len(split_names):
@@ -114,15 +137,24 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
     output.mkdir(parents=True)
     database = sqlite3.connect(output / "dedup.sqlite")
     database.execute("CREATE TABLE heldout (key TEXT PRIMARY KEY)")
-    database.execute("CREATE TABLE accepted (key TEXT, split TEXT, PRIMARY KEY (key, split))")
+    database.execute(
+        "CREATE TABLE accepted (key TEXT, split TEXT, PRIMARY KEY (key, split))"
+    )
     remapped = {}
-    summary = {"tokenizer_fingerprint": tokenizer.fingerprint, "source_config": str(config_path),
-               "max_sequence_length": config["max_sequence_length"], "files": [],
-               "limitations": "Normalized exact prompt/document deduplication; answers are not semantically verified."}
+    summary = {
+        "tokenizer_fingerprint": tokenizer.fingerprint,
+        "source_config": str(config_path),
+        "max_sequence_length": config["max_sequence_length"],
+        "files": [],
+        "limitations": "Normalized exact prompt/document deduplication; answers are not semantically verified.",
+    }
     try:
         heldout_paths = set(config["validation_files"])
-        heldout_paths.update(str(Path(p).with_name("test.jsonl")) for p in paths
-                             if Path(p).with_name("test.jsonl").is_file())
+        heldout_paths.update(
+            str(Path(p).with_name("test.jsonl"))
+            for p in paths
+            if Path(p).with_name("test.jsonl").is_file()
+        )
         for path in sorted(heldout_paths):
             for record in iter_records(path):
                 try:
@@ -132,7 +164,9 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
                 database.execute("INSERT OR IGNORE INTO heldout VALUES (?)", (key,))
         for path in cases:
             for record in iter_records(path):
-                database.execute("INSERT OR IGNORE INTO heldout VALUES (?)", (record_key(record),))
+                database.execute(
+                    "INSERT OR IGNORE INTO heldout VALUES (?)", (record_key(record),)
+                )
         database.commit()
         for split in ("validation", "train"):
             for path in config[f"{split}_files"]:
@@ -145,22 +179,32 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
                         stats["read"] += 1
                         try:
                             key = record_key(record)
-                            reason = rejection_reason(record, tokenizer, config["max_sequence_length"])
+                            reason = rejection_reason(
+                                record, tokenizer, config["max_sequence_length"]
+                            )
                         except (ValueError, TypeError, KeyError, IndexError):
                             reason = "invalid_record"
                         if reason:
                             stats[reason] += 1
                             continue
                         if any(
-                            m.get("role") == "assistant" and "<thinking>" in m.get("content", "")
+                            m.get("role") == "assistant"
+                            and "<thinking>" in m.get("content", "")
                             for m in record.get("messages", [])
                             if isinstance(m, dict)
                         ):
                             stats["thinking_traces"] += 1
-                        if split == "train" and database.execute("SELECT 1 FROM heldout WHERE key=?", (key,)).fetchone():
+                        if (
+                            split == "train"
+                            and database.execute(
+                                "SELECT 1 FROM heldout WHERE key=?", (key,)
+                            ).fetchone()
+                        ):
                             stats["heldout_overlap"] += 1
                             continue
-                        inserted = database.execute("INSERT OR IGNORE INTO accepted VALUES (?, ?)", (key, split))
+                        inserted = database.execute(
+                            "INSERT OR IGNORE INTO accepted VALUES (?, ?)", (key, split)
+                        )
                         if not inserted.rowcount:
                             stats["duplicate"] += 1
                             continue
@@ -169,12 +213,23 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
                         digest.update(line.encode())
                         stats["accepted"] += 1
                 database.commit()
-                summary["files"].append({"source": path, "output": str(destination),
-                                          "split": split, **dict(stats), "sha256": digest.hexdigest()})
+                summary["files"].append(
+                    {
+                        "source": path,
+                        "output": str(destination),
+                        "split": split,
+                        **dict(stats),
+                        "sha256": digest.hexdigest(),
+                    }
+                )
                 (output / "audit.json").write_text(json.dumps(summary, indent=2) + "\n")
-                print(f"{split} {names[path]}: {dict(stats)}", file=sys.stderr, flush=True)
+                print(
+                    f"{split} {names[path]}: {dict(stats)}", file=sys.stderr, flush=True
+                )
                 if not stats["accepted"]:
-                    raise ValueError(f"cleaning left no records for {path}; review the audit before training")
+                    raise ValueError(
+                        f"cleaning left no records for {path}; review the audit before training"
+                    )
                 remapped[path] = str(destination.resolve())
                 manifest = Path(path).parent / "dataset-manifest.yaml"
                 if manifest.exists():
@@ -182,11 +237,15 @@ def prepare(config_path: Path, output: Path, *, tokenizer_path=None, cases=()):
         for key in ("train_files", "validation_files"):
             config[key] = [remapped[path] for path in config[key]]
         if config.get("validation_domains"):
-            config["validation_domains"] = {domain: [remapped[path] for path in files]
-                                              for domain, files in config["validation_domains"].items()}
+            config["validation_domains"] = {
+                domain: [remapped[path] for path in files]
+                for domain, files in config["validation_domains"].items()
+            }
         config["runtime"]["tokenizer"] = str(tokenizer_path.resolve())
-        config["prepared_data"] = {"audit": str((output / "audit.json").resolve()),
-                                    "tokenizer_fingerprint": tokenizer.fingerprint}
+        config["prepared_data"] = {
+            "audit": str((output / "audit.json").resolve()),
+            "tokenizer_fingerprint": tokenizer.fingerprint,
+        }
         config["require_init_from"] = True
         config["require_prepared_data"] = True
         (output / "training.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
@@ -216,7 +275,11 @@ def refresh_training_config(config_path: Path, output: Path) -> Path:
         raise ValueError(
             "prepared audit does not cover configured sources: " + ", ".join(missing)
         )
-    missing_outputs = [remapped[path] for path in configured_paths if not Path(remapped[path]).is_file()]
+    missing_outputs = [
+        remapped[path]
+        for path in configured_paths
+        if not Path(remapped[path]).is_file()
+    ]
     if missing_outputs:
         raise ValueError("prepared files are missing: " + ", ".join(missing_outputs))
     for key in ("train_files", "validation_files"):
@@ -248,17 +311,25 @@ def main():
     parser.add_argument("--tokenizer", type=Path)
     parser.add_argument("--cases", type=Path, action="append", default=[])
     parser.add_argument(
-        "--refresh-config", action="store_true",
+        "--refresh-config",
+        action="store_true",
         help="reuse audited prepared files and update only training.yaml from the source config",
     )
     args = parser.parse_args()
     if args.refresh_config:
         if args.tokenizer or args.cases:
-            parser.error("--refresh-config cannot be combined with --tokenizer or --cases")
+            parser.error(
+                "--refresh-config cannot be combined with --tokenizer or --cases"
+            )
         destination = refresh_training_config(args.training_config, args.output)
         print(f"Refreshed training config: {destination}")
         return
-    prepare(args.training_config, args.output, tokenizer_path=args.tokenizer, cases=args.cases)
+    prepare(
+        args.training_config,
+        args.output,
+        tokenizer_path=args.tokenizer,
+        cases=args.cases,
+    )
     print(f"Prepared training config: {args.output / 'training.yaml'}")
 
 
