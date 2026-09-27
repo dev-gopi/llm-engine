@@ -1,3 +1,4 @@
+distributed_strategy: ddp
 batch_size: 1
 iterations: 2
 updates_per_rollout: 1

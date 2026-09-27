@@ -78,11 +78,9 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
         raise ValueError("tensor parallelism requires a language-model output head")
     first = model.blocks[0].attn
     validate_tensor_parallel_size(size, attention_heads=first.heads, kv_heads=first.kv_heads)
-    if any(hasattr(block.ffn, "experts") for block in model.blocks):
-        raise NotImplementedError(
-            "MoE tensor parallelism requires expert-parallel checkpoint loading; "
-            "use one device for small MoE models for now"
-        )
+    # Sparse-MoE routers stay replicated while every expert FFN is tensor-sharded.
+    # This composes cleanly with expert parallelism: EP chooses which experts live on
+    # a rank and TP shards the matrix multiplications of each locally resident expert.
     for block in model.blocks:
         attn = block.attn
         old_heads, old_kv, head_dim = attn.heads, attn.kv_heads, attn.head_dim
@@ -106,18 +104,25 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
         attn.tensor_parallel_group = group
 
         ffn = block.ffn
-        old_hidden = ffn.hidden_dim
-        if old_hidden % size:
-            raise ValueError("FFN hidden size must be divisible by tensor parallel size")
-        local_hidden = old_hidden // size
-        start, stop = rank * local_hidden, (rank + 1) * local_hidden
-        dev = ffn.in_proj.weight.device
-        rows = (torch.cat((torch.arange(start, stop, device=dev),
-                           torch.arange(old_hidden + start, old_hidden + stop, device=dev)))
-                if ffn.is_gated else torch.arange(start, stop, device=dev))
-        ffn.in_proj = _rows(ffn.in_proj, rows)
-        ffn.out_proj = _columns(ffn.out_proj, start, stop, size)
-        ffn.hidden_dim, ffn.tensor_parallel_group = local_hidden, group
+        ffns = list(ffn.experts) if hasattr(ffn, "experts") else [ffn]
+        for expert in ffns:
+            old_hidden = expert.hidden_dim
+            if old_hidden % size:
+                raise ValueError("FFN hidden size must be divisible by tensor parallel size")
+            local_hidden = old_hidden // size
+            start, stop = rank * local_hidden, (rank + 1) * local_hidden
+            dev = expert.in_proj.weight.device
+            rows = (torch.cat((torch.arange(start, stop, device=dev),
+                               torch.arange(old_hidden + start, old_hidden + stop, device=dev)))
+                    if expert.is_gated else torch.arange(start, stop, device=dev))
+            expert.in_proj = _rows(expert.in_proj, rows)
+            expert.out_proj = _columns(expert.out_proj, start, stop, size)
+            expert.hidden_dim, expert.tensor_parallel_group = local_hidden, group
+        if hasattr(ffn, "experts"):
+            # Expose the local expert hidden width for diagnostics without changing
+            # router or checkpoint semantics.
+            ffn.hidden_dim = ffns[0].hidden_dim
+            ffn.tensor_parallel_group = group
 
     model.head = VocabParallelLinear(model.head, rank, size, group)
     model.tensor_parallel_size = size

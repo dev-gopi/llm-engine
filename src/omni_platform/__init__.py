@@ -27,6 +27,12 @@ from .speech import (
     SpeechToSpeechPipeline,
 )
 from .video_understanding import VideoUnderstandingPipeline
+from .native_multimodal import (
+    CoquiXTTSVoiceCloningProvider,
+    HuggingFaceAudioUnderstandingProvider,
+    HuggingFaceVideoUnderstandingProvider,
+    NativeLatentImageProvider,
+)
 
 __all__ = [
     "ArtifactRecord", "LocalArtifactStorage", "S3ArtifactStorage",
@@ -39,4 +45,6 @@ __all__ = [
     "Metrics", "ModelNotAvailableError", "OmniError", "ProviderUnavailableError",
     "ResourceRequest", "SpeechConfig", "SpeechToSpeechPipeline",
     "UnsupportedCapabilityError", "VideoUnderstandingPipeline",
+    "CoquiXTTSVoiceCloningProvider", "HuggingFaceAudioUnderstandingProvider",
+    "HuggingFaceVideoUnderstandingProvider", "NativeLatentImageProvider",
 ]

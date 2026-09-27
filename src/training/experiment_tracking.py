@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 class Tracker:
-    def log(self, metrics: dict[str, float], step: int | None = None) -> None: raise NotImplementedError
+    def log(self, metrics: dict[str, float], step: int | None = None) -> None: pass
     def close(self) -> None: pass
 
 class NullTracker(Tracker):

@@ -66,6 +66,8 @@ class GenerateRequest(StrictSchema):
     )
 
     response_format: str | dict[str, Any] | None = None
+    grammar: str | None = Field(default=None, max_length=65_536)
+    grammar_start: str = Field(default="start", min_length=1, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
     web_search: bool = False
     rag: bool = False
@@ -111,6 +113,11 @@ class GenerateRequest(StrictSchema):
     no_repeat_ngram_size: int = Field(default=3, ge=0, le=16)
     min_tokens: int = Field(default=1, ge=0, le=1_000_000)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
+    decoding_strategy: Literal["sample", "beam", "speculative"] = "sample"
+    num_beams: int = Field(default=4, ge=2, le=32)
+    length_penalty: float = Field(default=1.0, gt=0.0, le=10.0, allow_inf_nan=False)
+    draft_model_id: str | None = Field(default=None, min_length=1, max_length=128)
+    speculative_draft_tokens: int = Field(default=4, ge=1, le=32)
 
     # Semantic-cache controls. They are inert unless semantic caching is enabled.
     cache_control: Literal["default", "no-store"] = "default"
@@ -159,9 +166,23 @@ class GenerateRequest(StrictSchema):
         return normalized
 
     @model_validator(mode="after")
+    def validate_grammar(self):
+        if self.grammar and isinstance(self.response_format, dict):
+            raise ValueError("grammar and structured response_format cannot be combined")
+        return self
+
+    @model_validator(mode="after")
     def validate_logprobs(self):
         if self.top_logprobs and not self.logprobs:
             raise ValueError("top_logprobs requires logprobs=true")
+        return self
+
+    @model_validator(mode="after")
+    def validate_decoding_strategy(self):
+        if self.decoding_strategy == "speculative" and not self.draft_model_id:
+            raise ValueError("speculative decoding requires draft_model_id")
+        if self.decoding_strategy != "sample" and self.logprobs:
+            raise ValueError("beam/speculative decoding do not currently support logprobs")
         return self
 
     @field_validator("tools")
@@ -398,6 +419,8 @@ class OpenAIChatCompletionRequest(BaseModel):
 
     stream: bool = False
     response_format: OpenAIResponseFormat | None = None
+    grammar: str | None = Field(default=None, max_length=65_536)
+    grammar_start: str = Field(default="start", min_length=1, max_length=128, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
 
     # Gopi serving extensions. They make the browser UI and OpenAI-compatible
@@ -452,6 +475,11 @@ class OpenAIChatCompletionRequest(BaseModel):
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, allow_inf_nan=False)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, allow_inf_nan=False)
     n: int = Field(default=1, ge=1, le=16)
+    decoding_strategy: Literal["sample", "beam", "speculative"] = "sample"
+    num_beams: int = Field(default=4, ge=2, le=32)
+    length_penalty: float = Field(default=1.0, gt=0.0, le=10.0, allow_inf_nan=False)
+    draft_model_id: str | None = Field(default=None, min_length=1, max_length=128)
+    speculative_draft_tokens: int = Field(default=4, ge=1, le=32)
     logprobs: bool = False
     top_logprobs: int = Field(default=0, ge=0, le=20)
     user: str | None = Field(
@@ -465,6 +493,12 @@ class OpenAIChatCompletionRequest(BaseModel):
     )
 
     tool_choice: OpenAIToolChoice = "auto"
+
+    @model_validator(mode="after")
+    def validate_grammar_contract(self):
+        if self.grammar and self.response_format is not None:
+            raise ValueError("grammar and response_format cannot be combined")
+        return self
 
     @model_validator(mode="after")
     def validate_tool_choice_contract(self):
@@ -481,6 +515,10 @@ class OpenAIChatCompletionRequest(BaseModel):
             raise ValueError("top_logprobs requires logprobs=true")
         if self.n > 1 and self.session_id is not None:
             raise ValueError("n > 1 cannot be combined with session_id because only one assistant turn can be committed")
+        if self.decoding_strategy == "speculative" and not self.draft_model_id:
+            raise ValueError("speculative decoding requires draft_model_id")
+        if self.decoding_strategy != "sample" and self.logprobs:
+            raise ValueError("beam/speculative decoding do not currently support logprobs")
         return self
 
     @field_validator("messages")
@@ -628,10 +666,14 @@ class OpenAIChatCompletionRequest(BaseModel):
             no_repeat_ngram_size=self.no_repeat_ngram_size,
             min_tokens=self.min_tokens,
             seed=self.seed,
+            decoding_strategy=self.decoding_strategy, num_beams=self.num_beams,
+            length_penalty=self.length_penalty, draft_model_id=self.draft_model_id,
+            speculative_draft_tokens=self.speculative_draft_tokens,
             stop=stops,
             chat_tools=self.tools or [],
             tool_choice=self.tool_choice,
             response_format=(self.response_format.model_dump(by_alias=True, mode="json") if self.response_format else None),
+            grammar=self.grammar, grammar_start=self.grammar_start,
             reasoning_effort=self.reasoning_effort,
             web_search=self.web_search,
             rag=self.rag,

@@ -105,34 +105,18 @@ class UnavailableBackend:
         negative = cache.negative_get(key)
         if negative is not None:
             raise ServingError(f"cached backend error: {negative.error_type}")
-        started = time.monotonic()
+        cached, _similarity = await cache.lookup(request, context, key)
+        if cached is not None:
+            return cached
         async def work():
             result = await self.backend.generate(request)
-            if cache.redis is not None:
-                payload = {
-                    "text": result.text, "prompt_tokens": result.prompt_tokens,
-                    "completion_tokens": result.completion_tokens,
-                    "finish_reason": result.finish_reason.value,
-                    "cached_tokens": result.cached_tokens,
-                    "reasoning_tokens": result.reasoning_tokens,
-                    "structured_output_valid": result.structured_output_valid,
-                    "structured_output_error": result.structured_output_error,
-                    "reasoning_content": result.reasoning_content,
-                    "tool_calls": list(result.tool_calls),
-                    "tool_call_error": result.tool_call_error,
-                    "logprobs": list(result.logprobs),
-                }
-                # A distributed cache must publish the owner's result before
-                # releasing the single-flight lock so followers can consume it.
-                await cache.redis.put(context.tenant, key, payload, cache.swr_seconds)
+            await cache.store(request, context, key, result)
             return result
         try:
-            result = await cache.singleflight(key, context.tenant, work)
+            return await cache.singleflight(key, context.tenant, work)
         except Exception as exc:
             cache.negative_put(key, type(exc).__name__, str(exc))
             raise
-        cache.record_hit(tokens_saved=result.prompt_tokens if result.cached_tokens else 0, latency_saved_ms=0.0)
-        return result
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         raise BackendUnavailableError("generation backend is not loaded")
@@ -204,6 +188,8 @@ class ServingRuntime:
 
     async def startup(self) -> None:
         await self._call_lifecycle("startup")
+        if self.production_semantic_cache is not None and getattr(self.production_semantic_cache, "redis", None) is not None:
+            await self.production_semantic_cache.redis.connect()
         if self.stream_scheduler:
             await self.stream_scheduler.startup()
 
@@ -213,6 +199,14 @@ class ServingRuntime:
         await self._call_lifecycle("shutdown")
         if self.semantic_cache is not None:
             self.semantic_cache.close()
+        if self.production_semantic_cache is not None and getattr(self.production_semantic_cache, "redis", None) is not None:
+            client = getattr(self.production_semantic_cache.redis, "client", None)
+            if client is not None:
+                close = getattr(client, "aclose", None) or getattr(client, "close", None)
+                if close is not None:
+                    result = close()
+                    if inspect.isawaitable(result):
+                        await result
 
     def _production_cache_context(self, request: GenerateRequest):
         if self.production_semantic_cache is None:
@@ -235,34 +229,18 @@ class ServingRuntime:
         negative = cache.negative_get(key)
         if negative is not None:
             raise ServingError(f"cached backend error: {negative.error_type}")
-        started = time.monotonic()
+        cached, _similarity = await cache.lookup(request, context, key)
+        if cached is not None:
+            return cached
         async def work():
             result = await self.backend.generate(request)
-            if cache.redis is not None:
-                payload = {
-                    "text": result.text, "prompt_tokens": result.prompt_tokens,
-                    "completion_tokens": result.completion_tokens,
-                    "finish_reason": result.finish_reason.value,
-                    "cached_tokens": result.cached_tokens,
-                    "reasoning_tokens": result.reasoning_tokens,
-                    "structured_output_valid": result.structured_output_valid,
-                    "structured_output_error": result.structured_output_error,
-                    "reasoning_content": result.reasoning_content,
-                    "tool_calls": list(result.tool_calls),
-                    "tool_call_error": result.tool_call_error,
-                    "logprobs": list(result.logprobs),
-                }
-                # A distributed cache must publish the owner's result before
-                # releasing the single-flight lock so followers can consume it.
-                await cache.redis.put(context.tenant, key, payload, cache.swr_seconds)
+            await cache.store(request, context, key, result)
             return result
         try:
-            result = await cache.singleflight(key, context.tenant, work)
+            return await cache.singleflight(key, context.tenant, work)
         except Exception as exc:
             cache.negative_put(key, type(exc).__name__, str(exc))
             raise
-        cache.record_hit(tokens_saved=result.prompt_tokens if result.cached_tokens else 0, latency_saved_ms=0.0)
-        return result
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         if not self.ready:
@@ -319,7 +297,19 @@ class ServingRuntime:
                 )
                 cached = None
                 cache_lock = None
-                if self.semantic_cache is not None and self.semantic_cache.eligible(request):
+                production_context = None
+                production_key = None
+                if self.production_semantic_cache is not None:
+                    production_context = self._production_cache_context(request)
+                    eligible, _reason = self.production_semantic_cache.policy(request, production_context)
+                    if eligible:
+                        production_key = self.production_semantic_cache.key(
+                            request, tenant=production_context.tenant, freshness=production_context.freshness
+                        )
+                        cached, _similarity = await self.production_semantic_cache.lookup(
+                            request, production_context, production_key
+                        )
+                elif self.semantic_cache is not None and self.semantic_cache.eligible(request):
                     cache_lock = self.semantic_cache.lock_for(request)
                     await cache_lock.acquire()
                     cached = self.semantic_cache.lookup(request)
@@ -359,16 +349,16 @@ class ServingRuntime:
                             if event.finish_reason is not None:
                                 finish_reason = event.finish_reason
                             yield event
-                        if self.semantic_cache is not None and self.semantic_cache.eligible(request):
-                            self.semantic_cache.store(
-                                request,
-                                BackendGeneration(
-                                    text="".join(pieces),
-                                    prompt_tokens=prompt_tokens,
-                                    completion_tokens=completion_tokens,
-                                    finish_reason=finish_reason,
-                                ),
-                            )
+                        generated = BackendGeneration(
+                            text="".join(pieces),
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            finish_reason=finish_reason,
+                        )
+                        if production_key is not None and production_context is not None:
+                            await self.production_semantic_cache.store(request, production_context, production_key, generated)
+                        elif self.semantic_cache is not None and self.semantic_cache.eligible(request):
+                            self.semantic_cache.store(request, generated)
                 finally:
                     if cache_lock is not None and cache_lock.locked():
                         cache_lock.release()
@@ -415,6 +405,8 @@ class ServingRuntime:
             metrics.update({f"prefix_cache_{key}": value for key, value in collect_prefix_cache_metrics(generator).to_dict().items()})
         if self.semantic_cache is not None:
             metrics.update({f"semantic_cache_{key}": value for key, value in self.semantic_cache.metrics().items()})
+        if self.production_semantic_cache is not None:
+            metrics.update({f"semantic_cache_distributed_{key}": value for key, value in self.production_semantic_cache.metrics().items()})
         return metrics
 
     async def _acquire(self) -> None:

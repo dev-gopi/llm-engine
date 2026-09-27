@@ -22,6 +22,8 @@ from omni_platform.multimodal_input import latest_text, prepare_responses_input
 from omni_platform.observability import METRICS
 from omni_platform.providers import ProviderContext, ProviderRegistry
 from omni_platform.speech import EnergyVAD, HuggingFaceASRProvider, HuggingFaceTTSProvider, SpeechToSpeechPipeline
+from omni_platform.native_multimodal import HuggingFaceAudioUnderstandingProvider, HuggingFaceVideoUnderstandingProvider, CoquiXTTSVoiceCloningProvider
+from omni_platform.voice_cloning import ProviderVoiceCloner, VoiceClonePolicy
 from serving.runtime import ServingError
 from serving.schemas import GenerateRequest
 from utils.logger import get_logger
@@ -58,6 +60,23 @@ class SpeechToSpeechRequest(BaseModel):
     language: str | None = None
 
 
+
+
+class AudioUnderstandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str
+    question: str | None = Field(default=None, max_length=4096)
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+class VoiceCloneRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reference_asset_id: str
+    text: str = Field(min_length=1, max_length=12000)
+    language: str = Field(default="en", min_length=2, max_length=16)
+    consent_token: str = Field(min_length=8, max_length=4096)
+    reference_duration_seconds: float = Field(gt=0, le=30)
+
 class VideoUnderstandRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     asset_id: str = Field(pattern=r"^asset_[0-9a-f]{32}$")
@@ -88,7 +107,10 @@ def _providers() -> tuple[ProviderRegistry, HuggingFaceASRProvider | None, Huggi
     registry = ProviderRegistry()
     asr = HuggingFaceASRProvider.from_env()
     tts = HuggingFaceTTSProvider.from_env()
-    for provider in (asr, tts):
+    audio_understanding = HuggingFaceAudioUnderstandingProvider.from_env(asr_provider=asr)
+    video_understanding = HuggingFaceVideoUnderstandingProvider.from_env()
+    voice_cloning = CoquiXTTSVoiceCloningProvider.from_env()
+    for provider in (asr, tts, audio_understanding, video_understanding, voice_cloning):
         if provider is not None:
             registry.register(provider)
     if asr is not None and tts is not None:
@@ -181,6 +203,34 @@ def create_omni_speech_router() -> APIRouter:
         segments = EnergyVAD().detect(path, threshold_dbfs=req.threshold_dbfs, min_speech_ms=req.min_speech_ms)
         return {"object": "audio.voice_activity", "segments": segments}
 
+    @router.post("/audio/understand")
+    async def audio_understand(req: AudioUnderstandRequest, authorization: str | None = Header(default=None)):
+        _require_auth(authorization)
+        registry, asr, _ = _providers()
+        providers = registry.available("audio_understanding")
+        if not providers:
+            raise HTTPException(503, "audio understanding provider is not configured and ready")
+        path = _asset_store().resolve(req.asset_id)
+        result = providers[0].understand_audio({"path": str(path), "question": req.question, "top_k": req.top_k}, ProviderContext(request_id=f"aud_{uuid.uuid4().hex}"))
+        METRICS.inc("audio_understanding_requests_total")
+        return {"object": "audio.understanding", **result}
+
+    @router.post("/audio/voice-clone")
+    async def voice_clone(req: VoiceCloneRequest, authorization: str | None = Header(default=None)):
+        _require_auth(authorization)
+        registry, _, _ = _providers()
+        providers = registry.available("voice_cloning")
+        if not providers:
+            raise HTTPException(503, "voice cloning provider is not configured and ready")
+        reference = _asset_store().resolve(req.reference_asset_id)
+        cloner = ProviderVoiceCloner(providers[0], VoiceClonePolicy(require_consent_token=True, max_reference_seconds=30.0))
+        result = cloner.clone_voice({
+            "reference_audio": str(reference), "text": req.text, "language": req.language,
+            "consent_token": req.consent_token, "reference_duration_seconds": req.reference_duration_seconds,
+        }, ProviderContext(request_id=f"vclone_{uuid.uuid4().hex}"))
+        METRICS.inc("voice_clone_requests_total")
+        return FileResponse(result.artifacts[0].path, media_type="audio/wav", filename=result.artifacts[0].path.name)
+
     @router.post("/audio/speech-to-speech")
     async def speech_to_speech(req: SpeechToSpeechRequest, authorization: str | None = Header(default=None)):
         _require_auth(authorization)
@@ -227,7 +277,12 @@ def create_omni_video_router(runtime: Any) -> APIRouter:
         _require_auth(authorization)
         native = _native_backend(runtime)
         if not bool(getattr(native, "supports_vision", False) and getattr(native, "multimodal_generator", None) is not None):
-            raise HTTPException(503, "video understanding requires a ready native multimodal vision checkpoint")
+            standalone = HuggingFaceVideoUnderstandingProvider.from_env()
+            if standalone is None or not standalone.is_available():
+                raise HTTPException(503, "video understanding requires a native multimodal checkpoint or standalone video model")
+            path = _asset_store().resolve(req.asset_id)
+            result = standalone.understand_video({"path": str(path), "question": req.prompt, "top_k": 5}, ProviderContext(request_id=f"vunder_{uuid.uuid4().hex}"))
+            return {"id": f"vunder_{uuid.uuid4().hex}", "object": "video.understanding", **result}
         item = ResponseInput(role="user", content=[
             ResponseInputText(text=req.prompt),
             ResponseInputVideo(asset_id=req.asset_id, max_frames=req.max_frames, language=req.language),

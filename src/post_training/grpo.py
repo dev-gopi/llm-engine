@@ -128,9 +128,12 @@ class GRPOTrainer:
             raise FloatingPointError(f"non-finite GRPO loss at step {self.global_step}")
         self.scaler.scale(loss).backward()
         self.scaler.unscale_(self.optimizer)
-        gradient_norm = nn.utils.clip_grad_norm_(
-            self.policy.parameters(),
-            self.gradient_clip_norm if self.gradient_clip_norm is not None else float("inf"),
+        clip_value = self.gradient_clip_norm if self.gradient_clip_norm is not None else float("inf")
+        fsdp_clip = getattr(self.policy, "clip_grad_norm_", None)
+        gradient_norm = (
+            fsdp_clip(clip_value)
+            if callable(fsdp_clip)
+            else nn.utils.clip_grad_norm_(self.policy.parameters(), clip_value)
         )
         if not bool(torch.isfinite(gradient_norm)):
             self.optimizer.zero_grad(set_to_none=True)

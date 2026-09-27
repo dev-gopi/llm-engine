@@ -55,6 +55,11 @@ class LoRAAdapterRegistry:
             adapter_id = self._active.get(tenant_id)
             return self._records.get((tenant_id, adapter_id)) if adapter_id else None
 
+
+    def list(self, tenant_id: str) -> list[AdapterRecord]:
+        with self._lock:
+            return [record for (tenant, _adapter), record in self._records.items() if tenant == tenant_id]
+
     def remove(self, tenant_id: str, adapter_id: str) -> None:
         with self._lock:
             if self._active.get(tenant_id) == adapter_id:

@@ -64,7 +64,7 @@ class TokenConstraint:
     """Interface for token-time constraints used before sampling."""
 
     def filter_logits(self, logits: Tensor, generated_ids: list[int], tokenizer, *, candidate_k: int = 256) -> Tensor:
-        raise NotImplementedError
+        return logits
 
     def validate(self, text: str) -> bool:
         return True
@@ -109,6 +109,42 @@ class PrefixGrammarConstraint(TokenConstraint):
 
     def validate(self, text: str) -> bool:
         return bool(self.final_validator(text)) if self.final_validator is not None else True
+
+
+
+
+class EBNFConstraint(TokenConstraint):
+    """Tokenizer-aware wrapper around :class:`schema.GrammarConstraint`."""
+
+    def __init__(self, grammar: str, *, start: str = "start") -> None:
+        from schema.grammar import GrammarConstraint, GrammarSpec
+        self.grammar = GrammarConstraint(GrammarSpec(grammar=grammar, start=start))
+
+    def filter_logits(self, logits: Tensor, generated_ids: list[int], tokenizer, *, candidate_k: int = 256) -> Tensor:
+        if logits.ndim != 2 or logits.size(0) != 1:
+            raise ValueError("grammar constraints currently require logits with batch size 1")
+        prefix = tokenizer.decode(generated_ids, skip_special_tokens=False)
+        _values, ids = torch.topk(logits, min(max(1, candidate_k), logits.size(-1)), dim=-1)
+        mask = torch.full_like(logits, float("-inf"))
+        candidates = []
+        mapping = {}
+        for token_id in ids[0].tolist():
+            piece = tokenizer.decode([int(token_id)], skip_special_tokens=False)
+            candidates.append(piece); mapping.setdefault(piece, []).append(int(token_id))
+        for piece in self.grammar.filter_candidates(prefix, candidates):
+            for token_id in mapping.get(piece, []):
+                mask[0, token_id] = logits[0, token_id]
+        if not torch.isfinite(mask).any():
+            for token_id in range(logits.size(-1)):
+                piece = tokenizer.decode([token_id], skip_special_tokens=False)
+                if self.grammar.filter_candidates(prefix, [piece]):
+                    mask[0, token_id] = logits[0, token_id]
+        if not torch.isfinite(mask).any():
+            raise ValueError("grammar rejected every token")
+        return mask
+
+    def validate(self, text: str) -> bool:
+        return self.grammar.accepts(text)
 
 
 class JSONSchemaConstraint(TokenConstraint):

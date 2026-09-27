@@ -18,6 +18,7 @@ import yaml
 from safetensors.torch import save_file, save_model
 
 from inference.quantization import Q1_0_GROUP_SIZE, quantize_int4, quantize_q1_0
+from inference.quantized_formats import export_gguf
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
@@ -130,6 +131,11 @@ def export_model(
     example = torch.zeros((1, sequence_length), dtype=torch.long)
     if export_format == "safetensors":
         save_model(model, output, metadata={"format": "pt", "architecture": "MiniGPT"})
+    elif export_format == "gguf":
+        export_gguf(
+            model.state_dict(), output, architecture="minigpt", model_name="gopi",
+            metadata={"llm-engine.export.weight_dtype": weight_dtype},
+        )
     elif export_format == "torch_export":
         exported = torch.export.export(model, (example,))
         torch.export.save(exported, output)
@@ -140,7 +146,7 @@ def export_model(
             opset_version=17,
         )
     else:
-        raise ValueError("format must be safetensors, torch_export, or onnx")
+        raise ValueError("format must be safetensors, gguf, torch_export, or onnx")
     return output
 
 
@@ -149,7 +155,7 @@ def main() -> None:
     parser.add_argument("--model-config", type=Path, default=Path("configs/model.gpu.yaml"))
     parser.add_argument("--tokenizer", type=Path, default=Path("data/tokenizer"))
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/finetuning/best.pt"))
-    parser.add_argument("--format", choices=("safetensors", "torch_export", "onnx"), default="safetensors")
+    parser.add_argument("--format", choices=("safetensors", "gguf", "torch_export", "onnx"), default="safetensors")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sequence-length", type=int, default=16)
     parser.add_argument(
@@ -158,7 +164,7 @@ def main() -> None:
     )
     parser.add_argument("--merge-lora", action="store_true", help="fold a loaded LoRA adapter into base weights")
     args = parser.parse_args()
-    suffixes = {"safetensors": ".safetensors", "torch_export": ".pt2", "onnx": ".onnx"}
+    suffixes = {"safetensors": ".safetensors", "gguf": ".gguf", "torch_export": ".pt2", "onnx": ".onnx"}
     output = args.output or Path("exports") / args.format / f"gopi{suffixes[args.format]}"
     if not args.tokenizer.exists():
         parser.error(f"tokenizer does not exist: {args.tokenizer}")

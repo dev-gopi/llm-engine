@@ -1,4 +1,4 @@
-"""Single-device online GRPO with live policy rollouts and reward-model scoring."""
+"""Online GRPO with live rollouts, reward scoring, and optional DDP training."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from optim.adamw import adamw_from_config
 from optim.scheduler import Scheduler
+from post_training.fsdp_post_training import (
+    copy_fsdp_weights_to_model, is_fsdp_checkpoint, load_sharded_post_training,
+    save_sharded_post_training,
+)
 from post_training.grpo import GRPOTrainer
 from post_training.grpo_data import build_grpo_loader_from_records
 from post_training.online_grpo import OnlineRolloutGenerator, RolloutConfig, RolloutReplayBuffer, load_prompt_records, write_rollout_jsonl
@@ -29,6 +33,8 @@ from post_training.reward_model import RewardModel
 from post_training.reward_scoring import RewardCalibration, RewardScorer
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
+from training.distributed import DistributedContext, DistributedTrainer
+from post_training.distributed_online_grpo import aggregate_rollouts, shard_prompts
 from utils.config import apply_cli_defaults, load_yaml
 from utils.device import resolve_device
 from utils.logger import configure_logging, get_logger
@@ -52,8 +58,6 @@ def main() -> None:
     parser.add_argument("--reward-device", default="cpu")
     args = parser.parse_args()
 
-    if int(os.getenv("WORLD_SIZE", "1")) != 1:
-        parser.error("online GRPO currently runs on one process; distributed online rollouts remain unsupported")
     config = load_yaml(args.training_config)
     apply_cli_defaults(args, config.get("runtime", {}), {
         "tokenizer": Path("data/tokenizer-finetuning"),
@@ -70,7 +74,20 @@ def main() -> None:
     max_length = int(config.get("max_sequence_length", model_config["max_position"]))
     if max_length > int(model_config["max_position"]):
         parser.error("online GRPO max_sequence_length exceeds model context length")
-    device = resolve_device(args.device)
+    requested_world_size = int(os.getenv("WORLD_SIZE", "1"))
+    strategy = str(config.get("distributed_strategy", "ddp")).lower()
+    if strategy not in {"ddp", "fsdp", "fsdp_hybrid"}:
+        parser.error("online GRPO distributed_strategy must be ddp, fsdp, or fsdp_hybrid")
+    if requested_world_size > 1:
+        if strategy.startswith("fsdp"):
+            DistributedTrainer.preflight_fsdp()
+        distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
+        device = distributed.device
+    else:
+        if strategy.startswith("fsdp"):
+            parser.error("FSDP online GRPO requires torchrun with WORLD_SIZE >= 2")
+        device = resolve_device(args.device)
+        distributed = DistributedContext(rank=0, local_rank=0, world_size=1, device=device)
     mixed_precision = str(config.get("mixed_precision", "none"))
     if mixed_precision == "fp16" and device.type != "cuda":
         parser.error("online GRPO fp16 requires CUDA; use configs/grpo.online.cpu.yaml")
@@ -81,14 +98,22 @@ def main() -> None:
     reference = MiniGPT.from_config(model_config, device=device)
     old_policy = MiniGPT.from_config(model_config, device=device)
     load_checkpoint(args.reference_checkpoint, reference, map_location=device, use_ema=True, restore_rng=False, **checkpoint_tokenizer_options(tokenizer))
+    fsdp_run = distributed.world_size > 1 and strategy.startswith("fsdp")
+    if args.resume and fsdp_run and not is_fsdp_checkpoint(args.resume):
+        parser.error("FSDP online GRPO --resume requires a sharded FSDP checkpoint directory; use --init-from for a single-file checkpoint")
     preview = None
-    if args.resume:
+    if not args.resume:
+        load_checkpoint(args.init_from, policy, map_location=device, use_ema=True, restore_rng=False, **checkpoint_tokenizer_options(tokenizer))
+        old_policy.load_state_dict(policy.state_dict())
+    elif not fsdp_run:
         preview = load_checkpoint(args.resume, policy, map_location=device, restore_rng=False, **checkpoint_tokenizer_options(tokenizer))
         if preview.get("metadata", {}).get("training_type") not in {None, "grpo_online"}:
             parser.error("resume checkpoint is not an online GRPO checkpoint")
-    else:
-        load_checkpoint(args.init_from, policy, map_location=device, use_ema=True, restore_rng=False, **checkpoint_tokenizer_options(tokenizer))
-    old_policy.load_state_dict(policy.state_dict())
+        old_policy.load_state_dict(policy.state_dict())
+    training_policy = DistributedTrainer.wrap(
+        policy, distributed, strategy=strategy if distributed.world_size > 1 else "none",
+        mixed_precision=mixed_precision,
+    )
 
     reward_weight = float(config.get("reward_model_weight", 1.0))
     exact_weight = float(config.get("exact_match_weight", 0.0))
@@ -116,21 +141,30 @@ def main() -> None:
     if iterations < 1 or updates_per_rollout < 1 or max_groups < 1 or batch_size < 1:
         parser.error("iterations, updates_per_rollout, max_groups_per_iteration and batch_size must be positive")
 
-    optimizer = adamw_from_config(policy, config)
+    optimizer = adamw_from_config(training_policy, config)
     estimated_groups = max_groups + (replay_capacity if replay_capacity > 0 else 0)
     total_steps = iterations * updates_per_rollout * max(1, math.ceil(estimated_groups / batch_size))
     scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
     trainer = GRPOTrainer(
-        policy, old_policy, reference, optimizer, scheduler=scheduler,
+        training_policy, old_policy, reference, optimizer, scheduler=scheduler,
         clip_epsilon=float(config.get("clip_epsilon", 0.2)), beta=float(config.get("beta", 0.04)),
         gradient_clip_norm=config.get("gradient_clip_norm", 1.0), mixed_precision=mixed_precision,
+        distributed_context=distributed,
     )
     start_iteration = 0
     if args.resume:
-        state = load_checkpoint(
-            args.resume, policy, optimizer=optimizer, scheduler=scheduler, scaler=trainer.scaler,
-            map_location=device, **checkpoint_tokenizer_options(tokenizer),
-        )
+        if fsdp_run:
+            state = load_sharded_post_training(
+                args.resume, training_policy, optimizer, scheduler=scheduler, scaler=trainer.scaler,
+                map_location="cpu",
+            )
+        else:
+            state = load_checkpoint(
+                args.resume, policy, optimizer=optimizer, scheduler=scheduler, scaler=trainer.scaler,
+                map_location=device, **checkpoint_tokenizer_options(tokenizer),
+            )
+        if state.get("metadata", {}).get("training_type") not in {None, "grpo_online"}:
+            parser.error("resume checkpoint is not an online GRPO checkpoint")
         trainer.load_state_dict(state.get("trainer", {}))
         start_iteration = int(state.get("metadata", {}).get("online_iteration", 0))
 
@@ -145,7 +179,11 @@ def main() -> None:
     history = []
 
     for iteration in range(start_iteration, iterations):
-        old_policy.load_state_dict(policy.state_dict())
+        if fsdp_run:
+            copy_fsdp_weights_to_model(training_policy, old_policy)
+        else:
+            old_policy.load_state_dict(policy.state_dict())
+        local_prompts = shard_prompts(prompts, distributed.rank, distributed.world_size)
         rollout_generator = OnlineRolloutGenerator(
             Generator(old_policy, tokenizer, device=device), scorer,
             RolloutConfig(
@@ -161,21 +199,26 @@ def main() -> None:
                 reward_model_weight=reward_weight,
                 exact_match_weight=exact_weight,
                 normalize_reward_model=bool(config.get("normalize_reward_model", False)),
-                seed=int(config.get("seed", 42)) + iteration * 1_000_003,
+                seed=int(config.get("seed", 42)) + iteration * 1_000_003 + distributed.rank * 10_000_019,
             ),
         )
-        groups, failures = rollout_generator.generate(prompts, max_groups=max_groups)
+        local_limit = max(1, math.ceil(max_groups / distributed.world_size))
+        local_groups, local_failures = rollout_generator.generate(local_prompts, max_groups=local_limit)
+        groups = aggregate_rollouts(local_groups)[:max_groups]
+        failures = aggregate_rollouts(local_failures)
         if not groups:
             raise RuntimeError(f"online GRPO iteration {iteration + 1} produced no usable groups")
-        write_rollout_jsonl(rollout_dir / f"iteration-{iteration + 1:04d}.jsonl", groups)
-        if failures:
-            write_rollout_jsonl(failure_dir / f"iteration-{iteration + 1:04d}.jsonl", failures)
+        if distributed.is_main_process:
+            write_rollout_jsonl(rollout_dir / f"iteration-{iteration + 1:04d}.jsonl", groups)
+            if failures:
+                write_rollout_jsonl(failure_dir / f"iteration-{iteration + 1:04d}.jsonl", failures)
         training_records = replay.extend_current(groups)
-        if replay_capacity > 0:
+        if replay_capacity > 0 and distributed.is_main_process:
             replay.save(replay_path)
         loader = build_grpo_loader_from_records(
             training_records, tokenizer, max_length=max_length, batch_size=batch_size, shuffle=True,
             seed=int(config.get("seed", 42)) + iteration, num_workers=int(config.get("num_workers", 0)),
+            rank=distributed.rank, world_size=distributed.world_size,
         )
         target_epoch = trainer.current_epoch + updates_per_rollout
         iteration_history = trainer.fit(
@@ -192,11 +235,19 @@ def main() -> None:
             "model_config": model_config,
             "tokenizer_fingerprint": tokenizer.fingerprint,
             "replay_file": str(replay_path) if replay_capacity > 0 else None,
+            "distributed_world_size": distributed.world_size,
         }
-        save_checkpoint(
-            args.output, policy, optimizer=optimizer, scheduler=scheduler, scaler=trainer.scaler,
-            step=trainer.global_step, trainer=trainer.state_dict(), metadata=metadata,
-        )
+        if fsdp_run:
+            save_sharded_post_training(
+                args.output, training_policy, optimizer, metadata=metadata,
+                trainer_state=trainer.state_dict(), scheduler=scheduler, scaler=trainer.scaler,
+            )
+        elif distributed.is_main_process:
+            save_checkpoint(
+                args.output, policy, optimizer=optimizer, scheduler=scheduler, scaler=trainer.scaler,
+                step=trainer.global_step, trainer=trainer.state_dict(), metadata=metadata,
+            )
+        DistributedTrainer.barrier(distributed)
         record = {
             "iteration": iteration + 1,
             "groups": len(groups),
@@ -208,13 +259,17 @@ def main() -> None:
         history.append(record)
         logger.info("online_grpo iteration=%d groups=%d failures=%d step=%d", iteration + 1, len(groups), len(failures), trainer.global_step)
 
-    print(json.dumps({
-        "checkpoint": str(args.output),
-        "training_type": "grpo_online",
-        "iterations_completed": iterations,
-        "step": trainer.global_step,
-        "history": history,
-    }, indent=2))
+    if distributed.is_main_process:
+        print(json.dumps({
+            "checkpoint": str(args.output),
+            "training_type": "grpo_online",
+            "iterations_completed": iterations,
+            "world_size": distributed.world_size,
+            "step": trainer.global_step,
+            "history": history,
+        }, indent=2))
+    DistributedTrainer.barrier(distributed)
+    DistributedTrainer.shutdown()
 
 
 if __name__ == "__main__":
