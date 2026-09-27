@@ -39,8 +39,6 @@
 - [x] Billing/entitlements, moderation, enterprise compliance, Kubernetes/autoscaling source implementation
 - [x] Vector-store ingestion/search worker
 - [x] Batch execution worker
-- [x] Fine-tuning job orchestration worker
+- [x] Fine-tuning Jobs orchestration and execution worker
 - [ ] Additional MCP transports and verifier sandbox isolation
-
-- [x] Fine-tuning Jobs execution worker
 - [x] SCIM/policy, signed audit, artifact admission, secret manager, KMS/HSM, rollout, backup/restore and multi-region source primitives

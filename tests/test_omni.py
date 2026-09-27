@@ -290,6 +290,80 @@ def test_redis_semantic_cache_enables_vector_index_by_default():
     assert cfg.vector_index_name
 
 
+class _BatchVectorRedis:
+    def __init__(self):
+        self.data = {}
+        self.hashes = {}
+        self.commands = []
+
+    async def execute_command(self, *args):
+        self.commands.append(args)
+        command = args[0]
+        if command == "FT.INFO":
+            raise RuntimeError("missing index")
+        if command == "FT.CREATE":
+            return "OK"
+        if command == "FT.SEARCH":
+            return [1, "vector-key", ["exact_key", "semantic-a", "distance", "0.05"]]
+        raise AssertionError(f"unexpected command {command}")
+
+    async def set(self, key, value, ex=None):
+        self.data[key] = value
+        return True
+
+    async def get(self, key):
+        return self.data.get(key)
+
+    async def hset(self, key, mapping):
+        self.hashes[key] = mapping
+        return len(mapping)
+
+    async def expire(self, key, ttl):
+        return True
+
+    async def scan_iter(self, match=None, count=None):
+        if False:
+            yield None
+
+
+def test_redis_semantic_cache_uses_hnsw_index_before_scan_fallback():
+    from serving.redis_semantic_cache import RedisCacheConfig, RedisSemanticCacheBackend
+
+    async def run():
+        fake = _BatchVectorRedis()
+        backend = RedisSemanticCacheBackend(
+            RedisCacheConfig(key_prefix="p", vector_index_name="idx"), client=fake
+        )
+        assert await backend.put_semantic(
+            "tenant",
+            "semantic-a",
+            {"text": "answer"},
+            ttl_seconds=30,
+            vector=[1.0, 0.0],
+            policy="default",
+        )
+        found = await backend.find_similar(
+            "tenant", [0.95, 0.05], threshold=0.9, policy="default"
+        )
+        assert found == (
+            "semantic-a",
+            {
+                "text": "answer",
+                "_semantic_vector": [1.0, 0.0],
+                "_semantic_policy": "default",
+            },
+            0.95,
+        )
+        assert any(
+            command[0] == "FT.CREATE" and "HNSW" in command
+            for command in fake.commands
+        )
+        assert any(command[0] == "FT.SEARCH" for command in fake.commands)
+        assert fake.hashes["p:vector:tenant:semantic-a"]["exact_key"] == "semantic-a"
+
+    asyncio.run(run())
+
+
 class _BatchFakeResult:
     text = "answer"
 

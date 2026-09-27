@@ -1,3 +1,10 @@
+## 2026-09-28 — Repository status cleanup
+
+- Added regression coverage for Redis semantic-cache HNSW index creation and ANN lookup.
+- Clarified implementation-status docs for expert paging and consolidated duplicate fine-tuning worker task entries.
+- Verified `ruff check . --fix` is clean without modifications and executed all three pyarrow-backed preparation test modules (17 passed).
+- Consolidated the remaining hardware, multi-node, llama.cpp, and native pipeline/DeepSpeed ZeRO qualification limits.
+
 ## Batch 24 — PPO + distributed online GRPO
 
 ## 2026-09-27 - Distributed/seq2seq integration completion

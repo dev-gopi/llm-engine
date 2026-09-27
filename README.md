@@ -410,8 +410,9 @@ These controls lower loading peaks and resident memory, but they do not turn a
 100B model into an 8–16 GiB model. The supplied MoE profile still needs about
 181.2 GiB for BF16 weights or roughly 91 GiB at INT8 before runtime overhead.
 Disk-backed expert paging and expert-parallel checkpoint shards are implemented in
-`src/model/expert_paging.py` and the distributed expert-parallel runtime. The 100B
-profile remains planning-only only because real multi-node/GPU qualification is still required.
+`src/model/expert_paging.py` and the distributed expert-parallel runtime; the
+100B profile remains planning-only because real multi-node/GPU qualification is
+still required.
 
 ## Test suite
 
@@ -420,7 +421,7 @@ profile remains planning-only only because real multi-node/GPU qualification is 
 .venv/bin/python scripts/audit_task_registry.py
 ```
 
-`pyarrow` is a declared core dependency used by the Arrow/Hugging Face data-preparation tests. In an offline/source-only environment where it is not installed, report those modules as not executed rather than treating them as passing. Generated tokenizer artifacts and generated long-context/reasoning-SFT fixtures are intentionally gitignored, so their artifact-dependent tests skip when absent from a source archive.
+`pyarrow` is a declared core dependency used by the Arrow/Hugging Face data-preparation tests. In an offline/source-only environment where it is not installed, report those modules as not executed rather than treating them as passing. The current suite contains three such modules: `test_prepare_hf_dataset.py`, `test_prepare_hf_image_dataset.py`, and `test_prepare_wikitext.py`. Generated tokenizer artifacts and generated long-context/reasoning-SFT fixtures are intentionally gitignored, so their artifact-dependent tests skip when absent from a source archive.
 
 ## Audio and video generation
 
@@ -469,6 +470,17 @@ and fails closed for incompatible models. `scripts/quantize_gguf.py` then wraps
 `llama-quantize` and validates the resulting GGUF artifact before serving with the
 existing llama.cpp backend. Actual target-runtime loading still requires llama.cpp to be
 installed on the deployment host.
+
+### Qualification limits
+
+Passing unit tests and lint do not qualify hardware- or cluster-dependent paths.
+FlashAttention, FlashInfer, TensorRT-LLM, torchao, GPTQ/AWQ, and llama.cpp
+loading/quantization require execution on a compatible installed runtime. The
+7B, 100B, and 1T profiles, including large TP+PP+EP+DP combinations, require
+real multi-node qualification. Native pipeline parallelism intentionally
+supports DeepSpeed ZeRO stages 0/1 only; ZeRO stages 2/3 are rejected because
+this runtime does not implement the required PipelineEngine/PipelineModule
+lifecycle.
 
 ## Native seq2seq lifecycle
 
