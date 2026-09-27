@@ -49,7 +49,9 @@ def test_llama_cpp_minigpt_mapping_and_gguf_export(tmp_path: Path):
 
     vocab = {
         token: index
-        for index, token in enumerate(list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values()))
+        for index, token in enumerate(
+            list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values())
+        )
     }
     tokenizer = Tokenizer(
         vocab,

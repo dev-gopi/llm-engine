@@ -1,4 +1,5 @@
 """End-to-end seq2seq data, training, evaluation, and checkpoint helpers."""
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,9 @@ from torch.utils.data import DataLoader, Dataset
 
 
 class Seq2SeqJsonlDataset(Dataset):
-    def __init__(self, paths, tokenizer, *, max_source_length: int, max_target_length: int):
+    def __init__(
+        self, paths, tokenizer, *, max_source_length: int, max_target_length: int
+    ):
         self.rows = []
         self.tokenizer = tokenizer
         self.max_source_length = int(max_source_length)
@@ -22,8 +25,12 @@ class Seq2SeqJsonlDataset(Dataset):
                     if not line.strip():
                         continue
                     item = json.loads(line)
-                    if not isinstance(item.get("source"), str) or not isinstance(item.get("target"), str):
-                        raise ValueError(f"{path}:{line_no} requires string source and target")
+                    if not isinstance(item.get("source"), str) or not isinstance(
+                        item.get("target"), str
+                    ):
+                        raise ValueError(
+                            f"{path}:{line_no} requires string source and target"
+                        )
                     self.rows.append((item["source"], item["target"]))
         if not self.rows:
             raise ValueError("seq2seq dataset is empty")
@@ -33,8 +40,12 @@ class Seq2SeqJsonlDataset(Dataset):
 
     def __getitem__(self, index):
         source, target = self.rows[index]
-        src = self.tokenizer.encode(source, add_bos=True, add_eos=True)[: self.max_source_length]
-        tgt = self.tokenizer.encode(target, add_bos=True, add_eos=True)[: self.max_target_length]
+        src = self.tokenizer.encode(source, add_bos=True, add_eos=True)[
+            : self.max_source_length
+        ]
+        tgt = self.tokenizer.encode(target, add_bos=True, add_eos=True)[
+            : self.max_target_length
+        ]
         return {"source_ids": src, "target_ids": tgt}
 
 
@@ -60,7 +71,13 @@ def make_seq2seq_collate(tokenizer):
             tgt[i, : len(t)] = torch.tensor(t)
             sm[i, : len(s)] = True
             tm[i, : len(t)] = True
-        return {"source_ids": src, "target_ids": tgt, "source_mask": sm, "target_mask": tm}
+        return {
+            "source_ids": src,
+            "target_ids": tgt,
+            "source_mask": sm,
+            "target_mask": tm,
+        }
+
     return collate
 
 
@@ -68,8 +85,12 @@ def build_seq2seq_loader(paths, tokenizer, config, *, shuffle: bool):
     dataset = Seq2SeqJsonlDataset(
         paths,
         tokenizer,
-        max_source_length=int(config.get("max_source_length", config.get("max_sequence_length", 512))),
-        max_target_length=int(config.get("max_target_length", config.get("max_sequence_length", 512))),
+        max_source_length=int(
+            config.get("max_source_length", config.get("max_sequence_length", 512))
+        ),
+        max_target_length=int(
+            config.get("max_target_length", config.get("max_sequence_length", 512))
+        ),
     )
     return DataLoader(
         dataset,
@@ -81,7 +102,16 @@ def build_seq2seq_loader(paths, tokenizer, config, *, shuffle: bool):
 
 
 class Seq2SeqTrainer:
-    def __init__(self, model, optimizer, *, scheduler=None, device="cpu", gradient_clip_norm=1.0, tracker=None):
+    def __init__(
+        self,
+        model,
+        optimizer,
+        *,
+        scheduler=None,
+        device="cpu",
+        gradient_clip_norm=1.0,
+        tracker=None,
+    ):
         self.model = model.to(device)
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -103,7 +133,9 @@ class Seq2SeqTrainer:
         decoder_mask = tm[:, :-1]
         label_mask = tm[:, 1:]
         logits = self.model(src, decoder_in, source_mask=sm, target_mask=decoder_mask)
-        loss = F.cross_entropy(logits.reshape(-1, logits.shape[-1]), labels.reshape(-1), reduction="none")
+        loss = F.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]), labels.reshape(-1), reduction="none"
+        )
         denom = label_mask.sum().clamp_min(1)
         return (loss.view_as(labels) * label_mask).sum() / denom, int(label_mask.sum())
 
@@ -114,12 +146,18 @@ class Seq2SeqTrainer:
         if not torch.isfinite(loss):
             raise FloatingPointError("non-finite seq2seq loss")
         loss.backward()
-        grad = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_norm)
+        grad = torch.nn.utils.clip_grad_norm_(
+            self.model.parameters(), self.gradient_clip_norm
+        )
         self.optimizer.step()
         if self.scheduler is not None:
             self.scheduler.step()
         self.global_step += 1
-        metrics = {"train/loss": float(loss.detach()), "train/tokens": float(tokens), "train/grad_norm": float(grad)}
+        metrics = {
+            "train/loss": float(loss.detach()),
+            "train/tokens": float(tokens),
+            "train/grad_norm": float(grad),
+        }
         if self.tracker is not None:
             self.tracker.log(metrics, step=self.global_step)
         return metrics
@@ -139,7 +177,15 @@ class Seq2SeqTrainer:
             self.tracker.log({"validation/loss": result["loss"]}, step=self.global_step)
         return result
 
-    def fit(self, train_loader, *, epochs: int, validation_loader=None, checkpoint_callback=None, best_checkpoint_callback=None):
+    def fit(
+        self,
+        train_loader,
+        *,
+        epochs: int,
+        validation_loader=None,
+        checkpoint_callback=None,
+        best_checkpoint_callback=None,
+    ):
         history = []
         for epoch in range(int(epochs)):
             for batch in train_loader:
@@ -161,7 +207,15 @@ class Seq2SeqTrainer:
 def save_seq2seq_checkpoint(path, model, optimizer=None, *, step=0, metadata=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict() if optimizer else None, "step": int(step), "metadata": metadata or {}}, path)
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict() if optimizer else None,
+            "step": int(step),
+            "metadata": metadata or {},
+        },
+        path,
+    )
 
 
 def load_seq2seq_checkpoint(path, model, optimizer=None, *, map_location="cpu"):

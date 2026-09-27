@@ -1,4 +1,5 @@
 """Train the native encoder-decoder Transformer on JSONL source/target pairs."""
+
 from __future__ import annotations
 
 try:
@@ -43,7 +44,9 @@ def main():
         dropout=float(mcfg.get("dropout", 0.0)),
     )
     device = torch.device(
-        "cuda" if torch.cuda.is_available() and cfg.get("device", "auto") != "cpu" else "cpu"
+        "cuda"
+        if torch.cuda.is_available() and cfg.get("device", "auto") != "cpu"
+        else "cpu"
     )
     opt = torch.optim.AdamW(
         model.parameters(),
@@ -71,7 +74,12 @@ def main():
         build_seq2seq_loader(
             cfg["validation_files"],
             tok,
-            {**cfg, "batch_size": int(cfg.get("validation_batch_size", cfg.get("batch_size", 8)))},
+            {
+                **cfg,
+                "batch_size": int(
+                    cfg.get("validation_batch_size", cfg.get("batch_size", 8))
+                ),
+            },
             shuffle=False,
         )
         if cfg.get("validation_files")

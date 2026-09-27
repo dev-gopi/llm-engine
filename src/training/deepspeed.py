@@ -99,7 +99,9 @@ class MeshMPU:
         return self.mesh.model_parallel_size()
 
 
-def validate_pipeline_zero_compatibility(*, pipeline_parallel_size: int, zero_stage: int) -> None:
+def validate_pipeline_zero_compatibility(
+    *, pipeline_parallel_size: int, zero_stage: int
+) -> None:
     """Validate DeepSpeed ZeRO use with the engine's native pipeline runtime.
 
     DeepSpeed pipeline parallelism is compatible with ZeRO stages 0/1. Stages

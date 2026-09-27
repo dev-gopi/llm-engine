@@ -1,11 +1,14 @@
 """Autoregressive generation for the native encoder-decoder Transformer."""
+
 from __future__ import annotations
 
 import torch
 
 
 @torch.no_grad()
-def generate_seq2seq(model, tokenizer, source: str, *, max_new_tokens: int = 128, device=None) -> str:
+def generate_seq2seq(
+    model, tokenizer, source: str, *, max_new_tokens: int = 128, device=None
+) -> str:
     device = torch.device(device or next(model.parameters()).device)
     model.eval()
     bos = tokenizer.special_tokens.get("<|bos|>")

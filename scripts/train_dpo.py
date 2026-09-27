@@ -114,7 +114,9 @@ def main() -> None:
         distributed = DistributedContext(
             rank=0, local_rank=0, world_size=1, device=device
         )
-    tracker = create_tracker_from_config(config, is_main_process=distributed.is_main_process)
+    tracker = create_tracker_from_config(
+        config, is_main_process=distributed.is_main_process
+    )
 
     mixed_precision = str(config.get("mixed_precision", "none"))
     if mixed_precision == "fp16" and device.type != "cuda":

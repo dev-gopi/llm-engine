@@ -1,4 +1,5 @@
 """Run one-shot native seq2seq generation from a trained checkpoint."""
+
 from __future__ import annotations
 
 try:
@@ -40,7 +41,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     load_seq2seq_checkpoint(a.checkpoint, model, map_location=device)
-    print(generate_seq2seq(model, tok, a.text, max_new_tokens=a.max_new_tokens, device=device))
+    print(
+        generate_seq2seq(
+            model, tok, a.text, max_new_tokens=a.max_new_tokens, device=device
+        )
+    )
 
 
 if __name__ == "__main__":

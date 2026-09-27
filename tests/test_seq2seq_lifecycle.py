@@ -9,7 +9,9 @@ from training.seq2seq import (
 
 
 def test_seq2seq_trainer_checkpoint_roundtrip(tmp_path):
-    model = EncoderDecoderTransformer(32, d_model=16, nhead=4, layers=1, ff_dim=32, max_position=16)
+    model = EncoderDecoderTransformer(
+        32, d_model=16, nhead=4, layers=1, ff_dim=32, max_position=16
+    )
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
     trainer = Seq2SeqTrainer(model, opt, device="cpu")
     batch = {
@@ -21,8 +23,12 @@ def test_seq2seq_trainer_checkpoint_roundtrip(tmp_path):
     metrics = trainer.train_step(batch)
     assert metrics["train/loss"] > 0
     path = tmp_path / "s.pt"
-    save_seq2seq_checkpoint(path, model, opt, step=trainer.global_step, metadata={"x": 1})
-    clone = EncoderDecoderTransformer(32, d_model=16, nhead=4, layers=1, ff_dim=32, max_position=16)
+    save_seq2seq_checkpoint(
+        path, model, opt, step=trainer.global_step, metadata={"x": 1}
+    )
+    clone = EncoderDecoderTransformer(
+        32, d_model=16, nhead=4, layers=1, ff_dim=32, max_position=16
+    )
     state = load_seq2seq_checkpoint(path, clone, map_location="cpu")
     assert state["step"] == 1 and state["metadata"]["x"] == 1
     for a, b in zip(model.parameters(), clone.parameters()):

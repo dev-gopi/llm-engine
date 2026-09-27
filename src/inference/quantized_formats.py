@@ -86,10 +86,15 @@ def _array_value(values: list[Any] | tuple[Any, ...]) -> bytes:
     elif all(isinstance(value, bool) for value in values):
         element_type = _KV_BOOL
         payload = b"".join(struct.pack("<?", value) for value in values)
-    elif all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+    elif all(
+        isinstance(value, int) and not isinstance(value, bool) for value in values
+    ):
         element_type = _KV_INT32
         payload = b"".join(struct.pack("<i", value) for value in values)
-    elif all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+    elif all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in values
+    ):
         element_type = _KV_FLOAT32
         payload = b"".join(struct.pack("<f", float(value)) for value in values)
     else:
@@ -196,7 +201,6 @@ def export_gguf(
     return out
 
 
-
 def _llama_rope_permute(weight: Any, heads: int) -> Any:
     """Convert Q/K projection rows to llama.cpp's RoPE tensor layout."""
     if heads < 1 or weight.shape[0] % (heads * 2):
@@ -241,7 +245,9 @@ def minigpt_llama_state_dict(model: Any, config: Mapping[str, Any]) -> dict[str,
                 f"llama.cpp GGUF export requires {key}={expected}; got {actual}"
             )
     if str(config.get("rope_scaling_type", "none")).lower() != "none":
-        raise ValueError("llama.cpp GGUF export currently requires rope_scaling_type='none'")
+        raise ValueError(
+            "llama.cpp GGUF export currently requires rope_scaling_type='none'"
+        )
     if int(config.get("mtp_num_predictions", 0) or 0):
         raise ValueError("llama.cpp GGUF export does not support MTP heads")
 
@@ -268,7 +274,9 @@ def minigpt_llama_state_dict(model: Any, config: Mapping[str, Any]) -> dict[str,
             fused = state[src + "attn.qkv_proj.weight"]
             dim = int(config["hidden_size"])
             if fused.shape[0] != 3 * dim:
-                raise ValueError("fused QKV projection is incompatible with LLaMA export")
+                raise ValueError(
+                    "fused QKV projection is incompatible with LLaMA export"
+                )
             query, key, value = torch.split(fused, dim, dim=0)
         out[dst + "attn_q.weight"] = _llama_rope_permute(query, heads)
         out[dst + "attn_k.weight"] = _llama_rope_permute(key, kv_heads)
@@ -278,7 +286,9 @@ def minigpt_llama_state_dict(model: Any, config: Mapping[str, Any]) -> dict[str,
         out[dst + "ffn_norm.weight"] = state[src + "ffn_norm.weight"]
         fused_ffn = state[src + "ffn.in_proj.weight"]
         if fused_ffn.shape[0] % 2:
-            raise ValueError("SwiGLU input projection must have an even output dimension")
+            raise ValueError(
+                "SwiGLU input projection must have an even output dimension"
+            )
         gate, up = fused_ffn.chunk(2, dim=0)
         out[dst + "ffn_gate.weight"] = gate
         out[dst + "ffn_up.weight"] = up
@@ -295,7 +305,9 @@ def llama_cpp_metadata(config: Mapping[str, Any], tokenizer: Any) -> dict[str, A
     kv_heads = int(config.get("kv_heads") or heads)
     tokens = [tokenizer.id_to_token[index] for index in range(tokenizer.vocab_size)]
     special_ids = set(tokenizer.special_tokens.values())
-    token_types = [3 if index in special_ids else 1 for index in range(tokenizer.vocab_size)]
+    token_types = [
+        3 if index in special_ids else 1 for index in range(tokenizer.vocab_size)
+    ]
     metadata: dict[str, Any] = {
         "llama.context_length": int(config["max_position"]),
         "llama.embedding_length": hidden,
@@ -345,6 +357,7 @@ def export_llama_cpp_gguf(
         model_name=model_name,
         metadata=llama_cpp_metadata(config, tokenizer),
     )
+
 
 def convert_native(*, fmt: str, model: Any, output: str | Path, **kwargs: Any) -> Path:
     fmt = fmt.lower()

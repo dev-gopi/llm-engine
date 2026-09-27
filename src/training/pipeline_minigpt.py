@@ -5,6 +5,7 @@ modifications already applied to those blocks, and executes a non-interleaved
 1F1B schedule with multiple microbatches.  Data-parallel wrapping can be applied
 independently to each local stage.
 """
+
 from __future__ import annotations
 
 import math
@@ -27,7 +28,9 @@ def balanced_layer_range(num_layers: int, stages: int, stage: int) -> tuple[int,
     if num_layers < 1 or stages < 1 or not 0 <= stage < stages:
         raise ValueError("invalid pipeline partition dimensions")
     if stages > num_layers:
-        raise ValueError("pipeline degree cannot exceed the number of transformer layers")
+        raise ValueError(
+            "pipeline degree cannot exceed the number of transformer layers"
+        )
     base, extra = divmod(num_layers, stages)
     start = stage * base + min(stage, extra)
     stop = start + base + (1 if stage < extra else 0)
@@ -47,10 +50,16 @@ class MiniGPTPipelinePartition(nn.Module):
         self.vocab_size = int(model.vocab_size)
         self.max_positions = int(model.max_positions)
         self.position_type = str(model.position_type)
-        self.gradient_checkpointing = bool(getattr(model, "gradient_checkpointing", False))
+        self.gradient_checkpointing = bool(
+            getattr(model, "gradient_checkpointing", False)
+        )
         self.context_parallel_group = getattr(model, "context_parallel_group", None)
-        self.context_parallel_rank = int(getattr(model, "context_parallel_rank", 0) or 0)
-        self.context_parallel_size = int(getattr(model, "context_parallel_size", 1) or 1)
+        self.context_parallel_rank = int(
+            getattr(model, "context_parallel_rank", 0) or 0
+        )
+        self.context_parallel_size = int(
+            getattr(model, "context_parallel_size", 1) or 1
+        )
         self.sequence_parallel_group = getattr(model, "sequence_parallel_group", None)
         self.logit_softcap = getattr(model, "logit_softcap", None)
         self.mtp_num_predictions = int(getattr(model, "mtp_num_predictions", 0) or 0)
@@ -81,9 +90,15 @@ class MiniGPTPipelinePartition(nn.Module):
             self.head = None
             self.mtp_heads = nn.ModuleList()
 
-    def _position_ids(self, token_ids: Tensor, attention_mask: Tensor | None) -> Tensor | None:
+    def _position_ids(
+        self, token_ids: Tensor, attention_mask: Tensor | None
+    ) -> Tensor | None:
         seq_len = token_ids.shape[1]
-        offset = self.context_parallel_rank * seq_len if self.context_parallel_size > 1 else 0
+        offset = (
+            self.context_parallel_rank * seq_len
+            if self.context_parallel_size > 1
+            else 0
+        )
         if attention_mask is None:
             return None
         return attention_mask.long().cumsum(dim=1).sub(1).clamp_min(0) + offset
@@ -92,16 +107,25 @@ class MiniGPTPipelinePartition(nn.Module):
         if self.position_type != "rotary" or self.rotary_emb is None:
             return None
         seq_len = hidden.shape[1]
-        offset = self.context_parallel_rank * seq_len if self.context_parallel_size > 1 else 0
+        offset = (
+            self.context_parallel_rank * seq_len
+            if self.context_parallel_size > 1
+            else 0
+        )
         rope_length = offset + seq_len
         if position_ids is not None and position_ids.numel():
             rope_length = max(rope_length, int(position_ids.max().detach().cpu()) + 1)
         rotary = self.rotary_emb(hidden, seq_len=rope_length)
         if position_ids is None:
-            rotary = (rotary[0][:, :, offset : offset + seq_len, :], rotary[1][:, :, offset : offset + seq_len, :])
+            rotary = (
+                rotary[0][:, :, offset : offset + seq_len, :],
+                rotary[1][:, :, offset : offset + seq_len, :],
+            )
         return rotary
 
-    def forward(self, value: Tensor, *, token_ids: Tensor, attention_mask: Tensor | None = None) -> Tensor:
+    def forward(
+        self, value: Tensor, *, token_ids: Tensor, attention_mask: Tensor | None = None
+    ) -> Tensor:
         """Run this stage.
 
         ``value`` is token IDs on stage zero and hidden activations otherwise.
@@ -112,12 +136,23 @@ class MiniGPTPipelinePartition(nn.Module):
                 value = value.long()
             position_ids = self._position_ids(token_ids, attention_mask)
             seq_len = token_ids.shape[1]
-            offset = self.context_parallel_rank * seq_len if self.context_parallel_size > 1 else 0
+            offset = (
+                self.context_parallel_rank * seq_len
+                if self.context_parallel_size > 1
+                else 0
+            )
             if self.position_type == "learned" and self.pos is not None:
-                positions = self.pos(token_ids, position_ids=position_ids, position_offset=offset, attention_mask=attention_mask)
+                positions = self.pos(
+                    token_ids,
+                    position_ids=position_ids,
+                    position_offset=offset,
+                    attention_mask=attention_mask,
+                )
                 hidden = self.embedding_dropout(self.tok(token_ids) + positions)
             elif self.position_type == "sinusoidal" and self.pos is not None:
-                positions = self.pos(token_ids, position_ids=position_ids, position_offset=offset)
+                positions = self.pos(
+                    token_ids, position_ids=position_ids, position_offset=offset
+                )
                 hidden = self.embedding_dropout(self.tok(token_ids) + positions)
             else:
                 hidden = self.embedding_dropout(self.tok(token_ids))
@@ -154,7 +189,12 @@ class MiniGPTPipelinePartition(nn.Module):
         return torch.stack(losses).mean() if losses else None
 
     def partition_metadata(self) -> dict[str, int]:
-        return {"stage": self.stage, "stages": self.stages, "layer_start": self.layer_start, "layer_stop": self.layer_stop}
+        return {
+            "stage": self.stage,
+            "stages": self.stages,
+            "layer_start": self.layer_start,
+            "layer_stop": self.layer_stop,
+        }
 
 
 @dataclass
@@ -253,33 +293,60 @@ class PipelineTrainer:
         boundaries = torch.tensor_split(torch.arange(size), count)
         result = []
         for idx in boundaries:
-            result.append({key: value.index_select(0, idx) for key, value in batch.items() if isinstance(value, Tensor)})
+            result.append(
+                {
+                    key: value.index_select(0, idx)
+                    for key, value in batch.items()
+                    if isinstance(value, Tensor)
+                }
+            )
         return result
 
     def _local_batch(self, batch: Mapping[str, Tensor]) -> dict[str, Tensor]:
-        values = {k: v.to(self.device, non_blocking=self.device.type == "cuda") for k, v in batch.items() if isinstance(v, Tensor)}
+        values = {
+            k: v.to(self.device, non_blocking=self.device.type == "cuda")
+            for k, v in batch.items()
+            if isinstance(v, Tensor)
+        }
         cp = self.mesh.degree("context")
         if cp > 1:
-            values = shard_batch_sequence(values, rank=self.mesh.local_rank("context"), world_size=cp, keys=("input_ids", "attention_mask", "labels", "loss_mask"))
+            values = shard_batch_sequence(
+                values,
+                rank=self.mesh.local_rank("context"),
+                world_size=cp,
+                keys=("input_ids", "attention_mask", "labels", "loss_mask"),
+            )
         return values
 
     def _shape_for(self, mb: dict[str, Tensor]) -> tuple[int, int, int]:
-        return (int(mb["input_ids"].shape[0]), int(mb["input_ids"].shape[1]), int(self.partition.dim))
+        return (
+            int(mb["input_ids"].shape[0]),
+            int(mb["input_ids"].shape[1]),
+            int(self.partition.dim),
+        )
 
     def _isend(self, tensor: Tensor, dst: int, tag: int):
         buffer = tensor.detach().contiguous()
         request = dist.isend(buffer, dst=dst, group=self.group, tag=tag)
         self._pending_sends.append((request, buffer))
 
-    def _forward_microbatch(self, mb_index: int, mb: dict[str, Tensor], *, train: bool) -> _MicrobatchState:
+    def _forward_microbatch(
+        self, mb_index: int, mb: dict[str, Tensor], *, train: bool
+    ) -> _MicrobatchState:
         token_ids = mb["input_ids"]
         attention = mb.get("attention_mask")
         if self.stage == 0:
             input_activation = None
             value = token_ids
         else:
-            value = torch.empty(self._shape_for(mb), device=self.device, dtype=next(self.partition.parameters()).dtype)
-            dist.recv(value, src=self.members[self.stage - 1], group=self.group, tag=mb_index)
+            value = torch.empty(
+                self._shape_for(mb),
+                device=self.device,
+                dtype=next(self.partition.parameters()).dtype,
+            )
+            dist.recv(
+                value, src=self.members[self.stage - 1], group=self.group, tag=mb_index
+            )
             if train:
                 value.requires_grad_(True)
             input_activation = value
@@ -308,8 +375,7 @@ class PipelineTrainer:
                 self.model.backward(state.loss / microbatch_count)
             else:
                 (
-                    state.loss
-                    / (microbatch_count * self.gradient_accumulation_steps)
+                    state.loss / (microbatch_count * self.gradient_accumulation_steps)
                 ).backward()
         else:
             grad = torch.empty_like(state.output_activation)
@@ -335,7 +401,11 @@ class PipelineTrainer:
         if self.stage > 0:
             if state.input_activation is None or state.input_activation.grad is None:
                 raise RuntimeError("pipeline stage did not produce an input gradient")
-            self._isend(state.input_activation.grad, self.members[self.stage - 1], 100000 + mb_index)
+            self._isend(
+                state.input_activation.grad,
+                self.members[self.stage - 1],
+                100000 + mb_index,
+            )
 
     def _wait_sends(self):
         for request, _buffer in self._pending_sends:
@@ -400,16 +470,28 @@ class PipelineTrainer:
                 self.scheduler.step()
             self.global_step += 1
         self.batch_in_epoch += 1
-        local_tokens = int(local.get("loss_mask", local.get("attention_mask", torch.ones_like(local["input_ids"]))).sum().item())
+        local_tokens = int(
+            local.get(
+                "loss_mask",
+                local.get("attention_mask", torch.ones_like(local["input_ids"])),
+            )
+            .sum()
+            .item()
+        )
         # Count tokens once per PP group; DP reductions/reporters can aggregate later.
         self.tokens_processed += local_tokens
         self.training_seconds += time.perf_counter() - started
 
-        loss_value = (sum(detached_losses) / len(detached_losses)) if detached_losses else 0.0
+        loss_value = (
+            (sum(detached_losses) / len(detached_losses)) if detached_losses else 0.0
+        )
         loss_tensor = torch.tensor(loss_value, device=self.device, dtype=torch.float64)
         dist.broadcast(loss_tensor, src=self.members[-1], group=self.group)
         if self.tracker is not None and self.stage == 0:
-            metrics = {"train/pipeline_loss": float(loss_tensor), "train/tokens": float(local_tokens)}
+            metrics = {
+                "train/pipeline_loss": float(loss_tensor),
+                "train/tokens": float(local_tokens),
+            }
             if should_step:
                 metrics["train/grad_norm"] = float(grad_norm)
             self.tracker.log(metrics, step=self.global_step)
@@ -454,7 +536,9 @@ class PipelineTrainer:
                 parameter.grad.mul_(scale)
         grad_norm = torch.nn.utils.clip_grad_norm_(
             self.model.parameters(),
-            self.gradient_clip_norm if self.gradient_clip_norm is not None else float("inf"),
+            self.gradient_clip_norm
+            if self.gradient_clip_norm is not None
+            else float("inf"),
         )
         if not torch.isfinite(torch.as_tensor(grad_norm)):
             self.opt.zero_grad(set_to_none=True)
@@ -478,19 +562,33 @@ class PipelineTrainer:
                 if self.stage == self.stages - 1:
                     assert state.loss is not None
                     mask = mb.get("loss_mask", mb.get("attention_mask"))
-                    tokens = int(mask.sum().item()) if mask is not None else int(mb["labels"].numel())
+                    tokens = (
+                        int(mask.sum().item())
+                        if mask is not None
+                        else int(mb["labels"].numel())
+                    )
                     total_loss += float(state.loss) * tokens
                     total_tokens += tokens
                 self._wait_sends()
             batches += 1
             if max_batches is not None and batches >= int(max_batches):
                 break
-        packed = torch.tensor([total_loss, float(total_tokens), float(batches)], device=self.device, dtype=torch.float64)
+        packed = torch.tensor(
+            [total_loss, float(total_tokens), float(batches)],
+            device=self.device,
+            dtype=torch.float64,
+        )
         dist.broadcast(packed, src=self.members[-1], group=self.group)
         if packed[1].item() <= 0:
             raise ValueError("pipeline validation loader is empty")
         loss = float(packed[0] / packed[1])
-        return {"loss": loss, "cross_entropy": loss, "perplexity": math.exp(min(loss, 80.0)), "tokens": int(packed[1]), "batches": int(packed[2])}
+        return {
+            "loss": loss,
+            "cross_entropy": loss,
+            "perplexity": math.exp(min(loss, 80.0)),
+            "tokens": int(packed[1]),
+            "batches": int(packed[2]),
+        }
 
     def fit(
         self,
@@ -526,10 +624,17 @@ class PipelineTrainer:
         curriculum_schedule=None,
     ):
         if isinstance(validation_dataloader, Mapping):
-            raise ValueError("pipeline trainer currently requires one validation loader, not domain-mapped loaders")
+            raise ValueError(
+                "pipeline trainer currently requires one validation loader, not domain-mapped loaders"
+            )
         history = []
         if validation_evaluate_at_start and validation_dataloader is not None:
-            metrics = self.evaluate(validation_dataloader, max_batches=validation_max_batches if isinstance(validation_max_batches, int) else None)
+            metrics = self.evaluate(
+                validation_dataloader,
+                max_batches=validation_max_batches
+                if isinstance(validation_max_batches, int)
+                else None,
+            )
             self.best_validation_loss = float(metrics["loss"])
             if save_initial_best_checkpoint and best_checkpoint_callback:
                 best_checkpoint_callback(self, self.current_epoch - 1)
@@ -544,16 +649,34 @@ class PipelineTrainer:
                     self.stopped_early = True
                     break
                 self.train_step(batch)
-                if checkpoint_every and self.global_step % int(checkpoint_every) == 0 and checkpoint_callback:
+                if (
+                    checkpoint_every
+                    and self.global_step % int(checkpoint_every) == 0
+                    and checkpoint_callback
+                ):
                     checkpoint_callback(self, epoch)
-                if evaluate_every and validation_dataloader is not None and self.global_step % int(evaluate_every) == 0:
-                    metrics = self.evaluate(validation_dataloader, max_batches=validation_max_batches if isinstance(validation_max_batches, int) else None)
+                if (
+                    evaluate_every
+                    and validation_dataloader is not None
+                    and self.global_step % int(evaluate_every) == 0
+                ):
+                    metrics = self.evaluate(
+                        validation_dataloader,
+                        max_batches=validation_max_batches
+                        if isinstance(validation_max_batches, int)
+                        else None,
+                    )
                     if validation_callback:
                         validation_callback(self, epoch, metrics, {})
             self.flush_accumulation()
             row = {"epoch": epoch + 1, "step": self.global_step}
             if validation_dataloader is not None:
-                metrics = self.evaluate(validation_dataloader, max_batches=validation_max_batches if isinstance(validation_max_batches, int) else None)
+                metrics = self.evaluate(
+                    validation_dataloader,
+                    max_batches=validation_max_batches
+                    if isinstance(validation_max_batches, int)
+                    else None,
+                )
                 row.update({f"validation_{k}": v for k, v in metrics.items()})
                 if validation_callback:
                     extra = validation_callback(self, epoch, metrics, {})
@@ -567,7 +690,11 @@ class PipelineTrainer:
                         best_checkpoint_callback(self, epoch)
                 else:
                     self.epochs_without_improvement += 1
-                    if early_stopping_patience is not None and self.epochs_without_improvement >= int(early_stopping_patience):
+                    if (
+                        early_stopping_patience is not None
+                        and self.epochs_without_improvement
+                        >= int(early_stopping_patience)
+                    ):
                         self.stopped_early = True
             if checkpoint_callback:
                 checkpoint_callback(self, epoch)
@@ -581,7 +708,14 @@ class PipelineTrainer:
 def build_pipeline_partition(model: nn.Module, mesh) -> MiniGPTPipelinePartition:
     if mesh is None or mesh.degree("pipeline") <= 1:
         raise ValueError("pipeline partition requires pipeline degree > 1")
-    return MiniGPTPipelinePartition(model, stage=mesh.local_rank("pipeline"), stages=mesh.degree("pipeline"))
+    return MiniGPTPipelinePartition(
+        model, stage=mesh.local_rank("pipeline"), stages=mesh.degree("pipeline")
+    )
 
 
-__all__ = ["balanced_layer_range", "MiniGPTPipelinePartition", "PipelineTrainer", "build_pipeline_partition"]
+__all__ = [
+    "balanced_layer_range",
+    "MiniGPTPipelinePartition",
+    "PipelineTrainer",
+    "build_pipeline_partition",
+]

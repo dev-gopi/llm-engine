@@ -21,8 +21,14 @@ from runtime.qualification import qualify_profile, runtime_probes
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profiles", nargs="+", type=Path)
-    parser.add_argument("--output", type=Path, default=Path("reports/runtime_qualification.json"))
-    parser.add_argument("--strict", action="store_true", help="exit non-zero unless every profile qualifies")
+    parser.add_argument(
+        "--output", type=Path, default=Path("reports/runtime_qualification.json")
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit non-zero unless every profile qualifies",
+    )
     args = parser.parse_args()
 
     probes = runtime_probes()
@@ -41,7 +47,9 @@ def main() -> None:
         "profiles": results,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
     if args.strict and not report["all_qualified"]:
         raise SystemExit(2)

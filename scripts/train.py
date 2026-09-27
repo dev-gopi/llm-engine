@@ -396,9 +396,13 @@ def main() -> None:
     # full-state checkpoint tensor shapes remain load-compatible.  Resume from
     # a model-parallel run uses distributed/DeepSpeed checkpoints below.
     apply_model_parallelism(model, parallel_mesh)
-    pipeline_enabled = bool(parallel_mesh is not None and parallel_mesh.degree("pipeline") > 1)
+    pipeline_enabled = bool(
+        parallel_mesh is not None and parallel_mesh.degree("pipeline") > 1
+    )
     if pipeline_enabled and generation_config.get("enabled", False):
-        parser.error("generation_evaluation is not supported during partitioned pipeline training; run generation evaluation from a consolidated/exported checkpoint")
+        parser.error(
+            "generation_evaluation is not supported during partitioned pipeline training; run generation evaluation from a consolidated/exported checkpoint"
+        )
     if parallel_mesh is not None:
         cp = parallel_mesh.degree("context")
         sp = parallel_mesh.degree("sequence")
@@ -447,7 +451,13 @@ def main() -> None:
         )
     if pipeline_enabled:
         model = build_pipeline_partition(model, parallel_mesh)
-        logger.info("Pipeline stage %d/%d owns transformer layers [%d,%d)", model.stage + 1, model.stages, model.layer_start, model.layer_stop)
+        logger.info(
+            "Pipeline stage %d/%d owns transformer layers [%d,%d)",
+            model.stage + 1,
+            model.stages,
+            model.layer_start,
+            model.layer_stop,
+        )
 
     strategy = str(config.get("distributed_strategy", "ddp"))
     deepspeed_enabled = strategy.lower() in {"deepspeed", "zero"}
@@ -545,7 +555,10 @@ def main() -> None:
     ema_decay = config.get("ema_decay", 0.999)
     ema = (
         None
-        if strategy.startswith("fsdp") or deepspeed_enabled or pipeline_enabled or ema_decay is None
+        if strategy.startswith("fsdp")
+        or deepspeed_enabled
+        or pipeline_enabled
+        or ema_decay is None
         else EMA(training_model, decay=float(ema_decay))
     )
     loss_fn = CausalLanguageModelLoss.from_config(config)
@@ -581,7 +594,9 @@ def main() -> None:
             grad_scaler_growth_interval=int(
                 config.get("grad_scaler_growth_interval", 2000)
             ),
-            reasoning_trace_policy=str(config.get("reasoning_trace_policy", "optional")),
+            reasoning_trace_policy=str(
+                config.get("reasoning_trace_policy", "optional")
+            ),
             mtp_loss_weight=float(config.get("mtp_loss_weight", 0.0)),
             moe_aux_loss_weight=float(config.get("moe_aux_loss_weight", 0.0)),
             deepspeed_engine=deepspeed_enabled,

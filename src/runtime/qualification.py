@@ -64,7 +64,10 @@ def runtime_probes() -> list[QualificationProbe]:
             ">1 process for distributed qualification",
         ),
         QualificationProbe(
-            "multi_node", nnodes > 1, str(nnodes), ">1 node for multi-node qualification"
+            "multi_node",
+            nnodes > 1,
+            str(nnodes),
+            ">1 node for multi-node qualification",
         ),
         _module_probe("deepspeed", "deepspeed"),
         _module_probe("tensorrt_llm", "tensorrt_llm"),
@@ -102,15 +105,20 @@ def qualify_profile(
     failures: list[str] = []
     if bool(requirements.get("requires_cuda")) and not observations["cuda"].passed:
         failures.append("CUDA is required")
-    if bool(requirements.get("requires_multi_node")) and not observations[
-        "multi_node"
-    ].passed:
+    if (
+        bool(requirements.get("requires_multi_node"))
+        and not observations["multi_node"].passed
+    ):
         failures.append("multi-node execution is required")
 
     required_nodes = int(requirements.get("required_nodes", 1))
-    observed_nodes = int(observations["multi_node"].observed) if "multi_node" in observations else 1
+    observed_nodes = (
+        int(observations["multi_node"].observed) if "multi_node" in observations else 1
+    )
     if required_nodes > observed_nodes:
-        failures.append(f"requires at least {required_nodes} nodes; observed {observed_nodes}")
+        failures.append(
+            f"requires at least {required_nodes} nodes; observed {observed_nodes}"
+        )
 
     required_memory = float(requirements.get("required_gpu_memory_gb", 0) or 0)
     observed_memory = 0.0

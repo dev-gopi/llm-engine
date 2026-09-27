@@ -13,7 +13,11 @@ def test_profile_qualification_is_evidence_driven():
     result = qualify_profile(
         {
             "profile": "test",
-            "qualification": {"requires_cuda": True, "requires_multi_node": True, "required_nodes": 8},
+            "qualification": {
+                "requires_cuda": True,
+                "requires_multi_node": True,
+                "required_nodes": 8,
+            },
         },
         probes,
     )
@@ -29,7 +33,11 @@ def test_profile_qualification_reports_missing_cluster_requirements():
     result = qualify_profile(
         {
             "profile": "large",
-            "qualification": {"requires_cuda": True, "requires_multi_node": True, "required_nodes": 8},
+            "qualification": {
+                "requires_cuda": True,
+                "requires_multi_node": True,
+                "required_nodes": 8,
+            },
         },
         probes,
     )

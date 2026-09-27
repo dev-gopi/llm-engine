@@ -46,7 +46,9 @@ class EncoderDecoderTransformer(nn.Module):
     @classmethod
     def from_config(cls, config, *, vocab_size: int | None = None, device=None):
         model_cfg = config.get("model", config) if isinstance(config, dict) else config
-        resolved_vocab = int(vocab_size if vocab_size is not None else model_cfg["vocab_size"])
+        resolved_vocab = int(
+            vocab_size if vocab_size is not None else model_cfg["vocab_size"]
+        )
         model = cls(
             vocab_size=resolved_vocab,
             d_model=int(model_cfg.get("d_model", model_cfg.get("hidden_size", 256))),

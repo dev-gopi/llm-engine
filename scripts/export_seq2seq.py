@@ -1,4 +1,5 @@
 """Export a native seq2seq checkpoint to safetensors plus self-describing metadata."""
+
 from __future__ import annotations
 
 try:

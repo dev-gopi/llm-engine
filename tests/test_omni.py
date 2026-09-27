@@ -355,8 +355,7 @@ def test_redis_semantic_cache_uses_hnsw_index_before_scan_fallback():
             0.95,
         )
         assert any(
-            command[0] == "FT.CREATE" and "HNSW" in command
-            for command in fake.commands
+            command[0] == "FT.CREATE" and "HNSW" in command for command in fake.commands
         )
         assert any(command[0] == "FT.SEARCH" for command in fake.commands)
         assert fake.hashes["p:vector:tenant:semantic-a"]["exact_key"] == "semantic-a"
