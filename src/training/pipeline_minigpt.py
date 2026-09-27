@@ -182,6 +182,7 @@ class PipelineTrainer:
         gradient_clip_norm: float | None = 1.0,
         tracker=None,
         moe_aux_loss_weight: float = 0.0,
+        deepspeed_engine: bool = False,
     ) -> None:
         if mesh is None or mesh.degree("pipeline") <= 1:
             raise ValueError("PipelineTrainer requires pipeline degree > 1")
@@ -208,6 +209,7 @@ class PipelineTrainer:
         self.gradient_clip_norm = gradient_clip_norm
         self.tracker = tracker
         self.moe_aux_loss_weight = float(moe_aux_loss_weight)
+        self.deepspeed_engine = bool(deepspeed_engine)
         self.global_step = 0
         self.micro_step = 0
         self.current_epoch = 0
@@ -295,14 +297,41 @@ class PipelineTrainer:
                 loss = loss + self.moe_aux_loss_weight * aux
         return _MicrobatchState(input_activation, output, mb, loss)
 
-    def _backward_microbatch(self, mb_index: int, state: _MicrobatchState, divisor: int):
+    def _backward_microbatch(
+        self, mb_index: int, state: _MicrobatchState, microbatch_count: int
+    ):
         if self.stage == self.stages - 1:
             assert state.loss is not None
-            (state.loss / divisor).backward()
+            if self.deepspeed_engine:
+                # Average pipeline microbatches here; DeepSpeed applies its own
+                # gradient-accumulation scaling exactly once inside backward.
+                self.model.backward(state.loss / microbatch_count)
+            else:
+                (
+                    state.loss
+                    / (microbatch_count * self.gradient_accumulation_steps)
+                ).backward()
         else:
             grad = torch.empty_like(state.output_activation)
-            dist.recv(grad, src=self.members[self.stage + 1], group=self.group, tag=100000 + mb_index)
-            state.output_activation.backward(grad)
+            dist.recv(
+                grad,
+                src=self.members[self.stage + 1],
+                group=self.group,
+                tag=100000 + mb_index,
+            )
+            if self.deepspeed_engine:
+                # The gradient received from the next stage is already scaled by
+                # DeepSpeed on the last stage. Disable a second GAS scaling when
+                # entering this stage's ZeRO hooks through a scalar surrogate.
+                surrogate = (state.output_activation * grad).sum()
+                try:
+                    self.model.backward(surrogate, scale_wrt_gas=False)
+                except TypeError:
+                    # Compatibility fallback for engine-like test doubles. Real
+                    # supported DeepSpeed releases expose ``scale_wrt_gas``.
+                    surrogate.backward()
+            else:
+                state.output_activation.backward(grad)
         if self.stage > 0:
             if state.input_activation is None or state.input_activation.grad is None:
                 raise RuntimeError("pipeline stage did not produce an input gradient")
@@ -316,7 +345,10 @@ class PipelineTrainer:
     def train_step(self, batch: Mapping[str, Tensor]) -> float:
         started = time.perf_counter()
         self.model.train()
-        if self.micro_step % self.gradient_accumulation_steps == 0:
+        if (
+            not self.deepspeed_engine
+            and self.micro_step % self.gradient_accumulation_steps == 0
+        ):
             self.opt.zero_grad(set_to_none=True)
         local = self._local_batch(batch)
         microbatches = self._split_batch(local)
@@ -335,19 +367,30 @@ class PipelineTrainer:
             states[fwd] = self._forward_microbatch(fwd, microbatches[fwd], train=True)
             if states[fwd].loss is not None:
                 detached_losses.append(float(states[fwd].loss.detach()))
-            self._backward_microbatch(i, states.pop(i), n * self.gradient_accumulation_steps)
+            self._backward_microbatch(i, states.pop(i), n)
         for i in range(warmup):
             mb = remaining + i
-            self._backward_microbatch(mb, states.pop(mb), n * self.gradient_accumulation_steps)
+            self._backward_microbatch(mb, states.pop(mb), n)
         self._wait_sends()
 
         self.micro_step += 1
         should_step = self.micro_step % self.gradient_accumulation_steps == 0
         grad_norm = torch.tensor(float("nan"), device=self.device)
-        if should_step:
+        if self.deepspeed_engine:
+            # Query the boundary before ``step``; DeepSpeed advances its internal
+            # micro-step counter during the step call.
+            boundary = getattr(self.model, "is_gradient_accumulation_boundary", None)
+            should_step = bool(boundary()) if callable(boundary) else should_step
+            self.model.step()
+            if should_step:
+                self.global_step += 1
+                self.micro_step = 0
+        elif should_step:
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 self.model.parameters(),
-                self.gradient_clip_norm if self.gradient_clip_norm is not None else float("inf"),
+                self.gradient_clip_norm
+                if self.gradient_clip_norm is not None
+                else float("inf"),
             )
             if not torch.isfinite(torch.as_tensor(grad_norm)):
                 self.opt.zero_grad(set_to_none=True)
@@ -375,6 +418,33 @@ class PipelineTrainer:
     def flush_accumulation(self) -> None:
         remainder = self.micro_step % self.gradient_accumulation_steps
         if not remainder:
+            return
+        if self.deepspeed_engine:
+            # Native PP only permits ZeRO-0/1, where local parameter gradients
+            # remain available. Rescale the partial window and force a real
+            # DeepSpeed accumulation boundary so the final batches are not lost.
+            setter = getattr(self.model, "set_gradient_accumulation_boundary", None)
+            if callable(setter):
+                scale = self.gradient_accumulation_steps / remainder
+                for parameter in self.model.parameters():
+                    if parameter.grad is not None:
+                        parameter.grad.mul_(scale)
+                setter(True)
+                try:
+                    self.model.step()
+                finally:
+                    setter(False)
+                self.global_step += 1
+                self.micro_step = 0
+                return
+            logger.warning(
+                "DeepSpeed engine cannot force an accumulation boundary; "
+                "discarding incomplete window (%d/%d)",
+                remainder,
+                self.gradient_accumulation_steps,
+            )
+            self.model.zero_grad()
+            self.micro_step = 0
             return
         # Gradients were normalized for a full accumulation window. Correct the
         # partial final window before the optimizer update.

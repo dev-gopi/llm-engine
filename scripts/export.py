@@ -18,7 +18,7 @@ import yaml
 from safetensors.torch import save_file, save_model
 
 from inference.quantization import Q1_0_GROUP_SIZE, quantize_int4, quantize_q1_0
-from inference.quantized_formats import export_gguf
+from inference.quantized_formats import export_gguf, export_llama_cpp_gguf
 from model.gpt import MiniGPT
 from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_options
 from tokenizer.encoder import Tokenizer
@@ -132,6 +132,9 @@ def export_model(
     *,
     sequence_length: int = 16,
     weight_dtype: str = "float32",
+    gguf_target: str = "native",
+    model_config: dict | None = None,
+    tokenizer: Tokenizer | None = None,
 ) -> Path:
     """Export float weights or self-describing packed low-bit safetensors."""
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -158,13 +161,22 @@ def export_model(
     if export_format == "safetensors":
         save_model(model, output, metadata={"format": "pt", "architecture": "MiniGPT"})
     elif export_format == "gguf":
-        export_gguf(
-            model.state_dict(),
-            output,
-            architecture="minigpt",
-            model_name="gopi",
-            metadata={"llm-engine.export.weight_dtype": weight_dtype},
-        )
+        if gguf_target == "llama_cpp":
+            if model_config is None or tokenizer is None:
+                raise ValueError(
+                    "gguf_target='llama_cpp' requires model_config and tokenizer"
+                )
+            export_llama_cpp_gguf(model, model_config, tokenizer, output)
+        elif gguf_target == "native":
+            export_gguf(
+                model.state_dict(),
+                output,
+                architecture="minigpt",
+                model_name="gopi",
+                metadata={"llm-engine.export.weight_dtype": weight_dtype},
+            )
+        else:
+            raise ValueError("gguf_target must be native or llama_cpp")
     elif export_format == "torch_export":
         exported = torch.export.export(model, (example,))
         torch.export.save(exported, output)
@@ -202,6 +214,12 @@ def main() -> None:
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--sequence-length", type=int, default=16)
+    parser.add_argument(
+        "--gguf-target",
+        choices=("native", "llama_cpp"),
+        default="native",
+        help="native container or strict llama.cpp-compatible LLaMA subset",
+    )
     parser.add_argument(
         "--weight-dtype",
         choices=("float32", "float16", "bfloat16", "int4", "q1_0"),
@@ -245,6 +263,9 @@ def main() -> None:
         args.format,
         sequence_length=args.sequence_length,
         weight_dtype=args.weight_dtype,
+        gguf_target=args.gguf_target,
+        model_config=config,
+        tokenizer=tokenizer,
     )
     destination_config = artifact.parent / "model.yaml"
     destination_config.write_text(

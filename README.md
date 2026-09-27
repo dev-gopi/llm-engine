@@ -382,10 +382,10 @@ Inspect the supplied 100B-class template without allocating its weights:
 The template stores approximately 97.28B parameters and routes each token
 through approximately 13.96B active parameters. It deliberately keeps
 `planning_only: true`: all expert weights require about 181.2 GiB in BF16, and
-this engine does not yet implement expert-parallel sharded checkpoint loading.
-Small MoE profiles can use the normal training and generation commands.
-Tensor-parallel MoE serving is rejected explicitly until expert parallelism is
-available; changing only the YAML cannot overcome physical weight memory.
+the profile still requires real multi-node/GPU qualification before it can be enabled safely.
+Small MoE profiles can use the normal training and generation commands. Expert-parallel
+routing/checkpoint support exists, but changing only the YAML cannot overcome physical
+weight memory or replace target-cluster qualification.
 
 ### Lower-memory inference
 
@@ -438,7 +438,7 @@ See `docs/SEMANTIC_CACHE.md` for the opt-in semantic response cache.
 
 ## Pipeline-parallel training
 
-The main `scripts/train.py` entrypoint now consumes `parallelism.pipeline` as a real model-partitioning mode. Transformer blocks are split contiguously across PP ranks and trained with a non-interleaved multi-microbatch 1F1B schedule. TP/EP/CP/SP modifications are applied before partitioning, and each stage can still be wrapped by the data-parallel DDP/FSDP group. Configure `pipeline_microbatches` to control the number of in-flight microbatches. Pipeline runs use distributed checkpoints and resume from checkpoint directories. DeepSpeed+PP is intentionally rejected by the native PP runtime; use DDP/FSDP for native PP, or a dedicated DeepSpeed PipelineModule stack.
+The main `scripts/train.py` entrypoint now consumes `parallelism.pipeline` as a real model-partitioning mode. Transformer blocks are split contiguously across PP ranks and trained with a non-interleaved multi-microbatch 1F1B schedule. TP/EP/CP/SP modifications are applied before partitioning, and each stage can still be wrapped by the data-parallel DDP/FSDP group. Configure `pipeline_microbatches` to control the number of in-flight microbatches. Pipeline runs use distributed checkpoints and resume from checkpoint directories. Native PP can also run through the DeepSpeed engine with ZeRO stages 0/1. ZeRO stages 2/3 are rejected explicitly for this native pipeline runtime because their gradient/parameter partitioning semantics require a dedicated DeepSpeed PipelineEngine/PipelineModule lifecycle.
 
 Example topology:
 
@@ -453,6 +453,22 @@ parallelism:
   sequence: 1
 pipeline_microbatches: 4
 ```
+
+## Runtime qualification and llama.cpp export
+
+`scripts/qualify_production_runtime.py` records machine-readable evidence for CUDA,
+GPU/node counts, optional acceleration libraries, and llama.cpp executables before a
+production profile is treated as qualified. Hardware-dependent profiles remain blocked
+when the required evidence is absent.
+
+For MiniGPT configurations that are structurally compatible with llama.cpp's LLaMA
+architecture subset (RoPE, RMSNorm, SwiGLU, dense causal attention), export directly
+with `scripts/export.py --format gguf --gguf-target llama_cpp`. The exporter validates
+the architecture, maps tensor names/layouts, emits llama.cpp metadata/tokenizer fields,
+and fails closed for incompatible models. `scripts/quantize_gguf.py` then wraps
+`llama-quantize` and validates the resulting GGUF artifact before serving with the
+existing llama.cpp backend. Actual target-runtime loading still requires llama.cpp to be
+installed on the deployment host.
 
 ## Native seq2seq lifecycle
 

@@ -36,3 +36,58 @@ def test_generate_request_cache_context_is_backward_compatible():
     )
     assert request.tenant_id == "tenant-a"
     assert request.route == "/v1/chat"
+
+
+def test_llama_cpp_minigpt_mapping_and_gguf_export(tmp_path: Path):
+    from inference.quantized_formats import (
+        export_llama_cpp_gguf,
+        minigpt_llama_state_dict,
+    )
+    from model.gpt import MiniGPT
+    from tokenizer.bpe import BYTE_ENCODER
+    from tokenizer.encoder import DEFAULT_SPECIAL_TOKENS, Tokenizer
+
+    vocab = {
+        token: index
+        for index, token in enumerate(list(DEFAULT_SPECIAL_TOKENS) + list(BYTE_ENCODER.values()))
+    }
+    tokenizer = Tokenizer(
+        vocab,
+        special_tokens={token: vocab[token] for token in DEFAULT_SPECIAL_TOKENS},
+    )
+    config = {
+        "vocab_size": len(vocab),
+        "hidden_size": 16,
+        "layers": 2,
+        "heads": 4,
+        "kv_heads": 2,
+        "max_position": 32,
+        "position_type": "rotary",
+        "rope_base": 10000.0,
+        "rope_scaling_type": "none",
+        "attention_bias": False,
+        "causal_attention": True,
+        "qk_norm": False,
+        "ffn_hidden_size": 32,
+        "ffn_activation": "swiglu",
+        "ffn_bias": False,
+        "ffn_type": "dense",
+        "norm_type": "rms_norm",
+        "norm_eps": 1e-5,
+        "norm_bias": False,
+        "pre_norm": True,
+        "lm_head_bias": False,
+    }
+    model = MiniGPT.from_config(config, device="cpu")
+    mapped = minigpt_llama_state_dict(model, config)
+    assert "token_embd.weight" in mapped
+    assert "blk.0.attn_q.weight" in mapped
+    assert "blk.0.ffn_gate.weight" in mapped
+    assert mapped["blk.0.ffn_gate.weight"].shape == (32, 16)
+
+    out = export_llama_cpp_gguf(model, config, tokenizer, tmp_path / "model.gguf")
+    magic, version, tensors, kv = struct.unpack_from("<4sIQQ", out.read_bytes(), 0)
+    assert magic == b"GGUF"
+    assert version == 3
+    assert tensors == len(mapped)
+    assert kv > 10

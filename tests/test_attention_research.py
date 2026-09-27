@@ -1,6 +1,11 @@
 import torch
 
-from model.attention import MultiHeadAttention
+from model.attention import (
+    CausalLinearAttention,
+    LinearAttentionState,
+    MultiHeadAttention,
+)
+from model.gpt import MiniGPT
 
 
 def test_sliding_window_attention_masks_old_tokens():
@@ -11,10 +16,6 @@ def test_sliding_window_attention_masks_old_tokens():
     out = module(x)
     assert out.shape == (1, 4, 16)
     assert module.attention_pattern == "sliding_window"
-
-
-from model.attention import CausalLinearAttention, LinearAttentionState
-from model.gpt import MiniGPT
 
 
 def test_linear_attention_matches_cached_token_by_token_decode():

@@ -27,11 +27,12 @@
 - [x] Context/sequence/pipeline/expert-parallel trainer integration (PP uses stage partitioning + multi-microbatch 1F1B)
 - [x] MoE tensor parallelism
 - [ ] Large-MoE multi-node qualification
+- [x] Production runtime qualification evidence runner (actual target hardware evidence still required)
 - [x] Experiment tracking wired into every trainer
 - [x] Full seq2seq dataset -> trainer -> checkpoint -> export -> serving lifecycle
 - [x] TensorRT-LLM / FlashInfer / FlashAttention execution integration (hardware qualification remains)
 - [ ] CUDA INT4/FP8 and native GPTQ/AWQ
-- [ ] Quantized llama.cpp-ready GGUF pipeline
+- [x] Quantized llama.cpp-ready GGUF pipeline for the strict LLaMA-compatible MiniGPT subset (target-runtime qualification remains)
 - [x] Async token-level vLLM streaming
 - [x] Scalable ANN semantic-cache index + global distributed cache quotas
 - [ ] Production multimodal gaps listed in `docs/CURRENT_MISSING_FEATURES_AUDIT.md`

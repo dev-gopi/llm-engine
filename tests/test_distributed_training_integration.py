@@ -69,3 +69,15 @@ def test_trainer_uses_deepspeed_backward_and_step():
     trainer.train_step(batch)
     assert engine.backward_calls == 1
     assert engine.step_calls == 1
+
+
+def test_pipeline_deepspeed_zero_compatibility_contract():
+    from training.deepspeed import validate_pipeline_zero_compatibility
+
+    validate_pipeline_zero_compatibility(pipeline_parallel_size=2, zero_stage=0)
+    validate_pipeline_zero_compatibility(pipeline_parallel_size=2, zero_stage=1)
+    validate_pipeline_zero_compatibility(pipeline_parallel_size=1, zero_stage=3)
+    with pytest.raises(ValueError, match="ZeRO stages 0/1 only"):
+        validate_pipeline_zero_compatibility(pipeline_parallel_size=2, zero_stage=2)
+    with pytest.raises(ValueError, match="ZeRO stages 0/1 only"):
+        validate_pipeline_zero_compatibility(pipeline_parallel_size=2, zero_stage=3)

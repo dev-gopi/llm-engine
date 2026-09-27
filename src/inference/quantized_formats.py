@@ -65,7 +65,10 @@ _GGML_F32 = 0
 _GGML_F16 = 1
 _KV_STRING = 8
 _KV_UINT32 = 4
+_KV_INT32 = 5
+_KV_FLOAT32 = 6
 _KV_BOOL = 7
+_KV_ARRAY = 9
 
 
 def _gguf_string(value: str) -> bytes:
@@ -73,12 +76,39 @@ def _gguf_string(value: str) -> bytes:
     return struct.pack("<Q", len(raw)) + raw
 
 
-def _kv(key: str, value: str | int | bool) -> bytes:
+def _array_value(values: list[Any] | tuple[Any, ...]) -> bytes:
+    if not values:
+        raise ValueError("GGUF arrays must not be empty")
+    first = values[0]
+    if all(isinstance(value, str) for value in values):
+        element_type = _KV_STRING
+        payload = b"".join(_gguf_string(value) for value in values)
+    elif all(isinstance(value, bool) for value in values):
+        element_type = _KV_BOOL
+        payload = b"".join(struct.pack("<?", value) for value in values)
+    elif all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+        element_type = _KV_INT32
+        payload = b"".join(struct.pack("<i", value) for value in values)
+    elif all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+        element_type = _KV_FLOAT32
+        payload = b"".join(struct.pack("<f", float(value)) for value in values)
+    else:
+        raise TypeError(f"unsupported GGUF array value type: {type(first).__name__}")
+    return struct.pack("<IQ", element_type, len(values)) + payload
+
+
+def _kv(
+    key: str, value: str | int | float | bool | list[Any] | tuple[Any, ...]
+) -> bytes:
     out = _gguf_string(key)
     if isinstance(value, bool):
-        return out + struct.pack("<I<?", _KV_BOOL, value)
+        return out + struct.pack("<I?", _KV_BOOL, value)
     if isinstance(value, int):
         return out + struct.pack("<II", _KV_UINT32, value)
+    if isinstance(value, float):
+        return out + struct.pack("<If", _KV_FLOAT32, value)
+    if isinstance(value, (list, tuple)):
+        return out + struct.pack("<I", _KV_ARRAY) + _array_value(value)
     return out + struct.pack("<I", _KV_STRING) + _gguf_string(value)
 
 
@@ -107,7 +137,7 @@ def export_gguf(
     *,
     architecture: str = "llm-engine",
     model_name: str = "llm-engine",
-    metadata: Mapping[str, str | int | bool] | None = None,
+    metadata: Mapping[str, Any] | None = None,
     alignment: int = 32,
 ) -> Path:
     """Write a deterministic GGUF v3 container from a torch state dict.
@@ -166,6 +196,156 @@ def export_gguf(
     return out
 
 
+
+def _llama_rope_permute(weight: Any, heads: int) -> Any:
+    """Convert Q/K projection rows to llama.cpp's RoPE tensor layout."""
+    if heads < 1 or weight.shape[0] % (heads * 2):
+        raise ValueError("attention projection shape is incompatible with LLaMA RoPE")
+    return (
+        weight.reshape(heads, 2, weight.shape[0] // heads // 2, *weight.shape[1:])
+        .swapaxes(1, 2)
+        .reshape(weight.shape)
+    )
+
+
+def minigpt_llama_state_dict(model: Any, config: Mapping[str, Any]) -> dict[str, Any]:
+    """Map a LLaMA-compatible MiniGPT checkpoint to llama.cpp tensor names."""
+    import torch
+
+    required = {
+        "position_type": "rotary",
+        "norm_type": "rms_norm",
+        "ffn_activation": "swiglu",
+        "ffn_type": "dense",
+        "attention_pattern": "dense",
+    }
+    for key, expected in required.items():
+        actual = str(config.get(key, expected)).lower()
+        if actual != expected:
+            raise ValueError(
+                f"llama.cpp GGUF export requires {key}={expected!r}; got {actual!r}"
+            )
+    boolean_requirements = {
+        "pre_norm": True,
+        "attention_bias": False,
+        "ffn_bias": False,
+        "norm_bias": False,
+        "lm_head_bias": False,
+        "causal_attention": True,
+        "qk_norm": False,
+    }
+    for key, expected in boolean_requirements.items():
+        actual = bool(config.get(key, expected))
+        if actual is not expected:
+            raise ValueError(
+                f"llama.cpp GGUF export requires {key}={expected}; got {actual}"
+            )
+    if str(config.get("rope_scaling_type", "none")).lower() != "none":
+        raise ValueError("llama.cpp GGUF export currently requires rope_scaling_type='none'")
+    if int(config.get("mtp_num_predictions", 0) or 0):
+        raise ValueError("llama.cpp GGUF export does not support MTP heads")
+
+    state = model.state_dict() if hasattr(model, "state_dict") else model
+    if not isinstance(state, Mapping):
+        raise TypeError("MiniGPT llama.cpp export expects a model or state dict")
+    layers = int(config["layers"])
+    heads = int(config["heads"])
+    kv_heads = int(config.get("kv_heads") or heads)
+    out: dict[str, Any] = {
+        "token_embd.weight": state["tok.embedding.weight"],
+        "output_norm.weight": state["norm.weight"],
+        "output.weight": state["head.weight"],
+    }
+    for index in range(layers):
+        src = f"blocks.{index}."
+        dst = f"blk.{index}."
+        q_name = src + "attn.q_proj.weight"
+        if q_name in state:
+            query = state[q_name]
+            key = state[src + "attn.k_proj.weight"]
+            value = state[src + "attn.v_proj.weight"]
+        else:
+            fused = state[src + "attn.qkv_proj.weight"]
+            dim = int(config["hidden_size"])
+            if fused.shape[0] != 3 * dim:
+                raise ValueError("fused QKV projection is incompatible with LLaMA export")
+            query, key, value = torch.split(fused, dim, dim=0)
+        out[dst + "attn_q.weight"] = _llama_rope_permute(query, heads)
+        out[dst + "attn_k.weight"] = _llama_rope_permute(key, kv_heads)
+        out[dst + "attn_v.weight"] = value
+        out[dst + "attn_output.weight"] = state[src + "attn.out_proj.weight"]
+        out[dst + "attn_norm.weight"] = state[src + "attention_norm.weight"]
+        out[dst + "ffn_norm.weight"] = state[src + "ffn_norm.weight"]
+        fused_ffn = state[src + "ffn.in_proj.weight"]
+        if fused_ffn.shape[0] % 2:
+            raise ValueError("SwiGLU input projection must have an even output dimension")
+        gate, up = fused_ffn.chunk(2, dim=0)
+        out[dst + "ffn_gate.weight"] = gate
+        out[dst + "ffn_up.weight"] = up
+        out[dst + "ffn_down.weight"] = state[src + "ffn.out_proj.weight"]
+    return out
+
+
+def llama_cpp_metadata(config: Mapping[str, Any], tokenizer: Any) -> dict[str, Any]:
+    """Build llama.cpp GGUF metadata for this engine's byte-level BPE tokenizer."""
+    if getattr(tokenizer, "tokenizer_type", None) != "byte_level_bpe":
+        raise ValueError("llama.cpp MiniGPT export currently requires byte_level_bpe")
+    heads = int(config["heads"])
+    hidden = int(config["hidden_size"])
+    kv_heads = int(config.get("kv_heads") or heads)
+    tokens = [tokenizer.id_to_token[index] for index in range(tokenizer.vocab_size)]
+    special_ids = set(tokenizer.special_tokens.values())
+    token_types = [3 if index in special_ids else 1 for index in range(tokenizer.vocab_size)]
+    metadata: dict[str, Any] = {
+        "llama.context_length": int(config["max_position"]),
+        "llama.embedding_length": hidden,
+        "llama.block_count": int(config["layers"]),
+        "llama.feed_forward_length": int(config["ffn_hidden_size"]),
+        "llama.rope.dimension_count": hidden // heads,
+        "llama.rope.freq_base": float(config.get("rope_base", 10000.0)),
+        "llama.attention.head_count": heads,
+        "llama.attention.head_count_kv": kv_heads,
+        "llama.attention.layer_norm_rms_epsilon": float(config.get("norm_eps", 1e-5)),
+        "tokenizer.ggml.model": "gpt2",
+        "tokenizer.ggml.pre": "gpt-2",
+        "tokenizer.ggml.tokens": tokens,
+        "tokenizer.ggml.token_type": token_types,
+        "tokenizer.ggml.add_bos_token": False,
+        "tokenizer.ggml.add_eos_token": False,
+    }
+    merges = [f"{left} {right}" for left, right in tokenizer.bpe.merges]
+    if merges:
+        metadata["tokenizer.ggml.merges"] = merges
+    token_keys = {
+        "<|bos|>": "tokenizer.ggml.bos_token_id",
+        "<|eos|>": "tokenizer.ggml.eos_token_id",
+        "<|unk|>": "tokenizer.ggml.unknown_token_id",
+        "<|pad|>": "tokenizer.ggml.padding_token_id",
+    }
+    for token, key in token_keys.items():
+        if token in tokenizer.special_tokens:
+            metadata[key] = int(tokenizer.special_tokens[token])
+    return metadata
+
+
+def export_llama_cpp_gguf(
+    model: Any,
+    config: Mapping[str, Any],
+    tokenizer: Any,
+    output: str | Path,
+    *,
+    model_name: str = "gopi",
+) -> Path:
+    """Export the LLaMA-compatible MiniGPT subset as a llama.cpp GGUF v3 file."""
+    state = minigpt_llama_state_dict(model, config)
+    return export_gguf(
+        state,
+        output,
+        architecture="llama",
+        model_name=model_name,
+        metadata=llama_cpp_metadata(config, tokenizer),
+    )
+
 def convert_native(*, fmt: str, model: Any, output: str | Path, **kwargs: Any) -> Path:
     fmt = fmt.lower()
     if fmt == "gguf":
@@ -213,5 +393,8 @@ __all__ = [
     "capabilities",
     "require_native",
     "export_gguf",
+    "export_llama_cpp_gguf",
+    "llama_cpp_metadata",
+    "minigpt_llama_state_dict",
     "convert_native",
 ]

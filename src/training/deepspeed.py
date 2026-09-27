@@ -99,6 +99,24 @@ class MeshMPU:
         return self.mesh.model_parallel_size()
 
 
+def validate_pipeline_zero_compatibility(*, pipeline_parallel_size: int, zero_stage: int) -> None:
+    """Validate DeepSpeed ZeRO use with the engine's native pipeline runtime.
+
+    DeepSpeed pipeline parallelism is compatible with ZeRO stages 0/1. Stages
+    2/3 partition gradients/parameters in ways that require DeepSpeed's own
+    pipeline engine rather than this project's explicit activation transport.
+    """
+    if pipeline_parallel_size < 1:
+        raise ValueError("pipeline_parallel_size must be positive")
+    if zero_stage not in {0, 1, 2, 3}:
+        raise ValueError("ZeRO stage must be 0, 1, 2 or 3")
+    if pipeline_parallel_size > 1 and zero_stage > 1:
+        raise ValueError(
+            "native pipeline parallelism supports DeepSpeed ZeRO stages 0/1 only; "
+            "ZeRO-2/3 require DeepSpeed's PipelineEngine"
+        )
+
+
 def initialize(
     model,
     optimizer=None,
@@ -172,6 +190,7 @@ __all__ = [
     "MeshMPU",
     "available",
     "build_config",
+    "validate_pipeline_zero_compatibility",
     "initialize",
     "save_checkpoint",
     "load_checkpoint",

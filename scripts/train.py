@@ -43,6 +43,7 @@ from training.data import _mixture_groups, build_loader, interleave_loaders
 from training.deepspeed import (
     MeshMPU,
     ZeROConfig,
+    validate_pipeline_zero_compatibility,
 )
 from training.deepspeed import (
     build_config as build_deepspeed_config,
@@ -450,8 +451,6 @@ def main() -> None:
 
     strategy = str(config.get("distributed_strategy", "ddp"))
     deepspeed_enabled = strategy.lower() in {"deepspeed", "zero"}
-    if pipeline_enabled and deepspeed_enabled:
-        parser.error("pipeline_parallel > 1 currently uses native DDP/FSDP stage wrapping; choose distributed_strategy=ddp/fsdp/fsdp_hybrid rather than DeepSpeed ZeRO")
     distributed_checkpoints = (
         strategy.startswith("fsdp")
         or deepspeed_enabled
@@ -516,6 +515,15 @@ def main() -> None:
                 "stage3_param_persistence_threshold", "auto"
             ),
         )
+        try:
+            validate_pipeline_zero_compatibility(
+                pipeline_parallel_size=(
+                    parallel_mesh.degree("pipeline") if parallel_mesh is not None else 1
+                ),
+                zero_stage=zero_cfg.stage,
+            )
+        except ValueError as error:
+            parser.error(str(error))
         ds_config = build_deepspeed_config(
             zero_cfg,
             micro_batch_size=int(config.get("batch_size", 1)),
@@ -554,6 +562,7 @@ def main() -> None:
             gradient_clip_norm=config.get("gradient_clip_norm", 1.0),
             tracker=tracker if parallel_mesh.local_rank("pipeline") == 0 else None,
             moe_aux_loss_weight=float(config.get("moe_aux_loss_weight", 0.0)),
+            deepspeed_engine=deepspeed_enabled,
         )
     else:
         trainer = Trainer(

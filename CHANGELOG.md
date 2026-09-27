@@ -37,3 +37,10 @@
 - Added consent-gated Coqui XTTS voice-cloning runtime.
 - Added audio-only Responses output support.
 - Added realtime multimodal WebSocket events and optional WebRTC data-channel transport.
+
+## 2026-09-28 distributed/quantization hardening
+- Added native pipeline + DeepSpeed ZeRO-0/1 integration with explicit ZeRO-2/3 compatibility rejection.
+- Corrected DeepSpeed gradient-accumulation scaling so loss scaling is applied exactly once.
+- Added executable production runtime qualification evidence for CUDA/multi-node and optional accelerator backends.
+- Added strict MiniGPT -> llama.cpp LLaMA-compatible GGUF export for the compatible RoPE/RMSNorm/SwiGLU dense architecture subset.
+- Fixed GGUF boolean metadata serialization.

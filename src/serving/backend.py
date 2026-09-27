@@ -18,7 +18,9 @@ from agents.mcp import RemoteMCPClient
 from inference.backend_adapters import (
     VLLMAsyncBackend as NativeVLLMAsyncBackend,
 )
-from inference.backend_adapters import VLLMBackend as NativeVLLMBackend
+from inference.backend_adapters import (
+    VLLMBackend as NativeVLLMBackend,
+)
 from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.generator import BatchedGenerationState, Generator
 from inference.local_tools import direct_tool_answer, tool_context

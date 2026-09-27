@@ -295,7 +295,10 @@ class Trainer:
         if self.deepspeed_engine:
             # DeepSpeed owns loss scaling, gradient accumulation, ZeRO reduction,
             # optimizer stepping, and scheduler stepping.
-            self.model.backward(backward_loss / self.gradient_accumulation_steps)
+            # DeepSpeed applies its configured gradient-accumulation scaling
+            # inside ``engine.backward``. Dividing here as well would scale
+            # gradients twice.
+            self.model.backward(backward_loss)
         else:
             self.scaler.scale(
                 backward_loss / self.gradient_accumulation_steps
