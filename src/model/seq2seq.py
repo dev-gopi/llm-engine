@@ -11,8 +11,8 @@ class EncoderDecoderTransformer(nn.Module):
         self.vocab_size=vocab_size; self.d_model=d_model; self.max_position=max_position
         self.src_embedding=nn.Embedding(vocab_size,d_model); self.tgt_embedding=nn.Embedding(vocab_size,d_model)
         self.src_pos=nn.Embedding(max_position,d_model); self.tgt_pos=nn.Embedding(max_position,d_model)
-        layer_e=nn.TransformerEncoderLayer(d_model,nhead,ff_dim,dropout,batch_first=True,norm_first=True)
-        layer_d=nn.TransformerDecoderLayer(d_model,nhead,ff_dim,dropout,batch_first=True,norm_first=True)
+        layer_e=nn.TransformerEncoderLayer(d_model,nhead,ff_dim,dropout,batch_first=True,norm_first=False)
+        layer_d=nn.TransformerDecoderLayer(d_model,nhead,ff_dim,dropout,batch_first=True,norm_first=False)
         self.encoder=nn.TransformerEncoder(layer_e,layers); self.decoder=nn.TransformerDecoder(layer_d,layers); self.norm=nn.LayerNorm(d_model); self.lm_head=nn.Linear(d_model,vocab_size,bias=False)
     def forward(self, source_ids:Tensor, target_ids:Tensor, *, source_mask:Tensor|None=None, target_mask:Tensor|None=None):
         if source_ids.ndim!=2 or target_ids.ndim!=2: raise ValueError("source_ids and target_ids must be [batch,time]")
