@@ -86,13 +86,21 @@ jobs:
         run: |
           if grep -R \
             --line-number \
+            --include='*.py' \
             --exclude-dir=.git \
+            --exclude-dir=.github \
             --exclude-dir=tests \
-            --exclude='*.md' \
+            --exclude-dir=.venv \
+            --exclude-dir=venv \
+            --exclude-dir=build \
+            --exclude-dir=dist \
+            --exclude-dir=__pycache__ \
             'NotImplementedError' .; then
-            echo "Found NotImplementedError in production code."
+            echo "Found NotImplementedError in production Python code."
             exit 1
           fi
+
+          echo "Implementation audit passed: no NotImplementedError found."
 
   build:
     name: Build package
