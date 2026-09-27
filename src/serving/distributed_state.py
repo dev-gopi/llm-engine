@@ -313,4 +313,4 @@ class RedisSessionStore:
         return count
 
 
-__all__ = ["RedisIdempotencyStore", "RedisRateLimiter", "RedisSessionStore"]
+__all__ = ["RedisRateLimiter", "RedisIdempotencyStore", "RedisSessionStore"]

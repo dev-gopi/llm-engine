@@ -11,10 +11,9 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from embeddings import EmbeddingService
 
@@ -389,4 +388,4 @@ class PlatformWorkers:
         return r
 
 
-__all__ = ["PlatformWorkers", "VectorIndex", "WorkerResult"]
+__all__ = ["VectorIndex", "PlatformWorkers", "WorkerResult"]

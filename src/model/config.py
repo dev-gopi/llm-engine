@@ -258,8 +258,12 @@ def _validate_attention_backend(config: Mapping[str, Any]) -> None:
     if not isinstance(chunk, int) or isinstance(chunk, bool) or chunk < 1:
         raise ValueError("linear_attention_chunk_size must be a positive integer")
     backend = str(config.get("attention_backend", "auto")).lower()
-    if backend not in {"auto", "sdpa", "eager"}:
-        raise ValueError("attention_backend must be auto, sdpa, or eager")
+    if backend == "flash_attn":
+        backend = "flash_attention"
+    if backend not in {"auto", "sdpa", "eager", "flash_attention", "flashinfer"}:
+        raise ValueError(
+            "attention_backend must be auto, sdpa, eager, flash_attention, or flashinfer"
+        )
 
 
 def _positive_int(value: Any, name: str) -> int:

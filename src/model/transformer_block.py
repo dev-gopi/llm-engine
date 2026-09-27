@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
+import torch.distributed as dist
+import torch.distributed.nn.functional as dist_nn
 from torch import Tensor, nn
 
 from .attention import CausalLinearAttention, KeyValueCache, MultiHeadAttention
@@ -31,6 +33,7 @@ class TransformerBlock(nn.Module):
         residual_scale: float = 1.0,
         attention_dropout: float = 0.0,
         attention_bias: bool = True,
+        attention_backend: str = "auto",
         causal_attention: bool = True,
         qk_norm: bool = False,
         qk_norm_eps: float = 1e-6,
@@ -84,6 +87,7 @@ class TransformerBlock(nn.Module):
             kv_heads=kv_heads,
             dropout=attention_dropout,
             bias=attention_bias,
+            attention_backend=attention_backend,
             causal=causal_attention,
             qk_norm=qk_norm,
             qk_norm_eps=qk_norm_eps,
@@ -128,6 +132,7 @@ class TransformerBlock(nn.Module):
         )
         self.attention_residual_dropout = nn.Dropout(residual_dropout)
         self.ffn_residual_dropout = nn.Dropout(residual_dropout)
+        self.sequence_parallel_group = None
 
     def forward(
         self,
@@ -154,7 +159,7 @@ class TransformerBlock(nn.Module):
             hidden_states = self._add_residual(
                 hidden_states, attention_update, self.attention_residual_dropout
             )
-            ffn_update = self.ffn(self.ffn_norm(hidden_states))
+            ffn_update = self._ffn_forward(self.ffn_norm(hidden_states))
             output = self._add_residual(
                 hidden_states, ffn_update, self.ffn_residual_dropout
             )
@@ -174,11 +179,28 @@ class TransformerBlock(nn.Module):
                 hidden_states, attention_update, self.attention_residual_dropout
             )
         )
-        ffn_update = self.ffn(hidden_states)
+        ffn_update = self._ffn_forward(hidden_states)
         output = self.ffn_norm(
             self._add_residual(hidden_states, ffn_update, self.ffn_residual_dropout)
         )
         return (output, present) if present is not None else output
+
+    def _ffn_forward(self, hidden_states: Tensor) -> Tensor:
+        group = self.sequence_parallel_group
+        if group is None or not dist.is_available() or not dist.is_initialized():
+            return self.ffn(hidden_states)
+        world = dist.get_world_size(group)
+        if world == 1:
+            return self.ffn(hidden_states)
+        if hidden_states.shape[1] % world:
+            raise ValueError(
+                "sequence length must be divisible by sequence-parallel degree"
+            )
+        rank = dist.get_rank(group)
+        width = hidden_states.shape[1] // world
+        local = hidden_states[:, rank * width : (rank + 1) * width].contiguous()
+        local_output = self.ffn(local)
+        return torch.cat(tuple(dist_nn.all_gather(local_output, group=group)), dim=1)
 
     @staticmethod
     def _unpack_attention(
@@ -221,6 +243,7 @@ class TransformerBlock(nn.Module):
             residual_scale=float(config.get("residual_scale", 1.0)),
             attention_dropout=float(config.get("attention_dropout", 0.0)),
             attention_bias=bool(config.get("attention_bias", True)),
+            attention_backend=str(config.get("attention_backend", "auto")),
             causal_attention=bool(config.get("causal_attention", True)),
             qk_norm=bool(config.get("qk_norm", False)),
             qk_norm_eps=float(config.get("qk_norm_eps", 1e-6)),

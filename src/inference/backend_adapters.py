@@ -227,12 +227,12 @@ def backend_matrix():
 __all__ = [
     "BackendCapability",
     "BackendUnavailableError",
-    "FlashAttentionBackend",
-    "FlashInferBackend",
     "OptionalInferenceBackend",
-    "TensorRTLLMBackend",
-    "VLLMAsyncBackend",
     "VLLMBackend",
+    "VLLMAsyncBackend",
+    "TensorRTLLMBackend",
+    "FlashInferBackend",
+    "FlashAttentionBackend",
     "backend_matrix",
     "detect_backend",
 ]

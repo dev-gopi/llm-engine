@@ -18,6 +18,7 @@ from torch import nn
 
 try:
     from torch.distributed.fsdp import (
+        FullOptimStateDictConfig,
         FullStateDictConfig,
         ShardedOptimStateDictConfig,
         ShardedStateDictConfig,
@@ -142,6 +143,28 @@ def save_sharded_post_training(
             "scaler": scaler.state_dict() if scaler is not None else None,
         }
         torch.save(payload, root / f"rank-{dist.get_rank():05d}.pt")
+    # Keep an elastic recovery payload alongside the normal fast shards.  It is
+    # only materialized on rank 0 and is used when the resume world size changes.
+    full_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    full_optim_cfg = FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    with FSDP.state_dict_type(
+        model, StateDictType.FULL_STATE_DICT, full_cfg, full_optim_cfg
+    ):
+        full_model = model.state_dict()
+        full_optimizer = FSDP.optim_state_dict(model, optimizer)
+    if dist.get_rank() == 0:
+        torch.save(
+            {
+                "format": FORMAT,
+                "model": full_model,
+                "optimizer": full_optimizer,
+                "metadata": metadata or {},
+                "trainer": trainer_state or {},
+                "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                "scaler": scaler.state_dict() if scaler is not None else None,
+            },
+            root / "elastic-full.pt",
+        )
     if dist.get_rank() == 0:
         (root / "manifest.json").write_text(
             json.dumps(
@@ -174,10 +197,37 @@ def load_sharded_post_training(
     root = Path(path)
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf8"))
     saved_world_size = manifest.get("world_size")
-    if saved_world_size is not None and int(saved_world_size) != dist.get_world_size():
-        raise ValueError(
-            f"FSDP checkpoint world_size={saved_world_size} does not match current world_size={dist.get_world_size()}"
+    world_size_changed = (
+        saved_world_size is not None and int(saved_world_size) != dist.get_world_size()
+    )
+    if world_size_changed:
+        elastic_path = root / "elastic-full.pt"
+        if not elastic_path.is_file():
+            raise ValueError(
+                f"FSDP checkpoint world_size={saved_world_size} differs from current world_size={dist.get_world_size()} "
+                "and this legacy checkpoint has no elastic full-state payload"
+            )
+        payload = (
+            torch.load(elastic_path, map_location=map_location, weights_only=False)
+            if dist.get_rank() == 0
+            else {"format": FORMAT}
         )
+        full_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+        with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, full_cfg):
+            model.load_state_dict(payload.get("model", {}), strict=True)
+        full_optim = payload.get("optimizer") if dist.get_rank() == 0 else None
+        sharded_optim = FSDP.scatter_full_optim_state_dict(
+            full_optim, model, optim=optimizer
+        )
+        optimizer.load_state_dict(sharded_optim)
+        metadata_payload = [payload if dist.get_rank() == 0 else None]
+        dist.broadcast_object_list(metadata_payload, src=0)
+        payload = metadata_payload[0]
+        if scheduler is not None and payload.get("scheduler") is not None:
+            scheduler.load_state_dict(payload["scheduler"])
+        if scaler is not None and payload.get("scaler") is not None:
+            scaler.load_state_dict(payload["scaler"])
+        return payload
     payload = torch.load(
         root / f"rank-{dist.get_rank():05d}.pt",
         map_location=map_location,
@@ -237,7 +287,26 @@ def save_sharded_rlhf_checkpoint(
                     model, optimizers[name]
                 )
     torch.save(payload, root / f"rank-{dist.get_rank():05d}.pt")
+    elastic_payload = {
+        "format": RLHF_FORMAT,
+        "metadata": metadata or {},
+        "models": {},
+        "optimizers": {},
+        "extra_state": extra_state or {},
+    }
+    full_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    full_optim_cfg = FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    for name, model in models.items():
+        with FSDP.state_dict_type(
+            model, StateDictType.FULL_STATE_DICT, full_cfg, full_optim_cfg
+        ):
+            elastic_payload["models"][name] = model.state_dict()
+            if name in optimizers:
+                elastic_payload["optimizers"][name] = FSDP.optim_state_dict(
+                    model, optimizers[name]
+                )
     if dist.get_rank() == 0:
+        torch.save(elastic_payload, root / "elastic-full.pt")
         (root / "manifest.json").write_text(
             json.dumps(
                 {
@@ -269,10 +338,61 @@ def load_sharded_rlhf_checkpoint(
     root = Path(path)
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf8"))
     saved_world_size = manifest.get("world_size")
-    if saved_world_size is not None and int(saved_world_size) != dist.get_world_size():
-        raise ValueError(
-            f"FSDP checkpoint world_size={saved_world_size} does not match current world_size={dist.get_world_size()}"
+    world_size_changed = (
+        saved_world_size is not None and int(saved_world_size) != dist.get_world_size()
+    )
+    if world_size_changed:
+        elastic_path = root / "elastic-full.pt"
+        if not elastic_path.is_file():
+            raise ValueError(
+                f"FSDP checkpoint world_size={saved_world_size} differs from current world_size={dist.get_world_size()} "
+                "and this legacy checkpoint has no elastic full-state payload"
+            )
+        full_payload = (
+            torch.load(elastic_path, map_location=map_location, weights_only=False)
+            if dist.get_rank() == 0
+            else None
         )
+        header = None
+        if dist.get_rank() == 0:
+            if full_payload.get("format") not in {RLHF_FORMAT, "gopi-fsdp-rlhf-v1"}:
+                raise ValueError("unsupported RLHF checkpoint")
+            header = {
+                "format": full_payload.get("format", RLHF_FORMAT),
+                "metadata": full_payload.get("metadata", {}),
+                "extra_state": full_payload.get("extra_state", {}),
+                "model_names": tuple(full_payload.get("models", {})),
+                "optimizer_names": tuple(full_payload.get("optimizers", {})),
+            }
+        header_list = [header]
+        dist.broadcast_object_list(header_list, src=0)
+        header = header_list[0]
+        optimizers = optimizers or {}
+        full_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+        for name, model in models.items():
+            if name not in header["model_names"]:
+                raise KeyError(f"checkpoint missing model {name!r}")
+            rank_state = full_payload["models"][name] if dist.get_rank() == 0 else {}
+            with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, full_cfg):
+                model.load_state_dict(rank_state, strict=True)
+            if name in optimizers and name in header["optimizer_names"]:
+                full_optim = (
+                    full_payload["optimizers"][name] if dist.get_rank() == 0 else None
+                )
+                optimizers[name].load_state_dict(
+                    FSDP.scatter_full_optim_state_dict(
+                        full_optim, model, optim=optimizers[name]
+                    )
+                )
+        # Do not broadcast full model/optimizer tensors as Python objects.  The
+        # FSDP collectives above distribute them directly to the new topology.
+        return {
+            "format": header["format"],
+            "metadata": header["metadata"],
+            "extra_state": header["extra_state"],
+            "models": {name: None for name in header["model_names"]},
+            "optimizers": {name: None for name in header["optimizer_names"]},
+        }
     payload = torch.load(
         root / f"rank-{dist.get_rank():05d}.pt",
         map_location=map_location,

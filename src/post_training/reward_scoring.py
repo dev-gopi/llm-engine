@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Iterable, Sequence
 
 import torch
 
@@ -63,7 +63,7 @@ class RewardCalibration:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, payload: dict) -> RewardCalibration:
+    def from_dict(cls, payload: dict) -> "RewardCalibration":
         return cls(
             mean=float(payload.get("mean", 0.0)),
             std=float(payload.get("std", 1.0)),
@@ -73,7 +73,7 @@ class RewardCalibration:
         )
 
     @classmethod
-    def load(cls, path: str | Path) -> RewardCalibration:
+    def load(cls, path: str | Path) -> "RewardCalibration":
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("reward calibration file must contain a JSON object")

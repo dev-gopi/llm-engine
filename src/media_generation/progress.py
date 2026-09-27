@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Event
+from typing import Callable
 
 ProgressCallback = Callable[[int, int], None]
 
@@ -14,7 +14,7 @@ class CancellationToken:
     _event: Event
 
     @classmethod
-    def create(cls) -> CancellationToken:
+    def create(cls) -> "CancellationToken":
         return cls(Event())
 
     def cancel(self) -> None:

@@ -74,6 +74,31 @@ def build_config(
     return out
 
 
+class MeshMPU:
+    """Minimal DeepSpeed model/data parallel unit backed by ``ParallelMesh``."""
+
+    def __init__(self, mesh):
+        self.mesh = mesh
+
+    def get_data_parallel_group(self):
+        return self.mesh.group("data")
+
+    def get_model_parallel_group(self):
+        return self.mesh.model_group()
+
+    def get_data_parallel_rank(self):
+        return self.mesh.local_rank("data")
+
+    def get_data_parallel_world_size(self):
+        return self.mesh.degree("data")
+
+    def get_model_parallel_rank(self):
+        return self.mesh.model_parallel_rank()
+
+    def get_model_parallel_world_size(self):
+        return self.mesh.model_parallel_size()
+
+
 def initialize(
     model,
     optimizer=None,
@@ -81,6 +106,7 @@ def initialize(
     config: dict[str, Any],
     scheduler=None,
     model_parameters=None,
+    mpu=None,
 ):
     if not available():
         raise RuntimeError(
@@ -94,6 +120,7 @@ def initialize(
         lr_scheduler=scheduler,
         model_parameters=model_parameters,
         config=config,
+        mpu=mpu,
     )
     return engine, resolved_optimizer, resolved_scheduler
 
@@ -142,11 +169,12 @@ def step(engine) -> None:
 
 __all__ = [
     "ZeROConfig",
+    "MeshMPU",
     "available",
-    "backward",
     "build_config",
     "initialize",
-    "load_checkpoint",
     "save_checkpoint",
+    "load_checkpoint",
+    "backward",
     "step",
 ]

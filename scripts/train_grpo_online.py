@@ -217,7 +217,7 @@ def main() -> None:
         )
 
     optimizer = adamw_from_config(training_policy, config)
-    estimated_groups = max_groups + (max(0, replay_capacity))
+    estimated_groups = max_groups + (replay_capacity if replay_capacity > 0 else 0)
     total_steps = (
         iterations
         * updates_per_rollout

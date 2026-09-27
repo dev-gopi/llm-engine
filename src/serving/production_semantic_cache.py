@@ -12,9 +12,8 @@ import hashlib
 import inspect
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable, Mapping
 
 from embeddings import EmbeddingService
 

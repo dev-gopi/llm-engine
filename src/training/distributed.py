@@ -89,16 +89,21 @@ class DistributedTrainer:
         *,
         strategy: str = "ddp",
         mixed_precision: str = "none",
+        process_group=None,
     ) -> nn.Module:
         strategy = strategy.lower()
         mixed_precision = mixed_precision.lower()
         if mixed_precision not in {"none", "fp16", "bf16"}:
             raise ValueError("mixed_precision must be none, fp16, or bf16")
-        if strategy not in {"none", "ddp", "fsdp", "fsdp_hybrid"}:
+        if strategy not in {"none", "ddp", "fsdp", "fsdp_hybrid", "deepspeed", "zero"}:
             raise ValueError(
-                "distributed_strategy must be none, ddp, fsdp, or fsdp_hybrid"
+                "distributed_strategy must be none, ddp, fsdp, fsdp_hybrid, deepspeed, or zero"
             )
         model = model.to(context.device)
+        if strategy in {"deepspeed", "zero"}:
+            # DeepSpeed owns model wrapping, optimizer partitioning, backward, and stepping.
+            # The main training entrypoint initializes its engine after optimizer creation.
+            return model
         if context.world_size > 1 and strategy == "none":
             raise ValueError(
                 "distributed_strategy='none' cannot be used with WORLD_SIZE > 1"
@@ -138,13 +143,17 @@ class DistributedTrainer:
                 device_id=context.device,
                 use_orig_params=True,
                 limit_all_gathers=True,
+                process_group=process_group,
             )
         device_ids = [context.local_rank] if context.device.type == "cuda" else None
         has_sparse_experts = any(
             hasattr(module, "experts") for module in model.modules()
         )
         return DistributedDataParallel(
-            model, device_ids=device_ids, find_unused_parameters=has_sparse_experts
+            model,
+            device_ids=device_ids,
+            find_unused_parameters=has_sparse_experts,
+            process_group=process_group,
         )
 
     @staticmethod

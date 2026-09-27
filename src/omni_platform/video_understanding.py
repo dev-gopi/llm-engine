@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .errors import MediaValidationError, ProviderUnavailableError
 from .ffmpeg import FFmpeg

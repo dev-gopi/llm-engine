@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 
 from enterprise import (
     ArtifactAdmission,
@@ -74,7 +75,7 @@ def test_finetune_worker_with_injected_command(tmp_path):
     w = PlatformWorkers(
         store,
         vector_index_path=tmp_path / "v.db",
-        finetune_command_builder=lambda *args: ["python", "-c", 'print("ok")'],
+        finetune_command_builder=lambda *args: [sys.executable, "-c", 'print("ok")'],
     )
     result = w.execute_finetune("t", j["id"])
     assert result["status"] == "succeeded"

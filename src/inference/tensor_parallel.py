@@ -12,7 +12,7 @@ from torch import nn
 
 
 def validate_tensor_parallel_size(
-    size: int, *, attention_heads: int, kv_heads: int
+    size: int, *, attention_heads: int, kv_heads: int, require_world_size: bool = True
 ) -> None:
     for name, value in (
         ("size", size),
@@ -27,11 +27,40 @@ def validate_tensor_parallel_size(
         raise ValueError(
             "attention and KV head counts must be divisible by tensor parallel size"
         )
-    if size > 1 and int(os.getenv("WORLD_SIZE", "1")) != size:
+    if require_world_size and size > 1 and int(os.getenv("WORLD_SIZE", "1")) != size:
         raise RuntimeError(
             f"tensor parallel size {size} requires a torchrun world size of {size}; "
             f"current WORLD_SIZE is {os.getenv('WORLD_SIZE', '1')}"
         )
+
+
+class _CopyToTensorParallel(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, inputs: torch.Tensor, group):
+        ctx.group = group
+        return inputs
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        grad = grad_output.contiguous().clone()
+        dist.all_reduce(grad, op=dist.ReduceOp.SUM, group=ctx.group)
+        return grad, None
+
+
+class _GatherTensorParallel(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, local: torch.Tensor, group):
+        ctx.group = group
+        ctx.rank = dist.get_rank(group)
+        ctx.local_width = local.shape[-1]
+        parts = [torch.empty_like(local) for _ in range(dist.get_world_size(group))]
+        dist.all_gather(parts, local.contiguous(), group=group)
+        return torch.cat(parts, dim=-1)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        start = ctx.rank * ctx.local_width
+        return grad_output.narrow(-1, start, ctx.local_width).contiguous(), None
 
 
 class VocabParallelLinear(nn.Module):
@@ -60,12 +89,13 @@ class VocabParallelLinear(nn.Module):
         )
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        local = F.linear(inputs, self.weight, self.bias)
-        parts = [
-            torch.empty_like(local) for _ in range(dist.get_world_size(self.group))
-        ]
-        dist.all_gather(parts, local, group=self.group)
-        return torch.cat(parts, dim=-1)
+        # Every TP rank computes the same full-token loss.  Copy backward sums
+        # the hidden-state contributions from vocabulary shards, while gather
+        # backward selects only this rank's vocabulary slice (rather than
+        # multiplying local head gradients by the TP degree).
+        copied = _CopyToTensorParallel.apply(inputs, self.group)
+        local = F.linear(copied, self.weight, self.bias)
+        return _GatherTensorParallel.apply(local, self.group)
 
 
 def _rows(source: nn.Linear, rows: torch.Tensor) -> nn.Linear:
@@ -112,7 +142,10 @@ def parallelize_minigpt(model: nn.Module, *, group=None) -> nn.Module:
         raise ValueError("tensor parallelism requires a language-model output head")
     first = model.blocks[0].attn
     validate_tensor_parallel_size(
-        size, attention_heads=first.heads, kv_heads=first.kv_heads
+        size,
+        attention_heads=first.heads,
+        kv_heads=first.kv_heads,
+        require_world_size=False,
     )
     # Sparse-MoE routers stay replicated while every expert FFN is tensor-sharded.
     # This composes cleanly with expert parallelism: EP chooses which experts live on

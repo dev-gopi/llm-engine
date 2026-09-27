@@ -12,9 +12,9 @@ import sqlite3
 import subprocess
 import time
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 class EnterpriseDB:
@@ -105,7 +105,7 @@ class ModerationService:
 
     def moderate(self, text):
         scores = {
-            k: (1.0 if any(re.search(p, text, re.IGNORECASE) for p in pats) else 0.0)
+            k: (1.0 if any(re.search(p, text, re.I) for p in pats) else 0.0)
             for k, pats in self.rules.items()
         }
         if self.classifier:
@@ -495,19 +495,19 @@ class BackupManager:
 
 
 __all__ = [
-    "ArtifactAdmission",
-    "BackupManager",
-    "ComplianceService",
-    "DeploymentManager",
     "EnterpriseDB",
     "EntitlementService",
-    "ModerationResult",
     "ModerationService",
-    "PolicyEngine",
+    "ModerationResult",
+    "ComplianceService",
     "SCIMDirectory",
-    "SandboxRunner",
-    "SecretManager",
+    "PolicyEngine",
     "TamperEvidentAuditLog",
+    "ArtifactAdmission",
+    "SecretManager",
+    "SandboxRunner",
+    "DeploymentManager",
+    "BackupManager",
 ]
 
 
@@ -640,4 +640,4 @@ class MultiRegionFailover:
         raise RuntimeError("no healthy region")
 
 
-__all__ += ["KMSProvider", "MultiRegionFailover", "ReplicaRegistry", "WebhookRegistry"]
+__all__ += ["KMSProvider", "WebhookRegistry", "ReplicaRegistry", "MultiRegionFailover"]

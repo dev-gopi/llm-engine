@@ -5,7 +5,7 @@ from .pipeline import AudioGenerationPipeline
 
 __all__ = [
     "AudioAutoencoder1D",
-    "AudioDenoiser1D",
     "AudioDiffusionModel",
+    "AudioDenoiser1D",
     "AudioGenerationPipeline",
 ]

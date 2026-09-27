@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from inference.backend_routing import BackendEndpoint, FailoverRouter
+
 
 @dataclass
 class _StreamWork:
@@ -343,6 +345,84 @@ class ReplicaPoolBackend:
             result = callback()
             if asyncio.iscoroutine(result):
                 await result
+
+
+class FailoverServingBackend:
+    """Circuit-breaker-backed production router for async generation backends."""
+
+    def __init__(self, backends: Sequence[tuple[str, Any]]) -> None:
+        if not backends:
+            raise ValueError("at least one serving backend is required")
+        self.backends = list(backends)
+        self.endpoints = [
+            BackendEndpoint(name=name, generate=backend.generate, priority=index)
+            for index, (name, backend) in enumerate(self.backends)
+        ]
+        self.router = FailoverRouter(
+            self.endpoints, retryable=(RuntimeError, TimeoutError, ConnectionError)
+        )
+
+    @property
+    def ready(self) -> bool:
+        return any(
+            bool(getattr(backend, "ready", False)) and endpoint.breaker.allow()
+            for endpoint, (_name, backend) in zip(self.endpoints, self.backends)
+        )
+
+    async def startup(self) -> None:
+        errors = []
+        ready = 0
+        for _name, backend in self.backends:
+            callback = getattr(backend, "startup", None)
+            try:
+                if callback:
+                    value = callback()
+                    if asyncio.iscoroutine(value):
+                        await value
+                ready += int(bool(getattr(backend, "ready", True)))
+            except Exception as exc:
+                errors.append(exc)
+        if not ready and errors:
+            raise RuntimeError(f"all serving backends failed startup: {errors[-1]}")
+
+    async def shutdown(self) -> None:
+        for _name, backend in self.backends:
+            callback = getattr(backend, "shutdown", None)
+            if callback:
+                try:
+                    value = callback()
+                    if asyncio.iscoroutine(value):
+                        await value
+                except Exception:
+                    pass
+
+    async def generate(self, request):
+        return await self.router.generate_async(request)
+
+    async def stream(self, request):
+        errors = []
+        for endpoint, (_name, backend) in zip(self.endpoints, self.backends):
+            if not endpoint.breaker.allow():
+                continue
+            endpoint.requests += 1
+            emitted = False
+            try:
+                async for event in backend.stream(request):
+                    emitted = True
+                    yield event
+                endpoint.breaker.success()
+                return
+            except (RuntimeError, TimeoutError, ConnectionError) as exc:
+                endpoint.failures += 1
+                endpoint.breaker.failure()
+                if emitted:
+                    raise
+                errors.append((endpoint.name, exc))
+        detail = (
+            "; ".join(f"{name}: {exc}" for name, exc in errors)
+            or "all backend circuits are open"
+        )
+        raise RuntimeError(f"all inference backends failed: {detail}")
 
 
 class ReloadableBackend:

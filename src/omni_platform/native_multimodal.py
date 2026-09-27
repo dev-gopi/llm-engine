@@ -556,8 +556,8 @@ class NativeLatentImageProvider:
 
 
 __all__ = [
-    "CoquiXTTSVoiceCloningProvider",
     "HuggingFaceAudioUnderstandingProvider",
     "HuggingFaceVideoUnderstandingProvider",
+    "CoquiXTTSVoiceCloningProvider",
     "NativeLatentImageProvider",
 ]

@@ -14,9 +14,8 @@ import os
 import secrets
 import tempfile
 import uuid
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from fastapi import (
     APIRouter,
@@ -311,4 +310,4 @@ async def realtime_webrtc(offer: WebRTCOffer, request: Request):
     return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
 
 
-__all__ = ["RealtimeSession", "router"]
+__all__ = ["router", "RealtimeSession"]

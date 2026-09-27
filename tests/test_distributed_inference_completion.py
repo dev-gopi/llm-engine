@@ -9,7 +9,9 @@ from inference.backend_routing import (
     TenantQoSQueue,
 )
 from inference.quantized_formats import convert_native
-from training.context_parallel import context_parallel_causal_mask
+from training.context_parallel import (
+    context_parallel_causal_mask,
+)
 from training.deepspeed import ZeROConfig, build_config
 from training.expert_parallel import (
     expert_indices,

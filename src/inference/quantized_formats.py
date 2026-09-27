@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import importlib.util
 import struct
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 class NativeFormatUnavailable(RuntimeError):
@@ -212,7 +211,7 @@ __all__ = [
     "FormatCapability",
     "NativeFormatUnavailable",
     "capabilities",
-    "convert_native",
-    "export_gguf",
     "require_native",
+    "export_gguf",
+    "convert_native",
 ]

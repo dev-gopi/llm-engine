@@ -54,4 +54,4 @@ class ProviderVoiceCloner:
         return self.provider.clone_voice(request, context)
 
 
-__all__ = ["ProviderVoiceCloner", "VoiceClonePolicy", "VoiceCloningProvider"]
+__all__ = ["VoiceCloningProvider", "VoiceClonePolicy", "ProviderVoiceCloner"]

@@ -4,7 +4,11 @@ import pytest
 from PIL import Image
 
 from image_data.audit import audit_images
-from image_data.dataset import ImageClassificationDataset, ImageDataset
+from image_data.dataset import (
+    CaptionedImageDataset,
+    ImageClassificationDataset,
+    ImageDataset,
+)
 from image_data.processor import ImageProcessor, load_image, tensor_to_image
 
 
@@ -66,3 +70,24 @@ def test_image_audit_finds_corruption_and_duplicates(tmp_path: Path) -> None:
     assert report.corrupt == 1
     assert report.exact_duplicates == 1
     assert (report.min_width, report.min_height) == (9, 7)
+
+
+# --- batch27 image dataset test (moved) ---
+
+
+def test_captioned_image_dataset_manifest(tmp_path):
+    import json
+
+    from PIL import Image
+
+    image = tmp_path / "x.png"
+    Image.new("RGB", (16, 16), (1, 2, 3)).save(image)
+    manifest = tmp_path / "train.jsonl"
+    manifest.write_text(
+        json.dumps({"image": "x.png", "text": "small test image"}) + "\n",
+        encoding="utf-8",
+    )
+    ds = CaptionedImageDataset(manifest, 16)
+    tensor, caption = ds[0]
+    assert tensor.shape == (3, 16, 16)
+    assert caption == "small test image"

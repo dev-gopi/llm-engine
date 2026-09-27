@@ -10,9 +10,8 @@ from __future__ import annotations
 import hashlib
 import re
 import time
-from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 _SECRET_PATTERNS = (
     re.compile(r"\b(?:sk|rk|pk)_[A-Za-z0-9_-]{16,}\b"),
@@ -21,10 +20,10 @@ _SECRET_PATTERNS = (
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     re.compile(
         r"\b(?:password|passwd|secret|api[_ -]?key|access[_ -]?token)\s*[:=]\s*\S+",
-        re.IGNORECASE,
+        re.I,
     ),
 )
-_EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 _PHONE = re.compile(r"(?<!\d)(?:\+?\d[\d .()/-]{8,}\d)(?!\d)")
 
 
@@ -65,7 +64,7 @@ class CacheFreshness:
     sources: tuple[str, ...] = ()
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> CacheFreshness:
+    def from_mapping(cls, values: Mapping[str, Any]) -> "CacheFreshness":
         canonical = "|".join(f"{key}={values[key]}" for key in sorted(values))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
         return cls(value=digest, sources=tuple(sorted(str(k) for k in values)))
@@ -118,7 +117,7 @@ class NegativeCacheEntry:
     @classmethod
     def create(
         cls, key: str, error_type: str, message: str, ttl_seconds: float
-    ) -> NegativeCacheEntry:
+    ) -> "NegativeCacheEntry":
         now = time.time()
         return cls(
             key,

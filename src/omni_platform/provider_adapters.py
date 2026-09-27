@@ -8,9 +8,8 @@ common lifecycle without baking a vendor into the core engine.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 from urllib.request import Request, urlopen
 
 from .providers import ProviderContext
@@ -95,4 +94,4 @@ class LatentImageProfile:
             raise ValueError("unsupported latent-image dtype")
 
 
-__all__ = ["LatentImageProfile", "RemoteJSONProvider", "RemoteProviderConfig"]
+__all__ = ["RemoteProviderConfig", "RemoteJSONProvider", "LatentImageProfile"]

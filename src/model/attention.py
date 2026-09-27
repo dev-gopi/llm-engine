@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 import torch
+import torch.distributed as dist
+import torch.distributed.nn.functional as dist_nn
 import torch.nn.functional as F
 from torch import Tensor, nn
 
@@ -113,6 +115,7 @@ class MultiHeadAttention(nn.Module):
         self.out_proj = nn.Linear(dim, dim, bias=bias, **factory_kwargs)
         self._mask_cache: dict[tuple[Any, ...], Tensor] = {}
         self.tensor_parallel_group = None
+        self.context_parallel_group = None
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
@@ -198,6 +201,43 @@ class MultiHeadAttention(nn.Module):
         batch_size, _, query_length, _ = query.shape
         past_length = 0
 
+        if (
+            self.context_parallel_group is not None
+            and dist.is_available()
+            and dist.is_initialized()
+        ):
+            cp_world = dist.get_world_size(self.context_parallel_group)
+            if cp_world > 1:
+                if past_key_value is not None or use_cache:
+                    raise RuntimeError(
+                        "context parallelism is supported for full-sequence training/prefill only"
+                    )
+                cp_rank = dist.get_rank(self.context_parallel_group)
+                key = torch.cat(
+                    tuple(dist_nn.all_gather(key, group=self.context_parallel_group)),
+                    dim=2,
+                )
+                value = torch.cat(
+                    tuple(dist_nn.all_gather(value, group=self.context_parallel_group)),
+                    dim=2,
+                )
+                if attention_mask is not None:
+                    if attention_mask.ndim != 2 or attention_mask.shape != (
+                        batch_size,
+                        query_length,
+                    ):
+                        raise ValueError(
+                            "context-parallel attention_mask must be a local 2D mask"
+                        )
+                    masks = [torch.empty_like(attention_mask) for _ in range(cp_world)]
+                    dist.all_gather(
+                        masks,
+                        attention_mask.contiguous(),
+                        group=self.context_parallel_group,
+                    )
+                    attention_mask = torch.cat(masks, dim=1)
+                past_length = cp_rank * query_length
+
         if getattr(past_key_value, "is_paged_kv_cache", False):
             if attention_mask is not None:
                 raise ValueError("paged KV decode does not accept an attention_mask")
@@ -215,7 +255,7 @@ class MultiHeadAttention(nn.Module):
             )
             output = self.out_proj(output)
             if self.tensor_parallel_group is not None:
-                torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
+                output = dist_nn.all_reduce(output, group=self.tensor_parallel_group)
             if use_cache:
                 return output, present_key_value
             return output
@@ -250,6 +290,38 @@ class MultiHeadAttention(nn.Module):
         dropout_probability = self.dropout if self.training else 0.0
         backend = self.resolve_attention_backend(query.device, query.dtype)
         self.last_attention_backend = backend
+        if backend == "flash_attention":
+            from inference.backend_adapters import FlashAttentionBackend
+
+            if prepared_mask is not None:
+                # External flash-attn does not accept arbitrary additive/padding masks.
+                # Preserve exact semantics by falling back to SDPA for masked batches.
+                backend = "sdpa"
+                self.last_attention_backend = backend
+            else:
+                flash = FlashAttentionBackend()
+                attended = flash.attention(
+                    query.transpose(1, 2),
+                    key.transpose(1, 2),
+                    value.transpose(1, 2),
+                    dropout_p=dropout_probability,
+                    causal=kernel_is_causal,
+                    softmax_scale=1.0 / math.sqrt(self.head_dim),
+                ).transpose(1, 2)
+        if backend == "flashinfer":
+            from inference.backend_adapters import FlashInferBackend
+
+            if prepared_mask is not None:
+                backend = "sdpa"
+                self.last_attention_backend = backend
+            else:
+                flash = FlashInferBackend()
+                attended = flash.single_prefill(
+                    query.transpose(1, 2),
+                    key.transpose(1, 2),
+                    value.transpose(1, 2),
+                    causal=kernel_is_causal,
+                ).transpose(1, 2)
         if backend == "sdpa":
             attended = F.scaled_dot_product_attention(
                 query,
@@ -261,7 +333,7 @@ class MultiHeadAttention(nn.Module):
                 scale=1.0 / math.sqrt(self.head_dim),
                 enable_gqa=self.num_kv_groups > 1,
             )
-        else:
+        elif backend == "eager":
             key_attn = key.repeat_interleave(self.num_kv_groups, dim=1)
             value_attn = value.repeat_interleave(self.num_kv_groups, dim=1)
             attended = self._attention_fallback(
@@ -281,7 +353,7 @@ class MultiHeadAttention(nn.Module):
         )
         output = self.out_proj(output)
         if self.tensor_parallel_group is not None:
-            torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
+            output = dist_nn.all_reduce(output, group=self.tensor_parallel_group)
         if use_cache:
             assert present_key_value is not None
             return output, present_key_value
@@ -549,13 +621,41 @@ class MultiHeadAttention(nn.Module):
         )
         if self.attention_backend == "eager":
             return "eager"
+        if self.attention_backend in {"flash_attention", "flash_attn"}:
+            from inference.backend_adapters import detect_backend
+
+            capability = detect_backend("flash_attn")
+            if not capability.available:
+                raise RuntimeError(
+                    f"FlashAttention backend requested but unavailable: {capability.reason}"
+                )
+            if device.type != "cuda" or dtype not in {torch.float16, torch.bfloat16}:
+                raise RuntimeError(
+                    "FlashAttention requires CUDA with fp16 or bf16 tensors"
+                )
+            return "flash_attention"
+        if self.attention_backend == "flashinfer":
+            from inference.backend_adapters import detect_backend
+
+            capability = detect_backend("flashinfer")
+            if not capability.available:
+                raise RuntimeError(
+                    f"FlashInfer backend requested but unavailable: {capability.reason}"
+                )
+            if device.type != "cuda" or dtype not in {torch.float16, torch.bfloat16}:
+                raise RuntimeError("FlashInfer requires CUDA with fp16 or bf16 tensors")
+            return "flashinfer"
         return "sdpa" if supports_sdpa else "eager"
 
     @staticmethod
     def _validate_attention_backend(value: str) -> str:
         backend = str(value).lower()
-        if backend not in {"auto", "sdpa", "eager"}:
-            raise ValueError("attention_backend must be auto, sdpa, or eager")
+        if backend == "flash_attn":
+            backend = "flash_attention"
+        if backend not in {"auto", "sdpa", "eager", "flash_attention", "flashinfer"}:
+            raise ValueError(
+                "attention_backend must be auto, sdpa, eager, flash_attention, or flashinfer"
+            )
         return backend
 
     def _validate_hidden_states(self, hidden_states: Tensor) -> None:
@@ -806,7 +906,7 @@ class CausalLinearAttention(MultiHeadAttention):
         )
         output = self.out_proj(output)
         if self.tensor_parallel_group is not None:
-            torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
+            output = dist_nn.all_reduce(output, group=self.tensor_parallel_group)
         self.last_attention_backend = "linear_recurrent"
 
         if not use_cache:

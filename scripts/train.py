@@ -40,6 +40,22 @@ from post_training.fsdp_post_training import copy_fsdp_weights_to_model
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.data import _mixture_groups, build_loader, interleave_loaders
+from training.deepspeed import (
+    MeshMPU,
+    ZeROConfig,
+)
+from training.deepspeed import (
+    build_config as build_deepspeed_config,
+)
+from training.deepspeed import (
+    initialize as initialize_deepspeed,
+)
+from training.deepspeed import (
+    load_checkpoint as load_deepspeed_checkpoint,
+)
+from training.deepspeed import (
+    save_checkpoint as save_deepspeed_checkpoint,
+)
 from training.distributed import DistributedTrainer
 from training.distributed_checkpoint import (
     load_distributed_checkpoint,
@@ -47,7 +63,9 @@ from training.distributed_checkpoint import (
 )
 from training.elastic import PreemptionCoordinator
 from training.evaluator import Evaluator
+from training.experiment_tracking import NullTracker, create_tracker
 from training.generation_checkpoint import retention_passes, save_best_generation
+from training.parallel_runtime import apply_model_parallelism, build_parallel_mesh
 from training.peft import LoRALinear, apply_lora, has_lora
 from training.planner import optimizer_steps_for_epochs
 from training.reporting import archive_previous_report_files
@@ -291,6 +309,17 @@ def main() -> None:
         logger.warning("dataset governance [%s]: %s", finding.code, finding.message)
     distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
     atexit.register(DistributedTrainer.shutdown)
+    tracking_cfg = config.get("experiment_tracking") or {"kind": "none"}
+    if not isinstance(tracking_cfg, dict):
+        parser.error("experiment_tracking must be a mapping")
+    if distributed.is_main_process:
+        tracking_kwargs = {k: v for k, v in tracking_cfg.items() if k != "kind"}
+        tracker = create_tracker(
+            str(tracking_cfg.get("kind", "none")), **tracking_kwargs
+        )
+    else:
+        tracker = NullTracker()
+    atexit.register(tracker.close)
     tokenizer = Tokenizer.load(args.tokenizer)
     if (
         config.get("prepared_data")
@@ -327,6 +356,9 @@ def main() -> None:
         )
     logger.info("Building model on %s", distributed.device)
     model = MiniGPT.from_config(model_config, device=distributed.device)
+    parallel_mesh = build_parallel_mesh(config, world_size=distributed.world_size)
+    if parallel_mesh is not None:
+        logger.info("Parallel mesh initialized: %s", parallel_mesh.degrees)
     logger.info("Model initialized")
     if args.init_from:
         logger.info("Loading initial model weights from %s", args.init_from)
@@ -358,6 +390,27 @@ def main() -> None:
                 f"initial checkpoint belongs to rejected stage {initial_stage!r}; "
                 "start this recovery run from the pre-SFT checkpoint"
             )
+    # Apply TP/EP/CP/SP only after loading a full initialization checkpoint so
+    # full-state checkpoint tensor shapes remain load-compatible.  Resume from
+    # a model-parallel run uses distributed/DeepSpeed checkpoints below.
+    apply_model_parallelism(model, parallel_mesh)
+    if parallel_mesh is not None:
+        cp = parallel_mesh.degree("context")
+        sp = parallel_mesh.degree("sequence")
+        if max_seq_len % cp:
+            parser.error(
+                "max_sequence_length must be divisible by context parallel degree"
+            )
+        if (max_seq_len // cp) % sp:
+            parser.error(
+                "context-local sequence length must be divisible by sequence parallel degree"
+            )
+        non_data = distributed.world_size // parallel_mesh.degree("data")
+        if args.resume and args.resume.is_file() and non_data > 1:
+            parser.error(
+                "model-parallel resume requires a distributed or DeepSpeed checkpoint directory; "
+                "single-file checkpoints contain unsharded model tensors"
+            )
     peft_metadata = None
     if config.get("peft"):
         if has_lora(model):
@@ -388,15 +441,31 @@ def main() -> None:
             / peft_metadata["total_parameters"],
         )
     strategy = str(config.get("distributed_strategy", "ddp"))
+    deepspeed_enabled = strategy.lower() in {"deepspeed", "zero"}
     distributed_checkpoints = (
         strategy.startswith("fsdp")
+        or deepspeed_enabled
         or str(config.get("checkpoint_format", "single_file")).lower() == "distributed"
+    )
+    data_parallel_group = (
+        parallel_mesh.group("data") if parallel_mesh is not None else None
+    )
+    loader_rank = (
+        parallel_mesh.local_rank("data")
+        if parallel_mesh is not None
+        else distributed.rank
+    )
+    loader_world_size = (
+        parallel_mesh.degree("data")
+        if parallel_mesh is not None
+        else distributed.world_size
     )
     training_model = DistributedTrainer.wrap(
         model,
         distributed,
         strategy=strategy,
         mixed_precision=str(config.get("mixed_precision", "none")),
+        process_group=data_parallel_group,
     )
     # Model initialization must be identical across ranks, but stochastic
     # training operations (for example dropout) should not reuse identical RNG
@@ -409,8 +478,8 @@ def main() -> None:
         tokenizer,
         config,
         shuffle=True,
-        rank=distributed.rank,
-        world_size=distributed.world_size,
+        rank=loader_rank,
+        world_size=loader_world_size,
     )
     logger.info("Training loader ready: %d batches per epoch", len(train_loader))
     epochs = args.epochs or int(config.get("epochs", 1))
@@ -418,12 +487,46 @@ def main() -> None:
     total_steps = optimizer_steps_for_epochs(len(train_loader), epochs, accumulation)
     optimizer = adamw_from_config(training_model, config)
     scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
+    if deepspeed_enabled:
+        ds_raw = config.get("deepspeed") or {}
+        if not isinstance(ds_raw, dict):
+            parser.error("deepspeed must be a mapping")
+        zero_cfg = ZeROConfig(
+            stage=int(ds_raw.get("stage", ds_raw.get("zero_stage", 2))),
+            offload_optimizer=bool(ds_raw.get("offload_optimizer", False)),
+            offload_parameters=bool(ds_raw.get("offload_parameters", False)),
+            overlap_communication=bool(ds_raw.get("overlap_communication", True)),
+            contiguous_gradients=bool(ds_raw.get("contiguous_gradients", True)),
+            reduce_bucket_size=ds_raw.get("reduce_bucket_size", "auto"),
+            stage3_prefetch_bucket_size=ds_raw.get(
+                "stage3_prefetch_bucket_size", "auto"
+            ),
+            stage3_param_persistence_threshold=ds_raw.get(
+                "stage3_param_persistence_threshold", "auto"
+            ),
+        )
+        ds_config = build_deepspeed_config(
+            zero_cfg,
+            micro_batch_size=int(config.get("batch_size", 1)),
+            gradient_accumulation_steps=accumulation,
+            gradient_clipping=float(config.get("gradient_clip_norm", 1.0) or 0.0),
+            mixed_precision=str(config.get("mixed_precision", "none")),
+        )
+        training_model, optimizer, scheduler = initialize_deepspeed(
+            model,
+            optimizer,
+            config=ds_config,
+            scheduler=scheduler,
+            model_parameters=[p for p in model.parameters() if p.requires_grad],
+            mpu=MeshMPU(parallel_mesh) if parallel_mesh is not None else None,
+        )
+        logger.info("DeepSpeed initialized with ZeRO stage %d", zero_cfg.stage)
     # A conventional EMA duplicates every parameter and defeats FSDP memory
     # sharding. Large FSDP jobs should average selected exported checkpoints.
     ema_decay = config.get("ema_decay", 0.999)
     ema = (
         None
-        if strategy.startswith("fsdp") or ema_decay is None
+        if strategy.startswith("fsdp") or deepspeed_enabled or ema_decay is None
         else EMA(training_model, decay=float(ema_decay))
     )
     loss_fn = CausalLanguageModelLoss.from_config(config)
@@ -446,12 +549,19 @@ def main() -> None:
         reasoning_trace_policy=str(config.get("reasoning_trace_policy", "optional")),
         mtp_loss_weight=float(config.get("mtp_loss_weight", 0.0)),
         moe_aux_loss_weight=float(config.get("moe_aux_loss_weight", 0.0)),
+        deepspeed_engine=deepspeed_enabled,
+        tracker=tracker,
     )
     preemption = PreemptionCoordinator()
     preemption.install()
     atexit.register(preemption.restore)
     if args.resume:
-        if args.resume.is_dir():
+        if deepspeed_enabled:
+            if not args.resume.is_dir():
+                parser.error("DeepSpeed --resume requires a checkpoint directory")
+            logger.info("Restoring DeepSpeed checkpoint from %s", args.resume)
+            state = load_deepspeed_checkpoint(training_model, args.resume)
+        elif args.resume.is_dir():
             logger.info("Restoring distributed checkpoint from %s", args.resume)
             state = load_distributed_checkpoint(
                 args.resume,
@@ -562,8 +672,8 @@ def main() -> None:
                         # representative subset instead of always taking the
                         # first records in each source.
                         sampler_shuffle=balance_sources or fixed_subset,
-                        rank=distributed.rank,
-                        world_size=distributed.world_size,
+                        rank=loader_rank,
+                        world_size=loader_world_size,
                     )
                     for group in source_groups
                 )
@@ -579,8 +689,8 @@ def main() -> None:
                 validation_config,
                 shuffle=False,
                 sampler_shuffle=bool(config.get("validation_fixed_subset", False)),
-                rank=distributed.rank,
-                world_size=distributed.world_size,
+                rank=loader_rank,
+                world_size=loader_world_size,
             )
         evaluator = Evaluator(
             training_model,
@@ -890,6 +1000,22 @@ def main() -> None:
     def checkpoint_callback(current: Trainer, epoch: int) -> None:
         sampler_state = train_loader.batch_sampler.state_dict()
         sampler_state["start_batch"] = current.batch_in_epoch
+        if deepspeed_enabled:
+            save_deepspeed_checkpoint(
+                training_model,
+                args.output,
+                client_state={
+                    "step": current.global_step,
+                    "epoch": epoch + 1,
+                    "model_config": model_config,
+                    "tokenizer_fingerprint": tokenizer.fingerprint,
+                    "training_stage_id": config.get("training_stage_id"),
+                    "peft": peft_metadata,
+                    "trainer": current.state_dict(),
+                    "sampler": sampler_state,
+                },
+            )
+            return
         if distributed_checkpoints:
             save_distributed_checkpoint(
                 args.output,
@@ -933,6 +1059,24 @@ def main() -> None:
     def best_checkpoint_callback(current: Trainer, epoch: int) -> None:
         sampler_state = train_loader.batch_sampler.state_dict()
         sampler_state["start_batch"] = current.batch_in_epoch
+        if deepspeed_enabled:
+            save_deepspeed_checkpoint(
+                training_model,
+                args.best_output,
+                client_state={
+                    "step": current.global_step,
+                    "epoch": epoch + 1,
+                    "validation_loss": current.best_validation_loss,
+                    "best": True,
+                    "model_config": model_config,
+                    "tokenizer_fingerprint": tokenizer.fingerprint,
+                    "training_stage_id": config.get("training_stage_id"),
+                    "peft": peft_metadata,
+                    "trainer": current.state_dict(),
+                    "sampler": sampler_state,
+                },
+            )
+            return
         if distributed_checkpoints:
             save_distributed_checkpoint(
                 args.best_output,

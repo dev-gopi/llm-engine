@@ -7,10 +7,10 @@ all ranks, which is required by ``dist.new_group`` and avoids topology deadlocks
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
+from typing import Iterable
 
 import torch.distributed as dist
 
@@ -72,6 +72,21 @@ class ParallelMesh:
                 if self.rank in members:
                     self._groups[axis] = group
                     self._members[axis] = members
+        # DeepSpeed/ZeRO and other data-parallel runtimes need the complement
+        # of the data axis as a single model-parallel group.  Create these in
+        # deterministic data-coordinate order on every rank.
+        self._model_group = None
+        self._model_members: tuple[int, ...] = ()
+        for data_coordinate in range(self.degrees.data):
+            members = tuple(
+                rank
+                for rank in range(self.world_size)
+                if self.coordinate(rank)["data"] == data_coordinate
+            )
+            group = dist.new_group(list(members))
+            if self.rank in members:
+                self._model_group = group
+                self._model_members = members
 
     def coordinate(self, rank: int | None = None) -> dict[str, int]:
         rank = self.rank if rank is None else int(rank)
@@ -119,6 +134,18 @@ class ParallelMesh:
 
     def degree(self, axis: str) -> int:
         return int(getattr(self.degrees, axis))
+
+    def model_group(self):
+        return self._model_group
+
+    def model_members(self) -> tuple[int, ...]:
+        return self._model_members
+
+    def model_parallel_rank(self) -> int:
+        return self._model_members.index(self.rank)
+
+    def model_parallel_size(self) -> int:
+        return len(self._model_members)
 
     def barrier(self, axes: Iterable[str] | None = None) -> None:
         for axis in axes or _AXIS:

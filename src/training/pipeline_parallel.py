@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import torch
 import torch.distributed as dist
@@ -137,4 +136,4 @@ class DistributedPipelineStage:
         return None
 
 
-__all__ = ["DistributedPipelineStage", "PipelineSchedule", "run_pipeline"]
+__all__ = ["PipelineSchedule", "run_pipeline", "DistributedPipelineStage"]

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 from .errors import DependencyMissingError, MediaValidationError
 

@@ -823,4 +823,4 @@ def create_openai_platform_router(
     return router
 
 
-__all__ = ["ImageGenerationRequest", "PlatformStore", "create_openai_platform_router"]
+__all__ = ["PlatformStore", "create_openai_platform_router", "ImageGenerationRequest"]

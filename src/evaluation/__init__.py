@@ -16,6 +16,8 @@ from .harness import (
 
 __all__ = [
     "BenchmarkCase",
+    "score_answer",
+    "summarize_scores",
     "EvaluationHarness",
     "HarnessDoc",
     "HarnessModelAdapter",
@@ -26,6 +28,4 @@ __all__ = [
     "get_task",
     "list_tasks",
     "register_task",
-    "score_answer",
-    "summarize_scores",
 ]

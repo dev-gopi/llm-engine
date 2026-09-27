@@ -43,9 +43,19 @@ class Trainer:
         reasoning_trace_policy: str = "optional",
         mtp_loss_weight: float = 0.0,
         moe_aux_loss_weight: float = 0.0,
+        deepspeed_engine: bool = False,
+        tracker=None,
     ) -> None:
         self.model = model
         self.opt = optimizer
+        self.deepspeed_engine = bool(deepspeed_engine)
+        self.tracker = tracker
+        if self.deepspeed_engine and not all(
+            callable(getattr(model, name, None)) for name in ("backward", "step")
+        ):
+            raise TypeError(
+                "deepspeed_engine=True requires a DeepSpeed-compatible model engine"
+            )
         self.scheduler = scheduler
         self.ema = ema
         self.gradient_clip_norm = gradient_clip_norm
@@ -161,6 +171,22 @@ class Trainer:
         non_blocking = self.device.type == "cuda"
         if is_batch:
             batch = inputs
+            parallel_model = getattr(self.model, "module", self.model)
+            cp_group = getattr(parallel_model, "context_parallel_group", None)
+            if (
+                cp_group is not None
+                and dist.is_available()
+                and dist.is_initialized()
+                and dist.get_world_size(cp_group) > 1
+            ):
+                from training.context_parallel import shard_batch_sequence
+
+                batch = shard_batch_sequence(
+                    batch,
+                    rank=dist.get_rank(cp_group),
+                    world_size=dist.get_world_size(cp_group),
+                    keys=("input_ids", "attention_mask", "labels", "loss_mask"),
+                )
             token_ids = batch["input_ids"].to(self.device, non_blocking=non_blocking)
             targets = batch["labels"].to(self.device, non_blocking=non_blocking)
             attention_mask = batch.get("attention_mask")
@@ -266,7 +292,14 @@ class Trainer:
         if self._token_normalized_window:
             self._accumulation_tokens += details.token_count
             backward_loss = loss * (details.token_count / 1024.0)
-        self.scaler.scale(backward_loss / self.gradient_accumulation_steps).backward()
+        if self.deepspeed_engine:
+            # DeepSpeed owns loss scaling, gradient accumulation, ZeRO reduction,
+            # optimizer stepping, and scheduler stepping.
+            self.model.backward(backward_loss / self.gradient_accumulation_steps)
+        else:
+            self.scaler.scale(
+                backward_loss / self.gradient_accumulation_steps
+            ).backward()
         self.tokens_processed += (
             details.token_count
             if isinstance(details, LanguageModelLossOutput)
@@ -278,7 +311,20 @@ class Trainer:
             )
         )
         self.micro_step += 1
-        if self.micro_step % self.gradient_accumulation_steps == 0:
+        if self.deepspeed_engine:
+            boundary = bool(
+                getattr(
+                    self.model,
+                    "is_gradient_accumulation_boundary",
+                    lambda: self.micro_step % self.gradient_accumulation_steps == 0,
+                )()
+            )
+            self.model.step()
+            if boundary:
+                self.global_step += 1
+                self.micro_step = 0
+                self._accumulation_tokens = 0
+        elif self.micro_step % self.gradient_accumulation_steps == 0:
             self._optimizer_step()
         self.training_seconds += time.perf_counter() - started
         return float(loss.detach().item())
@@ -429,6 +475,13 @@ class Trainer:
     def flush_gradients(self) -> None:
         remainder = self.micro_step % self.gradient_accumulation_steps
         if remainder:
+            if self.deepspeed_engine:
+                # DeepSpeed cannot safely synthesize a missing microbatch at epoch
+                # end. Drop only the incomplete accumulation window.
+                self.opt.zero_grad(set_to_none=True)
+                self.micro_step = 0
+                self._accumulation_tokens = 0
+                return
             correction = (
                 1.0
                 if self._token_normalized_window
@@ -638,6 +691,19 @@ class Trainer:
                 int(metrics.get("batches", 0)),
                 self.validation_metric_name or "validation_loss",
             )
+            if self.tracker is not None:
+                self.tracker.log(
+                    {
+                        "validation/loss": float(metrics["loss"]),
+                        "validation/cross_entropy": float(
+                            metrics.get("cross_entropy", float("nan"))
+                        ),
+                        "validation/perplexity": float(
+                            metrics.get("perplexity", float("nan"))
+                        ),
+                    },
+                    step=self.global_step,
+                )
 
         def update_from_validation(validation_loss: float) -> None:
             if (
@@ -924,6 +990,20 @@ class Trainer:
                         next_validation_eta,
                         avg_loss,
                     )
+                    if self.tracker is not None:
+                        self.tracker.log(
+                            {
+                                "train/loss": float(current_loss),
+                                "train/learning_rate": float(self.learning_rate),
+                                "train/gradient_norm": float(self.last_gradient_norm),
+                                "train/tokens_per_second": float(
+                                    self.tokens_per_second
+                                ),
+                                "train/mtp_loss": float(self.last_mtp_loss),
+                                "train/moe_aux_loss": float(self.last_moe_aux_loss),
+                            },
+                            step=self.global_step,
+                        )
                     last_log_time = now
                     window_training_seconds = 0.0
                     window_loss = 0.0

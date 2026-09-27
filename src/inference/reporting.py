@@ -6,11 +6,10 @@ import json
 import sqlite3
 import statistics
 import time
-from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 

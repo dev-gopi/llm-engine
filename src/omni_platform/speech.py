@@ -11,10 +11,9 @@ import os
 import tempfile
 import threading
 import wave
-from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 from .errors import (
     DependencyMissingError,
@@ -112,7 +111,7 @@ class HuggingFaceASRProvider:
         self._runtime = _LazyPipeline("automatic-speech-recognition", config)
 
     @classmethod
-    def from_env(cls) -> HuggingFaceASRProvider | None:
+    def from_env(cls) -> "HuggingFaceASRProvider | None":
         model = os.getenv("GOPI_ASR_MODEL", "").strip()
         if not model:
             return None
@@ -170,7 +169,7 @@ class HuggingFaceTTSProvider:
         self._runtime = _LazyPipeline("text-to-speech", config)
 
     @classmethod
-    def from_env(cls) -> HuggingFaceTTSProvider | None:
+    def from_env(cls) -> "HuggingFaceTTSProvider | None":
         model = os.getenv("GOPI_TTS_MODEL", "").strip()
         if not model:
             return None

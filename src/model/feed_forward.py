@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import torch
+import torch.distributed.nn.functional as dist_nn
 import torch.nn.functional as F
 from torch import Tensor, nn
 
@@ -82,7 +83,7 @@ class FeedForward(nn.Module):
             hidden = self._activate(projected)
         output = self.dropout(self.out_proj(hidden))
         if self.tensor_parallel_group is not None:
-            torch.distributed.all_reduce(output, group=self.tensor_parallel_group)
+            output = dist_nn.all_reduce(output, group=self.tensor_parallel_group)
         return output
 
     def _activate(self, hidden_states: Tensor) -> Tensor:
@@ -274,6 +275,7 @@ class SparseMoE(nn.Module):
         self.last_expert_load: tuple[float, ...] = ()
         self.last_expert_capacity: int | None = None
         self.last_dropped_route_fraction: float = 0.0
+        self.expert_parallel_group = None
 
     def _capacity(self, token_count: int) -> int | None:
         if self.capacity_factor is None:
@@ -352,16 +354,65 @@ class SparseMoE(nn.Module):
             kept_weight_sum.index_add_(0, token_index, weights)
             kept_by_expert.append((token_index, route_index, weights))
 
-        for expert_index, expert in enumerate(self.experts):
-            token_index, _, weights = kept_by_expert[expert_index]
-            if token_index.numel() == 0:
-                continue
-            denom = kept_weight_sum.index_select(0, token_index).clamp_min(
-                torch.finfo(weights.dtype).eps
+        ep_group = self.expert_parallel_group
+        ep_active = (
+            ep_group is not None
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+            and torch.distributed.get_world_size(ep_group) > 1
+        )
+        if ep_active:
+            from training.expert_parallel import (
+                return_tokens_to_sources,
+                route_tokens_to_expert_owners,
             )
-            normalized_weights = (weights / denom).unsqueeze(-1)
-            expert_output = expert(tokens.index_select(0, token_index))
-            output.index_add_(0, token_index, expert_output * normalized_weights)
+
+            route_token_indices: list[Tensor] = []
+            route_expert_ids: list[Tensor] = []
+            route_weights: list[Tensor] = []
+            for expert_index, (token_index, _, weights) in enumerate(kept_by_expert):
+                if token_index.numel() == 0:
+                    continue
+                route_token_indices.append(token_index)
+                route_expert_ids.append(torch.full_like(token_index, expert_index))
+                denom = kept_weight_sum.index_select(0, token_index).clamp_min(
+                    torch.finfo(weights.dtype).eps
+                )
+                route_weights.append(weights / denom)
+            if route_token_indices:
+                source_indices = torch.cat(route_token_indices)
+                expert_ids = torch.cat(route_expert_ids)
+                normalized_weights = torch.cat(route_weights)
+                routed_tokens, routed_experts, metadata = route_tokens_to_expert_owners(
+                    tokens.index_select(0, source_indices),
+                    expert_ids,
+                    num_experts=self.num_experts,
+                    group=ep_group,
+                )
+                routed_output = torch.zeros_like(routed_tokens)
+                for expert_index, expert in enumerate(self.experts):
+                    selected = torch.where(routed_experts == expert_index)[0]
+                    if selected.numel():
+                        routed_output.index_copy_(
+                            0, selected, expert(routed_tokens.index_select(0, selected))
+                        )
+                returned = return_tokens_to_sources(
+                    routed_output, metadata, group=ep_group
+                )
+                output.index_add_(
+                    0, source_indices, returned * normalized_weights.unsqueeze(-1)
+                )
+        else:
+            for expert_index, expert in enumerate(self.experts):
+                token_index, _, weights = kept_by_expert[expert_index]
+                if token_index.numel() == 0:
+                    continue
+                denom = kept_weight_sum.index_select(0, token_index).clamp_min(
+                    torch.finfo(weights.dtype).eps
+                )
+                normalized_weights = (weights / denom).unsqueeze(-1)
+                expert_output = expert(tokens.index_select(0, token_index))
+                output.index_add_(0, token_index, expert_output * normalized_weights)
 
         with torch.no_grad():
             entropy = (

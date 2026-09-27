@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from pathlib import Path
+from typing import Iterable
 
 import torch
 import torch.distributed as dist
+import torch.distributed.nn.functional as dist_nn
 
 
 def expert_indices(num_experts: int, rank: int, world_size: int) -> tuple[int, ...]:
@@ -81,13 +82,22 @@ def all_to_all_variable(
     output = torch.empty(
         (sum(recv), *tensor.shape[1:]), dtype=tensor.dtype, device=device
     )
-    dist.all_to_all_single(
-        output,
-        tensor.contiguous(),
-        output_split_sizes=list(recv),
-        input_split_sizes=list(send),
-        group=group,
-    )
+    if tensor.is_floating_point() and tensor.requires_grad:
+        output = dist_nn.all_to_all_single(
+            output,
+            tensor.contiguous(),
+            output_split_sizes=list(recv),
+            input_split_sizes=list(send),
+            group=group,
+        )
+    else:
+        dist.all_to_all_single(
+            output,
+            tensor.contiguous(),
+            output_split_sizes=list(recv),
+            input_split_sizes=list(send),
+            group=group,
+        )
     return output, recv
 
 
@@ -150,11 +160,11 @@ def return_tokens_to_sources(
 
 
 __all__ = [
-    "all_to_all_variable",
     "expert_indices",
     "expert_owner",
-    "load_expert_shard",
-    "return_tokens_to_sources",
-    "route_tokens_to_expert_owners",
     "save_expert_shard",
+    "load_expert_shard",
+    "all_to_all_variable",
+    "route_tokens_to_expert_owners",
+    "return_tokens_to_sources",
 ]

@@ -238,7 +238,7 @@ class AudioDiffusionModel(nn.Module):
     @classmethod
     def from_config(
         cls, config: Mapping[str, Any], *, text_conditioner: TextConditioner
-    ) -> AudioDiffusionModel:
+    ) -> "AudioDiffusionModel":
         autoencoder = AudioAutoencoder1D(
             channels=int(config.get("autoencoder_channels", 96)),
             latent_channels=int(config.get("latent_channels", 64)),

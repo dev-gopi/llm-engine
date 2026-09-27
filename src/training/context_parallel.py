@@ -89,9 +89,9 @@ def context_parallel_causal_mask(
 
 
 __all__ = [
-    "context_parallel_causal_mask",
+    "shard_batch_sequence",
     "gather_sequence",
     "reduce_scatter_sequence",
     "sequence_parallel_linear",
-    "shard_batch_sequence",
+    "context_parallel_causal_mask",
 ]

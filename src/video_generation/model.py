@@ -299,7 +299,7 @@ class VideoDiffusionModel(nn.Module):
     @classmethod
     def from_config(
         cls, config: Mapping[str, Any], *, text_conditioner: TextConditioner
-    ) -> VideoDiffusionModel:
+    ) -> "VideoDiffusionModel":
         autoencoder = VideoAutoencoder3D(
             channels=int(config.get("autoencoder_channels", 64)),
             latent_channels=int(config.get("latent_channels", 16)),

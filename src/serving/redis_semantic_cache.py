@@ -1,10 +1,9 @@
 """Optional Redis-backed distributed semantic-cache primitives.
 
-Redis stores metadata/vectors as JSON so the implementation works with a
-plain Redis deployment.  The backend is intentionally conservative: vector
-similarity is calculated client-side over namespace/policy candidates. A
-future Redis Vector Search adapter can replace candidate discovery without
-changing the public contract.
+Redis stores cache metadata plus vector fields and can use a RediSearch HNSW
+index for ANN candidate discovery when vector indexing is enabled. Deployments
+without the vector-search capability retain the conservative client-side
+similarity fallback without changing the public contract.
 """
 
 from __future__ import annotations

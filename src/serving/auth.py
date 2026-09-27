@@ -137,8 +137,8 @@ class RBACPolicy:
 
 __all__ = [
     "AuthPrincipal",
-    "OIDCAuthenticator",
     "OIDCConfig",
-    "RBACPolicy",
+    "OIDCAuthenticator",
     "TenantQuotaLimiter",
+    "RBACPolicy",
 ]

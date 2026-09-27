@@ -409,8 +409,9 @@ is unsuitable here; use BF16 or INT8 instead.
 These controls lower loading peaks and resident memory, but they do not turn a
 100B model into an 8–16 GiB model. The supplied MoE profile still needs about
 181.2 GiB for BF16 weights or roughly 91 GiB at INT8 before runtime overhead.
-Disk-backed expert paging and expert-parallel checkpoint shards remain future
-work; the 100B profile therefore remains planning-only.
+Disk-backed expert paging and expert-parallel checkpoint shards are implemented in
+`src/model/expert_paging.py` and the distributed expert-parallel runtime. The 100B
+profile remains planning-only only because real multi-node/GPU qualification is still required.
 
 ## Test suite
 

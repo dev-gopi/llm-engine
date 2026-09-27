@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from inference.backend_routing import TenantQoSQueue
 from utils.logger import get_logger
 
 from .orchestration import ContinuousStreamScheduler, TokenStepScheduler
@@ -152,8 +153,9 @@ class ServingRuntime:
         generation_timeout_seconds: float = 120.0,
         continuous_streams: int = 0,
         metrics_window: int = 256,
-        semantic_cache: SemanticResponseCache | None = None,
+        semantic_cache: "SemanticResponseCache | None" = None,
         production_semantic_cache: object | None = None,
+        tenant_qos: TenantQoSQueue | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
@@ -168,6 +170,9 @@ class ServingRuntime:
         self.queue_timeout_seconds = queue_timeout_seconds
         self.generation_timeout_seconds = generation_timeout_seconds
         self._semaphore = asyncio.Semaphore(max_concurrency)
+        # Tenant QoS is part of normal admission. By default each tenant may use
+        # the full worker pool; callers can provide stricter per-tenant limits.
+        self.tenant_qos = tenant_qos or TenantQoSQueue(default_limit=max_concurrency)
         scheduler_backend = backend or self.backend
         if continuous_streams and all(
             callable(getattr(scheduler_backend, method, None))
@@ -282,7 +287,7 @@ class ServingRuntime:
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         if not self.ready:
             raise BackendUnavailableError("generation backend is not ready")
-        await self._acquire()
+        admitted_tenant = await self._acquire(request)
         started = time.monotonic()
         try:
             async with asyncio.timeout(self.generation_timeout_seconds):
@@ -315,14 +320,14 @@ class ServingRuntime:
             elapsed = time.monotonic() - started
             self.total_generation_seconds += elapsed
             self._latencies.append(elapsed)
-            self._release()
+            self._release(admitted_tenant)
 
     async def stream(
         self, request: GenerateRequest
     ) -> AsyncIterator[BackendStreamEvent]:
         if not self.ready:
             raise BackendUnavailableError("generation backend is not ready")
-        await self._acquire()
+        admitted_tenant = await self._acquire(request)
         started = time.monotonic()
         first_token_at: float | None = None
         completion_tokens = 0
@@ -440,7 +445,7 @@ class ServingRuntime:
             self._latencies.append(elapsed)
             if first_token_at is not None:
                 self._ttft.append(first_token_at - started)
-            self._release()
+            self._release(admitted_tenant)
 
     def metrics(self) -> dict[str, int | float | str]:
         elapsed = max(self.total_generation_seconds, 1e-9)
@@ -497,21 +502,46 @@ class ServingRuntime:
             )
         return metrics
 
-    async def _acquire(self) -> None:
+    def _drain_qos(self) -> None:
+        while True:
+            selected = self.tenant_qos.acquire()
+            if selected is None:
+                return
+            _tenant, event = selected
+            event.set()
+
+    async def _acquire(self, request: GenerateRequest) -> str:
         queued = time.monotonic()
+        tenant = request.tenant_id or "default"
+        event = asyncio.Event()
+        self.tenant_qos.submit(tenant, event)
+        self._drain_qos()
+        deadline = self.queue_timeout_seconds
         try:
-            await asyncio.wait_for(
-                self._semaphore.acquire(), timeout=self.queue_timeout_seconds
-            )
+            await asyncio.wait_for(event.wait(), timeout=deadline)
+            elapsed = time.monotonic() - queued
+            remaining = max(1e-6, deadline - elapsed)
+            await asyncio.wait_for(self._semaphore.acquire(), timeout=remaining)
         except TimeoutError as error:
-            raise ServerBusyError("all generation workers are busy") from error
+            if event.is_set():
+                try:
+                    self.tenant_qos.release(tenant)
+                except RuntimeError:
+                    pass
+            else:
+                self.tenant_qos.cancel(event)
+            self._drain_qos()
+            raise ServerBusyError("serving admission queue timed out") from error
         self.active_requests += 1
         self.total_requests += 1
         self.total_queue_seconds += time.monotonic() - queued
+        return tenant
 
-    def _release(self) -> None:
+    def _release(self, tenant: str) -> None:
         self.active_requests -= 1
         self._semaphore.release()
+        self.tenant_qos.release(tenant)
+        self._drain_qos()
 
     async def _call_lifecycle(self, method_name: str) -> None:
         method = getattr(self.backend, method_name, None)

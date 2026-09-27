@@ -64,6 +64,7 @@ class MiniGPT(nn.Module):
         residual_scale: float = 1.0,
         attention_dropout: float = 0.0,
         attention_bias: bool = True,
+        attention_backend: str = "auto",
         causal_attention: bool = True,
         qk_norm: bool = False,
         qk_norm_eps: float = 1e-6,
@@ -183,6 +184,7 @@ class MiniGPT(nn.Module):
                 residual_scale=residual_scale,
                 attention_dropout=attention_dropout,
                 attention_bias=attention_bias,
+                attention_backend=attention_backend,
                 ffn_hidden_dim=ffn_hidden_dim,
                 causal_attention=causal_attention,
                 qk_norm=qk_norm,
@@ -340,6 +342,9 @@ class MiniGPT(nn.Module):
                 position_offset = cached_length
 
         seq_len = token_ids.shape[1]
+        cp_size = int(getattr(self, "context_parallel_size", 1) or 1)
+        if cp_size > 1 and past_key_values is None and position_offset == 0:
+            position_offset = int(getattr(self, "context_parallel_rank", 0)) * seq_len
         self._validate_attention_mask(
             attention_mask,
             batch_size=token_ids.shape[0],
@@ -662,6 +667,7 @@ class MiniGPT(nn.Module):
             residual_scale=float(config.get("residual_scale", 1.0)),
             attention_dropout=float(config.get("attention_dropout", 0.0)),
             attention_bias=bool(config.get("attention_bias", True)),
+            attention_backend=str(config.get("attention_backend", "auto")),
             causal_attention=bool(config.get("causal_attention", True)),
             qk_norm=bool(config.get("qk_norm", False)),
             qk_norm_eps=float(config.get("qk_norm_eps", 1e-6)),

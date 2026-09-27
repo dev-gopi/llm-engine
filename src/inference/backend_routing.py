@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import heapq
+import inspect
 import itertools
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 
 class CircuitState(str, Enum):
@@ -115,6 +115,28 @@ class FailoverRouter:
         )
         raise RuntimeError(f"all inference backends failed: {detail}")
 
+    async def generate_async(self, *args, **kwargs):
+        errors = []
+        for endpoint in self.endpoints:
+            if not endpoint.breaker.allow():
+                continue
+            endpoint.requests += 1
+            try:
+                value = endpoint.generate(*args, **kwargs)
+                if inspect.isawaitable(value):
+                    value = await value
+                endpoint.breaker.success()
+                return value
+            except self.retryable as exc:
+                endpoint.failures += 1
+                endpoint.breaker.failure()
+                errors.append((endpoint.name, exc))
+        detail = (
+            "; ".join(f"{name}: {exc}" for name, exc in errors)
+            or "all backend circuits are open"
+        )
+        raise RuntimeError(f"all inference backends failed: {detail}")
+
 
 class TenantQoSQueue:
     """Thread-safe weighted priority queue with per-tenant in-flight caps."""
@@ -162,6 +184,16 @@ class TenantQoSQueue:
                 heapq.heappush(self._heap, item)
             return selected
 
+    def cancel(self, payload: Any) -> bool:
+        """Remove one queued request that has not yet been admitted."""
+        with self._lock:
+            for index, item in enumerate(self._heap):
+                if item[3] is payload:
+                    self._heap.pop(index)
+                    heapq.heapify(self._heap)
+                    return True
+            return False
+
     def release(self, tenant: str) -> None:
         with self._lock:
             current = self._active.get(tenant, 0)
@@ -174,9 +206,9 @@ class TenantQoSQueue:
 
 
 __all__ = [
-    "BackendEndpoint",
-    "CircuitBreaker",
     "CircuitState",
+    "CircuitBreaker",
+    "BackendEndpoint",
     "FailoverRouter",
     "TenantQoSQueue",
 ]

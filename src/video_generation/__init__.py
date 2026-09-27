@@ -5,7 +5,7 @@ from .pipeline import VideoGenerationPipeline
 
 __all__ = [
     "VideoAutoencoder3D",
-    "VideoDenoiser3D",
     "VideoDiffusionModel",
+    "VideoDenoiser3D",
     "VideoGenerationPipeline",
 ]

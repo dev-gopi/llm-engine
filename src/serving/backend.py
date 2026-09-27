@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,6 +15,9 @@ import httpx
 import torch
 
 from agents.mcp import RemoteMCPClient
+from inference.backend_adapters import (
+    VLLMAsyncBackend as NativeVLLMAsyncBackend,
+)
 from inference.backend_adapters import VLLMBackend as NativeVLLMBackend
 from inference.context import SQLiteSessionStore, format_system_prompt
 from inference.generator import BatchedGenerationState, Generator
@@ -68,7 +72,7 @@ from .chat_protocol import (
     split_reasoning_trace,
 )
 from .external_backend import OpenAICompatibleBackend
-from .orchestration import ReloadableBackend, ReplicaPoolBackend
+from .orchestration import FailoverServingBackend, ReloadableBackend, ReplicaPoolBackend
 from .runtime import (
     BackendGeneration,
     BackendStreamEvent,
@@ -95,7 +99,21 @@ class VLLMServingBackend:
 
     def __init__(self, model: str, **options) -> None:
         self.model = model
-        self.adapter = NativeVLLMBackend(model=model, **options)
+        prefer_async = bool(options.pop("async_engine", True))
+        self.async_adapter = None
+        if prefer_async:
+            try:
+                self.async_adapter = NativeVLLMAsyncBackend(model=model, **options)
+            except Exception as exc:
+                logger.warning(
+                    "Native async vLLM unavailable; falling back to buffered LLM API: %s",
+                    exc,
+                )
+        self.adapter = (
+            None
+            if self.async_adapter is not None
+            else NativeVLLMBackend(model=model, **options)
+        )
 
     @property
     def ready(self) -> bool:
@@ -105,12 +123,46 @@ class VLLMServingBackend:
         return None
 
     async def shutdown(self) -> None:
-        engine = getattr(self.adapter, "_engine", None)
+        engine = getattr(self.async_adapter or self.adapter, "_engine", None)
         shutdown = getattr(engine, "shutdown", None)
         if callable(shutdown):
             value = shutdown()
             if asyncio.iscoroutine(value):
                 await value
+
+    def _prompt(self, request: GenerateRequest) -> str:
+        if not request._chat_messages:
+            return request.prompt
+        messages = []
+        for message in request._chat_messages:
+            role = str(message.get("role", "user"))
+            content = message.get("content", "")
+            if isinstance(content, list):
+                parts = [
+                    part.get("text", "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                ]
+                content = "\n".join(part for part in parts if part)
+            if isinstance(content, str) and content:
+                messages.append({"role": role, "content": content})
+        return render_native_messages("", messages, add_generation_prompt=True)
+
+    @staticmethod
+    def _generation_from_vllm(root) -> BackendGeneration:
+        if root is None or not getattr(root, "outputs", None):
+            raise BackendUnavailableError("vLLM returned no completion")
+        completion = root.outputs[0]
+        token_ids = tuple(int(x) for x in getattr(completion, "token_ids", ()) or ())
+        prompt_ids = tuple(int(x) for x in getattr(root, "prompt_token_ids", ()) or ())
+        finish = getattr(completion, "finish_reason", None)
+        reason = FinishReason.LENGTH if finish == "length" else FinishReason.STOP
+        return BackendGeneration(
+            text=str(getattr(completion, "text", "")),
+            prompt_tokens=len(prompt_ids),
+            completion_tokens=len(token_ids),
+            finish_reason=reason,
+        )
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         if request.decoding_strategy != "sample":
@@ -135,14 +187,17 @@ class VLLMServingBackend:
         }
         if request.logprobs:
             kwargs["logprobs"] = request.top_logprobs or 1
+        if self.async_adapter is not None:
+            root = await self.async_adapter.generate_async(
+                self._prompt(request), request_id=uuid.uuid4().hex, **kwargs
+            )
+            return self._generation_from_vllm(root)
         if request._chat_messages:
             messages = []
             for message in request._chat_messages:
                 role = str(message.get("role", "user"))
                 content = message.get("content", "")
                 if isinstance(content, list):
-                    # Text-only vLLM adapter: image/multimodal inputs require a
-                    # provider-specific backend with explicit capability support.
                     parts = [
                         part.get("text", "")
                         for part in content
@@ -156,33 +211,60 @@ class VLLMServingBackend:
             outputs = await asyncio.to_thread(
                 self.adapter.generate, [request.prompt], **kwargs
             )
-        if not outputs or not getattr(outputs[0], "outputs", None):
-            raise BackendUnavailableError("vLLM returned no completion")
-        root = outputs[0]
-        completion = root.outputs[0]
-        token_ids = tuple(int(x) for x in getattr(completion, "token_ids", ()) or ())
-        prompt_ids = tuple(int(x) for x in getattr(root, "prompt_token_ids", ()) or ())
-        finish = getattr(completion, "finish_reason", None)
-        reason = FinishReason.LENGTH if finish == "length" else FinishReason.STOP
-        return BackendGeneration(
-            text=str(getattr(completion, "text", "")),
-            prompt_tokens=len(prompt_ids),
-            completion_tokens=len(token_ids),
-            finish_reason=reason,
-        )
+        return self._generation_from_vllm(outputs[0] if outputs else None)
 
     async def stream(
         self, request: GenerateRequest
     ) -> AsyncIterator[BackendStreamEvent]:
-        # The stable synchronous vLLM LLM API is buffered. Expose it through the
-        # streaming contract without pretending token-level latency.
-        result = await self.generate(request)
-        if result.text:
+        if self.async_adapter is None:
+            result = await self.generate(request)
+            if result.text:
+                yield BackendStreamEvent(
+                    token=result.text,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                )
             yield BackendStreamEvent(
-                token=result.text,
+                finish_reason=result.finish_reason,
                 prompt_tokens=result.prompt_tokens,
                 completion_tokens=result.completion_tokens,
             )
+            return
+        kwargs = {
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "top_p": request.top_p,
+            "top_k": request.top_k if request.top_k > 0 else -1,
+            "min_p": request.min_p,
+            "repetition_penalty": request.repetition_penalty,
+            "presence_penalty": request.presence_penalty,
+            "frequency_penalty": request.frequency_penalty,
+            "seed": request.seed,
+            "stop": request.stop or None,
+        }
+        previous_text = ""
+        last = None
+        async for item in self.async_adapter.stream(
+            self._prompt(request), request_id=uuid.uuid4().hex, **kwargs
+        ):
+            last = item
+            if not getattr(item, "outputs", None):
+                continue
+            completion = item.outputs[0]
+            text = str(getattr(completion, "text", ""))
+            delta = (
+                text[len(previous_text) :] if text.startswith(previous_text) else text
+            )
+            previous_text = text
+            token_ids = tuple(getattr(completion, "token_ids", ()) or ())
+            prompt_ids = tuple(getattr(item, "prompt_token_ids", ()) or ())
+            if delta:
+                yield BackendStreamEvent(
+                    token=delta,
+                    prompt_tokens=len(prompt_ids),
+                    completion_tokens=len(token_ids),
+                )
+        result = self._generation_from_vllm(last)
         yield BackendStreamEvent(
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,
@@ -2280,6 +2362,32 @@ def _reload_candidate():
     return backend, version
 
 
+def _production_candidate():
+    primary, version = _reload_candidate()
+    backends = [("primary", primary)]
+    fallback_url = os.getenv("GOPI_FAILOVER_EXTERNAL_BASE_URL", "").strip()
+    if fallback_url:
+        fallback = OpenAICompatibleBackend(
+            base_url=fallback_url,
+            model=os.getenv("GOPI_FAILOVER_EXTERNAL_MODEL", "local-model"),
+            api_key=os.getenv("GOPI_FAILOVER_EXTERNAL_API_KEY"),
+            timeout_seconds=float(
+                os.getenv("GOPI_FAILOVER_EXTERNAL_TIMEOUT_SECONDS", "120")
+            ),
+            supports_tool_calling=_backend_environment_flag(
+                "GOPI_FAILOVER_EXTERNAL_TOOL_CALLING", True
+            ),
+            supports_vision=_backend_environment_flag(
+                "GOPI_FAILOVER_EXTERNAL_VISION", False
+            ),
+            supports_reasoning=_backend_environment_flag(
+                "GOPI_FAILOVER_EXTERNAL_REASONING", True
+            ),
+        )
+        backends.append(("external-fallback", fallback))
+    return FailoverServingBackend(backends), version
+
+
 def backend_from_environment() -> ReloadableBackend:
-    backend, version = _reload_candidate()
-    return ReloadableBackend(backend, version=version, factory=_reload_candidate)
+    backend, version = _production_candidate()
+    return ReloadableBackend(backend, version=version, factory=_production_candidate)
