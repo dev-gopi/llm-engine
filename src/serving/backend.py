@@ -1000,7 +1000,6 @@ class ConfiguredModelBackend:
             prompt = memory.render(add_generation_prompt=True, reserve_tokens=reserve)
         prompt_ids = ConfiguredModelBackend._validate_prompt(self, prompt)
         cache_hits_before = getattr(self.generator, "prefix_cache_hits", 0)
-        cache_misses_before = getattr(self.generator, "prefix_cache_misses", 0)
         logger.debug("Generating from a %d-token prompt", len(prompt_ids))
         generated_ids: list[int] = []
         pieces: list[str] = []
@@ -1080,9 +1079,6 @@ class ConfiguredModelBackend:
                 f"{text.rstrip()}\n\n{format_sources(search_results)}".strip()
             )
         cache_hit = getattr(self.generator, "prefix_cache_hits", 0) > cache_hits_before
-        cache_miss = (
-            getattr(self.generator, "prefix_cache_misses", 0) > cache_misses_before
-        )
         return BackendGeneration(
             text=visible_text,
             prompt_tokens=prompt_tokens,

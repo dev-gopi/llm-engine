@@ -26,7 +26,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.24,<1", "pytest-cov>=5", "datasets>=2.19", "datatrove>=0.3"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24,<1",
+    "pytest-cov>=5",
+    "datasets>=2.19",
+    "datatrove>=0.3",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
 data = ["datasets>=2.19", "datatrove>=0.3"]
 export = ["onnx>=1.16", "onnxruntime>=1.18"]
 tracking = ["mlflow>=2.0", "wandb>=0.18"]
@@ -72,3 +80,29 @@ namespaces = true
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 addopts = ["--import-mode=importlib"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+]
+ignore = [
+    "E501",
+    "E402",
+    "E731",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+explicit_package_bases = true
+ignore_errors = true
+exclude = [
+    "^reports/",
+]

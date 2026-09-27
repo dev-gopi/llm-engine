@@ -1,3 +1,9 @@
+from .grammar import (
+    GrammarConstraint,
+    GrammarSpec,
+    GrammarUnavailable,
+    GrammarValidationError,
+)
 from .structured_outputs import (
     StructuredOutputError,
     StructuredOutputSpec,
@@ -9,6 +15,10 @@ from .structured_outputs import (
 )
 
 __all__ = [
+    "GrammarConstraint",
+    "GrammarSpec",
+    "GrammarUnavailable",
+    "GrammarValidationError",
     "StructuredOutputError",
     "StructuredOutputSpec",
     "StructuredOutputValidationError",
@@ -17,10 +27,3 @@ __all__ = [
     "validate_schema_compatibility",
     "validate_structured_output",
 ]
-
-from .grammar import (
-    GrammarConstraint,
-    GrammarSpec,
-    GrammarUnavailable,
-    GrammarValidationError,
-)

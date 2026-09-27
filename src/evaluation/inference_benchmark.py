@@ -10,7 +10,6 @@ def summarize_latency(samples):
         raise ValueError("samples cannot be empty")
     ttft = [float(x["ttft_s"]) for x in samples]
     itl = [float(x["itl_s"]) for x in samples if x.get("itl_s") is not None]
-    tps = [float(x["tokens"]) / max(float(x["duration_s"]), 1e-9) for x in samples]
     return {
         "requests": len(samples),
         "ttft_p50": statistics.median(ttft),

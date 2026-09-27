@@ -160,7 +160,6 @@ class MoETensorParallelAdapter(nn.Module):
         original = hidden_states.shape
         tokens = hidden_states.reshape(-1, self.dim)
         logits = self.router(tokens)
-        probs = torch.softmax(logits.float(), dim=-1)
         top_logits, top_experts = torch.topk(logits, self.experts_per_token, dim=-1)
         weights = torch.softmax(top_logits.float(), dim=-1).to(tokens.dtype)
         output = torch.zeros_like(tokens)

@@ -34,7 +34,7 @@ def validate_schema_compatibility(schema: Mapping[str, Any]) -> dict[str, Any]:
         raise StructuredSchemaError("json_schema must be an object")
     normalized = dict(schema)
     try:
-        validator = Draft202012Validator.check_schema(normalized)
+        Draft202012Validator.check_schema(normalized)
     except SchemaError as exc:
         raise StructuredSchemaError(f"malformed JSON Schema: {exc.message}") from exc
     # Draft 2020-12 validation resolves local `$ref`, `$dynamicRef`, and

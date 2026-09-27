@@ -66,7 +66,7 @@ DASHBOARD_HTML = """<!doctype html>
     h2 { font-size: 14.5px; margin-bottom: 12px; color: #edf5ff; display: flex; align-items: center; justify-content: space-between; }
     .muted { color: var(--muted); }
     main { padding: 20px; max-width: 1560px; margin: auto; }
-    
+
     /* Top Bar Navigation */
     .report-explorer { display: flex; gap: 8px; align-items: center; padding: 10px 0 16px; overflow-x: auto; }
     .report-explorer button { border: 1px solid var(--line); background: #10233a; color: var(--text); padding: 7px 13px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s; }
@@ -75,7 +75,7 @@ DASHBOARD_HTML = """<!doctype html>
     .report-explorer .search-box { margin-left: auto; display: flex; gap: 8px; align-items: center; }
     .report-explorer input { min-width: 200px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: #0a1728; color: var(--text); font-size: 12px; outline: none; }
     .report-explorer input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(79,156,249,0.15); }
-    
+
     /* Cards Grid */
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
     .card, .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
@@ -530,7 +530,7 @@ DASHBOARD_HTML = """<!doctype html>
         const lat = r.avg_query_latency_ms ? r.avg_query_latency_ms.toFixed(1) : '--';
         document.getElementById('card-rag-lat').innerHTML = lat + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small>';
         document.getElementById('meter-rag-lat').innerHTML = lat + '<small>ms</small>';
-        
+
         const val = Math.min(100, Math.max(5, (r.avg_query_latency_ms || 10) * 5));
         document.getElementById('dial-rag').style.setProperty('--value', val);
 
@@ -556,7 +556,7 @@ DASHBOARD_HTML = """<!doctype html>
         document.getElementById('meter-device').textContent = (g.device || 'CPU').toUpperCase() + ' ENGINE';
         const tps = g.avg_tokens_per_second ? g.avg_tokens_per_second.toFixed(1) : '--';
         const ttft = g.avg_ttft_seconds ? (g.avg_ttft_seconds * 1000).toFixed(1) : '--';
-        
+
         document.getElementById('card-tps').innerHTML = tps + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">TPS</small>';
         document.getElementById('card-ttft').innerHTML = ttft + ' <small style="font-size:12px;font-weight:400;color:var(--muted)">ms</small>';
         document.getElementById('meter-tps').innerHTML = tps + '<small>TPS</small>';

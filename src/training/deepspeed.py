@@ -27,7 +27,7 @@ class ZeROConfig:
 
 def available() -> bool:
     try:
-        import deepspeed  # type: ignore
+        import deepspeed  # type: ignore # noqa: F401
 
         return True
     except ImportError:

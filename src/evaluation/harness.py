@@ -33,7 +33,6 @@ logger = get_logger(__name__)
 
 # Try importing official lm_eval components if available in environment
 try:
-    import lm_eval
     from lm_eval.api.instance import Instance
     from lm_eval.api.model import LM
     from lm_eval.api.registry import register_model
