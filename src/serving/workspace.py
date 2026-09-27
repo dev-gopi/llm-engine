@@ -123,16 +123,30 @@ class WorkspaceService:
         if not patch.strip() or len(patch) > 262_144:
             raise ValueError("patch must contain 1 to 262144 characters")
         paths = []
+        headers: list[tuple[str, str]] = []
+        pending_old: str | None = None
         for line in patch.splitlines():
-            if line.startswith(("--- ", "+++ ")):
-                value = line[4:].split("\t", 1)[0]
+            if line.startswith("--- "):
+                pending_old = line[4:].split("\t", 1)[0]
+            elif line.startswith("+++ "):
+                if pending_old is None:
+                    raise ValueError("patch has a new-file header without a matching old-file header")
+                new_value = line[4:].split("\t", 1)[0]
+                headers.append((pending_old, new_value))
+                pending_old = None
+        if pending_old is not None:
+            raise ValueError("patch has an old-file header without a matching new-file header")
+        if not headers:
+            raise ValueError("patch contains no file paths")
+        for old_value, new_value in headers:
+            if old_value == "/dev/null" and new_value == "/dev/null":
+                raise ValueError("patch cannot use /dev/null for both file paths")
+            for value in (old_value, new_value):
                 if value == "/dev/null":
-                    raise ValueError("file creation/deletion patches are not supported")
+                    continue
                 relative = value[2:] if value.startswith(("a/", "b/")) else value
                 self._path(relative)
                 paths.append(relative)
-        if not paths:
-            raise ValueError("patch contains no file paths")
         command = ["git", "apply", "--check", "--whitespace=error-all", "-"]
         checked = self._run(command, input_text=patch)
         if apply:

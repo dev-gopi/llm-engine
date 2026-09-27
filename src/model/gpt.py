@@ -261,7 +261,8 @@ class MiniGPT(nn.Module):
         use_cache: bool = False,
         logits_to_keep: int = 0,
         return_mtp_logits: bool = False,
-    ) -> Tensor | tuple[Tensor, tuple[KeyValueCache, ...]] | tuple[Tensor, list[Tensor]]:
+        return_hidden_states: bool = False,
+    ) -> Tensor | tuple[Tensor, tuple[KeyValueCache, ...]] | tuple[Tensor, list[Tensor]] | tuple[Tensor, Tensor]:
         # Zero preserves full-sequence training/export behavior. Generation
         # only needs the final token projection, while KV caches stay complete.
         if not isinstance(logits_to_keep, int) or isinstance(logits_to_keep, bool):
@@ -272,6 +273,8 @@ class MiniGPT(nn.Module):
             raise ValueError("return_mtp_logits requires mtp_num_predictions > 0")
         if return_mtp_logits and use_cache:
             raise ValueError("MTP logits are only available for full-sequence training")
+        if return_hidden_states and (use_cache or return_mtp_logits):
+            raise ValueError("return_hidden_states is only available for ordinary full-sequence forward passes")
         self._validate_inputs(token_ids)
         if not isinstance(position_offset, int) or isinstance(position_offset, bool):
             raise TypeError("position_offset must be an integer")
@@ -428,6 +431,8 @@ class MiniGPT(nn.Module):
         if return_mtp_logits:
             mtp_logits = [head(normalized_hidden_states) for head in self.mtp_heads]
             return logits, mtp_logits
+        if return_hidden_states:
+            return logits, normalized_hidden_states
         return (logits, tuple(present_key_values)) if use_cache else logits
 
     def load_causal_checkpoint_state_dict(self, state_dict: Mapping[str, Tensor], *, strict: bool = True):

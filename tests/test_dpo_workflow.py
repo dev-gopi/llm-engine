@@ -137,3 +137,145 @@ def test_dpo_nonfinite_gradients_without_clipping_do_not_update() -> None:
     assert trainer.global_step == 0
     for key, value in policy.state_dict().items():
         assert torch.equal(value, before[key])
+
+
+def test_ipo_loss_and_trainer_method_are_available() -> None:
+    from post_training.dpo import IPOLoss
+
+    loss_fn = IPOLoss(beta=0.1)
+    policy_chosen = torch.tensor([2.0, 3.0])
+    policy_rejected = torch.tensor([1.0, 1.5])
+    reference_chosen = torch.tensor([1.0, 1.0])
+    reference_rejected = torch.tensor([0.5, 0.5])
+    loss, metrics = loss_fn(
+        policy_chosen, policy_rejected, reference_chosen, reference_rejected
+    )
+    assert torch.isfinite(loss)
+    assert 0.0 <= float(metrics["reward_accuracy"]) <= 1.0
+
+    policy = torch.nn.Linear(1, 1)
+    trainer = DPOTrainer(
+        policy, copy.deepcopy(policy), torch.optim.AdamW(policy.parameters(), lr=1e-4),
+        method="ipo",
+    )
+    assert trainer.method == "ipo"
+    assert trainer.state_dict()["method"] == "ipo"
+
+
+def test_preference_loader_supports_distributed_sharding(tmp_path) -> None:
+    tok = tokenizer()
+    source = tmp_path / "preferences.jsonl"
+    rows = [
+        {"prompt": f"Q{i}", "chosen": f"good{i}", "rejected": f"bad{i}"}
+        for i in range(8)
+    ]
+    source.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    loaders = [
+        build_preference_loader(
+            [str(source)], tok, max_length=64, batch_size=1, shuffle=True,
+            rank=rank, world_size=2, seed=123,
+        )
+        for rank in (0, 1)
+    ]
+    assert len(loaders[0]) == len(loaders[1]) == 4
+    assert loaders[0].sampler is not None
+    assert loaders[1].sampler is not None
+    assert set(iter(loaders[0].sampler)).isdisjoint(set(iter(loaders[1].sampler)))
+
+
+def test_sft_cli_wrapper_and_ipo_profiles_are_available() -> None:
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, "scripts/train_sft.py", "--help"], cwd=root,
+        text=True, capture_output=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--training-config" in completed.stdout
+    assert (root / "configs/ipo.cpu.yaml").is_file()
+    assert (root / "configs/ipo.gpu.yaml").is_file()
+
+
+def test_orpo_loss_and_reference_free_trainer_are_available() -> None:
+    from post_training.dpo import ORPOLoss
+
+    loss_fn = ORPOLoss(preference_weight=0.1)
+    chosen = torch.tensor([-0.2, -0.4])
+    rejected = torch.tensor([-1.0, -0.8])
+    loss, metrics = loss_fn(chosen, rejected)
+    assert torch.isfinite(loss)
+    assert float(metrics["reward_accuracy"]) == 1.0
+    assert float(metrics["reward_margin"]) > 0
+
+    policy = torch.nn.Linear(1, 1)
+    trainer = DPOTrainer(
+        policy, None, torch.optim.AdamW(policy.parameters(), lr=1e-4),
+        method="orpo", orpo_lambda=0.1,
+    )
+    assert trainer.reference is None
+    assert trainer.method == "orpo"
+
+
+def test_orpo_profiles_are_available() -> None:
+    root = Path(__file__).resolve().parents[1]
+    assert (root / "configs/orpo.cpu.yaml").is_file()
+    assert (root / "configs/orpo.gpu.yaml").is_file()
+
+
+def test_kto_loss_binary_feedback_and_trainer_method() -> None:
+    from post_training.dpo import KTOLoss
+
+    loss_fn = KTOLoss(beta=0.1)
+    policy = torch.tensor([-1.0, -2.0, -1.5, -3.0])
+    reference = torch.tensor([-1.5, -1.5, -1.7, -2.0])
+    desirable = torch.tensor([True, False, True, False])
+    loss, metrics = loss_fn(policy, reference, desirable)
+    assert torch.isfinite(loss)
+    assert 0.0 <= float(metrics["reward_accuracy"]) <= 1.0
+
+    model = torch.nn.Linear(1, 1)
+    trainer = DPOTrainer(
+        model, copy.deepcopy(model), torch.optim.AdamW(model.parameters(), lr=1e-4),
+        method="kto",
+    )
+    assert trainer.method == "kto"
+    assert trainer.state_dict()["method"] == "kto"
+
+
+def test_kto_loader_accepts_native_labels_and_pair_migration(tmp_path) -> None:
+    from post_training.preference_data import build_kto_loader
+
+    tok = tokenizer()
+    source = tmp_path / "kto.jsonl"
+    rows = [
+        {"prompt": "Q1", "completion": "good", "label": "desirable"},
+        {"prompt": "Q2", "completion": "bad", "label": "undesirable"},
+        {"prompt": "Q3", "chosen": "yes", "rejected": "no"},
+    ]
+    source.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    loader = build_kto_loader([str(source)], tok, max_length=64, batch_size=4, shuffle=False)
+    batch = next(iter(loader))
+    assert batch["completion_ids"].shape[0] == 4
+    assert batch["desirable"].tolist().count(True) == 2
+    assert batch["desirable"].tolist().count(False) == 2
+    assert batch["completion_mask"].any()
+
+
+def test_kto_profiles_and_cli_are_available() -> None:
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, "scripts/train_dpo.py", "--help"], cwd=root,
+        text=True, capture_output=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "kto" in completed.stdout
+    assert (root / "configs/kto.cpu.yaml").is_file()
+    assert (root / "configs/kto.gpu.yaml").is_file()
+
+
+def test_kto_loss_accepts_single_class_minibatches() -> None:
+    from post_training.dpo import KTOLoss
+    loss_fn = KTOLoss(beta=0.1)
+    for labels in (torch.tensor([True, True]), torch.tensor([False, False])):
+        loss, metrics = loss_fn(torch.tensor([-1.0, -1.2]), torch.tensor([-1.1, -1.1]), labels)
+        assert torch.isfinite(loss)
+        assert 0.0 <= float(metrics["reward_accuracy"]) <= 1.0

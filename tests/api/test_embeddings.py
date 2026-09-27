@@ -20,10 +20,27 @@ def test_embeddings_single_batch_and_metadata():
         assert meta.json()["data"][0]["embedding_dimension"] == 384
 
 
-def test_embeddings_reject_unknown_model_empty_input_and_unsupported_dimensions():
+def test_embeddings_reject_unknown_model_empty_input_and_too_many_dimensions():
     with ASGIClient(create_app(FakeBackend(), settings=settings())) as client:
         headers={"Authorization":"Bearer secret"}
         assert client.post('/v1/embeddings',headers=headers,json={"model":"wrong","input":"x"}).status_code == 422
         assert client.post('/v1/embeddings',headers=headers,json={"model":"gopi-embedding-hash","input":[]}).status_code == 422
-        assert client.post('/v1/embeddings',headers=headers,json={"model":"gopi-embedding-hash","input":"x","dimensions":128}).status_code == 422
-        assert client.post('/v1/embeddings',headers=headers,json={"model":"gopi-embedding-hash","input":"x","encoding_format":"base64"}).status_code == 422
+        assert client.post('/v1/embeddings',headers=headers,json={"model":"gopi-embedding-hash","input":"x","dimensions":385}).status_code == 422
+
+
+def test_embeddings_support_reduced_dimensions_and_base64():
+    import base64
+    import struct
+    with ASGIClient(create_app(FakeBackend(), settings=settings())) as client:
+        headers={"Authorization":"Bearer secret"}
+        reduced=client.post('/v1/embeddings',headers=headers,json={
+            "model":"gopi-embedding-hash","input":"hello","dimensions":128
+        })
+        encoded=client.post('/v1/embeddings',headers=headers,json={
+            "model":"gopi-embedding-hash","input":"hello","dimensions":8,"encoding_format":"base64"
+        })
+        assert reduced.status_code == encoded.status_code == 200
+        assert len(reduced.json()["data"][0]["embedding"]) == 128
+        raw=base64.b64decode(encoded.json()["data"][0]["embedding"])
+        assert len(raw) == 8 * 4
+        assert len(struct.unpack("<8f", raw)) == 8

@@ -55,3 +55,50 @@ def test_chat_structured_malformed_schema_is_rejected():
     with ASGIClient(app) as c:
         r=c.post('/v1/chat/completions',json={"model":"gopi-test","messages":[{"role":"user","content":"x"}],"response_format":{"type":"json_schema","json_schema":{"name":"x","strict":True,"schema":{"type":"wat"}}}})
     assert r.status_code==422
+
+def test_recursive_local_ref_schema_is_supported():
+    spec = make_spec(
+        name="tree",
+        schema={
+            "$defs": {
+                "node": {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "string"},
+                        "children": {
+                            "type": "array",
+                            "items": {"$ref": "#/$defs/node"},
+                        },
+                    },
+                    "required": ["value", "children"],
+                    "additionalProperties": False,
+                }
+            },
+            "$ref": "#/$defs/node",
+        },
+    )
+    value = validate_structured_output(
+        '{"value":"root","children":[{"value":"leaf","children":[]}]}', spec
+    )
+    assert value["children"][0]["value"] == "leaf"
+
+
+def test_recursive_dynamic_ref_schema_is_supported():
+    spec = make_spec(
+        name="linked",
+        schema={
+            "$dynamicAnchor": "node",
+            "type": "object",
+            "properties": {
+                "value": {"type": "integer"},
+                "next": {"anyOf": [{"$dynamicRef": "#node"}, {"type": "null"}]},
+            },
+            "required": ["value", "next"],
+            "additionalProperties": False,
+        },
+    )
+    value = validate_structured_output(
+        '{"value":1,"next":{"value":2,"next":null}}', spec
+    )
+    assert value["next"]["value"] == 2
+

@@ -1,0 +1,14 @@
+# Production-scale profile contract. Real multi-node qualification is required
+# before changing production_qualified to true.
+profile: 100b_sparse_moe
+architecture: moe
+model_size: 100b
+expert_parallel: true
+pipeline_parallel: true
+checkpoint_format: sharded
+production_qualified: false
+qualification:
+  required_nodes: 8
+  required_gpu_memory_gb: 80
+  requires_cuda: true
+  requires_multi_node: true

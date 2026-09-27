@@ -1,0 +1,12 @@
+profile: 1t_sparse_moe
+architecture: moe
+model_size: 1t
+expert_parallel: true
+pipeline_parallel: true
+checkpoint_format: sharded
+production_qualified: false
+qualification:
+  required_nodes: 128
+  required_gpu_memory_gb: 80
+  requires_cuda: true
+  requires_multi_node: true

@@ -9,3 +9,5 @@ from .structured_outputs import (
 )
 
 __all__ = ["StructuredOutputError", "StructuredOutputSpec", "StructuredOutputValidationError", "StructuredSchemaError", "make_spec", "validate_schema_compatibility", "validate_structured_output"]
+
+from .grammar import GrammarConstraint, GrammarSpec, GrammarUnavailable, GrammarValidationError

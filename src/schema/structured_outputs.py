@@ -36,10 +36,10 @@ def validate_schema_compatibility(schema: Mapping[str, Any]) -> dict[str, Any]:
         validator = Draft202012Validator.check_schema(normalized)
     except SchemaError as exc:
         raise StructuredSchemaError(f"malformed JSON Schema: {exc.message}") from exc
-    # The runtime guarantees deterministic JSON values, not arbitrary external
-    # formats or executable schema extensions.
-    if normalized.get("$dynamicRef") or normalized.get("$recursiveRef"):
-        raise StructuredSchemaError("dynamic/recursive schema references are not supported")
+    # Draft 2020-12 validation resolves local `$ref`, `$dynamicRef`, and
+    # recursive `$dynamicAnchor` graphs through the jsonschema resolver. We
+    # intentionally keep resolution local to the supplied schema document;
+    # external URI retrieval is not enabled by this runtime.
     return normalized
 
 

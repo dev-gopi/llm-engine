@@ -431,3 +431,5 @@ manifests, and guarded HTTP model serving. These are separate checkpoint
 families from the language model; see the [training guide](docs/TRAINING_GUIDE.md#11-audio-and-video-diffusion-training),
 [model formulation](docs/MODEL.md#6-audio-and-video-latent-diffusion-models),
 and [configuration reference](docs/CONFIGURATION.md#6-audio-and-video-generation-configuration).
+
+See `docs/SEMANTIC_CACHE.md` for the opt-in semantic response cache.

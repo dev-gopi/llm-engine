@@ -8,13 +8,16 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from .orchestration import ContinuousStreamScheduler, TokenStepScheduler
 from .schemas import FinishReason, GenerateRequest, OpenAIToolCall
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from .semantic_cache import SemanticResponseCache
 
 
 class ServingError(RuntimeError):
@@ -50,6 +53,7 @@ class BackendGeneration:
     reasoning_content: str | None = None
     tool_calls: tuple[OpenAIToolCall, ...] = ()
     tool_call_error: str | None = None
+    logprobs: tuple[dict[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,7 @@ class BackendStreamEvent:
     reasoning_token: str = ""
     tool_calls: tuple[OpenAIToolCall, ...] = ()
     tool_call_error: str | None = None
+    logprob: dict[str, object] | None = None
 
 
 @runtime_checkable
@@ -78,6 +83,56 @@ class UnavailableBackend:
     """Safe default used until model loading is wired into the application."""
 
     ready = False
+
+    def _production_cache_context(self, request: GenerateRequest):
+        if self.production_semantic_cache is None:
+            return None
+        from .production_semantic_cache import ProductionCacheRequest
+        from .semantic_cache_policy import CacheFreshness
+        freshness = CacheFreshness(request.cache_fingerprint) if request.cache_fingerprint else None
+        return ProductionCacheRequest(
+            tenant=request.tenant_id, user=request.user_id, route=request.route,
+            model=request.model_id, task=request.task, freshness=freshness,
+        )
+
+    async def _production_cached_generate(self, request: GenerateRequest) -> BackendGeneration:
+        cache = self.production_semantic_cache
+        context = self._production_cache_context(request)
+        eligible, _reason = cache.policy(request, context)
+        if not eligible:
+            return await self.backend.generate(request)
+        key = cache.key(request, tenant=context.tenant, freshness=context.freshness)
+        negative = cache.negative_get(key)
+        if negative is not None:
+            raise ServingError(f"cached backend error: {negative.error_type}")
+        started = time.monotonic()
+        async def work():
+            result = await self.backend.generate(request)
+            if cache.redis is not None:
+                payload = {
+                    "text": result.text, "prompt_tokens": result.prompt_tokens,
+                    "completion_tokens": result.completion_tokens,
+                    "finish_reason": result.finish_reason.value,
+                    "cached_tokens": result.cached_tokens,
+                    "reasoning_tokens": result.reasoning_tokens,
+                    "structured_output_valid": result.structured_output_valid,
+                    "structured_output_error": result.structured_output_error,
+                    "reasoning_content": result.reasoning_content,
+                    "tool_calls": list(result.tool_calls),
+                    "tool_call_error": result.tool_call_error,
+                    "logprobs": list(result.logprobs),
+                }
+                # A distributed cache must publish the owner's result before
+                # releasing the single-flight lock so followers can consume it.
+                await cache.redis.put(context.tenant, key, payload, cache.swr_seconds)
+            return result
+        try:
+            result = await cache.singleflight(key, context.tenant, work)
+        except Exception as exc:
+            cache.negative_put(key, type(exc).__name__, str(exc))
+            raise
+        cache.record_hit(tokens_saved=result.prompt_tokens if result.cached_tokens else 0, latency_saved_ms=0.0)
+        return result
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         raise BackendUnavailableError("generation backend is not loaded")
@@ -97,6 +152,8 @@ class ServingRuntime:
         generation_timeout_seconds: float = 120.0,
         continuous_streams: int = 0,
         metrics_window: int = 256,
+        semantic_cache: "SemanticResponseCache | None" = None,
+        production_semantic_cache: object | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
@@ -105,6 +162,8 @@ class ServingRuntime:
         if metrics_window < 1:
             raise ValueError("metrics_window must be positive")
         self.backend = backend or UnavailableBackend()
+        self.semantic_cache = semantic_cache
+        self.production_semantic_cache = production_semantic_cache
         self.max_concurrency = max_concurrency
         self.queue_timeout_seconds = queue_timeout_seconds
         self.generation_timeout_seconds = generation_timeout_seconds
@@ -152,6 +211,58 @@ class ServingRuntime:
         if self.stream_scheduler:
             await self.stream_scheduler.shutdown()
         await self._call_lifecycle("shutdown")
+        if self.semantic_cache is not None:
+            self.semantic_cache.close()
+
+    def _production_cache_context(self, request: GenerateRequest):
+        if self.production_semantic_cache is None:
+            return None
+        from .production_semantic_cache import ProductionCacheRequest
+        from .semantic_cache_policy import CacheFreshness
+        freshness = CacheFreshness(request.cache_fingerprint) if request.cache_fingerprint else None
+        return ProductionCacheRequest(
+            tenant=request.tenant_id, user=request.user_id, route=request.route,
+            model=request.model_id, task=request.task, freshness=freshness,
+        )
+
+    async def _production_cached_generate(self, request: GenerateRequest) -> BackendGeneration:
+        cache = self.production_semantic_cache
+        context = self._production_cache_context(request)
+        eligible, _reason = cache.policy(request, context)
+        if not eligible:
+            return await self.backend.generate(request)
+        key = cache.key(request, tenant=context.tenant, freshness=context.freshness)
+        negative = cache.negative_get(key)
+        if negative is not None:
+            raise ServingError(f"cached backend error: {negative.error_type}")
+        started = time.monotonic()
+        async def work():
+            result = await self.backend.generate(request)
+            if cache.redis is not None:
+                payload = {
+                    "text": result.text, "prompt_tokens": result.prompt_tokens,
+                    "completion_tokens": result.completion_tokens,
+                    "finish_reason": result.finish_reason.value,
+                    "cached_tokens": result.cached_tokens,
+                    "reasoning_tokens": result.reasoning_tokens,
+                    "structured_output_valid": result.structured_output_valid,
+                    "structured_output_error": result.structured_output_error,
+                    "reasoning_content": result.reasoning_content,
+                    "tool_calls": list(result.tool_calls),
+                    "tool_call_error": result.tool_call_error,
+                    "logprobs": list(result.logprobs),
+                }
+                # A distributed cache must publish the owner's result before
+                # releasing the single-flight lock so followers can consume it.
+                await cache.redis.put(context.tenant, key, payload, cache.swr_seconds)
+            return result
+        try:
+            result = await cache.singleflight(key, context.tenant, work)
+        except Exception as exc:
+            cache.negative_put(key, type(exc).__name__, str(exc))
+            raise
+        cache.record_hit(tokens_saved=result.prompt_tokens if result.cached_tokens else 0, latency_saved_ms=0.0)
+        return result
 
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
         if not self.ready:
@@ -160,7 +271,20 @@ class ServingRuntime:
         started = time.monotonic()
         try:
             async with asyncio.timeout(self.generation_timeout_seconds):
-                result = await self.backend.generate(request)
+                if self.production_semantic_cache is not None:
+                    result = await self._production_cached_generate(request)
+                elif self.semantic_cache is not None and self.semantic_cache.eligible(request):
+                    async with self.semantic_cache.lock_for(request):
+                        cached = self.semantic_cache.lookup(request)
+                        if cached is not None:
+                            result = cached
+                        else:
+                            result = await self.backend.generate(request)
+                            self.semantic_cache.store(request, result)
+                else:
+                    if self.semantic_cache is not None:
+                        self.semantic_cache.lookup(request)  # records a bypass
+                    result = await self.backend.generate(request)
                 self.completed_requests += 1
                 self.total_completion_tokens += result.completion_tokens
                 return result
@@ -193,16 +317,61 @@ class ServingRuntime:
                         for message in (request._chat_messages or [])
                     )
                 )
-                source = (
-                    self.stream_scheduler.stream(request)
-                    if self.stream_scheduler and not protocol_sensitive
-                    else self.backend.stream(request)
-                )
-                async for event in source:
-                    if first_token_at is None and (event.token or event.reasoning_token or event.tool_calls):
+                cached = None
+                cache_lock = None
+                if self.semantic_cache is not None and self.semantic_cache.eligible(request):
+                    cache_lock = self.semantic_cache.lock_for(request)
+                    await cache_lock.acquire()
+                    cached = self.semantic_cache.lookup(request)
+                elif self.semantic_cache is not None:
+                    self.semantic_cache.lookup(request)  # records a bypass
+                try:
+                    if cached is not None:
                         first_token_at = time.monotonic()
-                    completion_tokens = max(completion_tokens, event.completion_tokens)
-                    yield event
+                        completion_tokens = cached.completion_tokens
+                        if cached.text:
+                            yield BackendStreamEvent(
+                                token=cached.text,
+                                prompt_tokens=cached.prompt_tokens,
+                                completion_tokens=cached.completion_tokens,
+                            )
+                        yield BackendStreamEvent(
+                            finish_reason=cached.finish_reason,
+                            prompt_tokens=cached.prompt_tokens,
+                            completion_tokens=cached.completion_tokens,
+                        )
+                    else:
+                        source = (
+                            self.stream_scheduler.stream(request)
+                            if self.stream_scheduler and not protocol_sensitive
+                            else self.backend.stream(request)
+                        )
+                        pieces: list[str] = []
+                        prompt_tokens = 0
+                        finish_reason = FinishReason.STOP
+                        async for event in source:
+                            if first_token_at is None and (event.token or event.reasoning_token or event.tool_calls):
+                                first_token_at = time.monotonic()
+                            if event.token:
+                                pieces.append(event.token)
+                            prompt_tokens = max(prompt_tokens, event.prompt_tokens)
+                            completion_tokens = max(completion_tokens, event.completion_tokens)
+                            if event.finish_reason is not None:
+                                finish_reason = event.finish_reason
+                            yield event
+                        if self.semantic_cache is not None and self.semantic_cache.eligible(request):
+                            self.semantic_cache.store(
+                                request,
+                                BackendGeneration(
+                                    text="".join(pieces),
+                                    prompt_tokens=prompt_tokens,
+                                    completion_tokens=completion_tokens,
+                                    finish_reason=finish_reason,
+                                ),
+                            )
+                finally:
+                    if cache_lock is not None and cache_lock.locked():
+                        cache_lock.release()
             self.completed_requests += 1
             self.total_completion_tokens += completion_tokens
         except TimeoutError as error:
@@ -244,6 +413,8 @@ class ServingRuntime:
         if generator is not None:
             from evaluation.prefix_cache import collect_prefix_cache_metrics
             metrics.update({f"prefix_cache_{key}": value for key, value in collect_prefix_cache_metrics(generator).to_dict().items()})
+        if self.semantic_cache is not None:
+            metrics.update({f"semantic_cache_{key}": value for key, value in self.semantic_cache.metrics().items()})
         return metrics
 
     async def _acquire(self) -> None:

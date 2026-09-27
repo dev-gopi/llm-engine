@@ -29,6 +29,7 @@ def test_external_backend_maps_openai_response_and_sampler_controls():
         backend._ready = True
         result = await backend.generate(GenerateRequest(
             prompt="hi", top_k=20, min_p=0.05, repetition_penalty=1.1,
+            presence_penalty=0.3, frequency_penalty=-0.2,
             reasoning_effort="low", max_tokens=16,
         ))
         await backend.shutdown()
@@ -40,6 +41,8 @@ def test_external_backend_maps_openai_response_and_sampler_controls():
     assert result.cached_tokens == 3 and result.reasoning_tokens == 1
     assert captured["model"] == "external-test"
     assert captured["top_k"] == 20 and captured["min_p"] == 0.05
+    assert captured["presence_penalty"] == 0.3
+    assert captured["frequency_penalty"] == -0.2
     assert captured["reasoning_effort"] == "low"
 
 

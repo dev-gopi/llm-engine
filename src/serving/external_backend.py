@@ -120,16 +120,23 @@ class OpenAICompatibleBackend:
             "temperature": request.temperature,
             "top_p": request.top_p,
             "seed": request.seed,
+            "logprobs": request.logprobs,
         }
         # llama.cpp accepts these sampler extensions. Other compatible servers
         # generally ignore unknown optional fields only if they support them, so
         # omit disabled values rather than sending every internal knob.
+        if request.logprobs and request.top_logprobs:
+            payload["top_logprobs"] = request.top_logprobs
         if request.top_k:
             payload["top_k"] = request.top_k
         if request.min_p:
             payload["min_p"] = request.min_p
         if request.repetition_penalty != 1.0:
             payload["repeat_penalty"] = request.repetition_penalty
+        if request.presence_penalty != 0.0:
+            payload["presence_penalty"] = request.presence_penalty
+        if request.frequency_penalty != 0.0:
+            payload["frequency_penalty"] = request.frequency_penalty
         if request.stop:
             payload["stop"] = request.stop
         if request.reasoning_effort != "none":
@@ -166,6 +173,7 @@ class OpenAICompatibleBackend:
             raw_tool_calls = message.get("tool_calls") or []
             tool_calls = tuple(OpenAIToolCall.model_validate(item) for item in raw_tool_calls)
             usage = body.get("usage", {})
+            raw_logprobs = (choice.get("logprobs") or {}).get("content") or []
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise BackendUnavailableError(f"external inference request failed: {error}") from error
         if not isinstance(content, str):
@@ -181,6 +189,7 @@ class OpenAICompatibleBackend:
             reasoning_tokens=int((usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0),
             reasoning_content=reasoning_content,
             tool_calls=tool_calls,
+            logprobs=tuple(item for item in raw_logprobs if isinstance(item, dict)),
         )
 
     async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
@@ -211,9 +220,11 @@ class OpenAICompatibleBackend:
                     completion_tokens = int(usage.get("completion_tokens", completion_tokens) or completion_tokens)
                     delta = choice.get("delta") or {}
                     token = delta.get("content") or ""
+                    raw_logprobs = (choice.get("logprobs") or {}).get("content") or []
+                    token_logprob = raw_logprobs[0] if raw_logprobs and isinstance(raw_logprobs[0], dict) else None
                     if isinstance(token, str) and token:
                         completion_tokens = max(completion_tokens, completion_tokens + 1)
-                        yield BackendStreamEvent(token=token, prompt_tokens=prompt_tokens)
+                        yield BackendStreamEvent(token=token, prompt_tokens=prompt_tokens, logprob=token_logprob)
                     reasoning_token = delta.get("reasoning_content") or delta.get("reasoning") or ""
                     if isinstance(reasoning_token, str) and reasoning_token:
                         yield BackendStreamEvent(

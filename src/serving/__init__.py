@@ -24,3 +24,18 @@ def __getattr__(name: str) -> Any:
 
         return getattr(api, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+from .production_semantic_cache import (  # noqa: E402,F401
+    ProductionCacheRequest,
+    ProductionSemanticCache,
+    TenantQuotaManager,
+)
+from .redis_semantic_cache import RedisCacheConfig, RedisSemanticCacheBackend  # noqa: E402,F401
+from .semantic_cache_policy import (  # noqa: E402,F401
+    CacheDebugInfo,
+    CacheFreshness,
+    CachePrivacyPolicy,
+    CacheQuota,
+    NegativeCacheEntry,
+    ThresholdPolicy,
+)

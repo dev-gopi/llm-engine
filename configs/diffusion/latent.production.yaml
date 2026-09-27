@@ -1,5 +1,5 @@
-# Native from-scratch latent diffusion architecture. Train the VAE first.
 planning_only: true
+# Native from-scratch latent diffusion architecture. Train the VAE first.
 image_size: 256
 image_channels: 3
 latent_channels: 4

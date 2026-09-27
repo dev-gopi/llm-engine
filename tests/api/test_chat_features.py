@@ -198,3 +198,63 @@ def test_native_backend_interpreter_combines_reasoning_and_forced_tool_protocol(
     assert error is None
     assert finish is FinishReason.TOOL_CALLS
     assert calls[0].function.arguments == '{"city":"Kolkata"}'
+
+
+def test_chat_logprobs_and_multiple_choices_nonstream_and_stream() -> None:
+    class ChoiceBackend(FakeBackend):
+        async def generate(self, request):
+            suffix = str(request.seed) if request.seed is not None else "none"
+            return BackendGeneration(
+                text=f"choice-{suffix}", prompt_tokens=2, completion_tokens=1,
+                finish_reason=FinishReason.STOP,
+                logprobs=({
+                    "token": "x", "token_id": 9, "logprob": -0.1,
+                    "bytes": [120],
+                    "top_logprobs": [{"token": "x", "token_id": 9, "logprob": -0.1, "bytes": [120]}],
+                },),
+            )
+
+        async def stream(self, request):
+            yield BackendStreamEvent(
+                token="x", token_id=9, prompt_tokens=2, completion_tokens=1,
+                logprob={
+                    "token": "x", "token_id": 9, "logprob": -0.1,
+                    "bytes": [120], "top_logprobs": [],
+                },
+            )
+            yield BackendStreamEvent(
+                finish_reason=FinishReason.STOP, prompt_tokens=2, completion_tokens=1,
+            )
+
+    base = {
+        "model": "gopi-test", "messages": [{"role": "user", "content": "hello"}],
+        "n": 2, "seed": 10, "logprobs": True, "top_logprobs": 1,
+    }
+    with ASGIClient(create_app(ChoiceBackend(), settings=_settings())) as client:
+        response = client.post("/v1/chat/completions", json=base)
+        streamed = client.post("/v1/chat/completions", json={**base, "stream": True})
+    assert response.status_code == 200
+    body = response.json()
+    assert [choice["index"] for choice in body["choices"]] == [0, 1]
+    assert [choice["message"]["content"] for choice in body["choices"]] == ["choice-10", "choice-11"]
+    assert body["choices"][0]["logprobs"]["content"][0]["token"] == "x"
+    assert body["usage"]["completion_tokens"] == 2
+
+    events = [json.loads(line[6:]) for line in streamed.text.splitlines() if line.startswith("data: {")]
+    indexes = {event["choices"][0]["index"] for event in events}
+    assert indexes == {0, 1}
+    assert any((event["choices"][0].get("logprobs") or {}).get("content") for event in events)
+
+
+def test_chat_top_logprobs_requires_logprobs_and_multichoice_rejects_session() -> None:
+    import pytest
+    with pytest.raises(ValueError, match="top_logprobs"):
+        OpenAIChatCompletionRequest.model_validate({
+            "model": "gopi-test", "messages": [{"role": "user", "content": "x"}],
+            "top_logprobs": 2,
+        })
+    with pytest.raises(ValueError, match="session_id"):
+        OpenAIChatCompletionRequest.model_validate({
+            "model": "gopi-test", "messages": [{"role": "user", "content": "x"}],
+            "n": 2, "session_id": "session-1",
+        })

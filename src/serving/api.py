@@ -47,6 +47,7 @@ from utils.logger import get_logger
 
 from .backend import backend_from_environment
 from .rate_limit import InMemoryRateLimiter, SQLiteRateLimiter
+from .semantic_cache import SemanticCacheConfig, SemanticResponseCache
 from .runtime import (
     BackendGeneration,
     BackendUnavailableError,
@@ -165,6 +166,13 @@ class ServingSettings:
     audit_log_capacity: int = 256
     session_memory_enabled: bool = False
     embedding_model_name: str = "gopi-embedding-hash"
+    semantic_cache_enabled: bool = False
+    semantic_cache_capacity: int = 512
+    semantic_cache_similarity_threshold: float = 0.985
+    semantic_cache_ttl_seconds: float = 3600.0
+    semantic_cache_namespace: str = "default"
+    semantic_cache_store_path: str | None = None
+    semantic_cache_allow_nondeterministic: bool = False
 
     def __post_init__(self) -> None:
         if self.max_concurrency < 1:
@@ -175,6 +183,14 @@ class ServingSettings:
             raise ValueError("rate and stream limits cannot be negative")
         if self.audit_log_capacity < 1:
             raise ValueError("audit_log_capacity must be positive")
+        if self.semantic_cache_capacity < 1:
+            raise ValueError("semantic_cache_capacity must be positive")
+        if not 0.0 <= self.semantic_cache_similarity_threshold <= 1.0:
+            raise ValueError("semantic_cache_similarity_threshold must be between 0 and 1")
+        if self.semantic_cache_ttl_seconds <= 0:
+            raise ValueError("semantic_cache_ttl_seconds must be positive")
+        if not self.semantic_cache_namespace.strip():
+            raise ValueError("semantic_cache_namespace cannot be empty")
         if not self.model_name.strip() or not self.bot_name.strip():
             raise ValueError("model_name and bot_name cannot be empty")
         if not self.allowed_hosts or any(not host.strip() for host in self.allowed_hosts):
@@ -243,6 +259,27 @@ class ServingSettings:
                 bool(serving.get("session_memory_enabled", False)),
             ),
             embedding_model_name=os.getenv("GOPI_EMBEDDING_MODEL_NAME", str(serving.get("embedding_model_name", "gopi-embedding-hash"))),
+            semantic_cache_enabled=_environment_flag(
+                "GOPI_SEMANTIC_CACHE_ENABLED",
+                bool(serving.get("semantic_cache_enabled", False)),
+            ),
+            semantic_cache_capacity=int(os.getenv(
+                "GOPI_SEMANTIC_CACHE_CAPACITY", str(serving.get("semantic_cache_capacity", 512))
+            )),
+            semantic_cache_similarity_threshold=float(os.getenv(
+                "GOPI_SEMANTIC_CACHE_THRESHOLD", str(serving.get("semantic_cache_similarity_threshold", 0.985))
+            )),
+            semantic_cache_ttl_seconds=float(os.getenv(
+                "GOPI_SEMANTIC_CACHE_TTL_SECONDS", str(serving.get("semantic_cache_ttl_seconds", 3600.0))
+            )),
+            semantic_cache_namespace=os.getenv(
+                "GOPI_SEMANTIC_CACHE_NAMESPACE", str(serving.get("semantic_cache_namespace", "default"))
+            ),
+            semantic_cache_store_path=os.getenv("GOPI_SEMANTIC_CACHE_STORE") or serving.get("semantic_cache_store_path"),
+            semantic_cache_allow_nondeterministic=_environment_flag(
+                "GOPI_SEMANTIC_CACHE_ALLOW_NONDETERMINISTIC",
+                bool(serving.get("semantic_cache_allow_nondeterministic", False)),
+            ),
         )
 
 
@@ -345,6 +382,21 @@ async def _generate_with_disconnect(runtime: ServingRuntime, request: Request, g
             registry.unregister(request_id)
 
 
+def _openai_logprobs_payload(records) -> dict | None:
+    if not records:
+        return None
+    return {"content": list(records), "refusal": None}
+
+
+def _choice_generation_request(base: GenerateRequest, index: int) -> GenerateRequest:
+    if index == 0:
+        return base
+    updates = {}
+    if base.seed is not None:
+        updates["seed"] = min(base.seed + index, 2**63 - 1)
+    return base.model_copy(update=updates)
+
+
 def create_app(
     backend: GenerationBackend | None = None,
     *,
@@ -361,12 +413,27 @@ def create_app(
             "Model lifecycle API is unavailable because GOPI_ADMIN_API_KEY is not configured; "
             "set a dedicated admin key before using /admin/models/*."
         )
+    semantic_cache = None
+    if settings.semantic_cache_enabled:
+        semantic_cache = SemanticResponseCache(
+            SemanticCacheConfig(
+                enabled=True,
+                capacity=settings.semantic_cache_capacity,
+                similarity_threshold=settings.semantic_cache_similarity_threshold,
+                ttl_seconds=settings.semantic_cache_ttl_seconds,
+                namespace=settings.semantic_cache_namespace,
+                sqlite_path=settings.semantic_cache_store_path,
+                allow_nondeterministic=settings.semantic_cache_allow_nondeterministic,
+            ),
+            embedding_service=EmbeddingService(),
+        )
     runtime = ServingRuntime(
         backend if backend is not None else backend_from_environment(),
         max_concurrency=settings.max_concurrency,
         queue_timeout_seconds=settings.queue_timeout_seconds,
         generation_timeout_seconds=settings.generation_timeout_seconds,
         continuous_streams=settings.continuous_streams,
+        semantic_cache=semantic_cache,
     )
     cancellation_registry = CancellationRegistry()
     embedding_service = EmbeddingService()
@@ -557,6 +624,28 @@ def create_app(
     async def metrics():
         return {"service": SERVICE_NAME, "ready": runtime.ready, **runtime.metrics()}
 
+    @application.get("/admin/cache/semantic", tags=["operations"])
+    async def semantic_cache_status(request: Request):
+        denied = _require_admin(request)
+        if denied is not None:
+            _record_admin_lifecycle(request, denied.status_code)
+            return denied
+        payload = {"enabled": runtime.semantic_cache is not None}
+        if runtime.semantic_cache is not None:
+            payload.update(runtime.semantic_cache.metrics())
+        _record_admin_lifecycle(request, 200)
+        return payload
+
+    @application.delete("/admin/cache/semantic", tags=["operations"])
+    async def semantic_cache_purge(request: Request):
+        denied = _require_admin(request)
+        if denied is not None:
+            _record_admin_lifecycle(request, denied.status_code)
+            return denied
+        purged = runtime.semantic_cache.purge() if runtime.semantic_cache is not None else 0
+        _record_admin_lifecycle(request, 200)
+        return {"enabled": runtime.semantic_cache is not None, "purged": purged}
+
     @application.post(
         "/v1/generate",
         response_model=GenerateResponse,
@@ -695,6 +784,90 @@ def create_app(
             raise InvalidGenerationRequestError(str(error)) from error
         completion_id = f"chatcmpl-{uuid.uuid4().hex}"
         created = int(time.time())
+
+        if request.n > 1:
+            if request.stream:
+                async def multi_events():
+                    cancellation_registry.register(completion_id, asyncio.current_task())
+                    try:
+                        for choice_index in range(request.n):
+                            choice_request = _choice_generation_request(generation_request, choice_index)
+                            yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': settings.model_name, 'choices': [{'index': choice_index, 'delta': {'role': 'assistant'}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
+                            finish_reason = "stop"
+                            async for event in runtime.stream(choice_request):
+                                if await http_request.is_disconnected():
+                                    raise asyncio.CancelledError("client disconnected")
+                                delta = {}
+                                if event.reasoning_token:
+                                    delta["reasoning_content"] = event.reasoning_token
+                                if event.token:
+                                    delta["content"] = event.token
+                                if event.tool_calls:
+                                    delta["tool_calls"] = [
+                                        {"index": tool_index, **call.model_dump(mode="json")}
+                                        for tool_index, call in enumerate(event.tool_calls)
+                                    ]
+                                if event.finish_reason is not None:
+                                    finish_reason = event.finish_reason.value
+                                if delta or event.logprob is not None:
+                                    choice = {
+                                        "index": choice_index, "delta": delta, "finish_reason": None,
+                                    }
+                                    if request.logprobs:
+                                        choice["logprobs"] = _openai_logprobs_payload(
+                                            [event.logprob] if event.logprob is not None else []
+                                        )
+                                    yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': settings.model_name, 'choices': [choice]}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'id': completion_id, 'object': 'chat.completion.chunk', 'created': created, 'model': settings.model_name, 'choices': [{'index': choice_index, 'delta': {}, 'finish_reason': finish_reason}]}, ensure_ascii=False)}\n\n"
+                        yield "data: [DONE]\n\n"
+                    finally:
+                        cancellation_registry.unregister(completion_id)
+                return StreamingResponse(multi_events(), media_type="text/event-stream")
+
+            results = []
+            for choice_index in range(request.n):
+                choice_request = _choice_generation_request(generation_request, choice_index)
+                result = await _generate_with_disconnect(
+                    runtime, http_request, choice_request, request_id=completion_id, registry=cancellation_registry
+                )
+                message = {
+                    "role": "assistant",
+                    "content": (result.text or None) if result.tool_calls else result.text,
+                }
+                if result.reasoning_content:
+                    message["reasoning_content"] = result.reasoning_content
+                if result.tool_calls:
+                    message["tool_calls"] = [call.model_dump(mode="json") for call in result.tool_calls]
+                if result.structured_output_valid is False:
+                    message = {"role": "assistant", "content": None, "refusal": result.structured_output_error}
+                elif result.tool_call_error and not result.tool_calls:
+                    message["refusal"] = result.tool_call_error
+                choice = {
+                    "index": choice_index,
+                    "message": message,
+                    "finish_reason": (
+                        "length" if result.structured_output_valid is False
+                        else ("error" if result.tool_call_error and not result.tool_calls else result.finish_reason.value)
+                    ),
+                }
+                if request.logprobs:
+                    choice["logprobs"] = _openai_logprobs_payload(result.logprobs)
+                results.append((choice, result))
+            prompt_tokens = results[0][1].prompt_tokens if results else 0
+            completion_tokens = sum(item.completion_tokens for _, item in results)
+            cached_tokens = sum(item.cached_tokens for _, item in results)
+            reasoning_tokens = sum(item.reasoning_tokens for _, item in results)
+            return {
+                "id": completion_id, "object": "chat.completion", "created": created,
+                "model": settings.model_name, "choices": [choice for choice, _ in results],
+                "usage": {
+                    "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                    "cached_tokens": cached_tokens, "reasoning_tokens": reasoning_tokens,
+                },
+                "incomplete_details": None,
+            }
+
         if request.stream:
             async def events():
                 cancellation_registry.register(completion_id, asyncio.current_task())
@@ -732,15 +905,20 @@ def create_app(
                         if is_structured:
                             structured_parts.append(event.token)
                             continue
+                        choice = {
+                            "index": 0, "delta": {"content": event.token},
+                            "finish_reason": None,
+                        }
+                        if request.logprobs:
+                            choice["logprobs"] = _openai_logprobs_payload(
+                                [event.logprob] if event.logprob is not None else []
+                            )
                         chunk = {
                             "id": completion_id,
                             "object": "chat.completion.chunk",
                             "created": created,
                             "model": settings.model_name,
-                            "choices": [{
-                                "index": 0, "delta": {"content": event.token},
-                                "finish_reason": None,
-                            }],
+                            "choices": [choice],
                         }
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     if event.tool_calls:
@@ -864,6 +1042,7 @@ def create_app(
                     if structured_incomplete
                     else ("error" if tool_call_incomplete else result.finish_reason.value)
                 ),
+                **({"logprobs": _openai_logprobs_payload(result.logprobs)} if request.logprobs else {}),
             }],
             "usage": {
                 "prompt_tokens": result.prompt_tokens,

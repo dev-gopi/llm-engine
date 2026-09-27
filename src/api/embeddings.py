@@ -1,6 +1,8 @@
 """OpenAI-compatible embeddings request/response models and service adapter."""
 from __future__ import annotations
 
+import base64
+import struct
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -24,7 +26,7 @@ class EmbeddingsRequest(BaseModel):
 
 class EmbeddingItem(BaseModel):
     object: Literal["embedding"] = "embedding"
-    embedding: list[float]
+    embedding: list[float] | str
     index: int
 
 
@@ -40,19 +42,21 @@ class EmbeddingsResponse(BaseModel):
     usage: EmbeddingUsage
 
 
+def _base64_float32(vector: list[float]) -> str:
+    payload = struct.pack(f"<{len(vector)}f", *vector)
+    return base64.b64encode(payload).decode("ascii")
+
+
 def create_embeddings(request: EmbeddingsRequest, service: EmbeddingService) -> EmbeddingsResponse:
-    result = service.encode(request.texts())
+    result = service.encode(request.texts(), dimensions=request.dimensions)
     vectors = result.embeddings
-    if request.dimensions is not None and request.dimensions != service.dimension:
-        raise ValueError(
-            f"embedding model {service.dimension}-dimensional vectors; requested dimensions={request.dimensions} is unsupported"
-        )
+    encoded: list[list[float] | str]
     if request.encoding_format == "base64":
-        # The API contract intentionally rejects base64 until a binary wire
-        # format is implemented rather than silently returning a wrong type.
-        raise ValueError("encoding_format=base64 is not supported by this embedding backend")
+        encoded = [_base64_float32(vector) for vector in vectors]
+    else:
+        encoded = vectors
     return EmbeddingsResponse(
-        data=[EmbeddingItem(embedding=vector, index=index) for index, vector in enumerate(vectors)],
+        data=[EmbeddingItem(embedding=vector, index=index) for index, vector in enumerate(encoded)],
         model=request.model,
         usage=EmbeddingUsage(prompt_tokens=result.prompt_tokens, total_tokens=result.prompt_tokens),
     )

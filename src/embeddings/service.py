@@ -35,7 +35,9 @@ class EmbeddingService:
             raise ValueError("embedding encoder must expose a positive dimension")
         self.dimension = dimension
 
-    def encode(self, texts: Sequence[str], *, normalize: bool = False) -> EmbeddingResult:
+    def encode(
+        self, texts: Sequence[str], *, normalize: bool = False, dimensions: int | None = None
+    ) -> EmbeddingResult:
         if not texts:
             raise ValueError("input must contain at least one text")
         normalized = []
@@ -51,6 +53,17 @@ class EmbeddingService:
         if not torch.isfinite(vectors).all():
             raise ValueError("embedding encoder returned non-finite values")
         vectors = vectors.detach().float()
+        if dimensions is not None:
+            dimensions = int(dimensions)
+            if dimensions < 1 or dimensions > self.dimension:
+                raise ValueError(
+                    f"dimensions must be between 1 and the model dimension ({self.dimension})"
+                )
+            # Generic encoders do not necessarily expose native Matryoshka heads.
+            # Prefix truncation gives deterministic API-compatible dimensionality
+            # reduction without fabricating new information. Deployments that need
+            # quality-preserving reduction should inject a Matryoshka-trained encoder.
+            vectors = vectors[:, :dimensions]
         if normalize:
             norms = vectors.norm(dim=-1, keepdim=True)
             if torch.any(norms == 0):

@@ -1,0 +1,9 @@
+profile: hybrid_moe_7b
+architecture: hybrid_moe
+model_size: 7b
+expert_parallel: true
+checkpoint_format: sharded
+production_qualified: false
+qualification:
+  requires_cuda: true
+  requires_multi_node: true

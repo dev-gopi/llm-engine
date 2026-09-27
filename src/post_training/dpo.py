@@ -22,6 +22,51 @@ def sequence_log_probabilities(logits: Tensor, token_ids: Tensor, mask: Tensor) 
     return (token_logps * mask).sum(dim=-1)
 
 
+
+
+def sequence_average_log_probabilities(logits: Tensor, token_ids: Tensor, mask: Tensor) -> Tensor:
+    summed = sequence_log_probabilities(logits, token_ids, mask)
+    counts = mask.sum(dim=-1).clamp_min(1).to(summed.dtype)
+    return summed / counts
+
+
+def _log1mexp(log_p: Tensor) -> Tensor:
+    """Stable log(1-exp(log_p)) for log probabilities <= 0."""
+    log_p = torch.clamp(log_p, max=-1e-7)
+    cutoff = -0.6931471805599453
+    return torch.where(
+        log_p < cutoff,
+        torch.log1p(-torch.exp(log_p)),
+        torch.log(-torch.expm1(log_p)),
+    )
+
+
+class ORPOLoss(nn.Module):
+    """Odds Ratio Preference Optimization on paired chosen/rejected responses.
+
+    The objective combines chosen-response negative log likelihood with an
+    odds-ratio preference term. Inputs are average response log probabilities.
+    """
+
+    def __init__(self, preference_weight: float = 0.1) -> None:
+        super().__init__()
+        if preference_weight <= 0:
+            raise ValueError("preference_weight must be positive")
+        self.preference_weight = float(preference_weight)
+
+    def forward(self, chosen_logp: Tensor, rejected_logp: Tensor) -> tuple[Tensor, dict[str, Tensor]]:
+        chosen_log_odds = chosen_logp - _log1mexp(chosen_logp)
+        rejected_log_odds = rejected_logp - _log1mexp(rejected_logp)
+        log_odds_ratio = chosen_log_odds - rejected_log_odds
+        chosen_nll = -chosen_logp.mean()
+        preference_loss = -F.logsigmoid(log_odds_ratio).mean()
+        loss = chosen_nll + self.preference_weight * preference_loss
+        return loss, {
+            "reward_accuracy": (chosen_logp > rejected_logp).float().mean(),
+            "reward_margin": (chosen_logp - rejected_logp).mean().detach(),
+        }
+
+
 class DPOLoss(nn.Module):
     def __init__(self, beta: float = 0.1, label_smoothing: float = 0.0) -> None:
         super().__init__()
@@ -52,18 +97,97 @@ class DPOLoss(nn.Module):
         }
 
 
+class IPOLoss(nn.Module):
+    """Identity Preference Optimization loss on paired preferences.
+
+    IPO fits the policy/reference log-ratio gap to the closed-form target
+    ``1 / (2 * beta)`` from the IPO objective. The metric definitions mirror
+    DPO so existing reports and release gates remain comparable.
+    """
+
+    def __init__(self, beta: float = 0.1) -> None:
+        super().__init__()
+        if beta <= 0:
+            raise ValueError("beta must be positive")
+        self.beta = beta
+
+    def forward(
+        self,
+        policy_chosen: Tensor,
+        policy_rejected: Tensor,
+        reference_chosen: Tensor,
+        reference_rejected: Tensor,
+    ) -> tuple[Tensor, dict[str, Tensor]]:
+        log_ratio = (policy_chosen - policy_rejected) - (
+            reference_chosen - reference_rejected
+        )
+        target = 1.0 / (2.0 * self.beta)
+        losses = (log_ratio - target).square()
+        rewards_chosen = self.beta * (policy_chosen - reference_chosen).detach()
+        rewards_rejected = self.beta * (policy_rejected - reference_rejected).detach()
+        return losses.mean(), {
+            "reward_accuracy": (rewards_chosen > rewards_rejected).float().mean(),
+            "reward_margin": (rewards_chosen - rewards_rejected).mean(),
+        }
+
+
+class KTOLoss(nn.Module):
+    """Kahneman-Tversky Optimization for binary desirable/undesirable feedback.
+
+    Rewards are policy/reference log-ratios scaled by ``beta``. The batch KL
+    baseline is detached and clamped non-negative, matching the KTO utility
+    construction while keeping the implementation stable for small batches.
+    """
+
+    def __init__(self, beta: float = 0.1, desirable_weight: float = 1.0, undesirable_weight: float = 1.0) -> None:
+        super().__init__()
+        if beta <= 0:
+            raise ValueError("beta must be positive")
+        if desirable_weight <= 0 or undesirable_weight <= 0:
+            raise ValueError("KTO class weights must be positive")
+        self.beta = float(beta)
+        self.desirable_weight = float(desirable_weight)
+        self.undesirable_weight = float(undesirable_weight)
+
+    def forward(
+        self, policy_logp: Tensor, reference_logp: Tensor, desirable: Tensor,
+    ) -> tuple[Tensor, dict[str, Tensor]]:
+        if policy_logp.shape != reference_logp.shape or desirable.shape != policy_logp.shape:
+            raise ValueError("KTO inputs must have matching batch shapes")
+        desirable = desirable.bool()
+        if desirable.numel() == 0:
+            raise ValueError("KTO batch cannot be empty")
+        log_ratio = policy_logp - reference_logp
+        kl = log_ratio.detach().mean().clamp_min(0.0)
+        reward = self.beta * log_ratio
+        baseline = self.beta * kl
+        pieces = []
+        if bool(desirable.any()):
+            pieces.append(self.desirable_weight * (1.0 - torch.sigmoid(reward[desirable] - baseline)))
+        if bool((~desirable).any()):
+            pieces.append(self.undesirable_weight * (1.0 - torch.sigmoid(baseline - reward[~desirable])))
+        weighted = torch.cat(pieces)
+        signed_margin = torch.where(desirable, reward - baseline, baseline - reward)
+        accuracy = torch.where(desirable, reward > baseline, reward < baseline).float().mean()
+        return weighted.mean(), {
+            "reward_accuracy": accuracy.detach(),
+            "reward_margin": signed_margin.mean().detach(),
+        }
+
+
 class DPOTrainer:
     def __init__(
-        self, policy: nn.Module, reference: nn.Module, optimizer, *, beta: float = 0.1,
-        label_smoothing: float = 0.0, scheduler=None, gradient_clip_norm: float | None = 1.0,
-        mixed_precision: str = "none",
+        self, policy: nn.Module, reference: nn.Module | None, optimizer, *, beta: float = 0.1,
+        label_smoothing: float = 0.0, orpo_lambda: float = 0.1, kto_desirable_weight: float = 1.0, kto_undesirable_weight: float = 1.0, scheduler=None,
+        gradient_clip_norm: float | None = 1.0, mixed_precision: str = "none",
+        method: str = "dpo", distributed_context=None,
     ) -> None:
         self.policy = policy
         try:
             device = next(policy.parameters()).device
         except StopIteration as error:
             raise ValueError("policy must contain parameters") from error
-        self.reference = reference.to(device).eval()
+        self.reference = reference.to(device).eval() if reference is not None else None
         self.device = device
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -75,14 +199,31 @@ class DPOTrainer:
         self.mixed_precision = mixed_precision
         self.autocast_dtype = torch.float16 if mixed_precision == "fp16" else torch.bfloat16
         self.scaler = torch.amp.GradScaler("cuda", enabled=mixed_precision == "fp16")
-        self.loss_fn = DPOLoss(beta, label_smoothing)
+        method = str(method).lower()
+        if method not in {"dpo", "ipo", "orpo", "kto"}:
+            raise ValueError("preference method must be dpo, ipo, orpo, or kto")
+        if method != "dpo" and label_smoothing:
+            raise ValueError("label_smoothing is only supported for DPO")
+        if method in {"dpo", "ipo", "kto"} and self.reference is None:
+            raise ValueError(f"{method.upper()} requires a reference model")
+        self.method = method
+        if method == "dpo":
+            self.loss_fn = DPOLoss(beta, label_smoothing)
+        elif method == "ipo":
+            self.loss_fn = IPOLoss(beta)
+        elif method == "orpo":
+            self.loss_fn = ORPOLoss(orpo_lambda)
+        else:
+            self.loss_fn = KTOLoss(beta, kto_desirable_weight, kto_undesirable_weight)
+        self.distributed_context = distributed_context
         self.global_step = 0
         self.current_epoch = 0
         self.best_validation_loss = float("inf")
         self.epochs_without_improvement = 0
         self.stopped_early = False
-        for parameter in self.reference.parameters():
-            parameter.requires_grad_(False)
+        if self.reference is not None:
+            for parameter in self.reference.parameters():
+                parameter.requires_grad_(False)
 
     def train_step(self, batch: dict[str, Tensor]) -> dict[str, float]:
         values = {key: value.to(self.device) for key, value in batch.items()}
@@ -120,13 +261,26 @@ class DPOTrainer:
         for batch in loader:
             values = {key: value.to(self.device) for key, value in batch.items()}
             loss, metrics = self._batch_loss(values)
-            count = values["chosen_ids"].shape[0]
+            count = self._batch_size(values)
             totals["loss"] += float(loss) * count
             totals["reward_accuracy"] += float(metrics["reward_accuracy"]) * count
             totals["reward_margin"] += float(metrics["reward_margin"]) * count
             pairs += count
+        if self.distributed_context is not None and self.distributed_context.world_size > 1:
+            import torch.distributed as dist
+            packed = torch.tensor(
+                [totals["loss"], totals["reward_accuracy"], totals["reward_margin"], float(pairs)],
+                device=self.device, dtype=torch.float64,
+            )
+            dist.all_reduce(packed, op=dist.ReduceOp.SUM)
+            totals = {
+                "loss": float(packed[0].item()),
+                "reward_accuracy": float(packed[1].item()),
+                "reward_margin": float(packed[2].item()),
+            }
+            pairs = int(packed[3].item())
         if not pairs:
-            raise ValueError("DPO validation loader is empty")
+            raise ValueError("preference validation loader is empty")
         return {key: value / pairs for key, value in totals.items()}
 
     def fit(
@@ -136,6 +290,9 @@ class DPOTrainer:
     ) -> list[dict[str, float | int]]:
         history = []
         for epoch in range(self.current_epoch, epochs):
+            sampler = getattr(train_loader, "sampler", None)
+            if sampler is not None and hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
             generator = getattr(train_loader, "generator", None)
             if generator is not None:
                 generator.manual_seed(int(getattr(train_loader, "gopi_shuffle_seed", 42)) + epoch)
@@ -143,7 +300,7 @@ class DPOTrainer:
             pairs = 0
             for batch in train_loader:
                 metrics = self.train_step(batch)
-                count = batch["chosen_ids"].shape[0]
+                count = self._batch_size(batch)
                 pairs += count
                 for key in totals:
                     totals[key] += metrics[key] * count
@@ -154,6 +311,19 @@ class DPOTrainer:
                         metrics["reward_accuracy"], metrics["reward_margin"],
                     )
             self.current_epoch = epoch + 1
+            if self.distributed_context is not None and self.distributed_context.world_size > 1:
+                import torch.distributed as dist
+                packed = torch.tensor(
+                    [totals["loss"], totals["reward_accuracy"], totals["reward_margin"], float(pairs)],
+                    device=self.device, dtype=torch.float64,
+                )
+                dist.all_reduce(packed, op=dist.ReduceOp.SUM)
+                totals = {
+                    "loss": float(packed[0].item()),
+                    "reward_accuracy": float(packed[1].item()),
+                    "reward_margin": float(packed[2].item()),
+                }
+                pairs = int(packed[3].item())
             record = {"epoch": epoch + 1, "step": self.global_step, **{
                 f"train_{key}": value / max(pairs, 1) for key, value in totals.items()
             }}
@@ -163,12 +333,16 @@ class DPOTrainer:
                 if validation["loss"] < self.best_validation_loss:
                     self.best_validation_loss = validation["loss"]
                     self.epochs_without_improvement = 0
-                    if best_checkpoint_callback:
+                    if best_checkpoint_callback and (
+                        self.distributed_context is None or self.distributed_context.is_main_process
+                    ):
                         best_checkpoint_callback(self, epoch)
                 else:
                     self.epochs_without_improvement += 1
             history.append(record)
-            if checkpoint_callback:
+            if checkpoint_callback and (
+                self.distributed_context is None or self.distributed_context.is_main_process
+            ):
                 checkpoint_callback(self, epoch)
             if early_stopping_patience is not None and self.epochs_without_improvement >= early_stopping_patience:
                 self.stopped_early = True
@@ -180,10 +354,15 @@ class DPOTrainer:
             "global_step": self.global_step, "current_epoch": self.current_epoch,
             "best_validation_loss": self.best_validation_loss,
             "epochs_without_improvement": self.epochs_without_improvement,
-            "stopped_early": self.stopped_early,
+            "stopped_early": self.stopped_early, "method": self.method,
         }
 
     def load_state_dict(self, state) -> None:
+        saved_method = state.get("method")
+        if saved_method is not None and str(saved_method).lower() != self.method:
+            raise ValueError(
+                f"checkpoint preference method {saved_method!r} does not match active method {self.method!r}"
+            )
         self.global_step = int(state.get("global_step", 0))
         self.current_epoch = int(state.get("current_epoch", 0))
         self.best_validation_loss = float(state.get("best_validation_loss", float("inf")))
@@ -191,19 +370,43 @@ class DPOTrainer:
         self.stopped_early = bool(state.get("stopped_early", False))
 
     def _batch_loss(self, values: dict[str, Tensor]):
+        if self.method == "kto":
+            policy_logp = self._score_completion(self.policy, values)
+            assert self.reference is not None
+            with torch.no_grad():
+                reference_logp = self._score_completion(self.reference, values)
+            return self.loss_fn(policy_logp, reference_logp, values["desirable"])
+        if self.method == "orpo":
+            chosen = self._score(self.policy, values, "chosen", average=True)
+            rejected = self._score(self.policy, values, "rejected", average=True)
+            return self.loss_fn(chosen, rejected)
         policy_chosen = self._score(self.policy, values, "chosen")
         policy_rejected = self._score(self.policy, values, "rejected")
+        assert self.reference is not None
         with torch.no_grad():
             reference_chosen = self._score(self.reference, values, "chosen")
             reference_rejected = self._score(self.reference, values, "rejected")
         return self.loss_fn(policy_chosen, policy_rejected, reference_chosen, reference_rejected)
 
     @staticmethod
-    def _score(model: nn.Module, batch: dict[str, Tensor], side: str) -> Tensor:
+    def _batch_size(batch: dict[str, Tensor]) -> int:
+        key = "completion_ids" if "completion_ids" in batch else "chosen_ids"
+        return int(batch[key].shape[0])
+
+    @staticmethod
+    def _score_completion(model: nn.Module, batch: dict[str, Tensor]) -> Tensor:
+        ids = batch["completion_ids"]
+        output = model(ids, attention_mask=batch["completion_attention_mask"])
+        logits = output[0] if isinstance(output, tuple) else output
+        return sequence_log_probabilities(logits, ids, batch["completion_mask"])
+
+    @staticmethod
+    def _score(model: nn.Module, batch: dict[str, Tensor], side: str, *, average: bool = False) -> Tensor:
         ids = batch[f"{side}_ids"]
         output = model(ids, attention_mask=batch[f"{side}_attention_mask"])
         logits = output[0] if isinstance(output, tuple) else output
-        return sequence_log_probabilities(logits, ids, batch[f"{side}_mask"])
+        scorer = sequence_average_log_probabilities if average else sequence_log_probabilities
+        return scorer(logits, ids, batch[f"{side}_mask"])
 
 
 def compare_sft_to_dpo(sft_metrics: dict[str,float], dpo_metrics: dict[str,float]) -> dict[str,object]:

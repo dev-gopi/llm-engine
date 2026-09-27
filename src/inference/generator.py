@@ -32,11 +32,20 @@ logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
+class TokenLogprob:
+    token: str
+    token_id: int
+    logprob: float
+    top_logprobs: tuple[tuple[str, int, float], ...] = ()
+
+
+@dataclass(frozen=True)
 class GenerationResult:
     text: str
     token_ids: tuple[int, ...]
     prompt_tokens: int
     finish_reason: str
+    logprobs: tuple[TokenLogprob, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -46,6 +55,7 @@ class GenerationStep:
     prompt_tokens: int
     completion_tokens: int
     finish_reason: str | None = None
+    logprob: TokenLogprob | None = None
 
 
 @dataclass
@@ -61,6 +71,9 @@ class BatchedGenerationState:
     emitted_text: str = ""
     steps: int = 0
     page_request_id: str | None = None
+
+
+from inference.beam_search import beam_search
 
 
 class Generator:
@@ -138,6 +151,8 @@ class Generator:
         top_p: float = 1.0,
         min_p: float = 0.0,
         repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
+        presence_penalty: float = 0.0,
+        frequency_penalty: float = 0.0,
         no_repeat_ngram_size: int = DEFAULT_NO_REPEAT_NGRAM_SIZE,
         min_tokens: int = DEFAULT_MIN_TOKENS,
         seed: int | None = None,
@@ -147,6 +162,8 @@ class Generator:
         json_schema: dict | None = None,
         constraint_candidate_k: int = 256,
         cancellation_event=None,
+        logprobs: bool = False,
+        top_logprobs: int = 0,
     ) -> GenerationResult:
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
@@ -154,10 +171,12 @@ class Generator:
             raise ValueError("provide either constraint or json_schema, not both")
         if constraint_candidate_k < 1:
             raise ValueError("constraint_candidate_k must be positive")
+        self._validate_logprob_options(logprobs, top_logprobs)
         if json_schema is not None:
             constraint = JSONSchemaConstraint(json_schema)
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
+        self._validate_token_penalties(presence_penalty, frequency_penalty)
         self._validate_no_repeat_ngram_size(no_repeat_ngram_size)
         self._validate_min_tokens(min_tokens)
         prompt_ids = self.tokenizer.encode(
@@ -175,6 +194,7 @@ class Generator:
             random.manual_seed(seed)
         all_ids = list(prompt_ids)
         generated: list[int] = []
+        token_logprobs: list[TokenLogprob] = []
         finish_reason = "length"
         limit = min(max_tokens, self.max_positions - len(prompt_ids))
         stop_sequences = stop or []
@@ -186,6 +206,7 @@ class Generator:
                 raise RuntimeError("generation cancelled")
             next_logits = logits[:, -1, :].clone()
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
+            self._apply_presence_frequency_penalties(next_logits, all_ids, presence_penalty, frequency_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, no_repeat_ngram_size)
             self._suppress_special_tokens(next_logits, len(generated), min_tokens)
             if constraint is not None:
@@ -198,6 +219,8 @@ class Generator:
                     top_p=top_p, min_p=min_p, generator=random,
                 ).item()
             )
+            if logprobs:
+                token_logprobs.append(self._logprob_record(next_logits, next_id, top_logprobs))
             if self.eos_token_id is not None and next_id == self.eos_token_id:
                 finish_reason = "stop"
                 break
@@ -209,7 +232,7 @@ class Generator:
                 text = self._trim_stop(text, stop_sequences)
                 if constraint is not None and not constraint.validate(text):
                     raise ValueError("generated text failed the requested output constraint")
-                return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
+                return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason, tuple(token_logprobs))
             if step + 1 == limit:
                 break
             step_input = torch.tensor([[next_id]], dtype=torch.long, device=self.device)
@@ -227,7 +250,7 @@ class Generator:
         logger.debug("Generated %d tokens from a %d-token prompt", len(generated), len(prompt_ids))
         if constraint is not None and not constraint.validate(text):
             raise ValueError("generated text failed the requested output constraint")
-        return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
+        return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason, tuple(token_logprobs))
 
     @torch.inference_mode()
     def generate_speculative(
@@ -433,13 +456,20 @@ class Generator:
             options = state.options
             logits = state.logits[:, -1, :].clone()
             penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
+            presence_penalty = float(options.get("presence_penalty", 0.0))
+            frequency_penalty = float(options.get("frequency_penalty", 0.0))
             ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
             min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
+            return_logprobs = bool(options.get("logprobs", False))
+            top_logprobs = int(options.get("top_logprobs", 0))
             if penalty <= 0:
                 raise ValueError("repetition_penalty must be positive")
+            self._validate_token_penalties(presence_penalty, frequency_penalty)
             self._validate_no_repeat_ngram_size(ngram_size)
             self._validate_min_tokens(min_tokens)
+            self._validate_logprob_options(return_logprobs, top_logprobs)
             self._apply_repetition_penalty(logits, set(state.all_ids), penalty)
+            self._apply_presence_frequency_penalties(logits, state.all_ids, presence_penalty, frequency_penalty)
             self._apply_no_repeat_ngram(logits, state.all_ids, ngram_size)
             self._suppress_special_tokens(logits, len(state.generated), min_tokens)
             token_id = int(self.sampler(
@@ -448,6 +478,7 @@ class Generator:
                 min_p=float(options.get("min_p", 0.0)),
                 generator=state.random,
             ).item())
+            token_logprob = self._logprob_record(logits, token_id, top_logprobs) if return_logprobs else None
             state.steps += 1
             eos = self.eos_token_id is not None and token_id == self.eos_token_id
             if not eos:
@@ -471,7 +502,7 @@ class Generator:
             finish = "stop" if eos or stopped else ("length" if done else None)
             results[index] = (GenerationStep(
                 delta, None if eos else token_id, len(state.prompt_ids),
-                len(state.generated), finish,
+                len(state.generated), finish, logprob=token_logprob,
             ), done)
             if not done:
                 survivors.append((index, state, token_id))
@@ -584,10 +615,13 @@ class Generator:
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
+        presence_penalty = float(options.get("presence_penalty", 0.0))
+        frequency_penalty = float(options.get("frequency_penalty", 0.0))
         ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
         min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
         if penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
+        self._validate_token_penalties(presence_penalty, frequency_penalty)
         self._validate_no_repeat_ngram_size(ngram_size)
         self._validate_min_tokens(min_tokens)
         encoded = [self.tokenizer.encode(
@@ -624,6 +658,7 @@ class Generator:
                 for row, original_index in enumerate(active):
                     row_logits = logits[row:row + 1, -1, :].clone()
                     self._apply_repetition_penalty(row_logits, set(all_ids[row]), penalty)
+                    self._apply_presence_frequency_penalties(row_logits, all_ids[row], presence_penalty, frequency_penalty)
                     self._apply_no_repeat_ngram(row_logits, all_ids[row], ngram_size)
                     self._suppress_special_tokens(row_logits, len(generated[row]), min_tokens)
                     token_id = int(self.sampler(
@@ -684,14 +719,20 @@ class Generator:
         top_p = float(options.get("top_p", 1.0))
         min_p = float(options.get("min_p", 0.0))
         repetition_penalty = float(options.get("repetition_penalty", self.DEFAULT_REPETITION_PENALTY))
+        presence_penalty = float(options.get("presence_penalty", 0.0))
+        frequency_penalty = float(options.get("frequency_penalty", 0.0))
         ngram_size = int(options.get("no_repeat_ngram_size", self.DEFAULT_NO_REPEAT_NGRAM_SIZE))
         min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
+        return_logprobs = bool(options.get("logprobs", False))
+        top_logprobs = int(options.get("top_logprobs", 0))
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         if repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be positive")
+        self._validate_token_penalties(presence_penalty, frequency_penalty)
         self._validate_no_repeat_ngram_size(ngram_size)
         self._validate_min_tokens(min_tokens)
+        self._validate_logprob_options(return_logprobs, top_logprobs)
         stop_sequences = options.get("stop") or []
         prompt_ids = self.tokenizer.encode(
             prompt, add_bos=True,
@@ -711,9 +752,11 @@ class Generator:
         for step in range(limit):
             next_logits = logits[:, -1, :].clone()
             self._apply_repetition_penalty(next_logits, set(all_ids), repetition_penalty)
+            self._apply_presence_frequency_penalties(next_logits, all_ids, presence_penalty, frequency_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, ngram_size)
             self._suppress_special_tokens(next_logits, len(generated), min_tokens)
             token_id = int(self.sampler(next_logits, temperature=temperature, top_k=top_k, top_p=top_p, min_p=min_p, generator=random).item())
+            token_logprob = self._logprob_record(next_logits, token_id, top_logprobs) if return_logprobs else None
             if self.eos_token_id is not None and token_id == self.eos_token_id:
                 finish_reason = "stop"
                 break
@@ -728,7 +771,7 @@ class Generator:
             visible = visible.rstrip("\ufffd")
             delta = visible[len(emitted_text) :] if visible.startswith(emitted_text) else ""
             emitted_text = visible
-            yield GenerationStep(delta, token_id, len(prompt_ids), len(generated))
+            yield GenerationStep(delta, token_id, len(prompt_ids), len(generated), logprob=token_logprob)
             if stopped:
                 finish_reason = "stop"
                 break
@@ -751,6 +794,50 @@ class Generator:
         if remaining:
             yield GenerationStep(remaining, None, len(prompt_ids), len(generated))
         yield GenerationStep("", None, len(prompt_ids), len(generated), finish_reason)
+
+    @staticmethod
+    def _validate_logprob_options(logprobs: bool, top_logprobs: int) -> None:
+        if top_logprobs < 0 or top_logprobs > 20:
+            raise ValueError("top_logprobs must be between 0 and 20")
+        if top_logprobs and not logprobs:
+            raise ValueError("top_logprobs requires logprobs=true")
+
+    def _logprob_record(self, logits: torch.Tensor, token_id: int, top_n: int) -> TokenLogprob:
+        values = F.log_softmax(logits[0].float(), dim=-1)
+        token = self.tokenizer.decode([token_id], skip_special_tokens=False)
+        selected = float(values[token_id].item())
+        alternatives: list[tuple[str, int, float]] = []
+        if top_n:
+            top_values, top_ids = torch.topk(values, k=min(top_n, values.numel()))
+            for value, identifier in zip(top_values.tolist(), top_ids.tolist(), strict=True):
+                alternatives.append((
+                    self.tokenizer.decode([int(identifier)], skip_special_tokens=False),
+                    int(identifier), float(value),
+                ))
+        return TokenLogprob(token=token, token_id=token_id, logprob=selected, top_logprobs=tuple(alternatives))
+
+    @staticmethod
+    def _validate_token_penalties(presence_penalty: float, frequency_penalty: float) -> None:
+        for name, value in (("presence_penalty", presence_penalty), ("frequency_penalty", frequency_penalty)):
+            if not -2.0 <= float(value) <= 2.0:
+                raise ValueError(f"{name} must be between -2 and 2")
+
+    @staticmethod
+    def _apply_presence_frequency_penalties(
+        logits: torch.Tensor, token_ids: list[int], presence_penalty: float, frequency_penalty: float
+    ) -> None:
+        """Apply additive OpenAI-style token occurrence penalties.
+
+        Penalties are computed from all tokens seen so far (prompt plus generated
+        continuation). Positive values discourage reuse; negative values encourage it.
+        """
+        if not token_ids or (presence_penalty == 0.0 and frequency_penalty == 0.0):
+            return
+        ids = torch.tensor(token_ids, device=logits.device, dtype=torch.long)
+        counts = torch.bincount(ids, minlength=logits.shape[-1]).to(logits.dtype)
+        present = counts.gt(0).to(logits.dtype)
+        logits.sub_(presence_penalty * present.unsqueeze(0))
+        logits.sub_(frequency_penalty * counts.unsqueeze(0))
 
     @staticmethod
     def _apply_repetition_penalty(logits: torch.Tensor, used: set[int], penalty: float) -> None:

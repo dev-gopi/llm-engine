@@ -50,10 +50,11 @@ def test_openai_generation_parameters_are_exposed_and_validated():
             "max_tokens":4,"stop":["END"],"repetition_penalty":1.05,
         })
         assert response.status_code == 200
-        unsupported = client.post("/v1/chat/completions", headers=headers, json={
-            "model":"gopi-test","messages":[{"role":"user","content":"x"}],"presence_penalty":0.2,
+        penalties = client.post("/v1/chat/completions", headers=headers, json={
+            "model":"gopi-test","messages":[{"role":"user","content":"x"}],
+            "presence_penalty":0.2,"frequency_penalty":-0.1,
         })
-        assert unsupported.status_code == 422
+        assert penalties.status_code == 200
 
 
 def test_responses_api_and_embeddings_are_discoverable():

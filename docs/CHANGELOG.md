@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Batch 21: enabled local recursive `$ref` and `$dynamicRef` JSON Schema validation for structured outputs using the Draft 2020-12 resolver, with recursive tree and dynamic-anchor regression coverage; external URI retrieval remains disabled.
+
+- Started Batch 21 implementation from the post-Batch-20 missing-feature audit. Added the explicit batch acceptance/engineering instructions in `docs/BATCH21_IMPLEMENTATION_INSTRUCTIONS.md`; the batch covers the next 20 audit items and requires optional-runtime guards, contract tests, regression validation, and explicit hardware qualification before items are removed from the audit.
 
 - Modernized the `/ui/` text-generation playground with a refined chat canvas, prompt suggestions, and a focused generation composer while retaining streaming, multimodal attachments, tools, and API-mode controls.
 - Made the text-generation playground Stop action permanently visible and generation-aware: it becomes active while a response streams and cancels the current request safely.

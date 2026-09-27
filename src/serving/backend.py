@@ -82,6 +82,22 @@ DEFAULT_NO_RESULTS = "Sorry, I couldn't find any results for that search."
 COMPACT_SAFETY_PROMPT = "Be safe. Refuse harm."
 
 
+def _serialize_token_logprob(record) -> dict[str, object] | None:
+    if record is None:
+        return None
+    def item(token: str, token_id: int, logprob: float) -> dict[str, object]:
+        return {
+            "token": token,
+            "token_id": int(token_id),
+            "logprob": float(logprob),
+            "bytes": list(token.encode("utf-8", errors="replace")),
+        }
+    return {
+        **item(record.token, record.token_id, record.logprob),
+        "top_logprobs": [item(token, token_id, logprob) for token, token_id, logprob in record.top_logprobs],
+    }
+
+
 @dataclass
 class _BackendBatchStream:
     generation: BatchedGenerationState | None = None
@@ -606,8 +622,10 @@ class ConfiguredModelBackend:
             max_tokens=effective_max_tokens, temperature=request.temperature,
             top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
             repetition_penalty=request.repetition_penalty,
+            presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
             no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
             seed=request.seed, stop=request.stop, allow_special_tokens=True,
+            logprobs=request.logprobs, top_logprobs=request.top_logprobs,
         )
         forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
         if forced_tool_schema is not None:
@@ -639,6 +657,7 @@ class ConfiguredModelBackend:
         logger.debug("Generating from a %d-token prompt", len(prompt_ids))
         generated_ids: list[int] = []
         pieces: list[str] = []
+        token_logprobs: list[dict[str, object]] = []
         finish_reason = "length"
         prompt_tokens = len(prompt_ids)
         async for event in self._stream_steps(prompt, options):
@@ -647,6 +666,9 @@ class ConfiguredModelBackend:
                 generated_ids.append(event.token_id)
             if event.token:
                 pieces.append(event.token)
+            serialized_logprob = _serialize_token_logprob(getattr(event, "logprob", None))
+            if serialized_logprob is not None:
+                token_logprobs.append(serialized_logprob)
             if event.finish_reason is not None:
                 finish_reason = event.finish_reason
         raw_text = "".join(pieces).strip()
@@ -685,6 +707,7 @@ class ConfiguredModelBackend:
             reasoning_content=reasoning_content,
             tool_calls=tool_calls,
             tool_call_error=tool_call_error,
+            logprobs=tuple(token_logprobs),
         )
 
     async def _generate_multimodal_unlocked(
@@ -766,11 +789,13 @@ class ConfiguredModelBackend:
             top_p=request.top_p,
             min_p=request.min_p,
             repetition_penalty=request.repetition_penalty,
+            presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
             no_repeat_ngram_size=request.no_repeat_ngram_size,
             min_tokens=request.min_tokens,
             seed=request.seed,
             stop=request.stop,
             allow_special_tokens=True,
+            logprobs=request.logprobs, top_logprobs=request.top_logprobs,
         )
         forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
         if forced_tool_schema is not None:
@@ -896,8 +921,10 @@ class ConfiguredModelBackend:
                 max_tokens=request.max_tokens, temperature=request.temperature,
                 top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
                 repetition_penalty=request.repetition_penalty,
+                presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
                 no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens, seed=request.seed,
                 stop=request.stop, allow_special_tokens=True,
+                logprobs=request.logprobs, top_logprobs=request.top_logprobs,
             )
             state.generation = self.generator.start_batched_stream(prompt, **options)
             state.memory, state.search_results = memory, search_results
@@ -932,6 +959,7 @@ class ConfiguredModelBackend:
                     token=step.token, token_id=step.token_id,
                     prompt_tokens=step.prompt_tokens,
                     completion_tokens=step.completion_tokens,
+                    logprob=_serialize_token_logprob(getattr(step, "logprob", None)),
                 )
                 if done:
                     self._finish_batched_stream(state, step)
@@ -1086,9 +1114,10 @@ class ConfiguredModelBackend:
         options = dict(max_tokens=request.max_tokens, temperature=request.temperature,
                        top_k=request.top_k, top_p=request.top_p, min_p=request.min_p,
                        repetition_penalty=request.repetition_penalty,
+                       presence_penalty=request.presence_penalty, frequency_penalty=request.frequency_penalty,
                        no_repeat_ngram_size=request.no_repeat_ngram_size, min_tokens=request.min_tokens,
                        seed=request.seed, stop=request.stop,
-                       allow_special_tokens=True)
+                       allow_special_tokens=True, logprobs=request.logprobs, top_logprobs=request.top_logprobs)
         async for step in self._stream_steps(prompt, options):
             if step.finish_reason is not None:
                 response_text = "".join(pieces).strip()
@@ -1117,6 +1146,7 @@ class ConfiguredModelBackend:
             yield BackendStreamEvent(
                 token=step.token, token_id=step.token_id,
                 prompt_tokens=step.prompt_tokens, completion_tokens=step.completion_tokens,
+                logprob=_serialize_token_logprob(getattr(step, "logprob", None)),
             )
 
     async def _prepare_user_prompt(self, request: GenerateRequest):

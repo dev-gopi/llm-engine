@@ -59,6 +59,17 @@ serving:
   cors_origins: []
   requests_per_minute: 60
   rate_limit_store_path: data/cache/rate-limits.sqlite
+  # Optional two-tier exact + semantic response cache. It is disabled by
+  # default because semantic reuse must be explicitly enabled for a deployment.
+  # Dynamic requests (sessions, tools, RAG, web search, attachments, reasoning)
+  # and non-deterministic sampling are bypassed unless explicitly permitted.
+  semantic_cache_enabled: false
+  semantic_cache_capacity: 512
+  semantic_cache_similarity_threshold: 0.985
+  semantic_cache_ttl_seconds: 3600
+  semantic_cache_namespace: gopi-v1
+  semantic_cache_store_path: data/cache/semantic-responses.sqlite
+  semantic_cache_allow_nondeterministic: false
   prefix_cache_capacity: 16
   paged_kv_pages: 128
   paged_kv_page_size: 16

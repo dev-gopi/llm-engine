@@ -652,3 +652,41 @@ def test_json_schema_constraint_validates_complete_json() -> None:
     assert not constraint._prefix_valid('{"answer":}')
     assert constraint.validate('{"answer":"ok"}')
     assert not constraint.validate('{"answer": 2}')
+
+
+def test_presence_and_frequency_penalties_adjust_seen_token_logits():
+    logits = torch.tensor([[10.0, 10.0, 10.0, 10.0]])
+    Generator._apply_presence_frequency_penalties(
+        logits, [1, 1, 2], presence_penalty=0.5, frequency_penalty=0.25
+    )
+    assert logits.tolist()[0] == pytest.approx([10.0, 9.0, 9.25, 10.0])
+
+
+def test_presence_and_frequency_penalty_validation():
+    Generator._validate_token_penalties(-2.0, 2.0)
+    with pytest.raises(ValueError, match="presence_penalty"):
+        Generator._validate_token_penalties(2.1, 0.0)
+    with pytest.raises(ValueError, match="frequency_penalty"):
+        Generator._validate_token_penalties(0.0, -2.1)
+
+
+def test_generator_returns_selected_and_top_logprobs() -> None:
+    tokenizer = make_tokenizer()
+    b_id = tokenizer.token_to_id(BYTE_ENCODER[ord("b")])
+    model = PredictBThenEos(tokenizer.vocab_size, b_id, tokenizer.token_to_id("<|eos|>"))
+    result = Generator(model, tokenizer, device="cpu").generate(
+        "a", max_tokens=1, temperature=0, logprobs=True, top_logprobs=2,
+    )
+    assert len(result.logprobs) == 1
+    record = result.logprobs[0]
+    assert record.token_id == b_id
+    assert record.token == "b"
+    assert record.logprob <= 0.0
+    assert len(record.top_logprobs) == 2
+
+    streamed = list(Generator(model, tokenizer, device="cpu").stream(
+        "a", max_tokens=1, temperature=0, logprobs=True, top_logprobs=2,
+    ))
+    token_step = next(step for step in streamed if step.token_id is not None)
+    assert token_step.logprob is not None
+    assert token_step.logprob.token_id == b_id

@@ -104,9 +104,24 @@ class GenerateRequest(StrictSchema):
         le=2.0,
         allow_inf_nan=False,
     )
+    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, allow_inf_nan=False)
+    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, allow_inf_nan=False)
+    logprobs: bool = False
+    top_logprobs: int = Field(default=0, ge=0, le=20)
     no_repeat_ngram_size: int = Field(default=3, ge=0, le=16)
     min_tokens: int = Field(default=1, ge=0, le=1_000_000)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
+
+    # Semantic-cache controls. They are inert unless semantic caching is enabled.
+    cache_control: Literal["default", "no-store"] = "default"
+    cache_fingerprint: str | None = Field(default=None, max_length=256)
+    # Optional production-cache context. These fields are part of cache identity
+    # only; they do not alter generation semantics and remain backward compatible.
+    tenant_id: str = Field(default="default", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    user_id: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    route: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$")
+    model_id: str | None = Field(default=None, max_length=256)
+    task: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
 
     stop: list[str] = Field(default_factory=list, max_length=16)
 
@@ -142,6 +157,12 @@ class GenerateRequest(StrictSchema):
                 normalized.append(value)
 
         return normalized
+
+    @model_validator(mode="after")
+    def validate_logprobs(self):
+        if self.top_logprobs and not self.logprobs:
+            raise ValueError("top_logprobs requires logprobs=true")
+        return self
 
     @field_validator("tools")
     @classmethod
@@ -428,11 +449,11 @@ class OpenAIChatCompletionRequest(BaseModel):
         le=2**63 - 1,
     )
     repetition_penalty: float = Field(default=1.1, ge=0.1, le=2.0)
-    # These OpenAI parameters are intentionally represented so clients receive
-    # a deterministic validation error instead of having them silently ignored.
-    # The current sampler does not implement presence/frequency penalties.
-    presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0)
-    frequency_penalty: float | None = Field(default=None, ge=-2.0, le=2.0)
+    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, allow_inf_nan=False)
+    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, allow_inf_nan=False)
+    n: int = Field(default=1, ge=1, le=16)
+    logprobs: bool = False
+    top_logprobs: int = Field(default=0, ge=0, le=20)
     user: str | None = Field(
         default=None,
         max_length=128,
@@ -446,25 +467,20 @@ class OpenAIChatCompletionRequest(BaseModel):
     tool_choice: OpenAIToolChoice = "auto"
 
     @model_validator(mode="after")
-    def reject_unsupported_penalties(self):
-        unsupported = []
-        if self.presence_penalty is not None:
-            unsupported.append("presence_penalty")
-        if self.frequency_penalty is not None:
-            unsupported.append("frequency_penalty")
-        if unsupported:
-            raise ValueError(
-                "unsupported generation parameters: " + ", ".join(unsupported)
-            )
-        return self
-
-    @model_validator(mode="after")
     def validate_tool_choice_contract(self):
         names = {tool.function.name for tool in (self.tools or [])}
         if self.tool_choice == "required" and not names:
             raise ValueError("tool_choice=required requires at least one tool")
         if isinstance(self.tool_choice, OpenAIToolChoiceObject) and self.tool_choice.function.name not in names:
             raise ValueError(f"tool_choice references unknown tool: {self.tool_choice.function.name}")
+        return self
+
+    @model_validator(mode="after")
+    def validate_logprob_contract(self):
+        if self.top_logprobs and not self.logprobs:
+            raise ValueError("top_logprobs requires logprobs=true")
+        if self.n > 1 and self.session_id is not None:
+            raise ValueError("n > 1 cannot be combined with session_id because only one assistant turn can be committed")
         return self
 
     @field_validator("messages")
@@ -606,6 +622,9 @@ class OpenAIChatCompletionRequest(BaseModel):
             top_p=self.top_p,
             min_p=self.min_p,
             repetition_penalty=self.repetition_penalty,
+            presence_penalty=self.presence_penalty,
+            frequency_penalty=self.frequency_penalty,
+            logprobs=self.logprobs, top_logprobs=self.top_logprobs,
             no_repeat_ngram_size=self.no_repeat_ngram_size,
             min_tokens=self.min_tokens,
             seed=self.seed,
@@ -674,6 +693,7 @@ class OpenAIChatCompletionChoice(StrictSchema):
     index: int
     message: OpenAIChatCompletionMessage
     finish_reason: str
+    logprobs: dict[str, Any] | None = None
 
 
 class OpenAIChatCompletionResponse(StrictSchema):
@@ -697,6 +717,7 @@ class OpenAIChatCompletionChunkChoice(StrictSchema):
     index: int
     delta: OpenAIChatCompletionDelta
     finish_reason: str | None = None
+    logprobs: dict[str, Any] | None = None
 
 
 class OpenAIChatCompletionChunk(StrictSchema):

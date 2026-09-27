@@ -71,8 +71,26 @@ def test_workspace_patch_is_checked_before_apply(tmp_path):
     assert source.read_text(encoding="utf-8") == "old\n"
     workspace.apply_patch(patch, apply=True)
     assert source.read_text(encoding="utf-8") == "new\n"
-    with pytest.raises(ValueError, match="creation/deletion"):
-        workspace.apply_patch("--- /dev/null\n+++ b/new.txt\n", apply=False)
+
+
+def test_workspace_patch_supports_reviewed_file_creation_and_deletion(tmp_path):
+    workspace = WorkspaceService(tmp_path)
+    create_patch = (
+        "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+created\n"
+    )
+    preview = workspace.apply_patch(create_patch, apply=False)
+    assert preview["paths"] == ["new.txt"]
+    assert not (tmp_path / "new.txt").exists()
+    workspace.apply_patch(create_patch, apply=True)
+    assert (tmp_path / "new.txt").read_text(encoding="utf-8") == "created\n"
+
+    delete_patch = (
+        "--- a/new.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-created\n"
+    )
+    preview = workspace.apply_patch(delete_patch, apply=False)
+    assert preview["paths"] == ["new.txt"]
+    workspace.apply_patch(delete_patch, apply=True)
+    assert not (tmp_path / "new.txt").exists()
 
 
 def test_workspace_only_exposes_allowlisted_commands(tmp_path, monkeypatch):

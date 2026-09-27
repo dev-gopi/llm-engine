@@ -38,3 +38,10 @@ The default remains one-pass prefill for unchanged behavior.
 When adding a task, use a level-three heading with a stable identifier, a
 matching `ID` field, and a `Dependencies` field. The registry audit validates
 these fields and verifies that every listed dependency exists.
+## Batch 21 — next 20 missing-feature implementation
+
+- **Status:** In progress; item 10 (recursive/dynamic JSON Schema references) completed and removed from the active audit.
+- **Instruction:** `docs/BATCH21_IMPLEMENTATION_INSTRUCTIONS.md`
+- **Scope:** audit items 1–20 from the post-Batch-20 missing-feature audit.
+- **Rule:** remove an audit item only after source implementation, contract tests, regression validation, and documented runtime limitations are satisfied.
+

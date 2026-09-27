@@ -27,6 +27,8 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio>=0.24,<1", "datasets>=2.19", "datatrove>=0.3"]
 data = ["datasets>=2.19", "datatrove>=0.3"]
 export = ["onnx>=1.16", "onnxruntime>=1.18"]
+tracking = ["mlflow>=2.0", "wandb>=0.18"]
+deepspeed = ["deepspeed>=0.15"]
 rag = ["pypdf>=5", "python-docx>=1.1", "openpyxl>=3.1"]
 rerank = ["sentence-transformers>=3.0"]
 images = []
