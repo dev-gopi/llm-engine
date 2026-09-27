@@ -68,7 +68,7 @@ jobs:
       - name: Run test suite
         run: |
           python -m pytest \
-            --cov \
+            --cov=src \
             --cov-report=term-missing \
             --cov-report=xml
 
