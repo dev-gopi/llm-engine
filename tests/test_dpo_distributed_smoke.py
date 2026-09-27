@@ -22,7 +22,7 @@ def _worker(rank: int, world_size: int, port: int, queue) -> None:
         "MASTER_PORT": str(port),
         "WORLD_SIZE": str(world_size),
         "RANK": str(rank),
-        "LOCAL_RANK": str(rank),
+        # LOCAL_RANK not set for CPU/gloo backend to avoid CUDA device count check
     })
     torch.manual_seed(7)
     context = DistributedTrainer.initialize("gloo")
