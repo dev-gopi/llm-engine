@@ -87,3 +87,79 @@ class LatentDiffusionPipeline:
         finally:
             for module, was_training in zip(modules, modes, strict=True):
                 module.train(was_training)
+    @torch.inference_mode()
+    def edit(self, images: Tensor, *, device: torch.device | str, strength: float = 0.5,
+             token_ids: Tensor | None = None, attention_mask: Tensor | None = None,
+             negative_token_ids: Tensor | None = None, negative_attention_mask: Tensor | None = None,
+             guidance_scale: float = 5.0, inference_steps: int = 50,
+             generator: torch.Generator | None = None, eta: float = 0.0) -> Tensor:
+        """Image-to-image latent diffusion using the same trained checkpoint.
+
+        ``strength=0`` is an exact reconstruction path (subject to VAE loss), while
+        ``strength=1`` applies the full configured denoising schedule.
+        """
+        if images.ndim != 4 or images.shape[1] != 3:
+            raise ValueError("images must have shape [batch, 3, height, width]")
+        if images.shape[-1] != images.shape[-2]:
+            raise ValueError("native latent editing currently requires square images")
+        if images.shape[-1] % self.vae.downsample_factor:
+            raise ValueError("image size must be divisible by the VAE downsample factor")
+        if not 0.0 <= strength <= 1.0:
+            raise ValueError("strength must be between zero and one")
+        if not 1 <= inference_steps <= self.scheduler.timesteps:
+            raise ValueError("inference_steps must be between one and scheduler timesteps")
+        batch = images.shape[0]
+        if token_ids is not None and token_ids.shape[0] != batch:
+            raise ValueError("token_ids batch must match images")
+        if negative_token_ids is not None and negative_token_ids.shape != token_ids.shape:
+            raise ValueError("negative_token_ids must match token_ids")
+        modules = [self.vae]
+        if self.text_encoder is not None:
+            modules.append(self.text_encoder)
+        modes = [m.training for m in modules]
+        for m in modules:
+            m.eval()
+        try:
+            source = images.to(device)
+            latents, _, _ = self.vae.encode(source)
+            latents = latents * self.latent_scale
+            if strength == 0.0:
+                return self.vae.decode(latents / self.latent_scale).clamp(-1, 1)
+            context = None
+            negative_context = None
+            if token_ids is not None:
+                if self.text_encoder is None:
+                    raise ValueError("token_ids require a text encoder")
+                context = self.text_encoder(token_ids, attention_mask)
+                if negative_token_ids is not None:
+                    negative_context = self.text_encoder(negative_token_ids, negative_attention_mask)
+            schedule = torch.linspace(self.scheduler.timesteps - 1, 0, inference_steps, dtype=torch.long).unique_consecutive().tolist()
+            start = min(len(schedule) - 1, max(0, round((1.0 - strength) * (len(schedule) - 1))))
+            schedule = schedule[start:]
+            first_t = int(schedule[0])
+            self.scheduler.to(device)
+            noise = torch.randn(latents.shape, device=device, dtype=latents.dtype, generator=generator)
+            steps = torch.full((batch,), first_t, dtype=torch.long, device=device)
+            sample, _ = self.scheduler.add_noise(latents, steps, noise)
+            null_context = negative_context if negative_context is not None else (torch.zeros_like(context) if context is not None else None)
+            was_training = self.model.training
+            self.model.eval()
+            try:
+                for index, timestep in enumerate(schedule):
+                    ts = torch.full((batch,), int(timestep), dtype=torch.long, device=device)
+                    predicted = self.model(sample, ts, text_context=context, text_context_mask=attention_mask)
+                    if context is not None and guidance_scale != 1.0:
+                        unconditional = self.model(
+                            sample, ts, text_context=null_context,
+                            text_context_mask=(negative_attention_mask if negative_context is not None else attention_mask),
+                        )
+                        predicted = unconditional + guidance_scale * (predicted - unconditional)
+                    previous = int(schedule[index + 1]) if index + 1 < len(schedule) else -1
+                    sample = self.scheduler.ddim_step(predicted, int(timestep), previous, sample, eta=eta, generator=generator)
+            finally:
+                self.model.train(was_training)
+            return self.vae.decode(sample / self.latent_scale).clamp(-1, 1)
+        finally:
+            for module, was_training in zip(modules, modes, strict=True):
+                module.train(was_training)
+

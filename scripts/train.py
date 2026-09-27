@@ -46,6 +46,7 @@ from training.distributed_checkpoint import (
 )
 from training.elastic import PreemptionCoordinator
 from training.evaluator import Evaluator
+from post_training.fsdp_post_training import copy_fsdp_weights_to_model
 from training.generation_checkpoint import retention_passes, save_best_generation
 from training.peft import LoRALinear, apply_lora, has_lora
 from training.planner import optimizer_steps_for_epochs
@@ -481,8 +482,6 @@ def main() -> None:
     generation_cases: list[BenchmarkCase] = []
     generation_output: Path | None = None
     if generation_config.get("enabled", False):
-        if strategy.startswith("fsdp"):
-            parser.error("generation_evaluation is not supported with FSDP training")
         cases_path = Path(generation_config.get("cases", "configs/evaluation.domains.jsonl"))
         if not cases_path.is_file():
             parser.error(f"generation evaluation cases not found: {cases_path}")
@@ -528,8 +527,20 @@ def main() -> None:
         last_generation_step = current.global_step
         DistributedTrainer.barrier(distributed)
         summary = None
+        generation_model = model
+        if strategy.startswith("fsdp"):
+            # FSDP parameters are sharded and cannot be handed directly to the
+            # token-by-token Generator. Every rank participates in a temporary
+            # CPU full-state materialization; only rank 0 moves the replica to
+            # its GPU for evaluation. This preserves training sharding.
+            generation_model = MiniGPT.from_config(model_config, device=torch.device("cpu"))
+            if config.get("peft"):
+                apply_lora(generation_model, config["peft"])
+            copy_fsdp_weights_to_model(training_model, generation_model)
+            if distributed.is_main_process:
+                generation_model.to(distributed.device)
         if distributed.is_main_process:
-            was_training = model.training
+            was_training = generation_model.training
             started = time.perf_counter()
             try:
                 from local_dataset.preprocessor import format_messages
@@ -546,7 +557,7 @@ def main() -> None:
                     if use_generation_ema else nullcontext()
                 )
                 with parameter_context:
-                    generator = Generator(model, tokenizer, device=distributed.device)
+                    generator = Generator(generation_model, tokenizer, device=distributed.device)
                     scored = []
                     results = []
                     for case in generation_cases:
@@ -596,7 +607,7 @@ def main() -> None:
                         )
                         summary["retention_passed"] = retention_ok
                         if save_best_generation(
-                            generation_config["best_output"], model,
+                            generation_config["best_output"], generation_model,
                             accuracy=summary["accuracy"], evaluation_signature=signature,
                             step=current.global_step,
                             case_scores=case_scores,
@@ -657,7 +668,11 @@ def main() -> None:
                 logger.exception("generation evaluation failed at step=%d; required=%s", current.global_step,
                                  bool(generation_config.get("preserve_passed", False)))
             finally:
-                model.train(was_training)
+                generation_model.train(was_training)
+                if strategy.startswith("fsdp"):
+                    generation_model.to(torch.device("cpu"))
+        if strategy.startswith("fsdp"):
+            del generation_model
         DistributedTrainer.barrier(distributed)
         if generation_config.get("preserve_passed", False):
             failed = torch.tensor(int(bool(summary and summary.get("retention_evaluation_failed"))),

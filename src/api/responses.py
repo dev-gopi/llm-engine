@@ -124,8 +124,8 @@ class ResponsesRequest(BaseModel):
     @classmethod
     def validate_modalities(cls, values):
         normalized = list(dict.fromkeys(values))
-        if "text" not in normalized:
-            raise ValueError("Omni Responses currently requires text output; audio may be added alongside text")
+        if not normalized:
+            raise ValueError("at least one output modality is required")
         return normalized
 
     @field_validator("stop")

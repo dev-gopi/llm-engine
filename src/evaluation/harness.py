@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from abc import ABC, abstractmethod
 
 import torch
 import torch.nn.functional as F
@@ -56,17 +57,20 @@ class HarnessRequest:
     index: int = 0
 
 
-class BaseHarnessLM:
+class BaseHarnessLM(ABC):
     """Protocol base class for evaluation harness language models."""
 
+    @abstractmethod
     def loglikelihood(self, requests: Sequence[tuple[str, str] | Any]) -> list[tuple[float, bool]]:
-        raise NotImplementedError
+        pass
 
+    @abstractmethod
     def loglikelihood_rolling(self, requests: Sequence[tuple[str] | str | Any]) -> list[float]:
-        raise NotImplementedError
+        pass
 
+    @abstractmethod
     def generate_until(self, requests: Sequence[tuple[str, dict[str, Any]] | Any]) -> list[str]:
-        raise NotImplementedError
+        pass
 
 
 class HarnessModelAdapter(BaseHarnessLM):

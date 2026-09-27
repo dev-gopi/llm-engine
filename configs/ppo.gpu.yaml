@@ -1,0 +1,47 @@
+batch_size: 4
+minibatch_size: 4
+iterations: 4
+rollouts_per_iteration: 64
+ppo_epochs: 4
+seed: 42
+max_sequence_length: 1024
+prompt_files:
+  - data/processed/ppo/prompts.jsonl
+learning_rate: 0.000005
+value_learning_rate: 0.00001
+weight_decay: 0.01
+beta1: 0.9
+beta2: 0.95
+adam_epsilon: 0.00000001
+fused_optimizer: auto
+gradient_clip_norm: 1.0
+mixed_precision: none
+lr_schedule: cosine
+warmup_ratio: 0.03
+min_lr_ratio: 0.1
+clip_epsilon: 0.2
+value_clip_epsilon: 0.2
+value_coef: 0.5
+entropy_coef: 0.0
+gamma: 1.0
+gae_lambda: 1.0
+kl_coefficient: 0.04
+kl_target: 0.1
+kl_horizon: 10000
+normalize_advantages: true
+reward_model_weight: 1.0
+exact_match_weight: 0.0
+normalize_reward_model: true
+rollout_max_tokens: 128
+rollout_temperature: 0.8
+rollout_top_k: 40
+rollout_top_p: 1.0
+rollout_min_p: 0.0
+rollout_repetition_penalty: 1.1
+rollout_no_repeat_ngram_size: 3
+rollout_min_tokens: 1
+runtime:
+  tokenizer: data/tokenizer-finetuning
+  output: checkpoints/ppo/latest.pt
+  value_output: checkpoints/ppo/value-latest.pt
+  rollout_dir: data/processed/ppo/online

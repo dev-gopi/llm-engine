@@ -51,3 +51,11 @@ def test_export_manifest_is_content_addressed_and_includes_tokenizer_compatibili
     assert payload["artifacts"]["model.safetensors"] == hashlib.sha256(artifact.read_bytes()).hexdigest()
     assert payload["tokenizer"]["fingerprint"] == tokenizer.fingerprint
     assert payload["model_config"]["values"] == config
+
+
+def test_gguf_export_is_available_from_main_export_path(tmp_path) -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8).eval()
+    path = export_model(model, tmp_path / "model.gguf", "gguf", weight_dtype="float16")
+    raw = path.read_bytes()
+    assert raw[:4] == b"GGUF"
+    assert path.stat().st_size > 64

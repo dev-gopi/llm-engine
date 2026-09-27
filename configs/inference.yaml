@@ -70,6 +70,26 @@ serving:
   semantic_cache_namespace: gopi-v1
   semantic_cache_store_path: data/cache/semantic-responses.sqlite
   semantic_cache_allow_nondeterministic: false
+  # Optional distributed cache. When configured, Redis stores exact + semantic
+  # entries, cross-replica single-flight locks and bounded vector candidates.
+  semantic_cache_redis_url: null
+  semantic_cache_redis_prefix: llm-engine:semantic-cache
+  semantic_cache_tenant_max_entries: 0
+  # Optional OIDC/JWT authentication. A static HS256 secret is intended only for
+  # private deployments/tests; production should use issuer/audience + JWKS.
+  oidc_enabled: false
+  oidc_issuer: null
+  oidc_audience: null
+  oidc_jwks_url: null
+  oidc_hs256_secret: null
+  tenant_requests_per_minute: 0
+  otel_enabled: false
+  otel_endpoint: null
+  platform_db_path: data/cache/openai-platform.sqlite3
+  platform_files_dir: data/cache/openai-files
+  lora_adapter_root: adapters
+  webhook_url: null
+  webhook_secret: null
   prefix_cache_capacity: 16
   paged_kv_pages: 128
   paged_kv_page_size: 16
@@ -77,6 +97,11 @@ serving:
   # prefill activation memory for long contexts. Zero preserves one-pass prefill.
   prefill_chunk_size: 0
   tensor_parallel_size: 1
+  # Optional native speculative-decoding draft model. Requests select it with
+  # decoding_strategy=speculative and draft_model_id matching this id.
+  speculative_draft_model_id: null
+  speculative_draft_checkpoint: null
+  speculative_draft_model_config: null
   # mmap the PyTorch checkpoint and assign its tensors without a second full
   # state-dict copy. bfloat16 halves resident weight memory after loading.
   low_memory_loading: true

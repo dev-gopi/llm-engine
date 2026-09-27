@@ -143,3 +143,19 @@ Current limitations:
 - the built-in verifier signal is exact-match. Tool execution, sandboxed code tests and pluggable verifier farms are not yet wired into the online rollout loop;
 - reward scoring/calibration is available as a reusable Python API and CLI, but a separately authenticated production reward-scoring HTTP service is still missing;
 - PPO/value-model RLHF and FSDP post-training remain separate work.
+
+## Current iteration — FSDP preference/reward/offline-GRPO wiring
+
+Implemented on top of the PPO + distributed-online-GRPO codebase:
+- DPO/IPO/ORPO/KTO CLIs now accept `distributed_strategy: fsdp` and `fsdp_hybrid` under multi-rank CUDA launches;
+- reward-model training now supports FSDP/hybrid-FSDP policy wrapping and exact sharded resume;
+- offline GRPO policy training now supports FSDP/hybrid-FSDP while retaining full per-rank reference/old-policy evaluators;
+- FSDP post-training checkpoint format v2 stores sharded model + optimizer state together with scheduler, scaler, trainer metadata and world-size manifest validation;
+- exact resume rejects accidental single-file/FSDP format mixing rather than silently losing optimizer state;
+- DDP/single-process checkpoint paths remain backward compatible;
+- dedicated FSDP example configs were added for DPO, reward-model and offline GRPO.
+
+Verification boundary:
+- source/CLI wiring, checkpoint manifest behavior, compile checks and non-CUDA regressions are covered;
+- real multi-GPU CUDA FSDP execution remains target-hardware qualification work;
+- online GRPO/PPO FSDP, FSDP generation evaluation, and elastic world-size resharding remain separate tasks.

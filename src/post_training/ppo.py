@@ -180,6 +180,8 @@ class PPOTrainer:
         if minibatch_size is None: minibatch_size = ids.shape[0]
         if minibatch_size < 1 or epochs < 1: raise ValueError("minibatch_size and epochs must be positive")
         n = ids.shape[0]
+        self.actor.train()
+        self.value_model.train()
         totals = {"loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "kl": 0.0}
         count = 0
         for _ in range(epochs):
@@ -216,15 +218,28 @@ class PPOTrainer:
                 self.optimizer.zero_grad(set_to_none=True)
                 if self.value_optimizer is self.optimizer:
                     loss.backward()
-                    if self.grad_clip is not None: nn.utils.clip_grad_norm_(list(self.actor.parameters()) + list(self.value_model.parameters()), self.grad_clip)
+                    if self.grad_clip is not None:
+                        # A shared optimizer is only used by non-FSDP callers. FSDP's
+                        # collective clip must be invoked on each wrapper separately.
+                        actor_clip = getattr(self.actor, "clip_grad_norm_", None)
+                        value_clip = getattr(self.value_model, "clip_grad_norm_", None)
+                        if callable(actor_clip) or callable(value_clip):
+                            if callable(actor_clip): actor_clip(self.grad_clip)
+                            if callable(value_clip): value_clip(self.grad_clip)
+                        else:
+                            nn.utils.clip_grad_norm_(list(self.actor.parameters()) + list(self.value_model.parameters()), self.grad_clip)
                     self.optimizer.step()
                 else:
                     policy_loss.backward(retain_graph=True)
-                    if self.grad_clip is not None: nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip)
+                    if self.grad_clip is not None:
+                        actor_clip = getattr(self.actor, "clip_grad_norm_", None)
+                        actor_clip(self.grad_clip) if callable(actor_clip) else nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip)
                     self.optimizer.step()
                     self.value_optimizer.zero_grad(set_to_none=True)
                     (self.value_coef * value_loss).backward()
-                    if self.grad_clip is not None: nn.utils.clip_grad_norm_(self.value_model.parameters(), self.grad_clip)
+                    if self.grad_clip is not None:
+                        value_clip = getattr(self.value_model, "clip_grad_norm_", None)
+                        value_clip(self.grad_clip) if callable(value_clip) else nn.utils.clip_grad_norm_(self.value_model.parameters(), self.grad_clip)
                     self.value_optimizer.step()
                 if self.scheduler: self.scheduler.step()
                 if self.value_scheduler and self.value_scheduler is not self.scheduler: self.value_scheduler.step()

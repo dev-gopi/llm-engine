@@ -25,6 +25,9 @@ from model.vocabulary import adapt_config_to_tokenizer, checkpoint_tokenizer_opt
 from optim.adamw import adamw_from_config
 from optim.scheduler import Scheduler
 from post_training.preference_data import build_preference_loader
+from post_training.fsdp_post_training import (
+    is_fsdp_checkpoint, load_sharded_post_training, save_sharded_post_training,
+)
 from post_training.reward_model import RewardModel, RewardModelTrainer
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
@@ -68,12 +71,16 @@ def main() -> None:
 
     requested_world_size = int(os.getenv("WORLD_SIZE", "1"))
     strategy = str(config.get("distributed_strategy", "ddp")).lower()
+    if strategy not in {"ddp", "fsdp", "fsdp_hybrid"}:
+        parser.error("reward-model distributed_strategy must be ddp, fsdp, or fsdp_hybrid")
     if requested_world_size > 1:
-        if strategy != "ddp":
-            parser.error("reward-model training currently supports distributed_strategy=ddp only")
+        if strategy.startswith("fsdp"):
+            DistributedTrainer.preflight_fsdp()
         distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
         device = distributed.device
     else:
+        if strategy.startswith("fsdp"):
+            parser.error("FSDP reward-model training requires torchrun with WORLD_SIZE >= 2")
         device = resolve_device(args.device)
         distributed = DistributedContext(rank=0, local_rank=0, world_size=1, device=device)
 
@@ -93,12 +100,15 @@ def main() -> None:
 
     backbone = MiniGPT.from_config(model_config, device=device)
     reward_model = RewardModel(backbone, int(model_config["hidden_size"])).to(device)
-    if args.resume:
+    fsdp_run = distributed.world_size > 1 and strategy.startswith("fsdp")
+    if args.resume and fsdp_run and not is_fsdp_checkpoint(args.resume):
+        parser.error("FSDP reward-model --resume requires a sharded FSDP checkpoint directory; use --init-from for a single-file checkpoint")
+    if args.resume and not fsdp_run:
         load_checkpoint(
             args.resume, reward_model, map_location=device, restore_rng=False,
             **checkpoint_tokenizer_options(tokenizer),
         )
-    else:
+    elif not args.resume:
         load_checkpoint(
             args.init_from, reward_model.backbone, map_location=device, use_ema=True,
             restore_rng=False, **checkpoint_tokenizer_options(tokenizer),
@@ -106,7 +116,7 @@ def main() -> None:
 
     training_model = DistributedTrainer.wrap(
         reward_model, distributed,
-        strategy="ddp" if distributed.world_size > 1 else "none",
+        strategy=strategy if distributed.world_size > 1 else "none",
         mixed_precision=mixed_precision,
     )
     train_loader = build_preference_loader(
@@ -133,27 +143,44 @@ def main() -> None:
         mixed_precision=mixed_precision, distributed_context=distributed,
     )
     if args.resume:
-        state = load_checkpoint(
-            args.resume, reward_model, optimizer=optimizer, scheduler=scheduler,
-            scaler=trainer.scaler, map_location=device,
-            **checkpoint_tokenizer_options(tokenizer),
-        )
+        if fsdp_run:
+            state = load_sharded_post_training(
+                args.resume, training_model, optimizer, scheduler=scheduler,
+                scaler=trainer.scaler, map_location="cpu",
+            )
+        else:
+            state = load_checkpoint(
+                args.resume, reward_model, optimizer=optimizer, scheduler=scheduler,
+                scaler=trainer.scaler, map_location=device,
+                **checkpoint_tokenizer_options(tokenizer),
+            )
         if state.get("metadata", {}).get("training_type") not in {None, "reward_model"}:
             parser.error("resume checkpoint is not a reward-model checkpoint")
         trainer.load_state_dict(state.get("trainer", {}))
 
     def save(path: Path, current: RewardModelTrainer, epoch: int, *, best: bool = False) -> None:
+        metadata = {
+            "epoch": epoch + 1,
+            "best": best,
+            "model_config": model_config,
+            "training_type": "reward_model",
+            "distributed_strategy": strategy if distributed.world_size > 1 else "none",
+            "distributed_world_size": distributed.world_size,
+            "tokenizer_fingerprint": tokenizer.fingerprint,
+            "step": current.global_step,
+        }
+        if fsdp_run:
+            save_sharded_post_training(
+                path, training_model, optimizer, metadata=metadata,
+                trainer_state=current.state_dict(), scheduler=scheduler, scaler=current.scaler,
+            )
+            return
+        if not distributed.is_main_process:
+            return
         save_checkpoint(
             path, reward_model, optimizer=optimizer, scheduler=scheduler,
             scaler=current.scaler, step=current.global_step,
-            trainer=current.state_dict(), metadata={
-                "epoch": epoch + 1,
-                "best": best,
-                "model_config": model_config,
-                "training_type": "reward_model",
-                "distributed_world_size": distributed.world_size,
-                "tokenizer_fingerprint": tokenizer.fingerprint,
-            },
+            trainer=current.state_dict(), metadata=metadata,
         )
 
     history = trainer.fit(

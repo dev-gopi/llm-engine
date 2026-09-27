@@ -1,17 +1,45 @@
+# Current implementation status
 
-## Batch 22 status
-- [x] Semantic-cache distributed backend contract
-- [x] Cross-replica single-flight primitive
-- [x] Tenant quota/policy primitives
-- [x] Per-request no-store control
-- [x] Sensitive-data exclusion policy
-- [x] Dynamic freshness fingerprints
-- [x] Negative cache policy
-- [x] Cache warming/selective purge primitives
-- [x] Cache savings/similarity metrics
-- [x] Explain/debug metadata contract
-- [x] Offline false-positive/answer-drift evaluator
-- [x] Stale-while-revalidate refresh primitive
-- [x] Route/model/task threshold policy
-- [ ] Production Redis/vector-index load qualification
-- [ ] Full ServingRuntime integration of the optional distributed backend
+## Batch 26 completed
+- [x] Server-configured Redis semantic cache
+- [x] Distributed semantic nearest-neighbor lookup with policy isolation
+- [x] Distributed streaming semantic cache
+- [x] Tenant cache quota enforcement
+- [x] Cache warming/selective purge/negative-cache admin operations
+- [x] Hot-swappable LoRA lifecycle API
+- [x] EBNF grammar constraints in generate + chat APIs
+- [x] OIDC/JWT authentication
+- [x] RBAC admin authorization
+- [x] Authenticated tenant/user binding
+- [x] Per-tenant request quotas
+- [x] OpenTelemetry tracing / OTLP export
+- [x] OpenAI-compatible Files API
+- [x] OpenAI-compatible Vector Stores lifecycle API
+- [x] OpenAI-compatible Batch lifecycle API
+- [x] OpenAI-compatible Fine-tuning Jobs lifecycle API
+- [x] Standard `/v1/images/generations` provider bridge
+- [x] General idempotency framework for mutation APIs
+- [x] Signed webhook delivery with retries and dead-letter handling
+
+## Remaining priority work
+- [ ] Elastic FSDP checkpoint resharding
+- [ ] DeepSpeed/ZeRO trainer integration
+- [ ] Context/sequence/pipeline/expert-parallel production integration
+- [ ] MoE tensor parallelism
+- [ ] Large-MoE multi-node qualification
+- [ ] Experiment tracking wired into every trainer
+- [ ] Full seq2seq lifecycle
+- [ ] TensorRT-LLM / FlashInfer / FlashAttention execution integration
+- [ ] CUDA INT4/FP8 and native GPTQ/AWQ
+- [ ] Quantized llama.cpp-ready GGUF pipeline
+- [ ] Async token-level vLLM streaming
+- [ ] Scalable ANN semantic-cache index + global distributed cache quotas
+- [ ] Production multimodal gaps listed in `docs/CURRENT_MISSING_FEATURES_AUDIT.md`
+- [x] Billing/entitlements, moderation, enterprise compliance, Kubernetes/autoscaling source implementation
+- [x] Vector-store ingestion/search worker
+- [x] Batch execution worker
+- [ ] Fine-tuning job orchestration worker
+- [ ] Additional MCP transports and verifier sandbox isolation
+
+- [x] Fine-tuning Jobs execution worker
+- [x] SCIM/policy, signed audit, artifact admission, secret manager, KMS/HSM, rollout, backup/restore and multi-region source primitives

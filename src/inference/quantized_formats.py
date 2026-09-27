@@ -166,10 +166,31 @@ def convert_native(*, fmt: str, model: Any, output: str | Path, **kwargs: Any) -
         if not isinstance(state, Mapping):
             raise TypeError("GGUF conversion expects a model or state-dict mapping")
         return export_gguf(state, output, **kwargs)
+    converter = kwargs.pop("converter", None)
+    if converter is not None:
+        result = converter(model=model, output=Path(output), format=fmt, **kwargs)
+        return Path(result or output)
     require_native(fmt)
-    raise NotImplementedError(
-        f"native {fmt} conversion requires the installed runtime's model-specific API; "
-        "the adapter intentionally refuses an unsafe generic conversion"
+    if fmt == "gptq":
+        # AutoGPTQ requires a HuggingFace-compatible model/tokenizer and calibration
+        # examples.  When the caller supplies such an object, use its native API.
+        quantize = getattr(model, "quantize", None)
+        save = getattr(model, "save_quantized", None)
+        examples = kwargs.pop("examples", None)
+        if callable(quantize) and callable(save):
+            if examples is None: raise ValueError("GPTQ conversion requires calibration examples")
+            quantize(examples, **kwargs); save(str(output)); return Path(output)
+    if fmt == "awq":
+        quantize = getattr(model, "quantize", None)
+        save = getattr(model, "save_quantized", None)
+        tokenizer = kwargs.pop("tokenizer", None)
+        quant_config = kwargs.pop("quant_config", None)
+        if callable(quantize) and callable(save):
+            if tokenizer is None: raise ValueError("AWQ conversion requires a tokenizer")
+            quantize(tokenizer, quant_config=quant_config or kwargs); save(str(output)); return Path(output)
+    raise NativeFormatUnavailable(
+        f"installed {fmt} runtime requires a model-specific quantizable wrapper; "
+        "supply a native model or an explicit converter callable"
     )
 
 

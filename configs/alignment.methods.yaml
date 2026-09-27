@@ -1,5 +1,5 @@
 schema_version: 1
-methods: [dpo, ipo, orpo, kto, reward_model, grpo_offline, grpo_online]
-planned_methods: [ppo]
+methods: [dpo, ipo, orpo, kto, reward_model, grpo_offline, grpo_online, ppo]
+planned_methods: []
 required_metrics: [capability, safety, regression]
 controls: {seed: 42, dataset_version: alignment-v1}

@@ -14,8 +14,12 @@ import httpx
 import torch
 
 from local_dataset.preprocessor import format_messages
+from inference.sampler import EBNFConstraint
 from inference.context import SQLiteSessionStore, format_system_prompt
+from serving.distributed_state import RedisSessionStore
 from inference.generator import BatchedGenerationState, Generator
+from inference.speculative import DraftModelRegistry
+from inference.backend_adapters import VLLMBackend as NativeVLLMBackend
 from inference.local_tools import direct_tool_answer, tool_context
 from inference.prompt_safety import blocked_prompt_message
 from inference.quantization import prepare_model_for_inference
@@ -76,6 +80,100 @@ from .vision_runtime import (
 )
 
 logger = get_logger(__name__)
+
+
+
+class VLLMServingBackend:
+    """Serving-runtime adapter for the optional in-process vLLM engine."""
+
+    supports_tool_calling = False
+    supports_reasoning = False
+    supports_vision = False
+
+    def __init__(self, model: str, **options) -> None:
+        self.model = model
+        self.adapter = NativeVLLMBackend(model=model, **options)
+
+    @property
+    def ready(self) -> bool:
+        return True
+
+    async def startup(self) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        engine = getattr(self.adapter, "_engine", None)
+        shutdown = getattr(engine, "shutdown", None)
+        if callable(shutdown):
+            value = shutdown()
+            if asyncio.iscoroutine(value):
+                await value
+
+    async def generate(self, request: GenerateRequest) -> BackendGeneration:
+        if request.decoding_strategy != "sample":
+            raise InvalidGenerationRequestError(
+                "vLLM backend currently supports sampling requests only; use native backend for beam/speculative decoding"
+            )
+        if request.chat_tools:
+            raise InvalidGenerationRequestError("vLLM backend tool calling is not configured in this adapter")
+        kwargs = {
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+            "top_p": request.top_p,
+            "top_k": request.top_k if request.top_k > 0 else -1,
+            "min_p": request.min_p,
+            "repetition_penalty": request.repetition_penalty,
+            "presence_penalty": request.presence_penalty,
+            "frequency_penalty": request.frequency_penalty,
+            "seed": request.seed,
+            "stop": request.stop or None,
+        }
+        if request.logprobs:
+            kwargs["logprobs"] = request.top_logprobs or 1
+        if request._chat_messages:
+            messages = []
+            for message in request._chat_messages:
+                role = str(message.get("role", "user"))
+                content = message.get("content", "")
+                if isinstance(content, list):
+                    # Text-only vLLM adapter: image/multimodal inputs require a
+                    # provider-specific backend with explicit capability support.
+                    parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+                    content = "\n".join(part for part in parts if part)
+                if isinstance(content, str) and content:
+                    messages.append({"role": role, "content": content})
+            outputs = await asyncio.to_thread(self.adapter.chat, [messages], **kwargs)
+        else:
+            outputs = await asyncio.to_thread(self.adapter.generate, [request.prompt], **kwargs)
+        if not outputs or not getattr(outputs[0], "outputs", None):
+            raise BackendUnavailableError("vLLM returned no completion")
+        root = outputs[0]
+        completion = root.outputs[0]
+        token_ids = tuple(int(x) for x in getattr(completion, "token_ids", ()) or ())
+        prompt_ids = tuple(int(x) for x in getattr(root, "prompt_token_ids", ()) or ())
+        finish = getattr(completion, "finish_reason", None)
+        reason = FinishReason.LENGTH if finish == "length" else FinishReason.STOP
+        return BackendGeneration(
+            text=str(getattr(completion, "text", "")),
+            prompt_tokens=len(prompt_ids),
+            completion_tokens=len(token_ids),
+            finish_reason=reason,
+        )
+
+    async def stream(self, request: GenerateRequest) -> AsyncIterator[BackendStreamEvent]:
+        # The stable synchronous vLLM LLM API is buffered. Expose it through the
+        # streaming contract without pretending token-level latency.
+        result = await self.generate(request)
+        if result.text:
+            yield BackendStreamEvent(
+                token=result.text, prompt_tokens=result.prompt_tokens,
+                completion_tokens=result.completion_tokens,
+            )
+        yield BackendStreamEvent(
+            finish_reason=result.finish_reason, prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+        )
+
 
 DEFAULT_EMPTY_RESPONSE = "Sorry, I couldn't generate a response. Please try rephrasing your prompt."
 DEFAULT_NO_RESULTS = "Sorry, I couldn't find any results for that search."
@@ -142,6 +240,9 @@ class ConfiguredModelBackend:
         vision_allow_remote_images: bool = False,
         vision_max_image_bytes: int = 10 * 1024 * 1024,
         vision_max_images: int = 4,
+        speculative_draft_model_id: str | None = None,
+        speculative_draft_checkpoint: str | Path | None = None,
+        speculative_draft_model_config: str | Path | None = None,
     ) -> None:
         self.model_config = Path(model_config)
         self.tokenizer_path = Path(tokenizer_path)
@@ -195,6 +296,10 @@ class ConfiguredModelBackend:
         self.sessions: SQLiteSessionStore | None = None
         self._session_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._session_lock_users: dict[str, int] = defaultdict(int)
+        self.draft_models = DraftModelRegistry()
+        self.speculative_draft_model_id = speculative_draft_model_id
+        self.speculative_draft_checkpoint = Path(speculative_draft_checkpoint) if speculative_draft_checkpoint else None
+        self.speculative_draft_model_config = Path(speculative_draft_model_config) if speculative_draft_model_config else None
 
     @staticmethod
     def _build_reranker(config: dict):
@@ -357,13 +462,41 @@ class ConfiguredModelBackend:
             paged_kv_page_size=self.paged_kv_page_size,
             prefill_chunk_size=self.prefill_chunk_size,
         )
+        if self.speculative_draft_checkpoint is not None:
+            draft_id = self.speculative_draft_model_id or "default"
+            draft_config_path = self.speculative_draft_model_config or self.model_config
+            if not self.speculative_draft_checkpoint.is_file():
+                raise ValueError(f"speculative draft checkpoint not found: {self.speculative_draft_checkpoint}")
+            if not Path(draft_config_path).is_file():
+                raise ValueError(f"speculative draft model config not found: {draft_config_path}")
+            draft_config = adapt_config_to_tokenizer(load_yaml(draft_config_path), tokenizer)
+            draft_model = MiniGPT.from_config(draft_config, device="cpu")
+            load_checkpoint(
+                self.speculative_draft_checkpoint, draft_model, use_ema=True, restore_rng=False,
+                low_memory=self.low_memory_loading,
+                **checkpoint_tokenizer_options(tokenizer, allow_extension=False),
+            )
+            draft_model = prepare_model_for_inference(
+                draft_model, device=device, weight_dtype=self.weight_dtype, quantization=self.quantization,
+            )
+            self.draft_models.register(draft_id, draft_model)
+            logger.info("Loaded speculative draft model %s from %s", draft_id, self.speculative_draft_checkpoint)
         self._load_multimodal_runtime(device=device)
         if self.session_store_path:
-            self.sessions = SQLiteSessionStore(
-                self.session_store_path, tokenizer,
-                max_tokens=min(self.context_tokens, model.max_positions),
-                system_prompt=self.system_prompt,
-            )
+            session_redis_url = os.getenv("GOPI_SESSION_REDIS_URL") or os.getenv("GOPI_DISTRIBUTED_STATE_REDIS_URL")
+            if session_redis_url:
+                self.sessions = RedisSessionStore(
+                    session_redis_url, tokenizer,
+                    max_tokens=min(self.context_tokens, model.max_positions),
+                    system_prompt=self.system_prompt,
+                    key_prefix=os.getenv("GOPI_SESSION_REDIS_PREFIX", "llm-engine:sessions"),
+                )
+            else:
+                self.sessions = SQLiteSessionStore(
+                    self.session_store_path, tokenizer,
+                    max_tokens=min(self.context_tokens, model.max_positions),
+                    system_prompt=self.system_prompt,
+                )
         rag_path = Path(os.getenv(
             "GOPI_RAG_INDEX", str(self.rag_config.get("index_path", "data/rag/index.sqlite"))
         ))
@@ -628,7 +761,14 @@ class ConfiguredModelBackend:
             logprobs=request.logprobs, top_logprobs=request.top_logprobs,
         )
         forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
+        if request.grammar:
+            try:
+                options["constraint"] = EBNFConstraint(request.grammar, start=request.grammar_start)
+            except Exception as exc:
+                raise InvalidGenerationRequestError(f"invalid grammar: {exc}") from exc
         if forced_tool_schema is not None:
+            if request.grammar:
+                raise InvalidGenerationRequestError("grammar cannot be combined with required tool schema")
             options["json_schema"] = forced_tool_schema
         response_format = request.response_format or getattr(self, "response_format", None)
         system_prompt = format_system_prompt(self.system_prompt, response_format, request.mode,
@@ -660,17 +800,43 @@ class ConfiguredModelBackend:
         token_logprobs: list[dict[str, object]] = []
         finish_reason = "length"
         prompt_tokens = len(prompt_ids)
-        async for event in self._stream_steps(prompt, options):
-            prompt_tokens = event.prompt_tokens
-            if event.token_id is not None:
-                generated_ids.append(event.token_id)
-            if event.token:
-                pieces.append(event.token)
-            serialized_logprob = _serialize_token_logprob(getattr(event, "logprob", None))
-            if serialized_logprob is not None:
-                token_logprobs.append(serialized_logprob)
-            if event.finish_reason is not None:
-                finish_reason = event.finish_reason
+        if request.decoding_strategy == "beam":
+            result = await asyncio.to_thread(
+                self.generator.generate_beam, prompt, max_tokens=request.max_tokens,
+                num_beams=request.num_beams, length_penalty=request.length_penalty,
+                allow_special_tokens=True,
+            )
+            generated_ids.extend(result.token_ids)
+            pieces.append(result.text)
+            prompt_tokens = result.prompt_tokens
+            finish_reason = result.finish_reason
+        elif request.decoding_strategy == "speculative":
+            try:
+                draft_model = self.draft_models.get(request.draft_model_id or "")
+            except KeyError as exc:
+                raise InvalidGenerationRequestError(
+                    f"unknown speculative draft model: {request.draft_model_id}"
+                ) from exc
+            result = await asyncio.to_thread(
+                self.generator.generate_speculative, prompt, draft_model,
+                max_tokens=request.max_tokens, draft_tokens=request.speculative_draft_tokens,
+            )
+            generated_ids.extend(result.token_ids)
+            pieces.append(result.text)
+            prompt_tokens = result.prompt_tokens
+            finish_reason = result.finish_reason
+        else:
+            async for event in self._stream_steps(prompt, options):
+                prompt_tokens = event.prompt_tokens
+                if event.token_id is not None:
+                    generated_ids.append(event.token_id)
+                if event.token:
+                    pieces.append(event.token)
+                serialized_logprob = _serialize_token_logprob(getattr(event, "logprob", None))
+                if serialized_logprob is not None:
+                    token_logprobs.append(serialized_logprob)
+                if event.finish_reason is not None:
+                    finish_reason = event.finish_reason
         raw_text = "".join(pieces).strip()
         (
             text,
@@ -798,7 +964,14 @@ class ConfiguredModelBackend:
             logprobs=request.logprobs, top_logprobs=request.top_logprobs,
         )
         forced_tool_schema = forced_tool_json_schema(request.chat_tools, request.tool_choice)
+        if request.grammar:
+            try:
+                options["constraint"] = EBNFConstraint(request.grammar, start=request.grammar_start)
+            except Exception as exc:
+                raise InvalidGenerationRequestError(f"invalid grammar: {exc}") from exc
         if forced_tool_schema is not None:
+            if request.grammar:
+                raise InvalidGenerationRequestError("grammar cannot be combined with required tool schema")
             options["json_schema"] = forced_tool_schema
         try:
             result = await asyncio.to_thread(
@@ -1031,7 +1204,7 @@ class ConfiguredModelBackend:
         # native decode so protocol markers never leak as ordinary content.
         # The HTTP layer still streams a standards-compatible event sequence;
         # plain-text requests retain token-by-token streaming below.
-        if has_image_input(request._chat_messages) or request.reasoning_effort != "none" or (
+        if request.decoding_strategy != "sample" or has_image_input(request._chat_messages) or request.reasoning_effort != "none" or (
             request.chat_tools and request.tool_choice != "none"
         ):
             result = await self._generate_unlocked(request)
@@ -1508,6 +1681,9 @@ def _configured_from_environment(*, device: str | None = None) -> ConfiguredMode
             "GOPI_VISION_MAX_IMAGES",
             str(serving.get("vision_max_images", 4)),
         )),
+        speculative_draft_model_id=(os.getenv("GOPI_SPECULATIVE_DRAFT_MODEL_ID") or serving.get("speculative_draft_model_id")),
+        speculative_draft_checkpoint=(os.getenv("GOPI_SPECULATIVE_DRAFT_CHECKPOINT") or serving.get("speculative_draft_checkpoint")),
+        speculative_draft_model_config=(os.getenv("GOPI_SPECULATIVE_DRAFT_MODEL_CONFIG") or serving.get("speculative_draft_model_config")),
     )
 
 
@@ -1543,6 +1719,22 @@ def _load_mcp_config() -> dict:
 
 def _reload_candidate():
     backend_kind = os.getenv("GOPI_BACKEND", "native").strip().lower()
+    if backend_kind == "vllm":
+        model = os.getenv("GOPI_VLLM_MODEL", "").strip()
+        if not model:
+            raise ValueError("GOPI_VLLM_MODEL is required when GOPI_BACKEND=vllm")
+        options = {}
+        tensor_parallel = int(os.getenv("GOPI_VLLM_TENSOR_PARALLEL_SIZE", "1"))
+        if tensor_parallel > 1:
+            options["tensor_parallel_size"] = tensor_parallel
+        dtype = os.getenv("GOPI_VLLM_DTYPE", "").strip()
+        if dtype:
+            options["dtype"] = dtype
+        max_model_len = int(os.getenv("GOPI_VLLM_MAX_MODEL_LEN", "0"))
+        if max_model_len > 0:
+            options["max_model_len"] = max_model_len
+        backend = VLLMServingBackend(model, **options)
+        return backend, f"vllm:{model}"
     if backend_kind in {"llama_cpp", "external", "openai_compatible"}:
         backend = OpenAICompatibleBackend(
             base_url=os.getenv("GOPI_EXTERNAL_BASE_URL", "http://127.0.0.1:8080"),
@@ -1564,7 +1756,7 @@ def _reload_candidate():
         version = f"external:{backend.base_url}:{backend.model}"
         return backend, version
     if backend_kind != "native":
-        raise ValueError("GOPI_BACKEND must be native, llama_cpp, or openai_compatible")
+        raise ValueError("GOPI_BACKEND must be native, vllm, llama_cpp, or openai_compatible")
     devices = [value.strip() for value in os.getenv("GOPI_REPLICA_DEVICES", "").split(",") if value.strip()]
     replicas = [_configured_from_environment(device=device) for device in devices] or [_configured_from_environment()]
     backend = replicas[0] if len(replicas) == 1 else ReplicaPoolBackend(replicas)

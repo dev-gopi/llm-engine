@@ -208,6 +208,6 @@ def test_prepare_image_asset_and_audio_transcript(tmp_path: Path) -> None:
     assert latest_text(prepared.messages)
 
 
-def test_audio_output_modality_requires_text_too() -> None:
-    with pytest.raises(ValueError):
-        ResponsesRequest.model_validate({"model": "gopi", "input": "hi", "modalities": ["audio"]})
+def test_audio_only_output_modality_is_supported() -> None:
+    request = ResponsesRequest.model_validate({"model": "gopi", "input": "hi", "modalities": ["audio"]})
+    assert request.modalities == ["audio"]

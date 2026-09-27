@@ -1,4 +1,5 @@
-planning_only: true
+# Production-capable native latent profile; checkpoints/data are operator supplied.
+planning_only: false
 # Native from-scratch latent diffusion architecture. Train the VAE first.
 image_size: 256
 image_channels: 3
@@ -11,6 +12,17 @@ vae_epochs: 50
 vae_learning_rate: 0.0001
 vae_weight_decay: 0.01
 vae_output: checkpoints/diffusion/vae.pt
+latent_model_output: checkpoints/diffusion/latent-unet.pt
+latent_text_encoder_output: checkpoints/diffusion/latent-text-encoder.pt
+tokenizer: data/tokenizer-finetuning
+train_manifest: data/images/diffusion/train.jsonl
+validation_manifest: data/images/diffusion/validation.jsonl
+batch_size: 4
+epochs: 20
+learning_rate: 0.0001
+weight_decay: 0.01
+save_every_steps: 1000
+log_every_steps: 50
 kl_weight: 0.000001
 base_channels: 192
 condition_size: 512

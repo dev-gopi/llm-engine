@@ -14,6 +14,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping
 
+from embeddings import EmbeddingService
+
 from .redis_semantic_cache import RedisSemanticCacheBackend
 from .runtime import BackendGeneration
 from .semantic_cache_policy import (
@@ -72,6 +74,7 @@ class ProductionSemanticCache:
         threshold_policy: ThresholdPolicy | None = None,
         negative_ttl_seconds: float = 15.0,
         stale_while_revalidate_seconds: float = 30.0,
+        embedding_service: EmbeddingService | None = None,
     ) -> None:
         if negative_ttl_seconds <= 0 or stale_while_revalidate_seconds <= 0:
             raise ValueError("negative and stale-while-revalidate TTLs must be positive")
@@ -80,6 +83,7 @@ class ProductionSemanticCache:
         self.thresholds = threshold_policy or ThresholdPolicy()
         self.negative_ttl_seconds = negative_ttl_seconds
         self.swr_seconds = stale_while_revalidate_seconds
+        self.embedding_service = embedding_service or EmbeddingService()
         self._negative: dict[str, NegativeCacheEntry] = {}
         self._metrics: dict[str, float] = {
             "lookups": 0, "hits": 0, "misses": 0, "negative_hits": 0,
@@ -91,6 +95,7 @@ class ProductionSemanticCache:
     @staticmethod
     def key(request: GenerateRequest, *, tenant: str, freshness: CacheFreshness | None = None) -> str:
         payload = request.model_dump(mode="json")
+        payload["prompt_sha256"] = hashlib.sha256(request.prompt.encode()).hexdigest()
         payload.pop("prompt", None)
         payload["tenant"] = tenant
         payload["freshness"] = freshness.value if freshness else ""
@@ -154,6 +159,80 @@ class ProductionSemanticCache:
             return None
         self._metrics["negative_hits"] += 1
         return entry
+
+
+    def embed_prompt(self, prompt: str) -> list[float]:
+        return self.embedding_service.encode([prompt], normalize=True).embeddings[0]
+
+    @staticmethod
+    def policy_fingerprint(request: GenerateRequest, context: ProductionCacheRequest) -> str:
+        payload = request.model_dump(mode="json")
+        payload.pop("prompt", None); payload.pop("user_id", None)
+        payload["tenant"] = context.tenant
+        payload["freshness"] = context.freshness.value if context.freshness else ""
+        return hashlib.sha256(str(sorted(payload.items())).encode()).hexdigest()
+
+    async def lookup(self, request: GenerateRequest, context: ProductionCacheRequest, key: str) -> tuple[BackendGeneration | None, float | None]:
+        if self.redis is None:
+            return None, None
+        payload = await self.redis.get(context.tenant, key)
+        similarity = 1.0
+        if payload is None:
+            vector = self.embed_prompt(request.prompt)
+            match = await self.redis.find_similar(context.tenant, vector, self.threshold(context), policy=self.policy_fingerprint(request, context))
+            if match is None:
+                self.record_lookup(False)
+                return None, None
+            _matched_key, payload, similarity = match
+        self.record_lookup(True)
+        payload = dict(payload)
+        payload.pop("_semantic_vector", None)
+        payload.pop("_semantic_policy", None)
+        payload["finish_reason"] = FinishReason(payload.get("finish_reason", FinishReason.STOP))
+        payload["tool_calls"] = tuple(
+            item if isinstance(item, OpenAIToolCall) else OpenAIToolCall.model_validate(item)
+            for item in payload.get("tool_calls", ())
+        )
+        payload["logprobs"] = tuple(payload.get("logprobs", ()))
+        payload["cached_tokens"] = max(int(payload.get("cached_tokens", 0)), int(payload.get("prompt_tokens", 0)))
+        result = BackendGeneration(**payload)
+        self.record_hit(similarity=similarity, tokens_saved=result.prompt_tokens)
+        return result, similarity
+
+    async def store(self, request: GenerateRequest, context: ProductionCacheRequest, key: str, result: BackendGeneration) -> bool:
+        if self.redis is None:
+            return False
+        quota = self.quotas.quota_for(context.tenant)
+        reserved_distributed = await self.redis.reserve_quota(
+            context.tenant, key, self.swr_seconds, quota.max_entries
+        )
+        if not reserved_distributed:
+            self._metrics["bypasses"] += 1
+            return False
+        payload = {
+            "text": result.text, "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "finish_reason": result.finish_reason.value, "cached_tokens": result.cached_tokens,
+            "reasoning_tokens": result.reasoning_tokens,
+            "structured_output_valid": result.structured_output_valid,
+            "structured_output_error": result.structured_output_error,
+            "reasoning_content": result.reasoning_content,
+            "tool_calls": [call.model_dump(mode="json") if hasattr(call, "model_dump") else call for call in result.tool_calls],
+            "tool_call_error": result.tool_call_error, "logprobs": list(result.logprobs),
+        }
+        stored = await self.redis.put_semantic(context.tenant, key, payload, self.swr_seconds, self.embed_prompt(request.prompt), policy=self.policy_fingerprint(request, context))
+        if stored:
+            self._metrics["stores"] += 1
+        else:
+            await self.redis.release_quota(context.tenant, key)
+        return stored
+
+    def clear_negative(self, key: str | None = None) -> int:
+        if key is not None:
+            return int(self._negative.pop(key, None) is not None)
+        count = len(self._negative)
+        self._negative.clear()
+        return count
 
     async def singleflight(
         self,

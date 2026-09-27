@@ -26,6 +26,9 @@ from optim.adamw import adamw_from_config
 from optim.scheduler import Scheduler
 from post_training.grpo import GRPOTrainer
 from post_training.grpo_data import build_grpo_loader
+from post_training.fsdp_post_training import (
+    is_fsdp_checkpoint, read_fsdp_manifest, load_sharded_post_training, save_sharded_post_training,
+)
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed import DistributedContext, DistributedTrainer
@@ -72,12 +75,16 @@ def main() -> None:
 
     requested_world_size = int(os.getenv("WORLD_SIZE", "1"))
     strategy = str(config.get("distributed_strategy", "ddp")).lower()
+    if strategy not in {"ddp", "fsdp", "fsdp_hybrid"}:
+        parser.error("offline GRPO distributed_strategy must be ddp, fsdp, or fsdp_hybrid")
     if requested_world_size > 1:
-        if strategy != "ddp":
-            parser.error("offline GRPO currently supports distributed_strategy=ddp only")
+        if strategy.startswith("fsdp"):
+            DistributedTrainer.preflight_fsdp()
         distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
         device = distributed.device
     else:
+        if strategy.startswith("fsdp"):
+            parser.error("FSDP offline GRPO requires torchrun with WORLD_SIZE >= 2")
         device = resolve_device(args.device)
         distributed = DistributedContext(rank=0, local_rank=0, world_size=1, device=device)
 
@@ -102,13 +109,20 @@ def main() -> None:
         args.reference_checkpoint, reference, map_location=device, use_ema=True,
         restore_rng=False, **checkpoint_tokenizer_options(tokenizer),
     )
+    fsdp_run = distributed.world_size > 1 and strategy.startswith("fsdp")
     resume_preview_state = None
     if args.resume:
-        resume_preview_state = load_checkpoint(
-            args.resume, policy, map_location=device, restore_rng=False,
-            **checkpoint_tokenizer_options(tokenizer),
-        )
-        saved_old_source = resume_preview_state.get("metadata", {}).get("old_policy_checkpoint")
+        if fsdp_run:
+            if not is_fsdp_checkpoint(args.resume):
+                parser.error("FSDP offline GRPO --resume requires a sharded FSDP checkpoint directory; use --init-from for a single-file checkpoint")
+            manifest = read_fsdp_manifest(args.resume)
+            saved_old_source = manifest.get("metadata", {}).get("old_policy_checkpoint")
+        else:
+            resume_preview_state = load_checkpoint(
+                args.resume, policy, map_location=device, restore_rng=False,
+                **checkpoint_tokenizer_options(tokenizer),
+            )
+            saved_old_source = resume_preview_state.get("metadata", {}).get("old_policy_checkpoint")
         old_source = args.old_policy_checkpoint or (Path(saved_old_source) if saved_old_source else args.reference_checkpoint)
     else:
         load_checkpoint(
@@ -123,7 +137,7 @@ def main() -> None:
 
     training_policy = DistributedTrainer.wrap(
         policy, distributed,
-        strategy="ddp" if distributed.world_size > 1 else "none",
+        strategy=strategy if distributed.world_size > 1 else "none",
         mixed_precision=mixed_precision,
     )
     train_loader = build_grpo_loader(
@@ -149,29 +163,46 @@ def main() -> None:
         mixed_precision=mixed_precision, distributed_context=distributed,
     )
     if args.resume:
-        state = load_checkpoint(
-            args.resume, policy, optimizer=optimizer, scheduler=scheduler,
-            scaler=trainer.scaler, map_location=device,
-            **checkpoint_tokenizer_options(tokenizer),
-        )
+        if fsdp_run:
+            state = load_sharded_post_training(
+                args.resume, training_policy, optimizer, scheduler=scheduler,
+                scaler=trainer.scaler, map_location="cpu",
+            )
+        else:
+            state = load_checkpoint(
+                args.resume, policy, optimizer=optimizer, scheduler=scheduler,
+                scaler=trainer.scaler, map_location=device,
+                **checkpoint_tokenizer_options(tokenizer),
+            )
         if state.get("metadata", {}).get("training_type") not in {None, "grpo_offline"}:
             parser.error("resume checkpoint is not an offline GRPO checkpoint")
         trainer.load_state_dict(state.get("trainer", {}))
 
     def save(path: Path, current: GRPOTrainer, epoch: int, *, best: bool = False) -> None:
+        metadata = {
+            "epoch": epoch + 1,
+            "best": best,
+            "model_config": model_config,
+            "training_type": "grpo_offline",
+            "reference_checkpoint": str(args.reference_checkpoint),
+            "old_policy_checkpoint": str(old_source),
+            "distributed_strategy": strategy if distributed.world_size > 1 else "none",
+            "distributed_world_size": distributed.world_size,
+            "tokenizer_fingerprint": tokenizer.fingerprint,
+            "step": current.global_step,
+        }
+        if fsdp_run:
+            save_sharded_post_training(
+                path, training_policy, optimizer, metadata=metadata,
+                trainer_state=current.state_dict(), scheduler=scheduler, scaler=current.scaler,
+            )
+            return
+        if not distributed.is_main_process:
+            return
         save_checkpoint(
             path, policy, optimizer=optimizer, scheduler=scheduler,
             scaler=current.scaler, step=current.global_step,
-            trainer=current.state_dict(), metadata={
-                "epoch": epoch + 1,
-                "best": best,
-                "model_config": model_config,
-                "training_type": "grpo_offline",
-                "reference_checkpoint": str(args.reference_checkpoint),
-                "old_policy_checkpoint": str(old_source),
-                "distributed_world_size": distributed.world_size,
-                "tokenizer_fingerprint": tokenizer.fingerprint,
-            },
+            trainer=current.state_dict(), metadata=metadata,
         )
 
     history = trainer.fit(

@@ -29,6 +29,9 @@ from optim.adamw import adamw_from_config
 from optim.scheduler import Scheduler
 from post_training.dpo import DPOTrainer
 from post_training.preference_data import build_kto_loader, build_preference_loader
+from post_training.fsdp_post_training import (
+    is_fsdp_checkpoint, load_sharded_post_training, save_sharded_post_training,
+)
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed import DistributedContext, DistributedTrainer
@@ -74,13 +77,17 @@ def main() -> None:
     for finding in enforce_dataset_governance(paths, config.get("dataset_governance")):
         logger.warning("dataset governance [%s]: %s", finding.code, finding.message)
     requested_world_size = int(os.getenv("WORLD_SIZE", "1"))
+    strategy = str(config.get("distributed_strategy", "ddp")).lower()
+    if strategy not in {"ddp", "fsdp", "fsdp_hybrid"}:
+        parser.error("preference training distributed_strategy must be ddp, fsdp, or fsdp_hybrid")
     if requested_world_size > 1:
-        strategy = str(config.get("distributed_strategy", "ddp")).lower()
-        if strategy != "ddp":
-            parser.error("preference training currently supports distributed_strategy=ddp only")
+        if strategy.startswith("fsdp"):
+            DistributedTrainer.preflight_fsdp()
         distributed = DistributedTrainer.initialize(config.get("distributed_backend"))
         device = distributed.device
     else:
+        if strategy.startswith("fsdp"):
+            parser.error("FSDP preference training requires torchrun with WORLD_SIZE >= 2")
         device = resolve_device(args.device)
         distributed = DistributedContext(rank=0, local_rank=0, world_size=1, device=device)
     mixed_precision = str(config.get("mixed_precision", "none"))
@@ -104,14 +111,22 @@ def main() -> None:
             args.reference_checkpoint, reference, map_location=device, use_ema=True,
             restore_rng=False, **checkpoint_tokenizer_options(tokenizer),
         )
+    fsdp_run = distributed.world_size > 1 and strategy.startswith("fsdp")
+    if args.resume and fsdp_run and not is_fsdp_checkpoint(args.resume):
+        parser.error("FSDP preference --resume requires a sharded FSDP checkpoint directory; use --init-from for a single-file checkpoint")
     if not args.resume:
         load_checkpoint(
             args.init_from or args.reference_checkpoint, policy, map_location=device,
             use_ema=True, restore_rng=False,
             **checkpoint_tokenizer_options(tokenizer),
         )
+    elif not fsdp_run:
+        load_checkpoint(
+            args.resume, policy, map_location=device, restore_rng=False,
+            **checkpoint_tokenizer_options(tokenizer),
+        )
     training_policy = DistributedTrainer.wrap(
-        policy, distributed, strategy="ddp" if distributed.world_size > 1 else "none",
+        policy, distributed, strategy=strategy if distributed.world_size > 1 else "none",
         mixed_precision=mixed_precision,
     )
     loader_builder = build_kto_loader if method == "kto" else build_preference_loader
@@ -140,23 +155,42 @@ def main() -> None:
         method=method, distributed_context=distributed,
     )
     if args.resume:
-        state = load_checkpoint(
-            args.resume, policy, optimizer=optimizer, scheduler=scheduler,
-            scaler=trainer.scaler, map_location=device,
-            **checkpoint_tokenizer_options(tokenizer),
-        )
+        if fsdp_run:
+            state = load_sharded_post_training(
+                args.resume, training_policy, optimizer, scheduler=scheduler,
+                scaler=trainer.scaler, map_location="cpu",
+            )
+        else:
+            state = load_checkpoint(
+                args.resume, policy, optimizer=optimizer, scheduler=scheduler,
+                scaler=trainer.scaler, map_location=device,
+                **checkpoint_tokenizer_options(tokenizer),
+            )
+        if state.get("metadata", {}).get("training_type") not in {None, method}:
+            parser.error(f"resume checkpoint training_type does not match {method}")
         trainer.load_state_dict(state.get("trainer", {}))
 
     def save(path: Path, current: DPOTrainer, epoch: int, *, best: bool = False) -> None:
+        metadata = {
+            "epoch": epoch + 1, "best": best, "model_config": model_config,
+            "reference_checkpoint": str(args.reference_checkpoint) if args.reference_checkpoint else None,
+            "training_type": method,
+            "distributed_strategy": strategy if distributed.world_size > 1 else "none",
+            "distributed_world_size": distributed.world_size,
+            "tokenizer_fingerprint": tokenizer.fingerprint,
+            "step": current.global_step,
+        }
+        if fsdp_run:
+            save_sharded_post_training(
+                path, training_policy, optimizer, metadata=metadata,
+                trainer_state=current.state_dict(), scheduler=scheduler, scaler=current.scaler,
+            )
+            return
+        if not distributed.is_main_process:
+            return
         save_checkpoint(
             path, policy, optimizer=optimizer, scheduler=scheduler, scaler=current.scaler,
-            step=current.global_step, trainer=current.state_dict(), metadata={
-                "epoch": epoch + 1, "best": best, "model_config": model_config,
-                "reference_checkpoint": str(args.reference_checkpoint) if args.reference_checkpoint else None,
-                "training_type": method,
-                "distributed_world_size": distributed.world_size,
-                "tokenizer_fingerprint": tokenizer.fingerprint,
-            },
+            step=current.global_step, trainer=current.state_dict(), metadata=metadata,
         )
 
     history = trainer.fit(

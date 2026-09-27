@@ -252,6 +252,54 @@ class Generator:
             raise ValueError("generated text failed the requested output constraint")
         return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason, tuple(token_logprobs))
 
+
+    @torch.inference_mode()
+    def generate_beam(
+        self, prompt: str, *, max_tokens: int = 128, num_beams: int = 4,
+        length_penalty: float = 1.0, allow_special_tokens: bool = False,
+    ) -> GenerationResult:
+        """Deterministic beam-search generation using the native model.
+
+        Beam search intentionally has a narrow contract: stochastic sampling,
+        token penalties, logprobs and structured constraints stay on the normal
+        sampling path. This avoids silently pretending that incompatible knobs
+        affect beam scoring.
+        """
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be positive")
+        if num_beams < 2:
+            raise ValueError("num_beams must be at least 2 for beam search")
+        if length_penalty <= 0:
+            raise ValueError("length_penalty must be positive")
+        prompt_ids = self.tokenizer.encode(
+            prompt, add_bos=True, allowed_special="all" if allow_special_tokens else ()
+        )
+        if not prompt_ids:
+            raise ValueError("prompt encoded to no tokens")
+        if len(prompt_ids) >= self.max_positions:
+            raise ValueError(
+                f"prompt has {len(prompt_ids)} tokens but model context is {self.max_positions}"
+            )
+        limit = min(max_tokens, self.max_positions - len(prompt_ids))
+        prompt_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=self.device)
+
+        def logits_fn(ids: torch.Tensor) -> torch.Tensor:
+            output = self.model(ids)
+            return output[0] if isinstance(output, tuple) else output
+
+        complete = beam_search(
+            logits_fn, prompt_tensor, num_beams=num_beams, max_new_tokens=limit,
+            eos_token_id=self.eos_token_id, length_penalty=length_penalty,
+        )
+        generated = list(complete[len(prompt_ids):])
+        finish_reason = "length"
+        if self.eos_token_id is not None and self.eos_token_id in generated:
+            eos_index = generated.index(self.eos_token_id)
+            generated = generated[:eos_index]
+            finish_reason = "stop"
+        text = self.tokenizer.decode(generated, skip_special_tokens=True)
+        return GenerationResult(text, tuple(generated), len(prompt_ids), finish_reason)
+
     @torch.inference_mode()
     def generate_speculative(
         self,
@@ -725,6 +773,15 @@ class Generator:
         min_tokens = int(options.get("min_tokens", self.DEFAULT_MIN_TOKENS))
         return_logprobs = bool(options.get("logprobs", False))
         top_logprobs = int(options.get("top_logprobs", 0))
+        constraint = options.get("constraint")
+        json_schema = options.get("json_schema")
+        if constraint is not None and json_schema is not None:
+            raise ValueError("provide either constraint or json_schema, not both")
+        if json_schema is not None:
+            constraint = JSONSchemaConstraint(json_schema)
+        constraint_candidate_k = int(options.get("constraint_candidate_k", 256))
+        if constraint_candidate_k < 1:
+            raise ValueError("constraint_candidate_k must be positive")
         if max_tokens < 1:
             raise ValueError("max_tokens must be positive")
         if repetition_penalty <= 0:
@@ -755,6 +812,8 @@ class Generator:
             self._apply_presence_frequency_penalties(next_logits, all_ids, presence_penalty, frequency_penalty)
             self._apply_no_repeat_ngram(next_logits, all_ids, ngram_size)
             self._suppress_special_tokens(next_logits, len(generated), min_tokens)
+            if constraint is not None:
+                next_logits = constraint.filter_logits(next_logits, generated, self.tokenizer, candidate_k=constraint_candidate_k)
             token_id = int(self.sampler(next_logits, temperature=temperature, top_k=top_k, top_p=top_p, min_p=min_p, generator=random).item())
             token_logprob = self._logprob_record(next_logits, token_id, top_logprobs) if return_logprobs else None
             if self.eos_token_id is not None and token_id == self.eos_token_id:
@@ -791,6 +850,8 @@ class Generator:
         if stop_positions:
             final_text = final_text[: min(stop_positions)]
         remaining = final_text[len(emitted_text) :] if final_text.startswith(emitted_text) else ""
+        if constraint is not None and not constraint.validate(final_text):
+            raise ValueError("generated text failed the requested output constraint")
         if remaining:
             yield GenerationStep(remaining, None, len(prompt_ids), len(generated))
         yield GenerationStep("", None, len(prompt_ids), len(generated), finish_reason)
