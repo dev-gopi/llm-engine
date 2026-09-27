@@ -27,6 +27,7 @@ from optim.ema import EMA
 from optim.scheduler import Scheduler
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
+from training.experiment_tracking import create_tracker_from_config
 from utils.config import load_yaml
 from utils.logger import configure_logging, get_logger
 from video_generation.dataset import VideoCaptionDataset
@@ -88,6 +89,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_yaml(args.config)
+    tracker = create_tracker_from_config(config)
     validate_generation_config(config, kind="video")
     manifest_paths_exist(config)
     device = torch.device(args.device)
@@ -251,6 +253,7 @@ def main() -> None:
             lr_scheduler.step()
             ema.update(model)
             step += 1
+            tracker.log({"train/loss": float(loss.detach())}, step=step)
             if step % int(config.get("log_every_steps", 10)) == 0:
                 print(
                     f"epoch={epoch + 1} step={step} loss={loss.item():.6f} "
@@ -304,6 +307,7 @@ def main() -> None:
             print(
                 f"epoch={epoch + 1} validation_loss={validation_loss:.6f}", flush=True
             )
+            tracker.log({"validation/loss": float(validation_loss)}, step=step)
             if validation_loss < best_loss:
                 best_loss = validation_loss
                 with ema.average_parameters(model):
@@ -331,6 +335,7 @@ def main() -> None:
         )
         start_batch = 0
 
+    tracker.close()
     print(output)
 
 

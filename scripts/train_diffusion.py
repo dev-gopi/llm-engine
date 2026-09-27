@@ -21,6 +21,7 @@ from image_data.processor import ImageProcessor, tensor_to_image
 from optim.ema import EMA
 from optim.scheduler import Scheduler
 from training.checkpoint import load_checkpoint, save_checkpoint
+from training.experiment_tracking import create_tracker_from_config
 from utils.config import load_yaml
 from utils.logger import configure_logging, get_logger
 
@@ -45,6 +46,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     config = load_yaml(args.config)
+    tracker = create_tracker_from_config(config)
     if config.get("planning_only", False):
         parser.error(
             "planning-only diffusion profile; provide its datasets and remove planning_only first"
@@ -170,6 +172,7 @@ def main() -> None:
             lr_scheduler.step()
             ema.update(model)
             step += 1
+            tracker.log({"train/loss": float(loss.detach())}, step=step)
             if step % int(config.get("log_every_steps", 50)) == 0:
                 print(
                     f"epoch={epoch + 1} step={step} loss={loss.item():.6f}", flush=True
@@ -228,6 +231,7 @@ def main() -> None:
                     validation_batches += 1
             validation_loss /= validation_batches
             print(f"epoch={epoch + 1} validation_loss={validation_loss:.6f}")
+            tracker.log({"validation/loss": float(validation_loss)}, step=step)
             if validation_loss < best_validation_loss:
                 best_validation_loss = validation_loss
                 save_checkpoint(
@@ -252,6 +256,7 @@ def main() -> None:
         step=step,
         metadata={"task": "diffusion", "config": config},
     )
+    tracker.close()
     print(output)
 
 

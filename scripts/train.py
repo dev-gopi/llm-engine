@@ -67,6 +67,7 @@ from training.experiment_tracking import NullTracker, create_tracker
 from training.generation_checkpoint import retention_passes, save_best_generation
 from training.parallel_runtime import apply_model_parallelism, build_parallel_mesh
 from training.peft import LoRALinear, apply_lora, has_lora
+from training.pipeline_minigpt import PipelineTrainer, build_pipeline_partition
 from training.planner import optimizer_steps_for_epochs
 from training.reporting import archive_previous_report_files
 from training.trainer import Trainer
@@ -394,6 +395,9 @@ def main() -> None:
     # full-state checkpoint tensor shapes remain load-compatible.  Resume from
     # a model-parallel run uses distributed/DeepSpeed checkpoints below.
     apply_model_parallelism(model, parallel_mesh)
+    pipeline_enabled = bool(parallel_mesh is not None and parallel_mesh.degree("pipeline") > 1)
+    if pipeline_enabled and generation_config.get("enabled", False):
+        parser.error("generation_evaluation is not supported during partitioned pipeline training; run generation evaluation from a consolidated/exported checkpoint")
     if parallel_mesh is not None:
         cp = parallel_mesh.degree("context")
         sp = parallel_mesh.degree("sequence")
@@ -440,11 +444,18 @@ def main() -> None:
             * peft_metadata["trainable_parameters"]
             / peft_metadata["total_parameters"],
         )
+    if pipeline_enabled:
+        model = build_pipeline_partition(model, parallel_mesh)
+        logger.info("Pipeline stage %d/%d owns transformer layers [%d,%d)", model.stage + 1, model.stages, model.layer_start, model.layer_stop)
+
     strategy = str(config.get("distributed_strategy", "ddp"))
     deepspeed_enabled = strategy.lower() in {"deepspeed", "zero"}
+    if pipeline_enabled and deepspeed_enabled:
+        parser.error("pipeline_parallel > 1 currently uses native DDP/FSDP stage wrapping; choose distributed_strategy=ddp/fsdp/fsdp_hybrid rather than DeepSpeed ZeRO")
     distributed_checkpoints = (
         strategy.startswith("fsdp")
         or deepspeed_enabled
+        or pipeline_enabled
         or str(config.get("checkpoint_format", "single_file")).lower() == "distributed"
     )
     data_parallel_group = (
@@ -526,32 +537,47 @@ def main() -> None:
     ema_decay = config.get("ema_decay", 0.999)
     ema = (
         None
-        if strategy.startswith("fsdp") or deepspeed_enabled or ema_decay is None
+        if strategy.startswith("fsdp") or deepspeed_enabled or pipeline_enabled or ema_decay is None
         else EMA(training_model, decay=float(ema_decay))
     )
     loss_fn = CausalLanguageModelLoss.from_config(config)
-    trainer = Trainer(
-        training_model,
-        optimizer,
-        loss_fn,
-        scheduler=scheduler,
-        ema=ema,
-        gradient_clip_norm=config.get("gradient_clip_norm", 1.0),
-        device=distributed.device,
-        gradient_accumulation_steps=accumulation,
-        mixed_precision=str(config.get("mixed_precision", "none")),
-        grad_scaler_initial_scale=float(
-            config.get("grad_scaler_initial_scale", 65536.0)
-        ),
-        grad_scaler_growth_interval=int(
-            config.get("grad_scaler_growth_interval", 2000)
-        ),
-        reasoning_trace_policy=str(config.get("reasoning_trace_policy", "optional")),
-        mtp_loss_weight=float(config.get("mtp_loss_weight", 0.0)),
-        moe_aux_loss_weight=float(config.get("moe_aux_loss_weight", 0.0)),
-        deepspeed_engine=deepspeed_enabled,
-        tracker=tracker,
-    )
+    if pipeline_enabled:
+        trainer = PipelineTrainer(
+            training_model,
+            optimizer,
+            loss_fn,
+            scheduler=scheduler,
+            mesh=parallel_mesh,
+            device=distributed.device,
+            microbatches=int(config.get("pipeline_microbatches", 1)),
+            gradient_accumulation_steps=accumulation,
+            gradient_clip_norm=config.get("gradient_clip_norm", 1.0),
+            tracker=tracker if parallel_mesh.local_rank("pipeline") == 0 else None,
+            moe_aux_loss_weight=float(config.get("moe_aux_loss_weight", 0.0)),
+        )
+    else:
+        trainer = Trainer(
+            training_model,
+            optimizer,
+            loss_fn,
+            scheduler=scheduler,
+            ema=ema,
+            gradient_clip_norm=config.get("gradient_clip_norm", 1.0),
+            device=distributed.device,
+            gradient_accumulation_steps=accumulation,
+            mixed_precision=str(config.get("mixed_precision", "none")),
+            grad_scaler_initial_scale=float(
+                config.get("grad_scaler_initial_scale", 65536.0)
+            ),
+            grad_scaler_growth_interval=int(
+                config.get("grad_scaler_growth_interval", 2000)
+            ),
+            reasoning_trace_policy=str(config.get("reasoning_trace_policy", "optional")),
+            mtp_loss_weight=float(config.get("mtp_loss_weight", 0.0)),
+            moe_aux_loss_weight=float(config.get("moe_aux_loss_weight", 0.0)),
+            deepspeed_engine=deepspeed_enabled,
+            tracker=tracker,
+        )
     preemption = PreemptionCoordinator()
     preemption.install()
     atexit.register(preemption.restore)
@@ -692,13 +718,14 @@ def main() -> None:
                 rank=loader_rank,
                 world_size=loader_world_size,
             )
-        evaluator = Evaluator(
-            training_model,
-            loss_fn=loss_fn,
-            device=distributed.device,
-            mixed_precision=precision,
-            ema=ema if config.get("validation_use_ema", False) else None,
-        )
+        if not pipeline_enabled:
+            evaluator = Evaluator(
+                training_model,
+                loss_fn=loss_fn,
+                device=distributed.device,
+                mixed_precision=precision,
+                ema=ema if config.get("validation_use_ema", False) else None,
+            )
 
     generation_cases: list[BenchmarkCase] = []
     generation_output: Path | None = None

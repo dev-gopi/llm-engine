@@ -1,4 +1,13 @@
 ## Batch 24 — PPO + distributed online GRPO
+
+## 2026-09-27 - Distributed/seq2seq integration completion
+
+- Added real MiniGPT pipeline partitioning with multi-microbatch non-interleaved 1F1B training, DP subgroup wrapping, gradient accumulation, distributed checkpoint/resume compatibility, and composition with TP/EP/CP/SP.
+- Added end-to-end native seq2seq JSONL data loading, training/evaluation, checkpoint resume, safetensors export, and autoregressive generation CLI.
+- Wired TensorBoard/MLflow/W&B tracking into post-training and multimodal training entrypoints.
+- Added vLLM TP+PP+expert-parallel launch options for unified distributed serving.
+- Refreshed TASKS/README implementation status and added regression coverage.
+
 - Added end-to-end sequence-level PPO RLHF training with actor/reference/reward/value lifecycle, adaptive KL, rollout collection, resume, and separate value checkpoints.
 - Added CPU/GPU PPO profiles and promoted PPO from planned to operational alignment methods.
 - Wired online GRPO for DDP prompt sharding, cross-rank rollout aggregation, distributed sampling/training, rank-0 persistence, and distributed metadata.

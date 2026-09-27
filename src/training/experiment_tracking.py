@@ -73,3 +73,38 @@ def create_tracker(kind: str, **kwargs) -> Tracker:
             kwargs["project"], kwargs.get("run_name"), **kwargs.get("init_kwargs", {})
         )
     raise ValueError(f"unsupported tracker {kind!r}")
+
+
+def create_tracker_from_config(config, *, is_main_process: bool = True) -> Tracker:
+    """Build a tracker from a training config on the main process only.
+
+    Accepted shape::
+
+        experiment_tracking:
+          kind: tensorboard | mlflow | wandb | none
+          ... backend-specific options ...
+    """
+    if not is_main_process:
+        return NullTracker()
+    tracking = config.get("experiment_tracking") or {"kind": "none"}
+    if not isinstance(tracking, dict):
+        raise ValueError("experiment_tracking must be a mapping")
+    kwargs = {key: value for key, value in tracking.items() if key != "kind"}
+    return create_tracker(str(tracking.get("kind", "none")), **kwargs)
+
+
+def log_history(tracker: Tracker, history, *, prefix: str = "train") -> None:
+    """Log numeric history rows without imposing a trainer-specific schema."""
+    for index, row in enumerate(history or []):
+        if not isinstance(row, dict):
+            continue
+        step = row.get("step")
+        metrics = {
+            f"{prefix}/{key}": float(value)
+            for key, value in row.items()
+            if key not in {"step", "epoch"}
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        }
+        if metrics:
+            tracker.log(metrics, step=int(step) if isinstance(step, int) else index + 1)

@@ -2315,8 +2315,15 @@ def _reload_candidate():
             raise ValueError("GOPI_VLLM_MODEL is required when GOPI_BACKEND=vllm")
         options = {}
         tensor_parallel = int(os.getenv("GOPI_VLLM_TENSOR_PARALLEL_SIZE", "1"))
+        pipeline_parallel = int(os.getenv("GOPI_VLLM_PIPELINE_PARALLEL_SIZE", "1"))
+        if tensor_parallel < 1 or pipeline_parallel < 1:
+            raise ValueError("vLLM tensor/pipeline parallel sizes must be positive")
         if tensor_parallel > 1:
             options["tensor_parallel_size"] = tensor_parallel
+        if pipeline_parallel > 1:
+            options["pipeline_parallel_size"] = pipeline_parallel
+        if _backend_environment_flag("GOPI_VLLM_ENABLE_EXPERT_PARALLEL", False):
+            options["enable_expert_parallel"] = True
         dtype = os.getenv("GOPI_VLLM_DTYPE", "").strip()
         if dtype:
             options["dtype"] = dtype

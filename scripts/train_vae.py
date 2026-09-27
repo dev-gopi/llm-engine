@@ -18,6 +18,7 @@ from image_data.dataset import ImageDataset
 from image_data.processor import ImageProcessor
 from optim.scheduler import Scheduler
 from training.checkpoint import load_checkpoint, save_checkpoint
+from training.experiment_tracking import create_tracker_from_config
 from utils.config import load_yaml
 from utils.logger import configure_logging, get_logger
 
@@ -38,6 +39,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     config = load_yaml(args.config)
+    tracker = create_tracker_from_config(config)
     if config.get("planning_only", False):
         parser.error(
             "planning-only VAE profile; provide its datasets and remove planning_only first"
@@ -108,6 +110,7 @@ def main() -> None:
             scaler.update()
             scheduler.step()
             step += 1
+            tracker.log({"train/loss": float(loss.detach())}, step=step)
         print(f"epoch={epoch + 1} step={step} vae_loss={loss.item():.6f}", flush=True)
         save_checkpoint(
             output,
@@ -118,6 +121,7 @@ def main() -> None:
             step=step,
             metadata={"task": "vae", "config": config},
         )
+    tracker.close()
     print(output)
 
 

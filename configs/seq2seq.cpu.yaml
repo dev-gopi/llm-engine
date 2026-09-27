@@ -1,0 +1,20 @@
+model:
+  d_model: 256
+  nhead: 8
+  layers: 4
+  ff_dim: 1024
+  max_position: 1024
+  dropout: 0.0
+train_files: []
+validation_files: []
+batch_size: 8
+validation_batch_size: 8
+epochs: 1
+learning_rate: 0.0003
+weight_decay: 0.01
+max_source_length: 512
+max_target_length: 512
+gradient_clip_norm: 1.0
+device: cpu
+experiment_tracking:
+  kind: none

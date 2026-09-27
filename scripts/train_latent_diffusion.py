@@ -18,6 +18,7 @@ from image_data.dataset import CaptionedImageDataset
 from media_generation.conditioning import tokenize_prompts
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
+from training.experiment_tracking import create_tracker_from_config
 from utils.config import load_yaml
 
 
@@ -30,6 +31,7 @@ def main():
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
     cfg = load_yaml(args.config)
+    tracker = create_tracker_from_config(cfg)
     if cfg.get("planning_only"):
         raise SystemExit(
             "remove planning_only after dataset/license review before training"
@@ -132,6 +134,7 @@ def main():
             torch.nn.utils.clip_grad_norm_(params, max_grad)
             opt.step()
             step += 1
+            tracker.log({"train/loss": float(loss.detach())}, step=step)
             if step % int(cfg.get("log_every_steps", 50)) == 0:
                 print(
                     f"epoch={epoch + 1} step={step} loss={loss.item():.6f}", flush=True
@@ -179,6 +182,7 @@ def main():
     )
     print(out)
     print(text_out)
+    tracker.close()
 
 
 if __name__ == "__main__":

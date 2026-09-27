@@ -39,6 +39,7 @@ from post_training.preference_data import build_kto_loader, build_preference_loa
 from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.distributed import DistributedContext, DistributedTrainer
+from training.experiment_tracking import create_tracker_from_config, log_history
 from utils.config import apply_cli_defaults, load_yaml
 from utils.device import resolve_device
 from utils.logger import configure_logging, get_logger
@@ -113,6 +114,8 @@ def main() -> None:
         distributed = DistributedContext(
             rank=0, local_rank=0, world_size=1, device=device
         )
+    tracker = create_tracker_from_config(config, is_main_process=distributed.is_main_process)
+
     mixed_precision = str(config.get("mixed_precision", "none"))
     if mixed_precision == "fp16" and device.type != "cuda":
         parser.error(
@@ -296,6 +299,8 @@ def main() -> None:
         log_every=int(config.get("log_every", 10)),
     )
     if distributed.is_main_process:
+        log_history(tracker, history, prefix="post_training")
+        tracker.close()
         print(
             json.dumps(
                 {

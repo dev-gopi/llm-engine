@@ -43,6 +43,21 @@ class EncoderDecoderTransformer(nn.Module):
         self.norm = nn.LayerNorm(d_model)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
 
+    @classmethod
+    def from_config(cls, config, *, vocab_size: int | None = None, device=None):
+        model_cfg = config.get("model", config) if isinstance(config, dict) else config
+        resolved_vocab = int(vocab_size if vocab_size is not None else model_cfg["vocab_size"])
+        model = cls(
+            vocab_size=resolved_vocab,
+            d_model=int(model_cfg.get("d_model", model_cfg.get("hidden_size", 256))),
+            nhead=int(model_cfg.get("nhead", model_cfg.get("heads", 8))),
+            layers=int(model_cfg.get("layers", 4)),
+            ff_dim=int(model_cfg.get("ff_dim", model_cfg.get("ffn_hidden_size", 1024))),
+            max_position=int(model_cfg.get("max_position", 2048)),
+            dropout=float(model_cfg.get("dropout", 0.0)),
+        )
+        return model.to(device) if device is not None else model
+
     def forward(
         self,
         source_ids: Tensor,
@@ -66,8 +81,14 @@ class EncoderDecoderTransformer(nn.Module):
             if source_mask is not None
             else None,
         )
-        causal = nn.Transformer.generate_square_subsequent_mask(
-            target_ids.shape[1], device=target_ids.device
+        causal = torch.triu(
+            torch.ones(
+                target_ids.shape[1],
+                target_ids.shape[1],
+                device=target_ids.device,
+                dtype=torch.bool,
+            ),
+            diagonal=1,
         )
         hidden = self.decoder(
             self.tgt_embedding(target_ids) + self.tgt_pos(t)[None, :, :],

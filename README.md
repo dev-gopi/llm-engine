@@ -434,3 +434,26 @@ families from the language model; see the [training guide](docs/TRAINING_GUIDE.m
 and [configuration reference](docs/CONFIGURATION.md#6-audio-and-video-generation-configuration).
 
 See `docs/SEMANTIC_CACHE.md` for the opt-in semantic response cache.
+
+
+## Pipeline-parallel training
+
+The main `scripts/train.py` entrypoint now consumes `parallelism.pipeline` as a real model-partitioning mode. Transformer blocks are split contiguously across PP ranks and trained with a non-interleaved multi-microbatch 1F1B schedule. TP/EP/CP/SP modifications are applied before partitioning, and each stage can still be wrapped by the data-parallel DDP/FSDP group. Configure `pipeline_microbatches` to control the number of in-flight microbatches. Pipeline runs use distributed checkpoints and resume from checkpoint directories. DeepSpeed+PP is intentionally rejected by the native PP runtime; use DDP/FSDP for native PP, or a dedicated DeepSpeed PipelineModule stack.
+
+Example topology:
+
+```yaml
+distributed_strategy: ddp
+parallelism:
+  data: 2
+  tensor: 2
+  pipeline: 2
+  expert: 1
+  context: 1
+  sequence: 1
+pipeline_microbatches: 4
+```
+
+## Native seq2seq lifecycle
+
+`EncoderDecoderTransformer` has a complete source/target lifecycle. JSONL records use `{"source": "...", "target": "..."}`. Train with `scripts/train_seq2seq.py`, export a checkpoint with `scripts/export_seq2seq.py`, and run generation with `scripts/serve_seq2seq.py`. A starter profile is provided at `configs/seq2seq.cpu.yaml`.

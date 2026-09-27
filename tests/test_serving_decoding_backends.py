@@ -111,9 +111,13 @@ def test_reload_candidate_accepts_vllm(monkeypatch):
     monkeypatch.setenv("GOPI_BACKEND", "vllm")
     monkeypatch.setenv("GOPI_VLLM_MODEL", "demo-model")
     monkeypatch.setenv("GOPI_VLLM_TENSOR_PARALLEL_SIZE", "2")
+    monkeypatch.setenv("GOPI_VLLM_PIPELINE_PARALLEL_SIZE", "3")
+    monkeypatch.setenv("GOPI_VLLM_ENABLE_EXPERT_PARALLEL", "true")
     backend, version = serving_backend._reload_candidate()
     assert backend.model == "demo-model"
     assert backend.options["tensor_parallel_size"] == 2
+    assert backend.options["pipeline_parallel_size"] == 3
+    assert backend.options["enable_expert_parallel"] is True
     assert version == "vllm:demo-model"
 
 

@@ -18,6 +18,7 @@ from image_data.dataset import ImageClassificationDataset
 from image_data.processor import ImageProcessor
 from optim.scheduler import Scheduler
 from training.checkpoint import load_checkpoint, save_checkpoint
+from training.experiment_tracking import create_tracker_from_config
 from utils.config import load_yaml
 from utils.logger import configure_logging, get_logger
 from vision.classifier import VisionClassifier
@@ -58,6 +59,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     config = load_yaml(args.config)
+    tracker = create_tracker_from_config(config)
     if config.get("planning_only", False):
         parser.error(
             "planning-only vision profile; provide its datasets and remove planning_only first"
@@ -159,6 +161,7 @@ def main() -> None:
             scaler.update()
             lr_scheduler.step()
             step += 1
+            tracker.log({"train/loss": float(loss.detach())}, step=step)
             correct += (logits.argmax(1) == labels).sum()
             total += labels.numel()
         print(
@@ -204,6 +207,7 @@ def main() -> None:
             print(
                 f"validation_loss={validation_loss:.6f} validation_accuracy={validation_correct.item() / validation_total:.4f}"
             )
+            tracker.log({"validation/loss": float(validation_loss)}, step=step)
             if validation_loss < best_validation_loss:
                 best_validation_loss = validation_loss
                 save_checkpoint(
@@ -218,6 +222,7 @@ def main() -> None:
                     },
                 )
             model.train()
+    tracker.close()
     print(output)
 
 
