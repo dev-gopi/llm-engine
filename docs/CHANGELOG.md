@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Unified Omni routes with the configured serving authentication policy, so `authentication_enabled: false` now consistently disables API-key enforcement across all protected transports.
+
+- Fixed OIDC-only realtime WebSocket authentication and added the explicit `authentication_enabled` serving switch (`GOPI_AUTHENTICATION_ENABLED`) for controlled local enablement or disablement.
+
+- Configured the checked-out local `.env` for unauthenticated loopback use and
+  removed its public tunnel origin. API and admin keys remain explicit opt-in
+  requirements before any non-local exposure.
+
+- Fixed Gloo distributed workers to remain on CPU even when CUDA is visible,
+  preventing CPU smoke tests from allocating GPU contexts. Updated the OIDC
+  HS256 test fixture to use a standards-compliant signing-key length.
+
 - Batch 21: enabled local recursive `$ref` and `$dynamicRef` JSON Schema validation for structured outputs using the Draft 2020-12 resolver, with recursive tree and dynamic-anchor regression coverage; external URI retrieval remains disabled.
 
 - Started Batch 21 implementation from the post-Batch-20 missing-feature audit. Added the explicit batch acceptance/engineering instructions in `docs/BATCH21_IMPLEMENTATION_INSTRUCTIONS.md`; the batch covers the next 20 audit items and requires optional-runtime guards, contract tests, regression validation, and explicit hardware qualification before items are removed from the audit.

@@ -10,7 +10,7 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +27,7 @@ from omni_platform.native_multimodal import (
 )
 from omni_platform.observability import METRICS
 from omni_platform.providers import ProviderContext, ProviderRegistry
+from serving.auth import extract_bearer_token
 from omni_platform.speech import (
     EnergyVAD,
     HuggingFaceASRProvider,
@@ -105,14 +106,21 @@ def _asset_store() -> AssetStore:
     return AssetStore(os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets"))
 
 
-def _require_auth(authorization: str | None) -> None:
-    key = os.getenv("GOPI_API_KEY", "")
-    if not key:
-        if os.getenv("GOPI_ALLOW_UNAUTHENTICATED_MEDIA", "0") == "1":
+def _require_auth(authorization: str | None, request: Request | None = None) -> None:
+    """Use the main app policy, with an API-key fallback for standalone routers."""
+    app = getattr(request, "app", None)
+    settings = getattr(getattr(app, "state", None), "settings", None)
+    if settings is not None:
+        if not settings.authentication_required:
             return
-        raise HTTPException(503, "GOPI_API_KEY is required for Omni media endpoints")
-    supplied = (authorization or "").removeprefix("Bearer ")
-    if not supplied or not secrets.compare_digest(supplied, key):
+        if getattr(app.state, "oidc", None) is not None:
+            # The main HTTP middleware already validated the OIDC token.
+            return
+        key = settings.api_key
+    else:
+        key = os.getenv("GOPI_API_KEY", "")
+    supplied = extract_bearer_token(authorization)
+    if not key or not supplied or not secrets.compare_digest(supplied, key):
         raise HTTPException(401, "invalid bearer token")
 
 
@@ -145,8 +153,10 @@ def create_omni_speech_router() -> APIRouter:
     router = APIRouter(prefix="/v1", tags=["omni-speech"])
 
     @router.get("/platform/capabilities/verify")
-    async def verify_capabilities(authorization: str | None = Header(default=None)):
-        _require_auth(authorization)
+    async def verify_capabilities(
+        request: Request, authorization: str | None = Header(default=None)
+    ):
+        _require_auth(authorization, request)
         registry, _, _ = _providers()
         started = time.perf_counter()
         providers = registry.describe()
@@ -165,9 +175,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/transcriptions")
     async def audio_transcriptions(
-        req: TranscriptionRequest, authorization: str | None = Header(default=None)
+        req: TranscriptionRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         _, asr, _ = _providers()
         if asr is None or not asr.is_available():
             raise HTTPException(
@@ -193,9 +205,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/translations")
     async def audio_translations(
-        req: TranscriptionRequest, authorization: str | None = Header(default=None)
+        req: TranscriptionRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         _, asr, _ = _providers()
         if asr is None or not asr.is_available():
             raise HTTPException(
@@ -220,9 +234,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/speech")
     async def audio_speech(
-        req: SpeechRequest, authorization: str | None = Header(default=None)
+        req: SpeechRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         _, _, tts = _providers()
         if tts is None or not tts.is_available():
             raise HTTPException(
@@ -241,9 +257,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/speech/stream")
     async def audio_speech_stream(
-        req: SpeechRequest, authorization: str | None = Header(default=None)
+        req: SpeechRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         _, _, tts = _providers()
         if tts is None or not tts.is_available():
             raise HTTPException(
@@ -266,9 +284,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/voice-activity")
     async def audio_vad(
-        req: VADRequest, authorization: str | None = Header(default=None)
+        req: VADRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         path = _asset_store().resolve(req.asset_id)
         segments = EnergyVAD().detect(
             path, threshold_dbfs=req.threshold_dbfs, min_speech_ms=req.min_speech_ms
@@ -277,9 +297,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/understand")
     async def audio_understand(
-        req: AudioUnderstandRequest, authorization: str | None = Header(default=None)
+        req: AudioUnderstandRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         registry, asr, _ = _providers()
         providers = registry.available("audio_understanding")
         if not providers:
@@ -296,9 +318,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/voice-clone")
     async def voice_clone(
-        req: VoiceCloneRequest, authorization: str | None = Header(default=None)
+        req: VoiceCloneRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         registry, _, _ = _providers()
         providers = registry.available("voice_cloning")
         if not providers:
@@ -329,9 +353,11 @@ def create_omni_speech_router() -> APIRouter:
 
     @router.post("/audio/speech-to-speech")
     async def speech_to_speech(
-        req: SpeechToSpeechRequest, authorization: str | None = Header(default=None)
+        req: SpeechToSpeechRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         _, asr, tts = _providers()
         if (
             asr is None
@@ -357,8 +383,10 @@ def create_omni_video_router(runtime: Any) -> APIRouter:
     router = APIRouter(prefix="/v1", tags=["omni-video"])
 
     @router.get("/platform/capabilities/runtime")
-    async def runtime_capabilities(authorization: str | None = Header(default=None)):
-        _require_auth(authorization)
+    async def runtime_capabilities(
+        request: Request, authorization: str | None = Header(default=None)
+    ):
+        _require_auth(authorization, request)
         native = _native_backend(runtime)
         vision = bool(
             getattr(native, "supports_vision", False)
@@ -392,9 +420,11 @@ def create_omni_video_router(runtime: Any) -> APIRouter:
 
     @router.post("/videos/understand")
     async def understand_video(
-        req: VideoUnderstandRequest, authorization: str | None = Header(default=None)
+        req: VideoUnderstandRequest,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
-        _require_auth(authorization)
+        _require_auth(authorization, request)
         native = _native_backend(runtime)
         if not bool(
             getattr(native, "supports_vision", False)

@@ -52,11 +52,12 @@ export GOPI_MODEL_CONFIG=configs/model.gpu.yaml
 export GOPI_TOKENIZER_PATH=data/tokenizer
 export GOPI_CHECKPOINT_PATH=checkpoints/dpo/best.pt
 export GOPI_MODEL_NAME=gopi
+export GOPI_AUTHENTICATION_ENABLED=true
 export GOPI_API_KEY='replace-with-a-secret'
 export GOPI_ADMIN_API_KEY='replace-with-a-different-admin-secret'
 ```
 
-Server-backed conversation history, training review/deletion, and audit access require `GOPI_API_KEY`. Model lifecycle controls under `/admin/models/*` additionally require the separate `GOPI_ADMIN_API_KEY`.
+Set `GOPI_AUTHENTICATION_ENABLED=true` to protect all `/v1` HTTP, WebSocket, and WebRTC endpoints. It requires either `GOPI_API_KEY` or enabled OIDC; set it to `false` only for local loopback development. Server-backed conversation history, training review/deletion, and audit access require `GOPI_API_KEY`. Model lifecycle controls under `/admin/models/*` additionally require the separate `GOPI_ADMIN_API_KEY`.
 
 When the bundled UI reports that an API key is required, paste the value of
 `GOPI_API_KEY` into its **Connection settings → API key** field. The UI uses it

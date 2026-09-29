@@ -71,7 +71,11 @@ class DistributedTrainer:
                 rank,
                 world_size,
             )
-        if torch.cuda.is_available():
+        # Gloo is the CPU backend used by local and CI smoke tests. Do not
+        # claim a visible CUDA device merely because one exists: that creates
+        # a CUDA context for every Gloo worker and can exhaust consumer GPUs.
+        use_cuda = backend != "gloo" and torch.cuda.is_available()
+        if use_cuda:
             if local_rank >= torch.cuda.device_count():
                 raise ValueError(
                     f"LOCAL_RANK {local_rank} exceeds visible CUDA device count {torch.cuda.device_count()}"

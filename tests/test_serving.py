@@ -746,6 +746,37 @@ def test_settings_load_yaml_and_environment_override(tmp_path, monkeypatch):
     assert loaded.generation_timeout_seconds == 30
 
 
+def test_authentication_enabled_switch_and_realtime_oidc_guard(monkeypatch):
+    from serving.realtime import _authorized
+
+    class FakeOIDC:
+        def authenticate(self, token):
+            if token != "valid-token":
+                raise ValueError("invalid token")
+
+    assert not ServingSettings(authentication_enabled=False).authentication_required
+    assert ServingSettings(api_key="secret", authentication_enabled=True).authentication_required
+    with pytest.raises(ValueError, match="requires GOPI_API_KEY or enabled OIDC"):
+        ServingSettings(authentication_enabled=True)
+    assert not _authorized({}, ServingSettings(oidc_enabled=True), FakeOIDC(), websocket=True)
+    assert _authorized(
+        {"sec-websocket-protocol": "bearer, valid-token"},
+        ServingSettings(oidc_enabled=True),
+        FakeOIDC(),
+        websocket=True,
+    )
+
+
+def test_authentication_switch_applies_to_omni_routes(monkeypatch):
+    monkeypatch.setenv("GOPI_API_KEY", "secret")
+    app = create_app(
+        FakeBackend(),
+        settings=settings(api_key="secret", authentication_enabled=False),
+    )
+    response = request(app, "GET", "/v1/platform/capabilities/verify")
+    assert response.status_code == 200
+
+
 def test_mcp_can_be_explicitly_disabled_for_minimal_deployment(monkeypatch):
     monkeypatch.setenv("GOPI_MCP_ENABLED", "false")
     assert _load_mcp_config() == {"enabled": False}
@@ -1056,6 +1087,7 @@ def test_files_vector_batch_finetune_lifecycle(tmp_path):
 
 def test_oidc_hs256_and_tenant_binding(tmp_path):
     jwt = pytest.importorskip("jwt")
+    signing_key = "test-hs256-key-with-at-least-thirty-two-bytes"
     token = jwt.encode(
         {
             "sub": "alice",
@@ -1064,7 +1096,7 @@ def test_oidc_hs256_and_tenant_binding(tmp_path):
             "aud": "gopi",
             "iss": "https://issuer",
         },
-        "secret",
+        signing_key,
         algorithm="HS256",
     )
     app = create_app(
@@ -1074,7 +1106,7 @@ def test_oidc_hs256_and_tenant_binding(tmp_path):
             oidc_enabled=True,
             oidc_issuer="https://issuer",
             oidc_audience="gopi",
-            oidc_hs256_secret="secret",
+            oidc_hs256_secret=signing_key,
         ),
     )
     response = _batch_req(

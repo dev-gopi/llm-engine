@@ -56,6 +56,8 @@ serving:
   queue_timeout_seconds: 5.0
   generation_timeout_seconds: 180.0
   session_memory_enabled: true
+  # Set true before exposing the server; false is loopback-development only.
+  authentication_enabled: false
   cors_origins: []
   requests_per_minute: 60
   rate_limit_store_path: data/cache/rate-limits.sqlite

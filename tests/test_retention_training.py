@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -143,6 +144,7 @@ def test_training_saves_initial_retention_baseline_before_first_update(tmp_path)
         capture_output=True,
         text=True,
         timeout=60,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     selected = torch.load(generation_best, map_location="cpu", weights_only=True)

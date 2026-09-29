@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from omni_platform.providers import ProviderContext
 from omni_platform.speech import HuggingFaceASRProvider, HuggingFaceTTSProvider
+from serving.auth import extract_bearer_token, extract_websocket_bearer
 from serving.schemas import GenerateRequest
 
 router = APIRouter(tags=["realtime"])
@@ -41,15 +42,23 @@ class WebRTCOffer(BaseModel):
     type: str = Field(default="offer", pattern="^offer$")
 
 
-def _authorized(headers, settings) -> bool:
-    if not settings.api_key:
+def _authorized(headers, settings, oidc=None, *, websocket: bool = False) -> bool:
+    """Apply the same configured auth mode as REST and streaming endpoints."""
+    if not settings.authentication_required:
         return True
-    supplied = headers.get("authorization", "").removeprefix("Bearer ")
-    protocols = [
-        x.strip() for x in headers.get("sec-websocket-protocol", "").split(",")
-    ]
-    if len(protocols) >= 2 and protocols[0].lower() == "bearer":
-        supplied = protocols[1]
+    supplied = (
+        extract_websocket_bearer(headers)[0]
+        if websocket
+        else extract_bearer_token(headers.get("authorization"))
+    )
+    if oidc is not None:
+        try:
+            oidc.authenticate(supplied)
+        except Exception:
+            return False
+        return True
+    if not settings.api_key:
+        return False
     return bool(supplied and secrets.compare_digest(supplied, settings.api_key))
 
 
@@ -230,7 +239,9 @@ class RealtimeSession:
 @router.websocket("/v1/realtime")
 async def realtime_ws(websocket: WebSocket) -> None:
     settings = websocket.app.state.settings
-    if not _authorized(websocket.headers, settings):
+    if not _authorized(
+        websocket.headers, settings, getattr(websocket.app.state, "oidc", None), websocket=True
+    ):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await websocket.accept()
@@ -264,7 +275,9 @@ _PEERS: set[Any] = set()
 @router.post("/v1/realtime/webrtc")
 async def realtime_webrtc(offer: WebRTCOffer, request: Request):
     settings = request.app.state.settings
-    if not _authorized(request.headers, settings):
+    if not _authorized(
+        request.headers, settings, getattr(request.app.state, "oidc", None)
+    ):
         raise HTTPException(401, "invalid bearer token")
     try:
         from aiortc import RTCPeerConnection, RTCSessionDescription

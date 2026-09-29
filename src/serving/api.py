@@ -182,6 +182,8 @@ class ServingSettings:
     queue_timeout_seconds: float = 1.0
     generation_timeout_seconds: float = 120.0
     cors_origins: tuple[str, ...] = ()
+    # None preserves legacy auto-detection; set explicitly per deployment.
+    authentication_enabled: bool | None = None
     api_key: str | None = None
     admin_api_key: str | None = None
     requests_per_minute: int = 0
@@ -252,6 +254,19 @@ class ServingSettings:
             not host.strip() for host in self.allowed_hosts
         ):
             raise ValueError("allowed_hosts must contain non-empty host names")
+        if self.authentication_enabled is True and not (
+            self.api_key or self.oidc_enabled
+        ):
+            raise ValueError(
+                "authentication_enabled requires GOPI_API_KEY or enabled OIDC"
+            )
+
+    @property
+    def authentication_required(self) -> bool:
+        """Whether this deployment requires credentials on protected routes."""
+        if self.authentication_enabled is not None:
+            return self.authentication_enabled
+        return bool(self.api_key or self.oidc_enabled)
 
     @classmethod
     def from_environment(cls) -> ServingSettings:
@@ -299,6 +314,11 @@ class ServingSettings:
                 )
             ),
             cors_origins=origins,
+            authentication_enabled=(
+                _environment_flag("GOPI_AUTHENTICATION_ENABLED", bool(serving.get("authentication_enabled", False)))
+                if "GOPI_AUTHENTICATION_ENABLED" in os.environ or "authentication_enabled" in serving
+                else None
+            ),
             api_key=os.getenv("GOPI_API_KEY") or None,
             admin_api_key=os.getenv("GOPI_ADMIN_API_KEY") or None,
             requests_per_minute=int(
@@ -590,7 +610,7 @@ def create_app(
     settings: ServingSettings | None = None,
 ) -> FastAPI:
     settings = settings or ServingSettings.from_environment()
-    if settings.session_memory_enabled and not settings.api_key:
+    if settings.session_memory_enabled and not settings.authentication_required:
         logger.warning(
             "Server session history/training features are enabled, but GOPI_API_KEY is not configured; "
             "those endpoints will remain unavailable until authentication is configured."
@@ -663,7 +683,7 @@ def create_app(
                 ),
             )
         )
-        if settings.oidc_enabled
+        if settings.authentication_required and settings.oidc_enabled
         else None
     )
     tenant_quota = TenantQuotaLimiter(settings.tenant_requests_per_minute)
@@ -807,7 +827,7 @@ def create_app(
         if protected_path:
             bearer = extract_bearer_token(request.headers.get("Authorization"))
             principal = None
-            if oidc is not None:
+            if settings.authentication_required and oidc is not None:
                 try:
                     principal = oidc.authenticate(bearer)
                 except Exception:
@@ -819,7 +839,7 @@ def create_app(
                         response, is_https=request.url.scheme == "https"
                     )
                     return response
-            elif settings.api_key:
+            elif settings.authentication_required and settings.api_key:
                 if not secrets.compare_digest(bearer, settings.api_key):
                     response = _error_response(
                         request, "unauthorized", "valid bearer token required", 401
@@ -2401,7 +2421,7 @@ def _health(
         version=SERVICE_VERSION,
         model=settings.model_name,
         ready=runtime.ready,
-        authentication_required=bool(settings.api_key or settings.oidc_enabled),
+        authentication_required=settings.authentication_required,
     )
 
 

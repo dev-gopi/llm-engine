@@ -1,6 +1,10 @@
 import os
 import socket
 
+# This is an explicitly CPU/Gloo test. Set before PyTorch is imported so the
+# spawned workers do not initialize a visible CUDA accelerator.
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 import pytest
 import torch
 import torch.multiprocessing as mp
