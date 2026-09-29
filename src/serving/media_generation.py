@@ -121,6 +121,10 @@ class MediaGenerationRequest(_Strict):
     )
 
 
+def _tenant_id(request: Request) -> str:
+    return str(getattr(request.state, "tenant_id", "api-key"))
+
+
 def _require_auth(auth: str | None) -> None:
     expected = os.getenv("GOPI_API_KEY")
     if not expected:
@@ -257,11 +261,11 @@ def _runtime(kind: str, model_id: str | None):
         return runtime
 
 
-def _asset_path(asset_id: str | None) -> Path | None:
+def _asset_path(asset_id: str | None, *, tenant_id: str = "default") -> Path | None:
     if not asset_id:
         return None
     try:
-        return _asset_store().resolve(asset_id)
+        return _asset_store().resolve(asset_id, tenant_id=tenant_id)
     except KeyError as error:
         raise ValueError(f"unknown media asset: {asset_id}") from error
 
@@ -579,6 +583,7 @@ def create_media_router() -> APIRouter:
                     "content-type", "application/octet-stream"
                 ),
                 filename=x_filename,
+                tenant_id=_tenant_id(request),
             )
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
@@ -594,11 +599,13 @@ def create_media_router() -> APIRouter:
 
     @router.get("/media/assets/{asset_id}")
     async def get_asset(
-        asset_id: str, authorization: str | None = Header(default=None)
+        asset_id: str,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
         _require_auth(authorization)
         try:
-            record = _asset_store().get(asset_id)
+            record = _asset_store().get(asset_id, tenant_id=_tenant_id(request))
         except KeyError as error:
             raise HTTPException(404, "asset not found") from error
         return {
@@ -613,10 +620,12 @@ def create_media_router() -> APIRouter:
 
     @router.delete("/media/assets/{asset_id}")
     async def delete_asset(
-        asset_id: str, authorization: str | None = Header(default=None)
+        asset_id: str,
+        request: Request,
+        authorization: str | None = Header(default=None),
     ):
         _require_auth(authorization)
-        if not _asset_store().delete(asset_id):
+        if not _asset_store().delete(asset_id, tenant_id=_tenant_id(request)):
             raise HTTPException(404, "asset not found")
         return {"id": asset_id, "deleted": True}
 

@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -34,6 +35,24 @@ from serving.schemas import GenerateRequest
 
 router = APIRouter(tags=["realtime"])
 Send = Callable[[dict[str, Any]], Awaitable[None]]
+_speech_provider_lock = threading.Lock()
+_speech_provider_cache: (
+    tuple[HuggingFaceASRProvider | None, HuggingFaceTTSProvider | None] | None
+) = None
+
+
+def _speech_providers() -> tuple[
+    HuggingFaceASRProvider | None, HuggingFaceTTSProvider | None
+]:
+    global _speech_provider_cache
+    if _speech_provider_cache is None:
+        with _speech_provider_lock:
+            if _speech_provider_cache is None:
+                _speech_provider_cache = (
+                    HuggingFaceASRProvider.from_env(),
+                    HuggingFaceTTSProvider.from_env(),
+                )
+    return _speech_provider_cache
 
 
 class WebRTCOffer(BaseModel):
@@ -73,9 +92,9 @@ class RealtimeSession:
         self.instructions = ""
         self.temperature = 0.7
         self.max_tokens = 256
-        self.asr = HuggingFaceASRProvider.from_env()
-        self.tts = HuggingFaceTTSProvider.from_env()
+        self.asr, self.tts = _speech_providers()
         self.last_transcript = ""
+        self._response_task: asyncio.Task | None = None
 
     async def opened(self) -> None:
         await self.send(
@@ -156,7 +175,7 @@ class RealtimeSession:
                 }
             )
             if event.get("create_response", True):
-                await self.respond(self.last_transcript)
+                self.start_response(self.last_transcript)
             return
         if kind == "conversation.item.create":
             item = event.get("item") or {}
@@ -173,12 +192,19 @@ class RealtimeSession:
         if kind == "response.create":
             response = event.get("response") or {}
             text = str(response.get("input") or self.last_transcript).strip()
-            await self.respond(text)
+            self.start_response(text)
             return
         if kind == "response.cancel":
-            await self.send({"type": "response.cancelled"})
+            if self._response_task is not None and not self._response_task.done():
+                self._response_task.cancel()
+                await self.send({"type": "response.cancelled"})
             return
         raise ValueError(f"unsupported realtime event type: {kind}")
+
+    def start_response(self, text: str) -> None:
+        if self._response_task is not None and not self._response_task.done():
+            raise RuntimeError("a response is already in progress")
+        self._response_task = asyncio.create_task(self.respond(text))
 
     async def respond(self, text: str) -> None:
         if not text:
@@ -240,7 +266,10 @@ class RealtimeSession:
 async def realtime_ws(websocket: WebSocket) -> None:
     settings = websocket.app.state.settings
     if not _authorized(
-        websocket.headers, settings, getattr(websocket.app.state, "oidc", None), websocket=True
+        websocket.headers,
+        settings,
+        getattr(websocket.app.state, "oidc", None),
+        websocket=True,
     ):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -258,6 +287,8 @@ async def realtime_ws(websocket: WebSocket) -> None:
             event = await websocket.receive_json()
             try:
                 await session.handle(event)
+            except asyncio.CancelledError:
+                pass
             except Exception as exc:
                 await send(
                     {

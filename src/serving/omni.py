@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
 import secrets
+import threading
 import time
 import uuid
 from typing import Any
@@ -27,14 +29,18 @@ from omni_platform.native_multimodal import (
 )
 from omni_platform.observability import METRICS
 from omni_platform.providers import ProviderContext, ProviderRegistry
-from serving.auth import extract_bearer_token
 from omni_platform.speech import (
     EnergyVAD,
     HuggingFaceASRProvider,
     HuggingFaceTTSProvider,
     SpeechToSpeechPipeline,
 )
-from omni_platform.voice_cloning import ProviderVoiceCloner, VoiceClonePolicy
+from omni_platform.voice_cloning import (
+    ProviderVoiceCloner,
+    VoiceClonePolicy,
+    verify_consent_token,
+)
+from serving.auth import extract_bearer_token
 from serving.runtime import ServingError
 from serving.schemas import GenerateRequest
 from utils.logger import get_logger
@@ -106,6 +112,17 @@ def _asset_store() -> AssetStore:
     return AssetStore(os.getenv("GOPI_MEDIA_ASSET_DIR", "outputs/api_media/assets"))
 
 
+def _tenant_id(request: Request) -> str:
+    return str(getattr(request.state, "tenant_id", "api-key"))
+
+
+def _resolve_asset(request: Request, asset_id: str):
+    try:
+        return _asset_store().resolve(asset_id, tenant_id=_tenant_id(request))
+    except KeyError as exc:
+        raise HTTPException(404, "asset not found") from exc
+
+
 def _require_auth(authorization: str | None, request: Request | None = None) -> None:
     """Use the main app policy, with an API-key fallback for standalone routers."""
     app = getattr(request, "app", None)
@@ -124,24 +141,46 @@ def _require_auth(authorization: str | None, request: Request | None = None) -> 
         raise HTTPException(401, "invalid bearer token")
 
 
+_provider_cache: (
+    tuple[
+        ProviderRegistry, HuggingFaceASRProvider | None, HuggingFaceTTSProvider | None
+    ]
+    | None
+) = None
+_provider_lock = threading.Lock()
+
+
 def _providers() -> tuple[
     ProviderRegistry, HuggingFaceASRProvider | None, HuggingFaceTTSProvider | None
 ]:
-    registry = ProviderRegistry()
-    asr = HuggingFaceASRProvider.from_env()
-    tts = HuggingFaceTTSProvider.from_env()
-    audio_understanding = HuggingFaceAudioUnderstandingProvider.from_env(
-        asr_provider=asr
-    )
-    video_understanding = HuggingFaceVideoUnderstandingProvider.from_env()
-    voice_cloning = CoquiXTTSVoiceCloningProvider.from_env()
-    for provider in (asr, tts, audio_understanding, video_understanding, voice_cloning):
-        if provider is not None:
-            registry.register(provider)
-    if asr is not None and tts is not None:
-        registry.register(SpeechToSpeechPipeline(asr, tts))
-    registry.register(EnergyVAD())
-    return registry, asr, tts
+    global _provider_cache
+    if _provider_cache is not None:
+        return _provider_cache
+    with _provider_lock:
+        if _provider_cache is not None:
+            return _provider_cache
+        registry = ProviderRegistry()
+        asr = HuggingFaceASRProvider.from_env()
+        tts = HuggingFaceTTSProvider.from_env()
+        audio_understanding = HuggingFaceAudioUnderstandingProvider.from_env(
+            asr_provider=asr
+        )
+        video_understanding = HuggingFaceVideoUnderstandingProvider.from_env()
+        voice_cloning = CoquiXTTSVoiceCloningProvider.from_env()
+        for provider in (
+            asr,
+            tts,
+            audio_understanding,
+            video_understanding,
+            voice_cloning,
+        ):
+            if provider is not None:
+                registry.register(provider)
+        if asr is not None and tts is not None:
+            registry.register(SpeechToSpeechPipeline(asr, tts))
+        registry.register(EnergyVAD())
+        _provider_cache = (registry, asr, tts)
+        return _provider_cache
 
 
 def _native_backend(runtime: Any) -> Any:
@@ -185,11 +224,12 @@ def create_omni_speech_router() -> APIRouter:
             raise HTTPException(
                 503, "speech-to-text provider is not configured and ready"
             )
-        path = _asset_store().resolve(req.asset_id)
+        path = _resolve_asset(request, req.asset_id)
         request_id = f"asr_{uuid.uuid4().hex}"
         started = time.perf_counter()
         try:
-            result = asr.transcribe(
+            result = await asyncio.to_thread(
+                asr.transcribe,
                 {
                     "path": str(path),
                     "language": req.language,
@@ -219,8 +259,9 @@ def create_omni_speech_router() -> APIRouter:
             raise HTTPException(
                 501, "configured ASR model does not advertise translation support"
             )
-        path = _asset_store().resolve(req.asset_id)
-        result = asr.transcribe(
+        path = _resolve_asset(request, req.asset_id)
+        result = await asyncio.to_thread(
+            asr.transcribe,
             {
                 "path": str(path),
                 "language": req.language,
@@ -245,8 +286,8 @@ def create_omni_speech_router() -> APIRouter:
                 503, "text-to-speech provider is not configured and ready"
             )
         request_id = f"tts_{uuid.uuid4().hex}"
-        result = tts.synthesize(
-            {"text": req.input}, ProviderContext(request_id=request_id)
+        result = await asyncio.to_thread(
+            tts.synthesize, {"text": req.input}, ProviderContext(request_id=request_id)
         )
         METRICS.inc("tts_requests_total")
         return FileResponse(
@@ -289,9 +330,12 @@ def create_omni_speech_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ):
         _require_auth(authorization, request)
-        path = _asset_store().resolve(req.asset_id)
-        segments = EnergyVAD().detect(
-            path, threshold_dbfs=req.threshold_dbfs, min_speech_ms=req.min_speech_ms
+        path = _resolve_asset(request, req.asset_id)
+        segments = await asyncio.to_thread(
+            EnergyVAD().detect,
+            path,
+            threshold_dbfs=req.threshold_dbfs,
+            min_speech_ms=req.min_speech_ms,
         )
         return {"object": "audio.voice_activity", "segments": segments}
 
@@ -308,8 +352,9 @@ def create_omni_speech_router() -> APIRouter:
             raise HTTPException(
                 503, "audio understanding provider is not configured and ready"
             )
-        path = _asset_store().resolve(req.asset_id)
-        result = providers[0].understand_audio(
+        path = _resolve_asset(request, req.asset_id)
+        result = await asyncio.to_thread(
+            providers[0].understand_audio,
             {"path": str(path), "question": req.question, "top_k": req.top_k},
             ProviderContext(request_id=f"aud_{uuid.uuid4().hex}"),
         )
@@ -329,18 +374,42 @@ def create_omni_speech_router() -> APIRouter:
             raise HTTPException(
                 503, "voice cloning provider is not configured and ready"
             )
-        reference = _asset_store().resolve(req.reference_asset_id)
+        reference = _resolve_asset(request, req.reference_asset_id)
+        secret = os.getenv("GOPI_VOICE_CONSENT_SECRET", "")
+        if not secret:
+            raise HTTPException(
+                503, "voice cloning consent verification is not configured"
+            )
+        try:
+            verify_consent_token(
+                req.consent_token,
+                secret=secret,
+                asset_id=req.reference_asset_id,
+                tenant_id=_tenant_id(request),
+            )
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        try:
+            probe = await asyncio.to_thread(FFmpeg().probe, reference)
+            duration = float((probe.get("format") or {}).get("duration") or 0)
+        except Exception as exc:
+            raise HTTPException(
+                422, "could not verify reference audio duration"
+            ) from exc
+        if duration <= 0:
+            raise HTTPException(422, "reference audio has no measurable duration")
         cloner = ProviderVoiceCloner(
             providers[0],
             VoiceClonePolicy(require_consent_token=True, max_reference_seconds=30.0),
         )
-        result = cloner.clone_voice(
+        result = await asyncio.to_thread(
+            cloner.clone_voice,
             {
                 "reference_audio": str(reference),
                 "text": req.text,
                 "language": req.language,
-                "consent_token": req.consent_token,
-                "reference_duration_seconds": req.reference_duration_seconds,
+                "consent_verified": True,
+                "reference_duration_seconds": duration,
             },
             ProviderContext(request_id=f"vclone_{uuid.uuid4().hex}"),
         )
@@ -368,9 +437,11 @@ def create_omni_speech_router() -> APIRouter:
             raise HTTPException(
                 503, "speech-to-speech requires ready ASR and TTS providers"
             )
-        path = _asset_store().resolve(req.asset_id)
-        result = SpeechToSpeechPipeline(asr, tts).convert_speech(
-            {"path": str(path)}, ProviderContext(request_id=f"s2s_{uuid.uuid4().hex}")
+        path = _resolve_asset(request, req.asset_id)
+        result = await asyncio.to_thread(
+            SpeechToSpeechPipeline(asr, tts).convert_speech,
+            {"path": str(path)},
+            ProviderContext(request_id=f"s2s_{uuid.uuid4().hex}"),
         )
         METRICS.inc("speech_to_speech_requests_total")
         return FileResponse(result.artifacts[0].path, media_type="audio/wav")
@@ -436,8 +507,9 @@ def create_omni_video_router(runtime: Any) -> APIRouter:
                     503,
                     "video understanding requires a native multimodal checkpoint or standalone video model",
                 )
-            path = _asset_store().resolve(req.asset_id)
-            result = standalone.understand_video(
+            path = _resolve_asset(request, req.asset_id)
+            result = await asyncio.to_thread(
+                standalone.understand_video,
                 {"path": str(path), "question": req.prompt, "top_k": 5},
                 ProviderContext(request_id=f"vunder_{uuid.uuid4().hex}"),
             )

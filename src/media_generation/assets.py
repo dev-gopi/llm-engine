@@ -56,6 +56,7 @@ class AssetRecord:
     sha256: str
     created_at: float
     path: str
+    tenant_id: str = "default"
 
 
 class AssetStore:
@@ -68,8 +69,20 @@ class AssetStore:
         if self.max_bytes < 1:
             raise ValueError("max asset bytes must be positive")
 
+    def _tenant_root(self, tenant_id: str) -> Path:
+        """Return an opaque, filesystem-safe directory for an auth tenant."""
+        safe = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()[:32]
+        root = self.root if tenant_id == "default" else self.root / safe
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
     def put(
-        self, data: bytes, *, mime_type: str, filename: str | None = None
+        self,
+        data: bytes,
+        *,
+        mime_type: str,
+        filename: str | None = None,
+        tenant_id: str = "default",
     ) -> AssetRecord:
         if not data:
             raise ValueError("asset body is empty")
@@ -91,8 +104,9 @@ class AssetStore:
         safe = _SAFE_NAME.sub("_", original).strip("._") or f"upload{suffix}"
         if not safe.lower().endswith(suffix):
             safe += suffix
-        payload_path = self.root / f"{asset_id}{suffix}"
-        meta_path = self.root / f"{asset_id}.json"
+        tenant_root = self._tenant_root(tenant_id)
+        payload_path = tenant_root / f"{asset_id}{suffix}"
+        meta_path = tenant_root / f"{asset_id}.json"
         if not payload_path.exists():
             tmp = payload_path.with_suffix(payload_path.suffix + ".tmp")
             tmp.write_bytes(data)
@@ -105,35 +119,42 @@ class AssetStore:
             sha256=digest,
             created_at=time.time(),
             path=str(payload_path),
+            tenant_id=tenant_id,
         )
         meta_path.write_text(
             json.dumps(asdict(record), indent=2, sort_keys=True), encoding="utf-8"
         )
         return record
 
-    def get(self, asset_id: str) -> AssetRecord:
+    def get(self, asset_id: str, *, tenant_id: str = "default") -> AssetRecord:
         if not re.fullmatch(r"asset_[0-9a-f]{32}", asset_id):
             raise KeyError(asset_id)
-        meta_path = self.root / f"{asset_id}.json"
+        meta_path = self._tenant_root(tenant_id) / f"{asset_id}.json"
         if not meta_path.exists():
             raise KeyError(asset_id)
         payload = json.loads(meta_path.read_text(encoding="utf-8"))
         record = AssetRecord(**payload)
         path = Path(record.path).resolve()
-        if self.root not in path.parents or not path.exists():
+        if (
+            record.tenant_id != tenant_id
+            or self.root not in path.parents
+            or not path.exists()
+        ):
             raise KeyError(asset_id)
         return record
 
-    def resolve(self, asset_id: str) -> Path:
-        return Path(self.get(asset_id).path)
+    def resolve(self, asset_id: str, *, tenant_id: str = "default") -> Path:
+        return Path(self.get(asset_id, tenant_id=tenant_id).path)
 
-    def delete(self, asset_id: str) -> bool:
+    def delete(self, asset_id: str, *, tenant_id: str = "default") -> bool:
         try:
-            record = self.get(asset_id)
+            record = self.get(asset_id, tenant_id=tenant_id)
         except KeyError:
             return False
         Path(record.path).unlink(missing_ok=True)
-        (self.root / f"{asset_id}.json").unlink(missing_ok=True)
+        self._tenant_root(tenant_id).joinpath(f"{asset_id}.json").unlink(
+            missing_ok=True
+        )
         return True
 
     def cleanup(self, *, older_than_seconds: float) -> int:

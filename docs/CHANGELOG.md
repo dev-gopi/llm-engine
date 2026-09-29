@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Tenant-scoped media assets now prevent cross-tenant reads, deletion, and Omni processing; Omni providers are cached and synchronous media work is offloaded from the event loop. Voice cloning now requires a short-lived server-verified consent assertion bound to the tenant and reference asset, and realtime cancellation cancels active generation tasks.
 - Unified Omni routes with the configured serving authentication policy, so `authentication_enabled: false` now consistently disables API-key enforcement across all protected transports.
 
 - Fixed OIDC-only realtime WebSocket authentication and added the explicit `authentication_enabled` serving switch (`GOPI_AUTHENTICATION_ENABLED`) for controlled local enablement or disablement.

@@ -315,8 +315,12 @@ class ServingSettings:
             ),
             cors_origins=origins,
             authentication_enabled=(
-                _environment_flag("GOPI_AUTHENTICATION_ENABLED", bool(serving.get("authentication_enabled", False)))
-                if "GOPI_AUTHENTICATION_ENABLED" in os.environ or "authentication_enabled" in serving
+                _environment_flag(
+                    "GOPI_AUTHENTICATION_ENABLED",
+                    bool(serving.get("authentication_enabled", False)),
+                )
+                if "GOPI_AUTHENTICATION_ENABLED" in os.environ
+                or "authentication_enabled" in serving
                 else None
             ),
             api_key=os.getenv("GOPI_API_KEY") or None,
@@ -857,7 +861,7 @@ def create_app(
                     return response
                 principal = AuthPrincipal(
                     subject="api-key",
-                    tenant_id=request.headers.get("X-Tenant-ID", "default"),
+                    tenant_id="api-key",
                     roles=("developer",),
                 )
             else:

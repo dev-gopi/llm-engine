@@ -755,10 +755,14 @@ def test_authentication_enabled_switch_and_realtime_oidc_guard(monkeypatch):
                 raise ValueError("invalid token")
 
     assert not ServingSettings(authentication_enabled=False).authentication_required
-    assert ServingSettings(api_key="secret", authentication_enabled=True).authentication_required
+    assert ServingSettings(
+        api_key="secret", authentication_enabled=True
+    ).authentication_required
     with pytest.raises(ValueError, match="requires GOPI_API_KEY or enabled OIDC"):
         ServingSettings(authentication_enabled=True)
-    assert not _authorized({}, ServingSettings(oidc_enabled=True), FakeOIDC(), websocket=True)
+    assert not _authorized(
+        {}, ServingSettings(oidc_enabled=True), FakeOIDC(), websocket=True
+    )
     assert _authorized(
         {"sec-websocket-protocol": "bearer, valid-token"},
         ServingSettings(oidc_enabled=True),
