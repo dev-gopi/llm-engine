@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from utils.logger import get_logger
 
+from .auth import AuthPrincipal, extract_websocket_bearer
 from .runtime import ServingError
 from .schemas import (
     ErrorDetail,
@@ -29,24 +30,29 @@ router = APIRouter()
 @router.websocket("/v1/generate/stream")
 async def generate_stream(websocket: WebSocket) -> None:
     settings = websocket.app.state.settings
-    if settings.api_key:
-        supplied = websocket.headers.get("authorization", "").removeprefix("Bearer ")
-        protocols = [
-            value.strip()
-            for value in websocket.headers.get("sec-websocket-protocol", "").split(",")
-        ]
-        if len(protocols) >= 2 and protocols[0].lower() == "bearer":
-            supplied = protocols[1]
-        if not secrets.compare_digest(supplied, settings.api_key):
+    supplied, selected_protocol = extract_websocket_bearer(websocket.headers)
+    principal = None
+    oidc = getattr(websocket.app.state, "oidc", None)
+    if oidc is not None:
+        try:
+            principal = oidc.authenticate(supplied)
+        except Exception:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
+    elif settings.api_key:
+        if not supplied or not secrets.compare_digest(supplied, settings.api_key):
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        principal = AuthPrincipal(subject="api-key", roles=("developer",))
+    else:
+        principal = AuthPrincipal(subject="anonymous")
     origin = websocket.headers.get("origin")
     if origin and settings.cors_origins and "*" not in settings.cors_origins:
         if origin not in settings.cors_origins:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=selected_protocol)
     runtime = websocket.app.state.runtime
     while True:
         request_id: str | None = None
@@ -68,6 +74,13 @@ async def generate_stream(websocket: WebSocket) -> None:
                 )
                 continue
             request = GenerateRequest.model_validate(payload)
+            request = request.model_copy(
+                update={
+                    "tenant_id": principal.tenant_id,
+                    "user_id": principal.subject,
+                    "route": request.route or "/v1/generate/stream",
+                }
+            )
             request_id = f"gen_{uuid.uuid4().hex}"
             await websocket.send_json(
                 StreamStartEvent(

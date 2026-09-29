@@ -319,15 +319,23 @@ def test_browser_playground_is_served():
     assert "/resources?context_length=" in script.text
 
 
-def test_health_reports_whether_the_browser_must_supply_an_api_key():
+def test_health_reports_whether_the_browser_must_supply_authentication():
     open_app = create_app(FakeBackend(), settings=settings())
     protected_app = create_app(FakeBackend(), settings=settings(api_key="secret"))
+    oidc_app = create_app(
+        FakeBackend(),
+        settings=settings(oidc_enabled=True, oidc_hs256_secret="oidc-secret"),
+    )
     assert (
         request(open_app, "GET", "/health/ready").json()["authentication_required"]
         is False
     )
     assert (
         request(protected_app, "GET", "/health/ready").json()["authentication_required"]
+        is True
+    )
+    assert (
+        request(oidc_app, "GET", "/health/ready").json()["authentication_required"]
         is True
     )
 
@@ -625,10 +633,12 @@ class FakeWebSocket:
         self.messages = list(messages)
         self.sent = []
         self.accepted = False
+        self.accepted_subprotocol = None
         self.closed_code = None
 
-    async def accept(self):
+    async def accept(self, subprotocol=None):
         self.accepted = True
+        self.accepted_subprotocol = subprotocol
 
     async def close(self, code):
         self.closed_code = code
@@ -771,7 +781,34 @@ def test_websocket_accepts_bearer_subprotocol_authentication():
 
     websocket = asyncio.run(scenario())
     assert websocket.accepted
+    assert websocket.accepted_subprotocol == "bearer"
     assert websocket.closed_code is None
+
+
+def test_websocket_uses_oidc_authentication_when_enabled():
+    class FakeOIDC:
+        def authenticate(self, token):
+            if token != "valid-oidc-token":
+                raise ValueError("invalid token")
+            from serving.auth import AuthPrincipal
+
+            return AuthPrincipal(subject="user-123", tenant_id="tenant-7")
+
+    async def scenario(token):
+        app = create_app(FakeBackend(), settings=settings())
+        app.state.oidc = FakeOIDC()
+        websocket = FakeWebSocket(app, [{"prompt": "hello"}])
+        websocket.headers["sec-websocket-protocol"] = f"bearer, {token}"
+        await generate_stream(websocket)
+        return websocket
+
+    accepted = asyncio.run(scenario("valid-oidc-token"))
+    rejected = asyncio.run(scenario("bad-token"))
+    assert accepted.accepted
+    assert accepted.accepted_subprotocol == "bearer"
+    assert accepted.sent[-1]["type"] == "done"
+    assert not rejected.accepted
+    assert rejected.closed_code == 1008
 
 
 def test_runtime_rejects_saturated_queue():

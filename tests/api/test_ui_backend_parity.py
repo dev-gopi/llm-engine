@@ -47,10 +47,12 @@ def test_ui_does_not_store_secret_credentials():
     assert "adminApiKey" not in settings_block
 
 
-def test_ui_defers_protected_requests_until_an_api_key_is_entered():
+def test_ui_defers_protected_requests_until_authentication_is_entered():
     script = (ROOT / "ui" / "app.js").read_text(encoding="utf-8")
     assert "authenticationRequired=!!body.authentication_required" in script
-    assert "This server requires an API key." in script
+    assert "This server requires authentication." in script
+    assert "function bearerToken" in script
+    assert "replace(/^Bearer\\s+/i" in script
     assert 'el.apiKey.addEventListener("change",checkHealth)' in script
     assert "function adminHeaders" in script
 

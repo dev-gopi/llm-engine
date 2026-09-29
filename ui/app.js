@@ -51,9 +51,14 @@ sessionStorage.setItem(ACTIVE_KEY, sessionId);
 
 const text = (v) => String(v ?? "").trim();
 function apiBase() { const value=el.baseUrl.value.trim().replace(/\/$/, "") || window.location.origin; const url=new URL(value); if(!["http:","https:"].includes(url.protocol)) throw new Error("API base URL must use http:// or https://."); return url.toString().replace(/\/$/,""); }
+function bearerToken() {
+  const value=el.apiKey.value.trim();
+  return value.replace(/^Bearer\s+/i, "").trim();
+}
 function authHeaders(extra = {}) {
   const headers = { ...extra };
-  if (el.apiKey.value.trim()) headers.Authorization = `Bearer ${el.apiKey.value.trim()}`;
+  const token=bearerToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
 function adminHeaders(extra = {}) {
@@ -266,7 +271,7 @@ async function refreshServerHistory() {
 
 function validateUi() {
   const p=text(el.prompt.value); if(!p && !el.attachments.files.length) return "Add a message or a media attachment.";
-  if(authenticationRequired && !el.apiKey.value.trim()) return "This server requires an API key. Enter GOPI_API_KEY in Connection settings, then try again.";
+  if(authenticationRequired && !bearerToken()) return "This server requires authentication. Enter the configured API key or OIDC bearer token in Connection settings, then try again.";
   if(p.length>262144) return "Message is too long. Maximum length is 262,144 characters.";
   const nums=[
     ["maximum tokens",Number(el.maxTokens.value),1,8192], ["temperature",Number(el.temperature.value),0,2], ["top K",Number(el.topK.value),0,100000],
@@ -353,7 +358,7 @@ function websocketUrl() { const u=new URL(apiBase()); u.protocol=u.protocol==="h
 async function generateNativeStream(payload,target) {
   return new Promise((resolve,reject)=>{
     try {
-      const protocols=el.apiKey.value.trim()?["bearer",el.apiKey.value.trim()]:undefined; activeSocket=new WebSocket(websocketUrl(),protocols); let buffer="", result="";
+      const token=bearerToken(); const protocols=token?["bearer",token]:undefined; activeSocket=new WebSocket(websocketUrl(),protocols); let buffer="", result="";
       activeSocket.onopen=()=>activeSocket.send(JSON.stringify(payload));
       activeSocket.onmessage=(event)=>{ let data; try{data=JSON.parse(event.data);}catch{return;} if(data.error){reject(new Error(data.error.message||"Streaming generation failed.")); return;} if(data.token){result+=data.token; setMessageContent(target,result,el.responseFormat.value);} if(data.usage) updateUsage(data.usage,data.finish_reason||"completed"); if(data.finish_reason!==undefined && data.type==="done"){ resolve(result); activeSocket?.close(1000); } };
       activeSocket.onerror=()=>reject(new Error("WebSocket streaming failed. Check the API URL, CORS, and authentication."));
@@ -423,7 +428,7 @@ function updateUsage(usage,reason) { if(usage){const extras=[];if(usage.cached_t
 async function cancelActiveRequest() {
   const id=activeRequestId;
   activeRequestId=null;
-  if(!id || !el.apiKey.value.trim()) return;
+  if(!id || !bearerToken()) return;
   try {
     await request(`/v1/requests/${encodeURIComponent(id)}/cancel`,{method:"POST",headers:authHeaders()});
   } catch { /* transport may already be gone; local abort still stops the browser stream */ }
@@ -452,7 +457,7 @@ async function generate() {
 }
 
 async function checkHealth() {
-  try { const response=await request("/health/ready",{headers:authHeaders()}); const body=await response.json(); authenticationRequired=!!body.authentication_required; el.healthText.textContent=body.ready?"Server ready":"Server not ready"; el.health.classList.toggle("online",!!body.ready); if(authenticationRequired&&!el.apiKey.value.trim()){el.modelSummary.textContent="API key required. Enter GOPI_API_KEY in Connection settings to use protected API features.";el.historyStatus.textContent="Server API key required; local history remains available.";return;} await refreshModel(); await refreshServerHistory(); }
+  try { const response=await request("/health/ready",{headers:authHeaders()}); const body=await response.json(); authenticationRequired=!!body.authentication_required; el.healthText.textContent=body.ready?"Server ready":"Server not ready"; el.health.classList.toggle("online",!!body.ready); if(authenticationRequired&&!bearerToken()){el.modelSummary.textContent="Authentication required. Enter the configured API key or OIDC bearer token in Connection settings to use protected API features.";el.historyStatus.textContent="Server authentication required; local history remains available.";return;} await refreshModel(); await refreshServerHistory(); }
   catch(error){ el.healthText.textContent="Server offline"; el.health.classList.remove("online"); el.modelSummary.textContent=error.message; }
 }
 async function refreshModel() {

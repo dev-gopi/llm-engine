@@ -62,6 +62,7 @@ from .auth import (
     OIDCConfig,
     RBACPolicy,
     TenantQuotaLimiter,
+    extract_bearer_token,
 )
 from .backend import backend_from_environment
 from .distributed_state import RedisIdempotencyStore, RedisRateLimiter
@@ -804,7 +805,7 @@ def create_app(
             or (settings.protect_metrics and request.url.path == "/metrics")
         )
         if protected_path:
-            bearer = request.headers.get("Authorization", "").removeprefix("Bearer ")
+            bearer = extract_bearer_token(request.headers.get("Authorization"))
             principal = None
             if oidc is not None:
                 try:
@@ -943,9 +944,9 @@ def create_app(
         if principal is not None and RBACPolicy.allowed(principal, "admin"):
             return None
         admin_key = settings.admin_api_key
-        supplied = request.headers.get("X-Admin-API-Key") or request.headers.get(
-            "Authorization", ""
-        ).removeprefix("Bearer ")
+        supplied = request.headers.get("X-Admin-API-Key") or extract_bearer_token(
+            request.headers.get("Authorization")
+        )
         if not admin_key:
             return _error_response(
                 request,
@@ -2400,7 +2401,7 @@ def _health(
         version=SERVICE_VERSION,
         model=settings.model_name,
         ready=runtime.ready,
-        authentication_required=bool(settings.api_key),
+        authentication_required=bool(settings.api_key or settings.oidc_enabled),
     )
 
 

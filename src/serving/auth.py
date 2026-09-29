@@ -12,6 +12,32 @@ except ImportError:  # pragma: no cover
     jwt = None
 
 
+def extract_bearer_token(authorization: str | None) -> str:
+    """Return a normalized bearer token or an empty string."""
+    value = (authorization or "").strip()
+    if not value:
+        return ""
+    parts = value.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return ""
+    return parts[1].strip()
+
+
+def extract_websocket_bearer(headers) -> tuple[str, str | None]:
+    """Extract browser WebSocket auth and the subprotocol to acknowledge."""
+    supplied = extract_bearer_token(headers.get("authorization"))
+    protocols = [
+        value.strip()
+        for value in headers.get("sec-websocket-protocol", "").split(",")
+        if value.strip()
+    ]
+    selected_protocol = None
+    if len(protocols) >= 2 and protocols[0].lower() == "bearer":
+        supplied = protocols[1].strip()
+        selected_protocol = protocols[0]
+    return supplied, selected_protocol
+
+
 @dataclass(frozen=True)
 class AuthPrincipal:
     subject: str
@@ -136,6 +162,8 @@ class RBACPolicy:
 
 
 __all__ = [
+    "extract_bearer_token",
+    "extract_websocket_bearer",
     "AuthPrincipal",
     "OIDCConfig",
     "OIDCAuthenticator",
