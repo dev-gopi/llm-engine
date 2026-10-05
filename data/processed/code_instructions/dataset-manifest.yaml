@@ -1,0 +1,10 @@
+schema_version: 1
+name: Python code instructions processed data
+source: iamtarun/python_code_instructions_18k_alpaca
+version: local-chat-conversion-v1
+license:
+  identifier: LicenseRef-Unverified-Upstream
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages: [sft]
+privacy_review: unreviewed

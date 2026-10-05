@@ -1,0 +1,13 @@
+schema_version: 1
+name: Hindi Indian History QA compact subset
+source: kaifahmad/indian-history-hindi-QA-3.4k
+version: huggingface-parquet-2026-08-30
+license:
+  identifier: Apache-2.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Full source downloaded; blank, duplicate, and overlength rows removed so answers fit the 128-token CPU profile.

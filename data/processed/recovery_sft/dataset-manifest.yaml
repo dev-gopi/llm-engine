@@ -1,0 +1,13 @@
+schema_version: 1
+name: Gopi cleaned recovery SFT mixture
+source: Derived from locally governed SFT sources listed in scripts/prepare_recovery_sft.py
+version: '1'
+license:
+  identifier: LicenseRef-Mixed-Upstream
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Generated files preserve source attribution per record; review every upstream source before distribution or commercial use.

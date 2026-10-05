@@ -1,0 +1,13 @@
+schema_version: 1
+name: Bhasha SFT Hindi news subset
+source: soketlabs/bhasha-sft
+version: aya_templated_hindi_news-huggingface-parquet-2026-09-02
+license:
+  identifier: mixed-CC-BY-4.0-Apache-2.0-MIT
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Bounded deterministic subset; review the selected Bhasha source component and generated content before release.

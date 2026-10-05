@@ -1,0 +1,21 @@
+{
+  "source": "ylecun/mnist",
+  "config": "mnist",
+  "license": "MIT for the default ylecun/mnist dataset; verify when overriding",
+  "labels": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9"
+  ],
+  "counts": {
+    "train": 1000,
+    "validation": 200
+  }
+}

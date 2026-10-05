@@ -1,0 +1,13 @@
+schema_version: 1
+name: CodeFeedback filtered instruction subset
+source: m-a-p/CodeFeedback-Filtered-Instruction
+version: huggingface-parquet-2026-09-02
+license:
+  identifier: Apache-2.0
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Bounded subset; the dataset card notes mixed upstream and model-generated sources that require policy review.

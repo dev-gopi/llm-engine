@@ -33,29 +33,42 @@ deploy/certs/
 
 # Datasets and generated caches
 data/*
+!data/.gitkeep
+!data/raw/
+!data/processed/
+!data/cache/
+!data/cleaned/
+!data/rag/
+!data/shards/
+!data/images/
+!data/tokenizer/
+!data/tokenizer-*/
 data/raw/*
-data/processed/*
-data/cache/*
-data/cleaned/*
-data/rag/*
-data/shards/*
-data/images/*
-data/tokenizer/*
-data/tokenizer-*/*
 !data/raw/.gitkeep
+data/processed/*
 !data/processed/.gitkeep
 !data/processed/*/
 data/processed/*/*
 !data/processed/*/README.md
 !data/processed/*/dataset-manifest.yaml
+data/cache/*
 !data/cache/.gitkeep
+data/cleaned/*
 !data/cleaned/.gitkeep
+data/rag/*
 !data/rag/.gitkeep
 !data/rag/wikipedia/
 data/rag/wikipedia/*
 !data/rag/wikipedia/dataset-manifest.yaml
+data/shards/*
 !data/shards/.gitkeep
+data/images/*
+!data/images/hf-mnist/
+data/images/hf-mnist/*
+!data/images/hf-mnist/manifest.json
+data/tokenizer/*
 !data/tokenizer/.gitkeep
+data/tokenizer-*/*
 
 # Training checkpoints and generated model exports
 checkpoints/*

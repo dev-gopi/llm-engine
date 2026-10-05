@@ -1,0 +1,13 @@
+schema_version: 1
+name: Bangla Instruction Reading QA
+source: kamruzzaman-asif/bangla-instruction-dataset:RQA
+version: huggingface-parquet-2026-08-30
+license:
+  identifier: Apache-2.0
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Full RQA partition converted to deterministic disjoint splits; contexts are token-budgeted so answers remain supervised in 128 tokens.

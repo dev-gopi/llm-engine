@@ -1,0 +1,11 @@
+schema_version: 1
+name: Gopi core behavior set
+source: gopi/core-chat-v1
+version: '1'
+license:
+  identifier: LicenseRef-Project-Owned
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: reviewed

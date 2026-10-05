@@ -1,0 +1,13 @@
+schema_version: 1
+name: Gopi emoji understanding set
+source: gopi/emoji-chat-v1
+version: '1'
+license:
+  identifier: LicenseRef-Project-Owned
+  review_status: reviewed
+  commercial_use: allowed
+allowed_stages:
+  - sft
+privacy_review: reviewed
+review_notes:
+  basis: Project-authored factual examples containing no personal information.

@@ -1,0 +1,13 @@
+schema_version: 1
+name: MathInstruct reasoning subset
+source: TIGER-Lab/MathInstruct
+version: huggingface-parquet-2026-09-02
+license:
+  identifier: mixed
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Bounded mixed-source subset generated with math50k_camel and gsm_rft excluded; verify every retained source license before commercial use.

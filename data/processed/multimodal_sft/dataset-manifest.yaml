@@ -1,0 +1,18 @@
+schema_version: 2
+domain: multimodal
+subdomain: image_text_instruction
+review_status: fixture
+activation: blocked_until_dataset_review
+provenance:
+  upstream: repository-local synthetic fixture
+  acquisition: generated_for_unit_tests
+  acquired_at: '2026-09-21'
+  content_sha256: null
+quality:
+  status: pending_real_corpus_audit
+contamination_audit:
+  status: pending_real_corpus_audit
+license:
+  status: internal_fixture_only
+privacy:
+  status: synthetic

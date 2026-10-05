@@ -1,0 +1,13 @@
+schema_version: 1
+name: Formatted Hindi-Hinglish chain-of-thought conversations
+source: Subh775/formatted-hindi-hinglish-cot
+version: local-chat-conversion-v1
+license:
+  identifier: LicenseRef-Unverified-Upstream
+  review_status: unreviewed
+  commercial_use: unknown
+allowed_stages:
+  - sft
+privacy_review: unreviewed
+review_notes:
+  basis: Local processed conversation files; upstream license and privacy review must be completed before distribution or commercial use.
