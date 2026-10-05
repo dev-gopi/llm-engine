@@ -1,0 +1,33 @@
+# Omni multimodal local profile tailored for 4 GB consumer GPUs.
+version: "2026.1-local-4gb"
+platform:
+  device: auto
+  mixed_precision: fp16
+  max_memory_budget_gb: 3.8
+  enable_cpu_offload: true
+runtime:
+  text_model: configs/general_chat_4gb/model.yaml
+  text_checkpoint: checkpoints/general_chat_4gb/polish/best.pt
+  tokenizer: data/general_chat_4gb/tokenizer
+  vision_model: configs/vision/model.small.yaml
+  audio_model: configs/audio_generation/local_4gb.yaml
+responses:
+  max_text_tokens: 256
+  temperature: 0.7
+  top_p: 0.9
+  stream_chunks: true
+speech:
+  enabled: true
+  sample_rate: 16000
+  streaming_chunk_ms: 200
+  target_latency_ms: 350
+video_understanding:
+  enabled: true
+  max_frames: 4
+  frame_resolution: [224, 224]
+resources:
+  kv_cache_budget_mb: 256
+  activation_checkpointing: true
+observability:
+  log_level: INFO
+  telemetry_interval_sec: 5.0

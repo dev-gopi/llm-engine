@@ -1,0 +1,14 @@
+# Diffusion image generation inference pipeline configuration.
+model_config: configs/diffusion/model.small.yaml
+image_size: 64
+image_channels: 3
+timesteps: 50
+sampler: ddim
+beta_schedule: linear
+guidance_scale: 7.5
+eta: 0.0
+num_samples: 4
+batch_size: 4
+device: auto
+weight_dtype: float16
+output_dir: generated_images

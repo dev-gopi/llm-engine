@@ -1,0 +1,9 @@
+# Omni unified inference serving configuration.
+extends: local_4gb.yaml
+serving:
+  host: "0.0.0.0"
+  port: 8080
+  websocket_path: "/v1/omni/stream"
+  rest_path: "/v1/chat/completions"
+  cors_origins: ["*"]
+  max_concurrent_connections: 8

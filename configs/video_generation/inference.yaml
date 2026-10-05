@@ -1,0 +1,12 @@
+# Video generation inference configuration.
+height: 256
+width: 256
+frames: 16
+fps: 8
+guidance_scale: 7.5
+timesteps: 50
+sampler: ddim
+motion_bucket_id: 127
+device: auto
+weight_dtype: float16
+output_dir: generated_video

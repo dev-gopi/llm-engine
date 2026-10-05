@@ -1,0 +1,18 @@
+# Shared inference runtime defaults. Explicit CLI options take priority.
+temperature: 0.7
+top_p: 0.9
+top_k: 50
+repetition_penalty: 1.05
+no_repeat_ngram_size: 0
+max_new_tokens: 512
+min_tokens: 1
+streaming: true
+kv_cache: true
+paged_kv_cache: true
+block_size: 16
+weight_dtype: float16
+quantization: none
+device: auto
+stop_tokens:
+  - "<|eos|>"
+  - "<|pad|>"

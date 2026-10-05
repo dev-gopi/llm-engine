@@ -1,0 +1,11 @@
+# Audio generation inference configuration.
+sample_rate: 24000
+duration_seconds: 5.0
+channels: 1
+guidance_scale: 3.5
+timesteps: 50
+sampler: ddim
+temperature: 0.8
+device: auto
+weight_dtype: float16
+output_dir: generated_audio

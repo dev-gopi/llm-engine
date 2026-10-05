@@ -1,0 +1,28 @@
+# Low-VRAM multimodal SFT training profile optimized for 4 GB GPUs.
+extends: ../defaults/training-runtime.yaml
+vision_config: configs/vision/model.small.yaml
+language_config: configs/general_chat_4gb/model.yaml
+base_profile: configs/vision/multimodal.yaml
+stage: multimodal_sft
+seed: 42
+batch_size: 1
+gradient_accumulation_steps: 16
+learning_rate: 2.0e-05
+weight_decay: 0.01
+epochs: 3
+mixed_precision: fp16
+freeze_vision: true
+freeze_language: false
+gradient_checkpointing: true
+num_workers: 2
+pin_memory: true
+max_sequence_length: 512
+log_every: 10
+checkpoint_every: 200
+evaluate_every: 200
+runtime:
+  tokenizer: data/general_chat_4gb/tokenizer
+  output: checkpoints/multimodal/latest.pt
+  best_output: checkpoints/multimodal/best.pt
+  log_file: logs/multimodal.log
+  report_json: reports/multimodal.json
