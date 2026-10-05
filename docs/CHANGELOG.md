@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Fixed training-report checkpoint charts when several checkpoint artifacts are
+  saved at the same optimizer step. Each checkpoint kind now renders as its own
+  series, preventing misleading vertical line spikes.
 - Fixed eight core-model correctness issues: supplied KV caches are honored
   when gradient checkpointing is enabled; paged decoding respects each request's
   sliding window; YaRN applies frequency scaling once; top-1 MoE routers receive

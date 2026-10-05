@@ -29,6 +29,14 @@ def test_training_report_uses_four_separate_timing_charts() -> None:
     assert 'id="event-duration-chart"' not in template
 
 
+def test_training_report_separates_checkpoint_kinds_into_series() -> None:
+    template = REPORT_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "function checkpointTimingSeries(timings)" in template
+    assert "...checkpointTimingSeries(data.checkpoint_timings)" in template
+    assert "kind.replaceAll('_',' ')" in template
+
+
 def test_training_report_uses_operations_style_header() -> None:
     template = REPORT_TEMPLATE.read_text(encoding="utf-8")
 

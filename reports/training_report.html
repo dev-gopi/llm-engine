@@ -442,6 +442,20 @@
       if(followLatest&&!printing)requestAnimationFrame(()=>{scroller.scrollLeft=scroller.scrollWidth-scroller.clientWidth});
     }
 
+    function checkpointTimingSeries(timings) {
+      const byKind=new Map();
+      (timings||[]).forEach(timing=>{
+        if(!Number.isFinite(timing?.step)||!Number.isFinite(timing?.duration_seconds))return;
+        const kind=typeof timing.kind==='string'&&timing.kind?timing.kind:'checkpoint';
+        if(!byKind.has(kind))byKind.set(kind,[]);
+        byKind.get(kind).push([timing.step,timing.duration_seconds]);
+      });
+      const palette=['#a78bfa','#22d3ee','#34d399','#fbbf24','#fb7185'];
+      return [...byKind.entries()].map(([kind,points],index)=>({
+        name:`${kind.replaceAll('_',' ')} seconds`,points,color:palette[index%palette.length]
+      }));
+    }
+
     function categoryColor(index,total) {
       const hue=(index*137.508)%360;
       return `hsl(${hue.toFixed(1)} 72% ${index%2?62:52}%)`;
@@ -731,7 +745,7 @@
         {name:'log interval seconds',points:train.filter(v=>v.log_interval_seconds!=null).map(v=>[v.step,v.log_interval_seconds]),color:'#fbbf24'}
       ]);
       lineChart(document.getElementById('checkpoint-duration-chart'),[
-        {name:'checkpoint seconds',points:(data.checkpoint_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#a78bfa'}
+        ...checkpointTimingSeries(data.checkpoint_timings)
       ]);
       lineChart(document.getElementById('validation-duration-chart'),[
         {name:'validation seconds',points:(data.validation_timings||[]).filter(v=>v.duration_seconds!=null).map(v=>[v.step,v.duration_seconds]),color:'#fb7185'}
