@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Fixed eight core-model correctness issues: supplied KV caches are honored
+  when gradient checkpointing is enabled; paged decoding respects each request's
+  sliding window; YaRN applies frequency scaling once; top-1 MoE routers receive
+  prediction-loss gradients; MoE capacity limits split expert work instead of
+  dropping competing tokens; strict causal checkpoint loading rejects missing
+  or unexpected core weights in MTP models; BF16-model memory estimates account
+  for FP32 linear-attention state; and vocabulary resizing preserves frozen
+  output-head weights and biases. YaRN and top-1/capacity-limited MoE predictions
+  intentionally change while checkpoint tensor layouts remain compatible.
 - Tenant-scoped media assets now prevent cross-tenant reads, deletion, and Omni processing; Omni providers are cached and synchronous media work is offloaded from the event loop. Voice cloning now requires a short-lived server-verified consent assertion bound to the tenant and reference asset, and realtime cancellation cancels active generation tasks.
 - Unified Omni routes with the configured serving authentication policy, so `authentication_enabled: false` now consistently disables API-key enforcement across all protected transports.
 

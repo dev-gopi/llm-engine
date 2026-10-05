@@ -303,3 +303,91 @@ def test_mtp_resizes_token_embeddings() -> None:
     logits, aux = mtp(torch.randint(0, 40, (2, 8)), return_mtp_logits=True)
     assert logits.shape == (2, 8, 40)
     assert [item.shape for item in aux] == [(2, 8, 40), (2, 8, 40)]
+
+
+@pytest.mark.parametrize("cache_kind", ["tuple", "static", "linear"])
+@pytest.mark.parametrize("masked", [False, True])
+def test_checkpointing_with_prefix_cache_preserves_logits_and_gradients(
+    cache_kind, masked
+):
+    import copy
+
+    from model.kv_cache import StaticLayerKVCache
+
+    torch.manual_seed(31)
+    reference = MiniGPT(
+        vocab_size=32,
+        dim=16,
+        layers=2,
+        heads=4,
+        kv_heads=2,
+        position_type="rotary",
+        attention_pattern="linear" if cache_kind == "linear" else "dense",
+    ).train()
+    checkpointed = copy.deepcopy(reference)
+    checkpointed.gradient_checkpointing_enable()
+    tokens = torch.tensor([[1, 2, 3, 4, 5]])
+    mask = torch.ones_like(tokens) if masked else None
+    outputs = []
+    for model in (reference, checkpointed):
+        with torch.no_grad():
+            _, cache = model(tokens[:, :3], use_cache=True)
+        if cache_kind == "static":
+            cache = tuple(StaticLayerKVCache(k, v, capacity=8) for k, v in cache)
+        logits = model(tokens[:, 3:], attention_mask=mask, past_key_values=cache)
+        logits.square().mean().backward()
+        outputs.append(logits.detach())
+        if cache_kind == "static":
+            assert all(layer.length == 5 for layer in cache)
+    torch.testing.assert_close(outputs[0], outputs[1])
+    for expected, actual in zip(reference.parameters(), checkpointed.parameters()):
+        torch.testing.assert_close(actual.grad, expected.grad)
+
+
+@pytest.mark.parametrize("corruption", ["missing", "unexpected"])
+def test_mtp_causal_checkpoint_loader_honors_strict(corruption):
+    base = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2)
+    model = MiniGPT(vocab_size=32, dim=8, layers=1, heads=2, mtp_num_predictions=1)
+    initial_mtp = model.mtp_heads[0].weight.detach().clone()
+    state = base.state_dict()
+    key = "blocks.0.ffn.in_proj.weight"
+    if corruption == "missing":
+        state.pop(key)
+    else:
+        key = "unknown.weight"
+        state[key] = torch.zeros(1)
+    with pytest.raises(RuntimeError, match=key):
+        model.load_causal_checkpoint_state_dict(state, strict=True)
+    result = model.load_causal_checkpoint_state_dict(state, strict=False)
+    assert key in (
+        result.missing_keys if corruption == "missing" else result.unexpected_keys
+    )
+    torch.testing.assert_close(model.mtp_heads[0].weight, initial_mtp)
+
+
+@pytest.mark.parametrize("tied", [False, True])
+@pytest.mark.parametrize("new_size", [24, 32, 40])
+def test_vocab_resize_preserves_individual_head_freeze_flags(tied, new_size):
+    model = MiniGPT(
+        vocab_size=32,
+        dim=8,
+        layers=1,
+        heads=2,
+        tie_word_embeddings=tied,
+        lm_head_bias=True,
+        mtp_num_predictions=2,
+    )
+    model.head.weight.requires_grad_(False)
+    model.mtp_heads[0].weight.requires_grad_(False)
+    model.mtp_heads[1].bias.requires_grad_(False)
+    before = {
+        name: (parameter.requires_grad, parameter.detach().clone())
+        for name, parameter in model.named_parameters()
+    }
+    model.resize_token_embeddings(new_size)
+    for name, parameter in model.named_parameters():
+        requires_grad, old = before[name]
+        assert parameter.requires_grad == requires_grad, name
+        rows = min(parameter.shape[0], old.shape[0])
+        torch.testing.assert_close(parameter[:rows], old[:rows])
+    assert (model.head.weight is model.tok.weight) == tied

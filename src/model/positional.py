@@ -136,7 +136,9 @@ class RotaryPositionalEmbedding(nn.Module):
         target_device = device if device is not None else self.inv_freq.device
         self.inv_freq = self._inverse_frequencies(target_device)
         t = torch.arange(seq_len, device=target_device, dtype=torch.float32)
-        if self.scaling_type in {"linear", "yarn"} and self.scaling_factor != 1.0:
+        # YaRN already blends scaled frequencies in _inverse_frequencies;
+        # scaling positions as well would interpolate them a second time.
+        if self.scaling_type == "linear" and self.scaling_factor != 1.0:
             t = t / self.scaling_factor
 
         freqs = torch.outer(t, self.inv_freq)

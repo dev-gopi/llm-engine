@@ -5,6 +5,80 @@ import torch.nn.functional as F
 from model.feed_forward import FeedForward, SparseMoE
 
 
+@pytest.mark.parametrize("capacity", [None, 0.25])
+def test_top_one_router_learns_from_prediction_loss_without_auxiliary_loss(capacity):
+    torch.manual_seed(41)
+    module = SparseMoE(
+        dim=8,
+        hidden_dim=16,
+        num_experts=4,
+        experts_per_token=1,
+        capacity_factor=capacity,
+    )
+    output = module(torch.randn(2, 4, 8))
+    F.cross_entropy(output.reshape(-1, 8), torch.arange(8)).backward()
+    gradient = module.router.weight.grad
+    assert gradient is not None and torch.isfinite(gradient).all()
+    assert gradient.abs().sum() > 0
+
+
+@pytest.mark.parametrize("top_k", [1, 2])
+@pytest.mark.parametrize("training", [False, True])
+def test_capacity_bounds_expert_calls_without_cross_token_competition(top_k, training):
+    import copy
+
+    torch.manual_seed(43)
+    module = SparseMoE(
+        dim=8,
+        hidden_dim=16,
+        num_experts=2,
+        experts_per_token=top_k,
+        capacity_factor=0.25,
+        min_capacity=1,
+    ).train(training)
+    reference = copy.deepcopy(module)
+    reference.capacity_factor = None
+    hidden = torch.randn(2, 4, 8)
+    call_sizes = []
+    handles = [
+        expert.register_forward_pre_hook(
+            lambda _, inputs: call_sizes.append(inputs[0].shape[0])
+        )
+        for expert in module.experts
+    ]
+    actual = module(hidden)
+    assert call_sizes and max(call_sizes) <= module.last_expert_capacity
+    assert module.last_dropped_route_fraction == 0
+    for handle in handles:
+        handle.remove()
+    expected = reference(hidden)
+    torch.testing.assert_close(actual, expected)
+    actual.square().sum().backward()
+    expected.square().sum().backward()
+    for actual_param, expected_param in zip(
+        module.parameters(), reference.parameters()
+    ):
+        torch.testing.assert_close(actual_param.grad, expected_param.grad)
+    independent = torch.stack(
+        [
+            torch.cat([module(row[None, i : i + 1])[0] for i in range(4)])
+            for row in hidden
+        ]
+    )
+    torch.testing.assert_close(actual, independent)
+
+
+@pytest.mark.parametrize("top_k", [1, 2])
+def test_sharded_moe_matches_single_device_routing(top_k):
+    from inference.parallel_runtime import MoETensorParallelAdapter
+
+    torch.manual_seed(47)
+    module = SparseMoE(dim=8, num_experts=4, experts_per_token=top_k).eval()
+    hidden = torch.randn(2, 3, 8)
+    shards = [MoETensorParallelAdapter(module, rank, 2).eval() for rank in range(2)]
+    torch.testing.assert_close(sum(shard(hidden) for shard in shards), module(hidden))
+
+
 def test_default_shape_and_hidden_expansion():
     module = FeedForward(dim=32)
     hidden_states = torch.randn(2, 7, 32)

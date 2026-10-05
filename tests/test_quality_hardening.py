@@ -33,7 +33,8 @@ def test_sparse_moe_capacity_metrics_and_router_z_loss() -> None:
     assert output.shape == (2, 4, 8)
     assert moe.last_router_z_loss is not None and torch.isfinite(moe.last_router_z_loss)
     assert moe.last_expert_capacity == 2
-    assert 0 < moe.last_dropped_route_fraction < 1
+    # Capacity now bounds each expert call without dropping competing routes.
+    assert moe.last_dropped_route_fraction == 0
     metrics = moe.routing_metrics()
     assert metrics["expert_capacity"] == 2
 

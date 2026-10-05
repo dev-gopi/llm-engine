@@ -185,12 +185,12 @@ class FeedForward(nn.Module):
 
 
 class SparseMoE(nn.Module):
-    """Top-k sparse mixture of feed-forward experts with capacity controls.
+    """Top-k sparse mixture of feed-forward experts with bounded dispatch.
 
     The default configuration preserves the historical unlimited-capacity
-    behaviour. ``capacity_factor`` can be enabled for production training to
-    bound per-expert work and expose overflow diagnostics without changing the
-    checkpoint layout.
+    behaviour. ``capacity_factor`` bounds each expert invocation by splitting
+    routes into chunks, without dropping tokens or coupling their predictions
+    to other tokens in the sequence/batch. Checkpoint layouts are unchanged.
     """
 
     def __init__(
@@ -309,7 +309,14 @@ class SparseMoE(nn.Module):
         top_logits, top_experts = torch.topk(
             router_logits, self.experts_per_token, dim=-1
         )
-        top_weights = F.softmax(top_logits.float(), dim=-1).to(tokens.dtype)
+        # A softmax over one selected logit is constant and has zero gradient.
+        # Top-1 uses its probability among all experts; top-k retains normalized
+        # mixture weights among the selected experts.
+        top_weights = (
+            router_probabilities.gather(1, top_experts)
+            if self.experts_per_token == 1
+            else F.softmax(top_logits.float(), dim=-1)
+        ).to(tokens.dtype)
 
         # Switch-style load balancing plus the router z-loss used by modern MoE
         # training recipes. The module exposes both unweighted signals so the
@@ -325,34 +332,13 @@ class SparseMoE(nn.Module):
         capacity = self._capacity(token_count)
         self.last_expert_capacity = capacity
         output = torch.zeros_like(tokens)
-        dropped_routes = 0
-        total_routes = token_count * self.experts_per_token
-
-        # Dispatch only selected tokens. With a capacity limit, retain the
-        # strongest routes for each expert deterministically and renormalize the
-        # kept weights per token so overflow does not silently shrink activations.
-        kept_by_expert: list[tuple[Tensor, Tensor, Tensor]] = []
-        kept_weight_sum = torch.zeros(
-            token_count, device=tokens.device, dtype=tokens.dtype
-        )
+        # Capacity limits execution chunk size, never which routes survive.
+        # Global route ranking would allow future tokens to change past logits.
+        routes_by_expert: list[tuple[Tensor, Tensor]] = []
         for expert_index in range(self.num_experts):
             token_index, route_index = torch.where(top_experts == expert_index)
-            if token_index.numel() == 0:
-                kept_by_expert.append(
-                    (token_index, route_index, top_weights.new_empty((0,)))
-                )
-                continue
             weights = top_weights[token_index, route_index]
-            if capacity is not None and token_index.numel() > capacity:
-                keep_order = torch.argsort(weights, descending=True, stable=True)[
-                    :capacity
-                ]
-                dropped_routes += int(token_index.numel() - capacity)
-                token_index = token_index.index_select(0, keep_order)
-                route_index = route_index.index_select(0, keep_order)
-                weights = weights.index_select(0, keep_order)
-            kept_weight_sum.index_add_(0, token_index, weights)
-            kept_by_expert.append((token_index, route_index, weights))
+            routes_by_expert.append((token_index, weights))
 
         ep_group = self.expert_parallel_group
         ep_active = (
@@ -370,15 +356,12 @@ class SparseMoE(nn.Module):
             route_token_indices: list[Tensor] = []
             route_expert_ids: list[Tensor] = []
             route_weights: list[Tensor] = []
-            for expert_index, (token_index, _, weights) in enumerate(kept_by_expert):
+            for expert_index, (token_index, weights) in enumerate(routes_by_expert):
                 if token_index.numel() == 0:
                     continue
                 route_token_indices.append(token_index)
                 route_expert_ids.append(torch.full_like(token_index, expert_index))
-                denom = kept_weight_sum.index_select(0, token_index).clamp_min(
-                    torch.finfo(weights.dtype).eps
-                )
-                route_weights.append(weights / denom)
+                route_weights.append(weights)
             if route_token_indices:
                 source_indices = torch.cat(route_token_indices)
                 expert_ids = torch.cat(route_expert_ids)
@@ -393,9 +376,10 @@ class SparseMoE(nn.Module):
                 for expert_index, expert in enumerate(self.experts):
                     selected = torch.where(routed_experts == expert_index)[0]
                     if selected.numel():
-                        routed_output.index_copy_(
-                            0, selected, expert(routed_tokens.index_select(0, selected))
-                        )
+                        for chunk in selected.split(capacity or selected.numel()):
+                            routed_output.index_copy_(
+                                0, chunk, expert(routed_tokens.index_select(0, chunk))
+                            )
                 returned = return_tokens_to_sources(
                     routed_output, metadata, group=ep_group
                 )
@@ -404,15 +388,19 @@ class SparseMoE(nn.Module):
                 )
         else:
             for expert_index, expert in enumerate(self.experts):
-                token_index, _, weights = kept_by_expert[expert_index]
+                token_index, weights = routes_by_expert[expert_index]
                 if token_index.numel() == 0:
                     continue
-                denom = kept_weight_sum.index_select(0, token_index).clamp_min(
-                    torch.finfo(weights.dtype).eps
-                )
-                normalized_weights = (weights / denom).unsqueeze(-1)
-                expert_output = expert(tokens.index_select(0, token_index))
-                output.index_add_(0, token_index, expert_output * normalized_weights)
+                chunk_size = capacity or token_index.numel()
+                for start in range(0, token_index.numel(), chunk_size):
+                    chunk = token_index[start : start + chunk_size]
+                    expert_output = expert(tokens.index_select(0, chunk))
+                    output.index_add_(
+                        0,
+                        chunk,
+                        expert_output
+                        * weights[start : start + chunk_size].unsqueeze(-1),
+                    )
 
         with torch.no_grad():
             entropy = (
@@ -422,7 +410,7 @@ class SparseMoE(nn.Module):
             )
             self.last_router_entropy = float(entropy)
             self.last_expert_load = tuple(float(value) for value in load)
-            self.last_dropped_route_fraction = dropped_routes / max(total_routes, 1)
+            self.last_dropped_route_fraction = 0.0
         return output.reshape(original_shape)
 
     def routing_metrics(self) -> dict[str, object]:

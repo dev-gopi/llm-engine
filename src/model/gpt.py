@@ -437,7 +437,15 @@ class MiniGPT(nn.Module):
         for index, block in enumerate(self.blocks):
             past_kv = past_key_values[index] if past_key_values is not None else None
 
-            if self.gradient_checkpointing and self.training and not use_cache:
+            # Cached calls may mutate static/paged state. Run them once through
+            # the ordinary path: replaying them in backward would append twice.
+            # Full-sequence training still checkpoints every block as usual.
+            if (
+                self.gradient_checkpointing
+                and self.training
+                and not use_cache
+                and past_kv is None
+            ):
 
                 def create_custom_forward(target_block: TransformerBlock):
                     def custom_forward(*inputs: Any) -> Tensor:
@@ -504,7 +512,14 @@ class MiniGPT(nn.Module):
                 for key, value in state_dict.items()
                 if not key.startswith("mtp_heads.")
             }
-            return self.load_state_dict(base_state, strict=False)
+            # Only the opt-in heads are exempt from the causal checkpoint
+            # contract. Keep their initialization while validating every core key.
+            base_state.update(
+                (key, value)
+                for key, value in self.state_dict().items()
+                if key.startswith("mtp_heads.")
+            )
+            return self.load_state_dict(base_state, strict=strict)
         return self.load_state_dict(state_dict, strict=strict)
 
     def tie_weights(self) -> None:
@@ -551,6 +566,9 @@ class MiniGPT(nn.Module):
                 replacement.bias.zero_()
                 replacement.bias[:rows].copy_(old_head.bias[:rows])
 
+        replacement.weight.requires_grad_(old_head.weight.requires_grad)
+        if replacement.bias is not None:
+            replacement.bias.requires_grad_(old_head.bias.requires_grad)
         self.head = replacement
         if self.mtp_num_predictions:
             new_mtp_heads = nn.ModuleList()
@@ -586,6 +604,9 @@ class MiniGPT(nn.Module):
                         mtp_replacement.bias[:mtp_rows].copy_(
                             old_mtp_head.bias[:mtp_rows]
                         )
+                mtp_replacement.weight.requires_grad_(old_mtp_head.weight.requires_grad)
+                if mtp_replacement.bias is not None:
+                    mtp_replacement.bias.requires_grad_(old_mtp_head.bias.requires_grad)
                 new_mtp_heads.append(mtp_replacement)
             self.mtp_heads = new_mtp_heads
         self.vocab_size = effective_size

@@ -190,13 +190,18 @@ class PagedLayerKVCache:
             self.allocator.lengths[request_id] for request_id in self.request_ids
         )
 
-    def pages(self) -> list[tuple[Tensor, Tensor, Tensor]]:
+    def pages(
+        self, *, window_size: int | None = None
+    ) -> list[tuple[Tensor, Tensor, Tensor]]:
         """Return ``(key, value, valid)`` page tensors for every table slot.
 
         Key/value tensors are ``[batch, kv_heads, page, head_dim]`` and the
         boolean validity mask is ``[batch, page]``.  No request cache is
-        concatenated or materialized.
+        concatenated or materialized. An optional decode window includes the
+        pending token, so at most ``window_size - 1`` cached tokens are valid.
         """
+        if window_size is not None and window_size < 1:
+            raise ValueError("window_size must be positive")
         tables = [self.allocator.tables[request_id] for request_id in self.request_ids]
         widths = max(map(len, tables))
         lengths = torch.tensor(
@@ -218,6 +223,14 @@ class PagedLayerKVCache:
             valid = torch.arange(
                 self.allocator.page_size, device=stored.device
             ).unsqueeze(0) < (lengths - slot * self.allocator.page_size).unsqueeze(1)
+            if window_size is not None:
+                positions = (
+                    torch.arange(self.allocator.page_size, device=stored.device)
+                    + slot * self.allocator.page_size
+                )
+                valid = valid & (
+                    positions.unsqueeze(0) >= (lengths - window_size + 1).unsqueeze(1)
+                )
             pages.append((stored[:, 0], stored[:, 1], valid))
         return pages
 

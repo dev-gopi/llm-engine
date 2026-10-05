@@ -5,6 +5,30 @@ from model.config import estimate_model_size, normalize_model_config
 from model.gpt import MiniGPT
 
 
+def test_hybrid_runtime_memory_estimate_matches_allocated_bf16_model_cache():
+    config = {
+        "vocab_size": 32,
+        "hidden_size": 16,
+        "layers": 2,
+        "heads": 4,
+        "kv_heads": 2,
+        "max_position": 8,
+        "position_type": "rotary",
+        "attention_layer_pattern": ["linear", "dense"],
+    }
+    model = MiniGPT.from_config(config, dtype=torch.bfloat16).eval()
+    with torch.no_grad():
+        _, (linear, dense) = model(torch.ones(1, 8, dtype=torch.long), use_cache=True)
+    linear_bytes = sum(
+        t.numel() * t.element_size() for t in (linear.key_sum, linear.key_value_sum)
+    )
+    dense_bytes = sum(t.numel() * t.element_size() for t in dense)
+    estimate = estimate_model_size(config)
+    assert estimate.linear_state_bytes_bf16_per_sequence == linear_bytes
+    assert estimate.kv_cache_bytes_bf16_per_sequence == dense_bytes
+    assert estimate.runtime_state_bytes_bf16_per_sequence == linear_bytes + dense_bytes
+
+
 def test_common_large_model_aliases_are_backward_compatible() -> None:
     config = normalize_model_config(
         {

@@ -49,6 +49,7 @@ class ModelSize:
     parameter_bytes_fp32: int
     parameter_bytes_bf16: int
     kv_cache_bytes_bf16_per_sequence: int
+    # Runtime storage for a BF16 model; recurrent accumulators remain FP32.
     linear_state_bytes_bf16_per_sequence: int = 0
     runtime_state_bytes_bf16_per_sequence: int = 0
     full_attention_layers: int = 0
@@ -190,7 +191,7 @@ def estimate_model_size(config: Mapping[str, Any]) -> ModelSize:
     # Embeddings, final norm, and head are active for every token.
     active_parameters = parameters - layers * (total_per_layer - active_per_layer)
     kv_bytes = kv_cache_elements * 2
-    linear_bytes = linear_state_elements * 2
+    linear_bytes = linear_state_elements * 4
     return ModelSize(
         parameters,
         active_parameters,

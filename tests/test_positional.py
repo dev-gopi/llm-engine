@@ -5,6 +5,26 @@ from model.gpt import MiniGPT
 from model.positional import PositionalEmbedding, SinusoidalPositionalEmbedding
 
 
+@pytest.mark.parametrize("length", [16, 1100])
+def test_yarn_tables_preserve_high_and_scale_low_frequency_phases(length):
+    from model.positional import RotaryPositionalEmbedding
+
+    baseline = RotaryPositionalEmbedding(16, max_position_embeddings=1024)
+    yarn = RotaryPositionalEmbedding(
+        16,
+        max_position_embeddings=1024,
+        scaling_type="yarn",
+        scaling_factor=4,
+    )
+    cos, sin = yarn(torch.zeros(1, 1, length, 16), seq_len=length)
+    positions = torch.arange(length, dtype=torch.float32)
+    # Check actual rotation tables, not just the intermediate frequency buffer.
+    for index, frequency in ((0, baseline.inv_freq[0]), (7, baseline.inv_freq[7] / 4)):
+        phases = positions * frequency
+        torch.testing.assert_close(cos[0, 0, :, index], phases.cos())
+        torch.testing.assert_close(sin[0, 0, :, index], phases.sin())
+
+
 def test_default_positions_and_shape() -> None:
     module = PositionalEmbedding(8, 4)
     tokens = torch.zeros((2, 3), dtype=torch.long)

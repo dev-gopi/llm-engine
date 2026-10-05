@@ -95,6 +95,17 @@ An atomic PyTorch checkpoint (`checkpoints/*/*.pt`) contains:
 - `config`: Complete copy of the model and training configuration.
 - `rng_state`: PyTorch, Python, and NumPy random number generator states for deterministic training resumption.
 
+`load_causal_checkpoint_state_dict(strict=True)` permits an ordinary causal
+checkpoint to initialize an MTP model while retaining initialized auxiliary
+heads. Missing or unexpected **core** keys still raise an error. Vocabulary
+resizing preserves each output-head weight/bias freeze flag and restores weight
+tying; resize before creating an optimizer.
+
+Gradient checkpointing remains enabled for full-sequence training. Calls with
+an existing KV cache use the ordinary block path, preserving prefix context
+and avoiding duplicate cache mutations during backward recomputation. Such
+cached training calls therefore do not receive activation-checkpoint savings.
+
 
 ---
 
@@ -113,18 +124,38 @@ attention_layer_pattern: [linear, linear, linear, dense]
 shapes but replaces softmax attention with an `ELU(x)+1` feature map. Prefill is
 processed in bounded chunks, and autoregressive decoding stores recurrent
 `key_sum` and `key_value_sum` state whose size does not grow with context.
+Both accumulators remain FP32, including with BF16 model weights. The estimator's
+`linear_state_bytes_bf16_per_sequence` and combined runtime-state fields include
+this four-byte storage; the BF16 label describes model execution precision.
 This is a **reference research implementation**, not an implementation of the
 architecture-specific Qwen linear-convolution layer.
 
 The optional `sliding_window` attention pattern applies the same configured
-local window during both full-sequence prefill and one-token KV-cache decoding.
+local window during full-sequence prefill and both contiguous and paged
+one-token KV-cache decoding. Paged batches use each request's own prefix length,
+and the window includes the current token.
 This preserves the model's receptive field rather than allowing cached decoding
 to see an unintended full prefix.
 
 Sparse MoE layers expose a Switch-style router balance signal. The trainer only
-adds it when `moe_aux_loss_weight` is non-zero, so existing dense and MoE
-checkpoints retain their previous inference behavior. The trainer also records
-router entropy/load diagnostics and the weighted auxiliary loss.
+adds it when `moe_aux_loss_weight` is non-zero. Top-1 routing weights the selected
+expert by its probability among all experts, allowing the prediction loss to
+train the router even without an auxiliary loss. For top-k with k > 1, weights
+remain normalized over the selected experts. The trainer also records router
+entropy/load diagnostics and the weighted auxiliary loss.
+
+`moe_capacity_factor` and `moe_min_capacity` bound the number of routed tokens
+processed by an expert in a single invocation. Overflow is processed in further
+chunks, in both training and evaluation, so predictions do not depend on future
+tokens or unrelated batch examples. No routes are dropped; the retained
+`dropped_route_fraction` metric is zero. This bounds per-call work, not total
+training activation storage. See [the dispatch decision](decisions/0001-causal-moe-dispatch.md).
+
+YaRN blends the original and stretched inverse frequencies once, then builds
+rotation tables using unscaled positions. These corrected YaRN and top-1 MoE
+semantics, and removal of capacity-based token dropping, intentionally change
+outputs from affected experimental checkpoints. Tensor names and shapes remain
+load-compatible; the default dense-GQA profile does not use these options.
 
 A planning-only 7B-class hybrid-MoE profile is provided at
 [`configs/scaling/model.hybrid-moe-7b.yaml`](../configs/scaling/model.hybrid-moe-7b.yaml).

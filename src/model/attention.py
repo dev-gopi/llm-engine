@@ -238,13 +238,20 @@ class MultiHeadAttention(nn.Module):
                     attention_mask = torch.cat(masks, dim=1)
                 past_length = cp_rank * query_length
 
+        apply_causal = self.causal if is_causal is None else bool(is_causal)
         if getattr(past_key_value, "is_paged_kv_cache", False):
             if attention_mask is not None:
                 raise ValueError("paged KV decode does not accept an attention_mask")
             if query_length != 1:
                 raise ValueError("paged KV cache supports decode queries of length one")
             past_length = past_key_value.length
-            attended = self._paged_attention(query, key, value, past_key_value)
+            attended = self._paged_attention(
+                query,
+                key,
+                value,
+                past_key_value,
+                window_size=self.attention_window if apply_causal else None,
+            )
             past_key_value.record_pending(key, value)
             present_key_value = past_key_value if use_cache else None
             output_width = self.heads * self.head_dim
@@ -275,7 +282,6 @@ class MultiHeadAttention(nn.Module):
         )
         key_length = key.size(2)
 
-        apply_causal = self.causal if is_causal is None else bool(is_causal)
         prepared_mask, kernel_is_causal = self._prepare_mask(
             attention_mask,
             batch_size=batch_size,
@@ -360,12 +366,23 @@ class MultiHeadAttention(nn.Module):
         return output
 
     def _paged_attention(
-        self, query: Tensor, key: Tensor, value: Tensor, cache: Any
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        cache: Any,
+        *,
+        window_size: int | None = None,
     ) -> Tensor:
         """Attend to page-table KV without rebuilding a contiguous cache tensor."""
         score_chunks: list[Tensor] = []
         value_chunks: list[Tensor] = []
-        for page_key, page_value, valid in cache.pages():
+        pages = (
+            cache.pages()
+            if window_size is None
+            else cache.pages(window_size=window_size)
+        )
+        for page_key, page_value, valid in pages:
             page_key = page_key.repeat_interleave(self.num_kv_groups, dim=1)
             page_value = page_value.repeat_interleave(self.num_kv_groups, dim=1)
             scores = torch.matmul(query, page_key.transpose(-2, -1)) / math.sqrt(
@@ -374,7 +391,9 @@ class MultiHeadAttention(nn.Module):
             score_chunks.append(
                 scores.masked_fill(~valid[:, None, None, :], float("-inf"))
             )
-            value_chunks.append(page_value)
+            # Unwritten page slots can contain NaNs; zero probabilities alone
+            # cannot suppress them during the value matmul (0 * NaN is NaN).
+            value_chunks.append(page_value.masked_fill(~valid[:, None, :, None], 0))
         current_key = key.repeat_interleave(self.num_kv_groups, dim=1)
         current_value = value.repeat_interleave(self.num_kv_groups, dim=1)
         score_chunks.append(

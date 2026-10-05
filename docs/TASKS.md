@@ -3,6 +3,22 @@
 This registry records active and planned repository tasks using stable IDs and
 explicit dependencies.
 
+### CORE-MODEL-001: Fix core-model review findings
+
+- **ID**: `CORE-MODEL-001`
+- **Status**: Complete
+- **Dependencies**: None
+
+Fixed the eight review findings covering cached training with checkpointing,
+paged sliding-window attention, YaRN scaling, top-1 MoE gradients, causal MoE
+capacity handling, strict MTP checkpoint loading, linear-state memory estimates,
+and frozen heads during vocabulary resizing. Added 28 regression cases; all 163
+targeted checks, including vocabulary compatibility, pass. Broader validation:
+1,186 passed, 4 skipped, and 1 deselected with local socket access for distributed
+CPU tests. The excluded dataset-governance test requires manifests already
+deleted in the workspace; those unrelated deletions remain unchanged. Ruff lint,
+format checks, and the task-registry audit pass.
+
 ### TRAINING-VALIDATION-001: Enable validation-driven plateau recovery
 
 - **ID**: `TRAINING-VALIDATION-001`
@@ -44,4 +60,3 @@ these fields and verifies that every listed dependency exists.
 - **Instruction:** `docs/BATCH21_IMPLEMENTATION_INSTRUCTIONS.md`
 - **Scope:** audit items 1–20 from the post-Batch-20 missing-feature audit.
 - **Rule:** remove an audit item only after source implementation, contract tests, regression validation, and documented runtime limitations are satisfied.
-

@@ -161,7 +161,11 @@ class MoETensorParallelAdapter(nn.Module):
         tokens = hidden_states.reshape(-1, self.dim)
         logits = self.router(tokens)
         top_logits, top_experts = torch.topk(logits, self.experts_per_token, dim=-1)
-        weights = torch.softmax(top_logits.float(), dim=-1).to(tokens.dtype)
+        weights = (
+            torch.softmax(logits.float(), dim=-1).gather(1, top_experts)
+            if self.experts_per_token == 1
+            else torch.softmax(top_logits.float(), dim=-1)
+        ).to(tokens.dtype)
         output = torch.zeros_like(tokens)
         local_map = {
             global_i: i for i, global_i in enumerate(self.global_expert_indices)

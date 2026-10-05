@@ -7,6 +7,54 @@ from inference.paged_kv_cache import PagedKVCache
 from model.attention import MultiHeadAttention
 
 
+@pytest.mark.parametrize("window", [1, 3, 8])
+def test_paged_sliding_window_matches_full_forward_for_ragged_batch(
+    window, monkeypatch
+):
+    torch.manual_seed(29)
+    module = MultiHeadAttention(
+        dim=16,
+        heads=4,
+        kv_heads=2,
+        attention_pattern="sliding_window",
+        attention_window=window,
+    ).eval()
+    prefixes = [torch.randn(1, length, 16) for length in (2, 5)]
+    allocator = PagedKVCache(
+        num_pages=8,
+        page_size=2,
+        layers=1,
+        kv_heads=2,
+        head_dim=4,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    # Reserved but unwritten slots must never contribute, even if they contain NaNs.
+    allocator.storage.fill_(float("nan"))
+    request_ids = ["short", "long"]
+    with torch.no_grad():
+        for request_id, prefix in zip(request_ids, prefixes):
+            _, (key, value) = module(prefix, use_cache=True)
+            allocator.reserve(request_id, prefix.shape[1] + 2)
+            allocator.append(request_id, key, value)
+        monkeypatch.setattr(
+            allocator, "materialize", lambda _: pytest.fail("materialized paged KV")
+        )
+        for _ in range(2):
+            next_tokens = torch.randn(2, 1, 16)
+            prefixes = [
+                torch.cat((prefix, next_tokens[row : row + 1]), dim=1)
+                for row, prefix in enumerate(prefixes)
+            ]
+            expected = torch.cat([module(prefix)[:, -1:] for prefix in prefixes])
+            cache = allocator.layer_cache(request_ids, 0)
+            actual, _ = module(next_tokens, past_key_value=cache, use_cache=True)
+            torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
+            key, value = cache.pending
+            for row, request_id in enumerate(request_ids):
+                allocator.append(request_id, key[row : row + 1], value[row : row + 1])
+
+
 def manual_attention(
     module: MultiHeadAttention, hidden_states: torch.Tensor
 ) -> torch.Tensor:
