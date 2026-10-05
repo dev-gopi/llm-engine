@@ -322,10 +322,6 @@ def test_browser_playground_is_served():
 def test_health_reports_whether_the_browser_must_supply_authentication():
     open_app = create_app(FakeBackend(), settings=settings())
     protected_app = create_app(FakeBackend(), settings=settings(api_key="secret"))
-    oidc_app = create_app(
-        FakeBackend(),
-        settings=settings(oidc_enabled=True, oidc_hs256_secret="oidc-secret"),
-    )
     assert (
         request(open_app, "GET", "/health/ready").json()["authentication_required"]
         is False
@@ -333,6 +329,14 @@ def test_health_reports_whether_the_browser_must_supply_authentication():
     assert (
         request(protected_app, "GET", "/health/ready").json()["authentication_required"]
         is True
+    )
+    try:
+        import jwt  # noqa: F401
+    except ImportError:
+        return
+    oidc_app = create_app(
+        FakeBackend(),
+        settings=settings(oidc_enabled=True, oidc_hs256_secret="oidc-secret"),
     )
     assert (
         request(oidc_app, "GET", "/health/ready").json()["authentication_required"]
