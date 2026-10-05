@@ -12,6 +12,7 @@ htmlcov/
 .venv/
 venv/
 env/
+.*venv/
 
 # Build and packaging output
 build/
