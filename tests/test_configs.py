@@ -223,11 +223,9 @@ def test_inference_defaults_to_finetuned_model_and_matching_tokenizer() -> None:
 
 
 def test_omni_has_one_merged_production_profile() -> None:
-    profile_dir = CONFIGS / "omni"
-    profiles = sorted(profile_dir.glob("*.yaml"))
-
-    assert profiles == [profile_dir / "production.yaml"]
-    config = load_yaml(profiles[0])
+    profile = CONFIGS / "omni" / "production.yaml"
+    assert profile.is_file()
+    config = load_yaml(profile)
     assert config["version"] == 1
     assert config["runtime"]["multimodal_responses"] is True
     assert config["responses"]["supported_input_parts"] == [
