@@ -80,6 +80,64 @@ def test_epoch_history_includes_bounded_stability_diagnostics() -> None:
     assert record["logit_abs_max"] >= record["logit_abs_mean"]
 
 
+def test_max_steps_stops_at_an_optimizer_update_and_keeps_resume_position() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(
+        model,
+        build_adamw(model, learning_rate=1e-3),
+        gradient_accumulation_steps=2,
+    )
+    saved_states = []
+
+    history = trainer.fit(
+        list(make_loader()) * 4,
+        epochs=2,
+        max_steps=2,
+        log_every=0,
+        checkpoint_callback=lambda current, _epoch: saved_states.append(
+            current.state_dict()
+        ),
+    )
+
+    assert history == []
+    assert trainer.global_step == 2
+    assert trainer.batch_in_epoch == 4
+    assert saved_states[-1]["global_step"] == 2
+    assert saved_states[-1]["batch_in_epoch"] == 4
+
+
+def test_max_steps_rejects_non_positive_values() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+
+    with pytest.raises(ValueError, match="max_steps must be positive"):
+        trainer.fit(make_loader(), epochs=1, max_steps=0)
+
+
+def test_max_batches_stops_on_the_requested_microbatch() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(
+        model,
+        build_adamw(model, learning_rate=1e-3),
+        gradient_accumulation_steps=4,
+    )
+
+    trainer.fit(list(make_loader()) * 3, epochs=2, max_batches=3, log_every=0)
+
+    assert trainer.batches_processed == 3
+    assert trainer.global_step == 1
+
+
+def test_max_train_tokens_stops_after_the_reaching_batch() -> None:
+    model = MiniGPT(vocab_size=16, dim=8, layers=1, heads=2, max_pos=8)
+    trainer = Trainer(model, build_adamw(model, learning_rate=1e-3))
+
+    trainer.fit(list(make_loader()) * 3, epochs=2, max_train_tokens=1, log_every=0)
+
+    assert trainer.batches_processed == 1
+    assert trainer.tokens_processed >= 1
+
+
 def test_single_process_distributed_helpers() -> None:
     context = DistributedTrainer.initialize()
     assert context.world_size == 1

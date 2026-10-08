@@ -3,6 +3,49 @@
 This registry records active and planned repository tasks using stable IDs and
 explicit dependencies.
 
+### PRODUCTION-FEATURES-001: Implement and qualify production feature backlog
+
+- **ID**: `PRODUCTION-FEATURES-001`
+- **Status**: Complete
+- **Dependencies**: None
+
+The nineteen-item production feature backlog is tracked in
+`docs/PRODUCTION_FEATURE_CHECKLIST.md`. Code completion and target-runtime
+qualification are recorded separately so optional CUDA and vendor dependencies
+cannot be mistaken for production evidence.
+
+### PRODUCTION-PROFILE-001: Make production-profile qualification executable
+
+- **ID**: `PRODUCTION-PROFILE-001`
+- **Status**: Complete
+- **Dependencies**: None
+
+The profile-qualification CLI now executes reliably when invoked directly from
+the repository and records evidence for the 100B sparse-MoE, hybrid-MoE 7B,
+and 1T sparse-MoE profiles. A profile remains unqualified until its required
+target CUDA and multi-node hardware evidence is observed.
+
+### TRAINING-LOOP-001: Add an optimizer-step training limit
+
+- **ID**: `TRAINING-LOOP-001`
+- **Status**: Complete
+- **Dependencies**: None
+
+Language-model training now accepts an optional absolute `max_steps` limit from
+the training YAML or `--max-steps`. It stops only after a completed optimizer
+update, writes the standard resumable checkpoint with its in-epoch batch
+position, and uses the smaller epoch/step duration for a fresh scheduler plan.
+
+### TRAINING-LOOP-002: Add bounded-run and recovery controls
+
+- **ID**: `TRAINING-LOOP-002`
+- **Status**: Complete
+- **Dependencies**: TRAINING-LOOP-001
+
+The language-model trainer now supports global micro-batch and supervised-token
+limits, wall-clock checkpoint intervals, and optional automatic resume from the
+configured latest checkpoint. All termination paths save a resumable position.
+
 ### CORE-MODEL-001: Fix core-model review findings
 
 - **ID**: `CORE-MODEL-001`
@@ -54,9 +97,3 @@ The default remains one-pass prefill for unchanged behavior.
 When adding a task, use a level-three heading with a stable identifier, a
 matching `ID` field, and a `Dependencies` field. The registry audit validates
 these fields and verifies that every listed dependency exists.
-## Batch 21 — next 20 missing-feature implementation
-
-- **Status:** In progress; item 10 (recursive/dynamic JSON Schema references) completed and removed from the active audit.
-- **Instruction:** `docs/BATCH21_IMPLEMENTATION_INSTRUCTIONS.md`
-- **Scope:** audit items 1–20 from the post-Batch-20 missing-feature audit.
-- **Rule:** remove an audit item only after source implementation, contract tests, regression validation, and documented runtime limitations are satisfied.

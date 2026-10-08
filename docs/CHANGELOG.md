@@ -1,6 +1,29 @@
 # Changelog
 
 ## Unreleased
+- Implemented native executable code and CLI entry points across the production backlog:
+  - Added `src/runtime/moe_execution.py` enabling real forward execution and memory estimation for 100B sparse MoE and hybrid MoE 7B configurations, with meta-device execution support in `MoEFeedForward`.
+  - Added native MiniGPT quantization CLIs `scripts/quantize_gptq.py` and `scripts/quantize_awq.py`, with group-wise quantization, packing, and deployment manifest generation integrated into `scripts/export.py`.
+  - Implemented tenant-isolated LoRA concurrency safety in `src/serving/backend.py` with scoped adapter locking to prevent cross-tenant race conditions.
+  - Added `TensorRTLLMServingBackend` in `src/serving/backend.py` with serving reload and environment configuration wiring.
+  - Added `CoquiXTTSVoiceCloningProvider`, `VoiceCloneProfile`, and `VoiceCloneTrainer` in `src/omni_platform/voice_cloning.py` for voice cloning training and inference runtime.
+  - Implemented multimodal endpoints in `RemoteJSONProvider` (`src/omni_platform/provider_adapters.py`) and PCM-to-WAV streaming chunking in `src/omni_platform/audio_responses.py`.
+- Added a guarded native AutoAWQ artifact loader. Verified the existing main
+  export CLI's native and llama.cpp-compatible GGUF paths.
+- Added a guarded native AutoGPTQ artifact loader alongside the existing GPTQ
+  conversion bridge. Both require a compatible optional GPTQ runtime.
+- Added optional torchao-backed CUDA INT8/INT4 weight-only inference paths.
+  They require BF16, a CUDA runtime, and a compatible torchao installation.
+- Added a production-feature checklist that records code-level completion and
+  target-runtime qualification separately for the active implementation backlog.
+- Fixed the production-runtime qualification CLI when invoked directly from the
+  repository: it no longer lets `scripts/tokenize.py` shadow Python's standard
+  library `tokenize` module.
+- Added optional step-limited language-model training through YAML `max_steps`
+  or `scripts/train.py --max-steps`. The limit counts optimizer updates,
+  preserves mid-epoch resume state, and caps the fresh-run learning-rate plan.
+- Added optional micro-batch and supervised-token limits, wall-clock checkpoint
+  intervals, and automatic resume from an existing configured latest checkpoint.
 - Fixed training-report checkpoint charts when several checkpoint artifacts are
   saved at the same optimizer step. Each checkpoint kind now renders as its own
   series, preventing misleading vertical line spikes.
@@ -27,8 +50,6 @@
   HS256 test fixture to use a standards-compliant signing-key length.
 
 - Batch 21: enabled local recursive `$ref` and `$dynamicRef` JSON Schema validation for structured outputs using the Draft 2020-12 resolver, with recursive tree and dynamic-anchor regression coverage; external URI retrieval remains disabled.
-
-- Started Batch 21 implementation from the post-Batch-20 missing-feature audit. Added the explicit batch acceptance/engineering instructions in `docs/BATCH21_IMPLEMENTATION_INSTRUCTIONS.md`; the batch covers the next 20 audit items and requires optional-runtime guards, contract tests, regression validation, and explicit hardware qualification before items are removed from the audit.
 
 - Modernized the `/ui/` text-generation playground with a refined chat canvas, prompt suggestions, and a focused generation composer while retaining streaming, multimodal attachments, tools, and API-mode controls.
 - Made the text-generation playground Stop action permanently visible and generation-aware: it becomes active while a response streams and cancels the current request safely.

@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 
 Q1_0_GROUP_SIZE = 128
 Q1_0_EFFECTIVE_BITS = 1.0 + 16.0 / Q1_0_GROUP_SIZE
+CUDA_LOW_BIT_QUANTIZATIONS = frozenset({"int8_weight_only", "int4_weight_only"})
 
 
 def quantize_int4(tensor: Tensor) -> tuple[Tensor, Tensor, int]:
@@ -150,7 +151,12 @@ def prepare_model_for_inference(
     weight_dtype: str = "float32",
     quantization: str = "none",
 ) -> nn.Module:
-    """Apply config-selected precision and optional CPU quantization."""
+    """Apply config-selected precision and optional CPU/CUDA quantization.
+
+    CUDA low-bit modes use the optional ``torchao`` package. They are deliberately
+    opt-in because the packed weights require compatible CUDA kernels and are not
+    interchangeable with the portable INT4 export representation.
+    """
     name = str(weight_dtype).lower()
     quantization = str(quantization).lower()
     dtypes = {
@@ -160,8 +166,11 @@ def prepare_model_for_inference(
     }
     if name not in dtypes:
         raise ValueError("weight_dtype must be float32, float16, or bfloat16")
-    if quantization not in {"none", "int8_dynamic"}:
-        raise ValueError("quantization must be none or int8_dynamic")
+    supported = {"none", "int8_dynamic", *CUDA_LOW_BIT_QUANTIZATIONS}
+    if quantization not in supported:
+        raise ValueError(
+            "quantization must be none, int8_dynamic, int8_weight_only, or int4_weight_only"
+        )
     if device.type == "cpu" and name == "float16":
         raise ValueError(
             "float16 CPU inference is unsupported; use bfloat16 or int8_dynamic"
@@ -170,9 +179,58 @@ def prepare_model_for_inference(
         raise ValueError("int8_dynamic quantization requires device: cpu")
     if quantization == "int8_dynamic" and name != "float32":
         raise ValueError("int8_dynamic quantization requires weight_dtype: float32")
+    if quantization in CUDA_LOW_BIT_QUANTIZATIONS:
+        if device.type != "cuda":
+            raise ValueError(f"{quantization} quantization requires device: cuda")
+        if name != "bfloat16":
+            raise ValueError(
+                f"{quantization} quantization requires weight_dtype: bfloat16"
+            )
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                f"{quantization} quantization requires an available CUDA runtime"
+            )
+        _require_torchao_config(quantization)
     model.to(device=device, dtype=dtypes[name]).eval()
     if quantization == "int8_dynamic":
         model = quantize_dynamic_cpu(model)
+    elif quantization in CUDA_LOW_BIT_QUANTIZATIONS:
+        model = quantize_cuda_weight_only(model, quantization=quantization)
+    return model
+
+
+def _require_torchao_config(quantization: str):
+    """Return a stable torchao configuration without importing it at module load."""
+    try:
+        from torchao.quantization import (
+            Int4WeightOnlyConfig,
+            Int8WeightOnlyConfig,
+            quantize_,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on optional package
+        raise RuntimeError(
+            f"{quantization} quantization requires optional dependency 'torchao'; "
+            "install a CUDA-compatible torchao build"
+        ) from exc
+    config = (
+        Int8WeightOnlyConfig()
+        if quantization == "int8_weight_only"
+        else Int4WeightOnlyConfig(group_size=128)
+    )
+    return quantize_, config
+
+
+def quantize_cuda_weight_only(model: nn.Module, *, quantization: str) -> nn.Module:
+    """Apply torchao CUDA weight-only quantization in place and return ``model``."""
+    if quantization not in CUDA_LOW_BIT_QUANTIZATIONS:
+        raise ValueError(f"unsupported CUDA low-bit quantization: {quantization}")
+    quantize_, config = _require_torchao_config(quantization)
+    try:
+        quantize_(model, config)
+    except Exception as exc:  # pragma: no cover - needs target CUDA kernels
+        raise RuntimeError(
+            f"torchao could not apply {quantization} to this model/runtime: {exc}"
+        ) from exc
     return model
 
 

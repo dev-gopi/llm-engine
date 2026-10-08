@@ -74,6 +74,7 @@ class Trainer:
         self.epochs_without_improvement = 0
         self.stopped_early = False
         self.tokens_processed = 0
+        self.batches_processed = 0
         self.training_seconds = 0.0
         self.nonfinite_updates = 0
         self.last_gradient_norm = float("nan")
@@ -527,11 +528,23 @@ class Trainer:
         best_checkpoint_min_generation_accuracy: float | None = None,
         validation_metric_name: str | None = None,
         validation_callback=None,
+        max_steps: int | None = None,
+        max_batches: int | None = None,
+        max_train_tokens: int | None = None,
+        checkpoint_interval_seconds: float | None = None,
         stop_requested=None,
         curriculum_schedule: CurriculumSchedule | None = None,
     ) -> list[dict[str, object]]:
         if epochs < 1:
             raise ValueError("epochs must be positive")
+        if max_steps is not None and max_steps < 1:
+            raise ValueError("max_steps must be positive")
+        if max_batches is not None and max_batches < 1:
+            raise ValueError("max_batches must be positive")
+        if max_train_tokens is not None and max_train_tokens < 1:
+            raise ValueError("max_train_tokens must be positive")
+        if checkpoint_interval_seconds is not None and checkpoint_interval_seconds <= 0:
+            raise ValueError("checkpoint_interval_seconds must be positive")
         if not isinstance(validation_lr_adaptation_enabled, bool):
             raise TypeError("validation_lr_adaptation_enabled must be a boolean")
         if (
@@ -601,12 +614,23 @@ class Trainer:
         batches_per_epoch = int(
             getattr(batch_sampler, "total_batches", len(dataloader))
         )
+        # Older checkpoints did not persist this counter. Their epoch and
+        # in-epoch position are enough to recover it for a stable loader.
+        if self.batches_processed == 0 and (
+            self.current_epoch > 0 or self.batch_in_epoch > 0
+        ):
+            self.batches_processed = (
+                self.current_epoch * batches_per_epoch + self.batch_in_epoch
+            )
         total_batches = max(1, batches_per_epoch * epochs)
         last_log_time = time.perf_counter()
+        last_checkpoint_time = last_log_time
 
         def save_timed(callback, epoch: int, kind: str) -> None:
+            nonlocal last_checkpoint_time
             started = time.perf_counter()
             callback(self, epoch)
+            last_checkpoint_time = time.perf_counter()
             logger.info(
                 "checkpoint kind=%s step=%d duration_seconds=%.2f",
                 kind,
@@ -863,6 +887,28 @@ class Trainer:
             )
             last_log_time = time.perf_counter()
 
+        if max_steps is not None and self.global_step >= max_steps:
+            logger.info(
+                "max_steps=%d already reached at optimizer step=%d; no training batches run",
+                max_steps,
+                self.global_step,
+            )
+            return history
+        if max_batches is not None and self.batches_processed >= max_batches:
+            logger.info(
+                "max_batches=%d already reached at batches=%d; no training batches run",
+                max_batches,
+                self.batches_processed,
+            )
+            return history
+        if max_train_tokens is not None and self.tokens_processed >= max_train_tokens:
+            logger.info(
+                "max_train_tokens=%d already reached at tokens=%d; no training batches run",
+                max_train_tokens,
+                self.tokens_processed,
+            )
+            return history
+
         for epoch in range(self.current_epoch, epochs):
             last_log_time = time.perf_counter()
             last_validation_step = None
@@ -895,6 +941,7 @@ class Trainer:
                 loss = self.train_step(batch)
                 window_training_seconds += time.perf_counter() - step_started
                 self.batch_in_epoch = batch_index
+                self.batches_processed += 1
                 running_loss += loss
                 running_batches += 1
                 window_loss += loss
@@ -1093,6 +1140,13 @@ class Trainer:
                     and self.global_step % checkpoint_every == 0
                 ):
                     save_timed(checkpoint_callback, epoch, "latest")
+                if (
+                    optimizer_stepped
+                    and checkpoint_interval_seconds is not None
+                    and checkpoint_callback
+                    and now - last_checkpoint_time >= checkpoint_interval_seconds
+                ):
+                    save_timed(checkpoint_callback, epoch, "latest_interval")
                 if optimizer_stepped and (
                     (
                         evaluate_every
@@ -1115,6 +1169,47 @@ class Trainer:
                         "coordinated preemption requested at step=%d", self.global_step
                     )
                     break
+                if (
+                    optimizer_stepped
+                    and max_steps is not None
+                    and self.global_step >= max_steps
+                ):
+                    if checkpoint_callback:
+                        save_timed(checkpoint_callback, epoch, "latest")
+                    logger.info(
+                        "max_steps=%d reached at optimizer step=%d",
+                        max_steps,
+                        self.global_step,
+                    )
+                    return history
+                limit_name = None
+                limit_value = None
+                if max_batches is not None and self.batches_processed >= max_batches:
+                    limit_name, limit_value = "max_batches", max_batches
+                elif (
+                    max_train_tokens is not None
+                    and self.tokens_processed >= max_train_tokens
+                ):
+                    limit_name, limit_value = "max_train_tokens", max_train_tokens
+                if limit_name is not None:
+                    if self.micro_step % self.gradient_accumulation_steps:
+                        if max_steps is None or self.global_step < max_steps:
+                            self.flush_gradients()
+                        else:
+                            self.opt.zero_grad(set_to_none=True)
+                            self.micro_step = 0
+                            self._accumulation_tokens = 0
+                    if checkpoint_callback:
+                        save_timed(checkpoint_callback, epoch, "latest")
+                    logger.info(
+                        "%s=%d reached at batches=%d tokens=%d step=%d",
+                        limit_name,
+                        limit_value,
+                        self.batches_processed,
+                        self.tokens_processed,
+                        self.global_step,
+                    )
+                    return history
             self.flush_gradients()
             self.current_epoch = epoch + 1
             self.batch_in_epoch = 0
@@ -1202,6 +1297,7 @@ class Trainer:
             "epochs_without_improvement": self.epochs_without_improvement,
             "stopped_early": self.stopped_early,
             "tokens_processed": self.tokens_processed,
+            "batches_processed": self.batches_processed,
             "training_seconds": self.training_seconds,
             "nonfinite_updates": self.nonfinite_updates,
             "last_gradient_norm": self.last_gradient_norm,
@@ -1248,6 +1344,7 @@ class Trainer:
         )
         self.stopped_early = bool(state.get("stopped_early", False))
         self.tokens_processed = int(state.get("tokens_processed", 0))
+        self.batches_processed = int(state.get("batches_processed", 0))
         self.training_seconds = float(state.get("training_seconds", 0.0))
         self.nonfinite_updates = int(state.get("nonfinite_updates", 0))
         self.last_gradient_norm = float(state.get("last_gradient_norm", float("nan")))

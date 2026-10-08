@@ -185,9 +185,9 @@ $$\mathcal{L}_{\mathrm{VAE}}=\lVert\hat{x}-x\rVert_1-
 
 For latent diffusion, the scaled latent $z_0'=s z_0$ is passed to the same
 noise-prediction process used below, and decoded as $D(z/s)$. The bundled
-`latent.production.yaml` is explicitly `planning_only: true`; it describes a
-native 256×256, 4-channel latent architecture but does not claim a bundled or
-ready-to-train production checkpoint.
+`latent.production.yaml` is an executable native 256×256, 4-channel latent
+training profile. It does not include datasets or a pretrained production
+checkpoint; operators must train and qualify those artifacts.
 
 ### 6.2 Shared Audio/Video Latent-Diffusion Objective
 

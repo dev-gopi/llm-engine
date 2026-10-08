@@ -634,9 +634,10 @@ class MiniGPT(nn.Module):
         *,
         device: torch.device | str | None = None,
         dtype: torch.dtype | None = None,
+        allow_planning: bool = False,
     ) -> MiniGPT:
         """Build a complete model from model configuration values."""
-        if config.get("planning_only", False):
+        if config.get("planning_only", False) and not allow_planning:
             raise ValueError(
                 "planning-only model: use scripts/inspect_model.py or scripts/plan_training.py; "
                 "the runtime is not validated for this profile"

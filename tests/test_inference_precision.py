@@ -45,6 +45,8 @@ def test_dynamic_int8_quantization_is_configurable():
         ("float32", "int4"),
         ("float16", "none"),
         ("bfloat16", "int8_dynamic"),
+        ("bfloat16", "int8_weight_only"),
+        ("bfloat16", "int4_weight_only"),
     ],
 )
 def test_invalid_or_unsupported_cpu_precision_fails(dtype, quantization):
@@ -65,6 +67,23 @@ def test_invalid_gpu_quantization_fails_before_mutating_model():
             model,
             device=torch.device("cuda"),
             quantization="int8_dynamic",
+        )
+
+    assert next(model.parameters()).device.type == "cpu"
+    assert next(model.parameters()).dtype == torch.float32
+
+
+@pytest.mark.parametrize("quantization", ["int8_weight_only", "int4_weight_only"])
+def test_cuda_low_bit_quantization_requires_bfloat16_before_model_mutation(
+    quantization,
+):
+    model = _model()
+
+    with pytest.raises(ValueError, match="requires weight_dtype: bfloat16"):
+        prepare_model_for_inference(
+            model,
+            device=torch.device("cuda"),
+            quantization=quantization,
         )
 
     assert next(model.parameters()).device.type == "cpu"

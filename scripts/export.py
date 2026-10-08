@@ -193,8 +193,18 @@ def export_model(
             },
             opset_version=17,
         )
+    elif export_format == "gptq":
+        from scripts.quantize_gptq import run_minigpt_gptq_conversion
+
+        run_minigpt_gptq_conversion(model, output, model_config or {})
+    elif export_format == "awq":
+        from scripts.quantize_awq import run_minigpt_awq_conversion
+
+        run_minigpt_awq_conversion(model, output, model_config or {})
     else:
-        raise ValueError("format must be safetensors, gguf, torch_export, or onnx")
+        raise ValueError(
+            "format must be safetensors, gguf, torch_export, onnx, gptq, or awq"
+        )
     return output
 
 
@@ -209,7 +219,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--format",
-        choices=("safetensors", "gguf", "torch_export", "onnx"),
+        choices=("safetensors", "gguf", "torch_export", "onnx", "gptq", "awq"),
         default="safetensors",
     )
     parser.add_argument("--output", type=Path)
@@ -237,6 +247,8 @@ def main() -> None:
         "gguf": ".gguf",
         "torch_export": ".pt2",
         "onnx": ".onnx",
+        "gptq": ".gptq.safetensors",
+        "awq": ".awq.safetensors",
     }
     output = (
         args.output or Path("exports") / args.format / f"gopi{suffixes[args.format]}"

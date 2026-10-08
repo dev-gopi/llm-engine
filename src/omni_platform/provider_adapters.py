@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 from urllib.request import Request, urlopen
 
-from .providers import ProviderContext
+from .providers import GenerationArtifact, GenerationResult, ProviderContext
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,64 @@ class RemoteJSONProvider:
         if not isinstance(payload, dict):
             raise RuntimeError("provider response must be a JSON object")
         return payload
+
+    def _to_generation_result(self, payload: dict[str, Any]) -> GenerationResult:
+        artifacts = []
+        raw_artifacts = payload.get("artifacts") or []
+        for raw in raw_artifacts:
+            p = Path(str(raw.get("path", "")))
+            mime = str(raw.get("mime_type", "application/octet-stream"))
+            meta = dict(raw.get("metadata", {}))
+            artifacts.append(GenerationArtifact(path=p, mime_type=mime, metadata=meta))
+        if not artifacts and ("url" in payload or "path" in payload):
+            p = Path(str(payload.get("path", payload.get("url", ""))))
+            mime = str(payload.get("mime_type", "application/octet-stream"))
+            artifacts.append(GenerationArtifact(path=p, mime_type=mime))
+        return GenerationResult(
+            artifacts=artifacts,
+            usage=dict(payload.get("usage", {})),
+            metadata=dict(payload.get("metadata", {})),
+        )
+
+    def generate_image(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult:
+        payload = self.invoke("image_generation", request, context)
+        return self._to_generation_result(payload)
+
+    def edit_image(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult:
+        payload = self.invoke("image_editing", request, context)
+        return self._to_generation_result(payload)
+
+    def generate_audio(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult:
+        payload = self.invoke("audio_generation", request, context)
+        return self._to_generation_result(payload)
+
+    def generate_video(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult:
+        payload = self.invoke("video_generation", request, context)
+        return self._to_generation_result(payload)
+
+    def edit_video(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> GenerationResult:
+        payload = self.invoke("video_editing", request, context)
+        return self._to_generation_result(payload)
+
+    def understand_audio(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> dict[str, Any]:
+        return self.invoke("audio_understanding", request, context)
+
+    def understand_video(
+        self, request: dict[str, Any], context: ProviderContext
+    ) -> dict[str, Any]:
+        return self.invoke("video_understanding", request, context)
 
 
 @dataclass(frozen=True)

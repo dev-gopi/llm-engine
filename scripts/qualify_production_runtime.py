@@ -10,6 +10,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+# When executed as ``python scripts/...``, Python places this directory before
+# the standard library.  Remove it so our sibling ``tokenize.py`` cannot shadow
+# the stdlib module imported transitively by ``dataclasses``/``inspect``.
+SCRIPT_DIRECTORY = str(Path(__file__).resolve().parent)
+if sys.path and str(Path(sys.path[0]).resolve()) == SCRIPT_DIRECTORY:
+    sys.path.pop(0)
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 

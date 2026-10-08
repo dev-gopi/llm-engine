@@ -189,9 +189,9 @@ native image latent diffusion. Train its VAE with `scripts/train_vae.py` before
 using the pipeline: latent diffusion scales VAE latents before denoising and
 decodes them after sampling. The supplied
 [`configs/diffusion/latent.production.yaml`](../configs/diffusion/latent.production.yaml)
-is deliberately marked `planning_only: true`; `train_vae.py` refuses to run it
-until you provide reviewed datasets and explicitly remove that flag. It is an
-architecture/research profile, not a bundled pretrained text-to-image workflow.
+is an executable, operator-supplied profile (`planning_only: false`). It still
+requires reviewed datasets and trained VAE, text-encoder, and U-Net checkpoints;
+it is not a bundled pretrained text-to-image service.
 
 ## Production checklist
 

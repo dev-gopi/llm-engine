@@ -166,6 +166,24 @@ def main() -> None:
     )
     parser.add_argument("--epochs", type=int)
     parser.add_argument(
+        "--max-steps",
+        type=int,
+        help="stop after this absolute number of optimizer updates",
+    )
+    parser.add_argument(
+        "--max-batches", type=int, help="stop after this many micro-batches"
+    )
+    parser.add_argument(
+        "--max-train-tokens",
+        type=int,
+        help="stop after processing at least this many supervised tokens",
+    )
+    parser.add_argument(
+        "--auto-resume",
+        action="store_true",
+        help="resume from --output when it already exists",
+    )
+    parser.add_argument(
         "--log-file",
         type=Path,
         default=None,
@@ -204,6 +222,9 @@ def main() -> None:
             "report_telemetry_points": 3600,
         },
     )
+    auto_resume = bool(args.auto_resume or config.get("auto_resume", False))
+    if auto_resume and not args.resume and not args.init_from and args.output.exists():
+        args.resume = args.output
     if args.resume and args.init_from:
         parser.error("--resume and --init-from cannot be used together")
     required_init_checkpoint = config.get("required_init_checkpoint")
@@ -503,8 +524,25 @@ def main() -> None:
     )
     logger.info("Training loader ready: %d batches per epoch", len(train_loader))
     epochs = args.epochs or int(config.get("epochs", 1))
+    max_steps = (
+        args.max_steps if args.max_steps is not None else config.get("max_steps")
+    )
+    if max_steps is not None:
+        max_steps = int(max_steps)
+        if max_steps < 1:
+            parser.error("max_steps must be positive")
+    max_batches = (
+        args.max_batches if args.max_batches is not None else config.get("max_batches")
+    )
+    max_train_tokens = (
+        args.max_train_tokens
+        if args.max_train_tokens is not None
+        else config.get("max_train_tokens")
+    )
     accumulation = int(config.get("gradient_accumulation_steps", 1))
     total_steps = optimizer_steps_for_epochs(len(train_loader), epochs, accumulation)
+    if max_steps is not None:
+        total_steps = min(total_steps, max_steps)
     optimizer = adamw_from_config(training_model, config)
     scheduler = Scheduler.from_config(optimizer, config, total_steps=total_steps)
     if deepspeed_enabled:
@@ -1289,10 +1327,16 @@ def main() -> None:
         validation_callback=validation_generation_callback
         if generation_cases
         else None,
+        max_steps=max_steps,
+        max_batches=max_batches,
+        max_train_tokens=max_train_tokens,
+        checkpoint_interval_seconds=config.get("checkpoint_interval_seconds"),
         stop_requested=lambda: preemption.should_stop(distributed.device),
     )
     final_epoch = (
-        int(history[-1]["epoch"]) - 1 if history else trainer.current_epoch - 1
+        int(history[-1]["epoch"]) - 1
+        if history
+        else int(getattr(train_loader.batch_sampler, "epoch", trainer.current_epoch))
     )
     checkpoint_callback(trainer, final_epoch)
     if distributed.is_main_process:

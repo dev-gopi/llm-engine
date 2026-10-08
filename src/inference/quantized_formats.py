@@ -400,6 +400,45 @@ def convert_native(*, fmt: str, model: Any, output: str | Path, **kwargs: Any) -
     )
 
 
+def load_native_gptq(model_path: str | Path, **kwargs: Any) -> Any:
+    """Load a GPTQ artifact through AutoGPTQ's native runtime.
+
+    The artifact must have been produced for a HuggingFace-compatible causal
+    architecture. Native MiniGPT checkpoints are intentionally rejected by the
+    conversion bridge unless an architecture-specific wrapper is supplied.
+    """
+    require_native("gptq")
+    try:
+        from auto_gptq import AutoGPTQForCausalLM
+    except ImportError as exc:  # pragma: no cover - require_native guards this
+        raise NativeFormatUnavailable("AutoGPTQ runtime could not be imported") from exc
+    try:
+        return AutoGPTQForCausalLM.from_quantized(str(model_path), **kwargs)
+    except Exception as exc:  # pragma: no cover - needs native CUDA runtime
+        raise NativeFormatUnavailable(
+            f"could not load native GPTQ artifact at {model_path}: {exc}"
+        ) from exc
+
+
+def load_native_awq(model_path: str | Path, **kwargs: Any) -> Any:
+    """Load an AWQ artifact through AutoAWQ's native runtime.
+
+    AWQ artifacts must target a HuggingFace-compatible causal architecture;
+    callers supply runtime options such as device mapping through ``kwargs``.
+    """
+    require_native("awq")
+    try:
+        from awq import AutoAWQForCausalLM
+    except ImportError as exc:  # pragma: no cover - require_native guards this
+        raise NativeFormatUnavailable("AutoAWQ runtime could not be imported") from exc
+    try:
+        return AutoAWQForCausalLM.from_quantized(str(model_path), **kwargs)
+    except Exception as exc:  # pragma: no cover - needs native CUDA runtime
+        raise NativeFormatUnavailable(
+            f"could not load native AWQ artifact at {model_path}: {exc}"
+        ) from exc
+
+
 __all__ = [
     "FormatCapability",
     "NativeFormatUnavailable",
@@ -410,4 +449,6 @@ __all__ = [
     "llama_cpp_metadata",
     "minigpt_llama_state_dict",
     "convert_native",
+    "load_native_gptq",
+    "load_native_awq",
 ]

@@ -298,6 +298,12 @@ class SparseMoE(nn.Module):
             self.last_dropped_route_fraction = 0.0
             return torch.zeros_like(hidden_states)
 
+        if tokens.is_meta:
+            self.last_router_aux_loss = torch.tensor(0.0, device="meta")
+            self.last_router_z_loss = torch.tensor(0.0, device="meta")
+            self.last_dropped_route_fraction = 0.0
+            return torch.zeros_like(hidden_states)
+
         router_inputs = tokens
         if self.training and self.router_jitter:
             noise = torch.empty_like(tokens).uniform_(

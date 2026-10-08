@@ -716,6 +716,9 @@ def create_app(
         )
     )
     lora_registry = LoRAAdapterRegistry()
+    candidate_backend = getattr(runtime.backend, "backend", runtime.backend)
+    if candidate_backend is not None:
+        candidate_backend.lora_registry = lora_registry
     webhook_delivery = (
         WebhookDelivery(WebhookConfig(settings.webhook_url, settings.webhook_secret))
         if settings.webhook_url and settings.webhook_secret
@@ -2294,6 +2297,8 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(404, "adapter not found") from exc
         candidate = getattr(runtime.backend, "backend", runtime.backend)
+        if candidate is not None:
+            candidate.lora_registry = lora_registry
         generator = getattr(candidate, "generator", None)
         if generator is None or not hasattr(generator, "swap_lora_adapter"):
             raise HTTPException(409, "active backend does not support LoRA swapping")
@@ -2306,6 +2311,8 @@ def create_app(
         if denied is not None:
             return denied
         candidate = getattr(runtime.backend, "backend", runtime.backend)
+        if candidate is not None:
+            candidate.lora_registry = lora_registry
         generator = getattr(candidate, "generator", None)
         if generator is not None and hasattr(generator, "swap_lora_adapter"):
             generator.swap_lora_adapter(None)

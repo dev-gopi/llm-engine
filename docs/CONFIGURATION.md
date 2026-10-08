@@ -54,6 +54,12 @@ runtime:
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `batch_size` | `int` | `2` | `1`, `2`, `4` | Per-step micro-batch size | `Trainer`, `DataLoader` | Must remain $\le 2$ on 4 GB GPUs to avoid CUDA OOM |
 | `gradient_accumulation_steps` | `int` | `16` | $\ge 1$ | Accumulation steps before optimizer step | `Trainer` | Scales effective batch size ($2 \times 16 = 32$) |
+| `epochs` | `int` | `4` | $\ge 1$ | Maximum full passes over the configured sampled epoch | `scripts/train.py`, `Trainer` | Normal training-duration limit; may be shortened by `max_steps` or early stopping |
+| `max_steps` | `int` or `null` | `null` | Positive int or `null` | Absolute optimizer-update limit | `scripts/train.py`, `Trainer` | Stops at an update boundary, saves a resumable mid-epoch checkpoint, and caps the fresh-run LR schedule; CLI `--max-steps` overrides it |
+| `max_batches` | `int` or `null` | `null` | Positive int or `null` | Absolute micro-batch limit | `scripts/train.py`, `Trainer` | Stops after the requested loaded batches; partial accumulation is safely flushed unless doing so would exceed `max_steps` |
+| `max_train_tokens` | `int` or `null` | `null` | Positive int or `null` | Absolute supervised-token limit | `scripts/train.py`, `Trainer` | Stops after the batch that reaches the token count; token accounting is preserved on resume |
+| `checkpoint_interval_seconds` | `float` or `null` | `null` | Positive float or `null` | Wall-clock checkpoint cadence | `Trainer` | Saves at the next optimizer-update boundary after the interval; complements `checkpoint_every` |
+| `auto_resume` | `bool` | `false` | `true`, `false` | Resume the configured latest output automatically | `scripts/train.py` | Uses `runtime.output` only when it already exists and neither `--resume` nor `--init-from` was supplied |
 | `learning_rate` | `float` | `5e-5` | Positive float | Peak learning rate | `AdamW`, `Scheduler` | Determines weight update step size |
 | `weight_decay` | `float` | `0.1` | $\ge 0.0$ | Decoupled L2 regularization | `AdamW` | Excludes 1D norm gains and biases |
 | `beta1` | `float` | `0.9` | $(0, 1)$ | First moment momentum coefficient | `AdamW` | Gradient direction smoothing |

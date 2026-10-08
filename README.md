@@ -1,7 +1,3 @@
-## Omni multimodal platform v5
-
-See [`docs/OMNI_PLATFORM_V5.md`](docs/OMNI_PLATFORM_V5.md) for the production multimodal provider, routing, job, artifact, queue, capability, resource, and deployment architecture.
-
 # Gopi LLM Engine
 
 A configuration-driven language and media-model engine implemented with

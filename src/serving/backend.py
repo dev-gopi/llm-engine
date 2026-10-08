@@ -16,6 +16,9 @@ import torch
 
 from agents.mcp import RemoteMCPClient
 from inference.backend_adapters import (
+    TensorRTLLMBackend as NativeTensorRTLLMBackend,
+)
+from inference.backend_adapters import (
     VLLMAsyncBackend as NativeVLLMAsyncBackend,
 )
 from inference.backend_adapters import (
@@ -268,6 +271,99 @@ class VLLMServingBackend:
                 )
         result = self._generation_from_vllm(last)
         yield BackendStreamEvent(
+            finish_reason=result.finish_reason,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+        )
+
+
+class TensorRTLLMServingBackend:
+    """Serving-runtime adapter for the optional TensorRT-LLM engine."""
+
+    supports_tool_calling = False
+    supports_reasoning = False
+    supports_vision = False
+
+    def __init__(self, engine: str, *, tokenizer=None, runner=None, **options) -> None:
+        self.engine = engine
+        self.tokenizer = tokenizer
+        self.adapter = NativeTensorRTLLMBackend(
+            engine=engine, tokenizer=tokenizer, runner=runner, **options
+        )
+
+    @property
+    def ready(self) -> bool:
+        return True
+
+    async def startup(self) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        runner = getattr(self.adapter, "runner", None)
+        shutdown = getattr(runner, "shutdown", None)
+        if callable(shutdown):
+            value = shutdown()
+            if asyncio.iscoroutine(value):
+                await value
+
+    def _prompt(self, request: GenerateRequest) -> str:
+        if not request._chat_messages:
+            return request.prompt
+        messages = []
+        for message in request._chat_messages:
+            role = str(message.get("role", "user"))
+            content = message.get("content", "")
+            if isinstance(content, list):
+                parts = [
+                    part.get("text", "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                ]
+                content = "\n".join(part for part in parts if part)
+            if isinstance(content, str) and content:
+                messages.append({"role": role, "content": content})
+        return render_native_messages("", messages, add_generation_prompt=True)
+
+    def tokenize(self, prompt: str) -> list[int]:
+        if self.tokenizer is not None and hasattr(self.tokenizer, "encode"):
+            return list(self.tokenizer.encode(prompt))
+        return [0] * len(prompt.split())
+
+    async def generate(self, request: GenerateRequest) -> BackendGeneration:
+        if request.decoding_strategy not in {"sample", "greedy"}:
+            raise InvalidGenerationRequestError(
+                "TensorRT-LLM backend supports standard sampling/greedy requests only"
+            )
+        prompt = self._prompt(request)
+        kwargs = dict(
+            max_new_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            repetition_penalty=request.repetition_penalty,
+        )
+        if request.seed is not None:
+            kwargs["random_seed"] = request.seed
+        if request.stop:
+            kwargs["stop_words_list"] = list(request.stop)
+
+        raw_outputs = await asyncio.to_thread(self.adapter.generate, [prompt], **kwargs)
+        text = raw_outputs[0] if raw_outputs else ""
+        prompt_tokens = len(self.tokenize(prompt))
+        completion_tokens = len(self.tokenize(text))
+        return BackendGeneration(
+            text=text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            finish_reason=FinishReason.STOP,
+        )
+
+    async def stream(
+        self, request: GenerateRequest
+    ) -> AsyncIterator[BackendStreamEvent]:
+        result = await self.generate(request)
+        yield BackendStreamEvent(
+            token=result.text,
             finish_reason=result.finish_reason,
             prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
@@ -586,6 +682,9 @@ class ConfiguredModelBackend:
             kv_heads=int(config.get("kv_heads", config["heads"])),
         )
         config = adapt_config_to_tokenizer(config, tokenizer)
+        attention_backend_env = os.getenv("GOPI_ATTENTION_BACKEND", "").strip()
+        if attention_backend_env:
+            config["attention_backend"] = attention_backend_env
 
         try:
             model = MiniGPT.from_config(config, device="cpu")
@@ -958,7 +1057,44 @@ class ConfiguredModelBackend:
             reasoning_tokens,
         )
 
+    @asynccontextmanager
+    async def _scoped_lora_context(self, tenant_id: str | None = None):
+        registry = getattr(self, "lora_registry", None)
+        generator = getattr(self, "generator", None)
+        if (
+            registry is None
+            or generator is None
+            or not hasattr(generator, "swap_lora_adapter")
+        ):
+            yield
+            return
+        if not hasattr(self, "_lora_lock") or getattr(self, "_lora_lock", None) is None:
+            self._lora_lock = asyncio.Lock()
+        async with self._lora_lock:
+            tenant = tenant_id or "default"
+            active_rec = registry.active(tenant)
+            target_state = active_rec.state if active_rec is not None else None
+            current_active = getattr(self, "_active_lora_tenant_record", None)
+            target_key = (tenant, getattr(active_rec, "adapter_id", None))
+            if current_active != target_key:
+                generator.swap_lora_adapter(target_state)
+                self._active_lora_tenant_record = target_key
+            try:
+                yield
+            finally:
+                pass
+
     async def generate(self, request: GenerateRequest) -> BackendGeneration:
+        tenant = getattr(request, "tenant_id", None) or "default"
+        scoped = getattr(self, "_scoped_lora_context", None)
+        if scoped is not None:
+            async with scoped(tenant):
+                if request.session_id:
+                    async with ConfiguredModelBackend._session_guard(
+                        self, request.session_id
+                    ):
+                        return await self._generate_unlocked(request)
+                return await self._generate_unlocked(request)
         if request.session_id:
             async with ConfiguredModelBackend._session_guard(self, request.session_id):
                 return await self._generate_unlocked(request)
@@ -1362,6 +1498,20 @@ class ConfiguredModelBackend:
     async def stream(
         self, request: GenerateRequest
     ) -> AsyncIterator[BackendStreamEvent]:
+        tenant = getattr(request, "tenant_id", None) or "default"
+        scoped = getattr(self, "_scoped_lora_context", None)
+        if scoped is not None:
+            async with scoped(tenant):
+                if request.session_id:
+                    async with ConfiguredModelBackend._session_guard(
+                        self, request.session_id
+                    ):
+                        async for event in self._stream_unlocked(request):
+                            yield event
+                    return
+                async for event in self._stream_unlocked(request):
+                    yield event
+                return
         if request.session_id:
             async with ConfiguredModelBackend._session_guard(self, request.session_id):
                 async for event in self._stream_unlocked(request):
@@ -2334,6 +2484,20 @@ def _reload_candidate():
             options["max_model_len"] = max_model_len
         backend = VLLMServingBackend(model, **options)
         return backend, f"vllm:{model}"
+    if backend_kind in {"tensorrt_llm", "tensorrt", "trt_llm"}:
+        engine = os.getenv(
+            "GOPI_TRT_ENGINE", os.getenv("GOPI_TENSORRT_ENGINE", "")
+        ).strip()
+        if not engine:
+            raise ValueError(
+                "GOPI_TRT_ENGINE is required when GOPI_BACKEND=tensorrt_llm"
+            )
+        tokenizer_path = os.getenv("GOPI_TOKENIZER_DIR", "data/tokenizer")
+        tok = None
+        if Path(tokenizer_path).exists():
+            tok = Tokenizer.load(tokenizer_path)
+        backend = TensorRTLLMServingBackend(engine, tokenizer=tok)
+        return backend, f"tensorrt_llm:{engine}"
     if backend_kind in {"llama_cpp", "external", "openai_compatible"}:
         backend = OpenAICompatibleBackend(
             base_url=os.getenv("GOPI_EXTERNAL_BASE_URL", "http://127.0.0.1:8080"),
@@ -2355,7 +2519,7 @@ def _reload_candidate():
         return backend, version
     if backend_kind != "native":
         raise ValueError(
-            "GOPI_BACKEND must be native, vllm, llama_cpp, or openai_compatible"
+            "GOPI_BACKEND must be native, vllm, tensorrt_llm, llama_cpp, or openai_compatible"
         )
     devices = [
         value.strip()

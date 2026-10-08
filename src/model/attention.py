@@ -321,8 +321,12 @@ class MultiHeadAttention(nn.Module):
                 backend = "sdpa"
                 self.last_attention_backend = backend
             else:
-                flash = FlashInferBackend()
-                attended = flash.single_prefill(
+                if (
+                    not hasattr(self, "_flashinfer_backend")
+                    or self._flashinfer_backend is None
+                ):
+                    self._flashinfer_backend = FlashInferBackend()
+                attended = self._flashinfer_backend.single_prefill(
                     query.transpose(1, 2),
                     key.transpose(1, 2),
                     value.transpose(1, 2),

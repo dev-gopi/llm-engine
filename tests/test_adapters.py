@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+import inference.quantized_formats as quantized_formats
 from inference.backend_adapters import backend_matrix
 from inference.quantized_formats import (
     NativeFormatUnavailable,
     capabilities,
+    convert_native,
+    load_native_awq,
+    load_native_gptq,
     require_native,
 )
 from inference.speculative import (
@@ -30,6 +36,50 @@ def test_native_format_capability_does_not_lie():
         if not cap.available:
             with pytest.raises(NativeFormatUnavailable):
                 require_native(fmt)
+
+
+def test_native_gptq_conversion_requires_calibration_examples(monkeypatch, tmp_path):
+    class NativeModel:
+        def __init__(self):
+            self.examples = None
+
+        def quantize(self, examples, **kwargs):
+            self.examples = examples
+
+        def save_quantized(self, output):
+            Path(output).write_text("gptq", encoding="utf-8")
+
+    monkeypatch.setattr(quantized_formats, "require_native", lambda _fmt: None)
+    model = NativeModel()
+    output = tmp_path / "model.gptq"
+    with pytest.raises(ValueError, match="calibration examples"):
+        convert_native(fmt="gptq", model=model, output=output)
+
+    result = convert_native(
+        fmt="gptq", model=model, output=output, examples=[{"input_ids": [1]}]
+    )
+    assert result == output
+    assert model.examples == [{"input_ids": [1]}]
+
+
+def test_native_gptq_loader_is_dependency_guarded(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        quantized_formats,
+        "require_native",
+        lambda _fmt: (_ for _ in ()).throw(NativeFormatUnavailable("missing")),
+    )
+    with pytest.raises(NativeFormatUnavailable, match="missing"):
+        load_native_gptq(tmp_path / "model")
+
+
+def test_native_awq_loader_is_dependency_guarded(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        quantized_formats,
+        "require_native",
+        lambda _fmt: (_ for _ in ()).throw(NativeFormatUnavailable("missing")),
+    )
+    with pytest.raises(NativeFormatUnavailable, match="missing"):
+        load_native_awq(tmp_path / "model")
 
 
 def test_speculative_registry_and_prefix_acceptance():
