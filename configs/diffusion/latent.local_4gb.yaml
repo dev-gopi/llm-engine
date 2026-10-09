@@ -55,7 +55,7 @@ min_lr_ratio: 0.05
 num_workers: 2
 seed: 42
 experiment_tracking:
-  kind: tensorboard
+  kind: none
   log_dir: runs/diffusion/local-4gb
 runtime:
   log_file: logs/diffusion/local-4gb.log

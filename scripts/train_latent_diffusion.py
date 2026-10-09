@@ -4,8 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
+
+# Avoid shadowing the standard-library ``tokenize`` module with scripts/tokenize.py.
+script_directory = str(Path(__file__).resolve().parent)
+if sys.path and str(Path(sys.path[0]).resolve()) == script_directory:
+    sys.path.pop(0)
 
 import torch
 from torch.utils.data import DataLoader

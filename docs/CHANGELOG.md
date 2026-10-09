@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Fixed `scripts/train_latent_diffusion.py` startup to prevent shadowing of
+  standard-library `tokenize`, and configured the local 4 GB latent diffusion
+  profile to default experiment tracking to `none`.
 - Added a bounded Hugging Face captioned-image importer and an RTX 3050 4 GB
   latent-diffusion training profile for the native image-generation stack.
 - Fixed native token-step serving with tenant LoRA adapters: streams snapshot
