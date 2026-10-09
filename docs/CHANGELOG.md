@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- Fixed native token-step serving with tenant LoRA adapters: streams snapshot
+  adapter state at admission, decode compatible snapshots in one batch, and
+  isolate distinct adapters in separate lock-protected model calls.
+- Fixed paged-KV allocator accounting and failed-admission cleanup, and exposed
+  the existing optional INT8 paged-KV storage through
+  `serving.paged_kv_quantization`.
+- Corrected the active-model capability summary to its configured 1,024-token,
+  approximately 81.3M-parameter architecture.
+- Sized the active 4 GB serving profile for four full-context paged-KV streams,
+  bounded long-prompt prefill to 256 tokens per pass, and capped retained
+  prefixes to its configured page-pool headroom.
 - Implemented native executable code and CLI entry points across the production backlog:
   - Added `src/runtime/moe_execution.py` enabling real forward execution and memory estimation for 100B sparse MoE and hybrid MoE 7B configurations, with meta-device execution support in `MoEFeedForward`.
   - Added native MiniGPT quantization CLIs `scripts/quantize_gptq.py` and `scripts/quantize_awq.py`, with group-wise quantization, packing, and deployment manifest generation integrated into `scripts/export.py`.

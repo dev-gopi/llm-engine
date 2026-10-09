@@ -29,10 +29,10 @@ adding them to an existing checkpoint configuration.
 - hidden size 512;
 - 16 transformer layers;
 - 8 attention heads and 2 KV heads;
-- rotary positions with a 512-token model limit;
+- rotary positions with a 1,024-token model limit;
 - RMSNorm, SwiGLU, tied embeddings, and gradient checkpointing.
 
-It contains about 80.3M parameters. `configs/model.cpu.yaml` remains a smaller
+It contains about 81.3M parameters. `configs/model.cpu.yaml` remains a smaller
 32K/8-layer profile and is not checkpoint-compatible with the active GPU model.
 
 Inspect any architecture without allocating its tensors:

@@ -94,6 +94,28 @@ The optional `serving.prefill_chunk_size` control evaluates a long prompt in
 bounded chunks while retaining an allocation-efficient fixed-capacity KV cache.
 The default remains one-pass prefill for unchanged behavior.
 
+### INFERENCE-002: Repair serving adapter and paged-KV lifecycle safety
+
+- **ID**: `INFERENCE-002`
+- **Status**: Complete
+- **Dependencies**: INFERENCE-001
+
+Token-step streams snapshot their tenant LoRA state at admission and batch only
+streams with that same snapshot. Distinct adapters are decoded in separate,
+lock-protected calls, so a mutable adapter cannot cross tenant boundaries while
+compatible streams still batch together. Paged-KV admission is transactional,
+allocator memory reporting reflects actual reserved storage, and
+`serving.paged_kv_quantization` exposes the existing `none`/`int8` cache
+formats. The INT8 option requires target-model quality and throughput
+qualification before production use.
+
+The active 4 GB serving profile also reserves enough pages for four 1,024-token
+streams, bounds prefill to 256 tokens per pass, and caps retained prefixes to
+four full-context entries. MTP auxiliary heads intentionally remain a
+training-only objective: with their current horizon-2+ contract, treating them
+as an inference draft would require an additional target pass and offers no
+safe speedup.
+
 When adding a task, use a level-three heading with a stable identifier, a
 matching `ID` field, and a `Dependencies` field. The registry audit validates
 these fields and verifies that every listed dependency exists.

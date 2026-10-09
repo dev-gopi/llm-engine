@@ -92,12 +92,18 @@ serving:
   lora_adapter_root: adapters
   webhook_url: null
   webhook_secret: null
-  prefix_cache_capacity: 16
-  paged_kv_pages: 128
+  # Four full 1,024-token streams consume 256 pages at this page size. Keep
+  # another 256 pages for four hot full-context prefixes; 512 BF16 pages are
+  # about 32 MiB for the active 16-layer GQA model.
+  prefix_cache_capacity: 4
+  paged_kv_pages: 512
   paged_kv_page_size: 16
-  # Set this to a positive token count (for example 256) to bound prompt
-  # prefill activation memory for long contexts. Zero preserves one-pass prefill.
-  prefill_chunk_size: 0
+  # INT8 halves KV payload memory but retains FP32 per-token scales; qualify
+  # output quality and throughput on the target GPU before enabling it.
+  paged_kv_quantization: none
+  # Bound prompt prefill activation memory without changing results. The full
+  # KV state remains resident, but transient attention allocations stay bounded.
+  prefill_chunk_size: 256
   tensor_parallel_size: 1
   # Optional native speculative-decoding draft model. Requests select it with
   # decoding_strategy=speculative and draft_model_id matching this id.

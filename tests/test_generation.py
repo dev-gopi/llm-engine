@@ -5,6 +5,7 @@ import torch
 from torch import nn
 
 from inference.generator import Generator
+from inference.paged_kv_cache import PagedKVCache
 from inference.sampler import TopKSampler
 from model.gpt import MiniGPT
 from model.kv_cache import StaticLayerKVCache
@@ -293,6 +294,60 @@ def test_active_paged_cache_appends_and_reclaims_pages() -> None:
     generator.release_batched_stream(state)
     assert state.page_request_id is None
     assert len(generator.paged_kv_allocator.free_pages) == available
+
+
+def test_paged_kv_memory_bytes_reports_allocator_reservation() -> None:
+    cache = PagedKVCache(
+        num_pages=3,
+        page_size=4,
+        layers=2,
+        kv_heads=1,
+        head_dim=8,
+        device="cpu",
+        dtype=torch.float32,
+    )
+
+    assert cache.memory_bytes == cache.storage_nbytes
+    assert cache.memory_bytes == cache.storage.numel() * cache.storage.element_size()
+
+
+def test_failed_paged_stream_admission_releases_reserved_pages(monkeypatch) -> None:
+    tokenizer = make_tokenizer()
+    generator = Generator(
+        MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32),
+        tokenizer,
+        device="cpu",
+        paged_kv_pages=8,
+        paged_kv_page_size=4,
+    )
+    allocator = generator.paged_kv_allocator
+    assert allocator is not None
+    available = len(allocator.free_pages)
+    monkeypatch.setattr(allocator, "append", lambda *_args: (_ for _ in ()).throw(RuntimeError("append failed")))
+
+    with pytest.raises(RuntimeError, match="append failed"):
+        generator.start_batched_stream("hello", max_tokens=2)
+
+    assert len(allocator.free_pages) == available
+    assert allocator.tables == {}
+
+
+def test_token_step_generation_supports_int8_paged_kv() -> None:
+    tokenizer = make_tokenizer()
+    generator = Generator(
+        MiniGPT(vocab_size=tokenizer.vocab_size, dim=8, layers=1, heads=2, max_pos=32),
+        tokenizer,
+        device="cpu",
+        paged_kv_pages=8,
+        paged_kv_page_size=4,
+        paged_kv_quantization="int8",
+    )
+
+    state = generator.start_batched_stream("hello", max_tokens=2, temperature=0)
+    assert generator.paged_kv_allocator is not None
+    assert generator.paged_kv_allocator.quantization == "int8"
+    generator.decode_batched_stream([state])
+    generator.release_batched_stream(state)
 
 
 def test_active_paged_decode_uses_page_tables_without_materializing_kv(

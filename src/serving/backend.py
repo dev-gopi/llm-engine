@@ -406,6 +406,11 @@ class _BackendBatchStream:
     memory: object | None = None
     session_id: str | None = None
     search_results: list = field(default_factory=list)
+    # A stream snapshots its adapter state at admission. Requests sharing this
+    # key can decode together; different keys are scheduled in separate model
+    # calls because the native adapter mutates one shared model.
+    lora_key: tuple[str, str | None, str | None] = ("default", None, None)
+    lora_state: object | None = None
     released: bool = False
 
 
@@ -428,6 +433,7 @@ class ConfiguredModelBackend:
         prefix_cache_capacity: int = 0,
         paged_kv_pages: int = 0,
         paged_kv_page_size: int = 16,
+        paged_kv_quantization: str = "none",
         prefill_chunk_size: int = 0,
         tensor_parallel_size: int = 1,
         mcp: dict | None = None,
@@ -484,6 +490,9 @@ class ConfiguredModelBackend:
         self.prefix_cache_capacity = prefix_cache_capacity
         self.paged_kv_pages = paged_kv_pages
         self.paged_kv_page_size = paged_kv_page_size
+        self.paged_kv_quantization = str(paged_kv_quantization).lower()
+        if self.paged_kv_quantization not in {"none", "int8"}:
+            raise ValueError("paged_kv_quantization must be none or int8")
         self.prefill_chunk_size = prefill_chunk_size
         self.tensor_parallel_size = tensor_parallel_size
         self.mcp_config = mcp or {}
@@ -740,6 +749,7 @@ class ConfiguredModelBackend:
             prefix_cache_capacity=self.prefix_cache_capacity,
             paged_kv_pages=self.paged_kv_pages,
             paged_kv_page_size=self.paged_kv_page_size,
+            paged_kv_quantization=self.paged_kv_quantization,
             prefill_chunk_size=self.prefill_chunk_size,
         )
         if self.speculative_draft_checkpoint is not None:
@@ -1525,21 +1535,22 @@ class ConfiguredModelBackend:
         if self.generator is None:
             raise BackendUnavailableError("generation backend is not loaded")
         state = _BackendBatchStream(session_id=request.session_id)
-        if request.session_id:
-            lock = self._session_locks[request.session_id]
-            self._session_lock_users[request.session_id] += 1
-            try:
-                await lock.acquire()
-            except BaseException:
-                # This request never owned the lock: do not release the owner.
-                remaining = self._session_lock_users[request.session_id] - 1
-                if remaining:
-                    self._session_lock_users[request.session_id] = remaining
-                else:
-                    self._session_lock_users.pop(request.session_id, None)
-                    self._session_locks.pop(request.session_id, None)
-                raise
         try:
+            await self._select_stream_lora(state, request.tenant_id)
+            if request.session_id:
+                lock = self._session_locks[request.session_id]
+                self._session_lock_users[request.session_id] += 1
+                try:
+                    await lock.acquire()
+                except BaseException:
+                    # This request never owned the lock: do not release the owner.
+                    remaining = self._session_lock_users[request.session_id] - 1
+                    if remaining:
+                        self._session_lock_users[request.session_id] = remaining
+                    else:
+                        self._session_lock_users.pop(request.session_id, None)
+                        self._session_locks.pop(request.session_id, None)
+                    raise
             refusal = blocked_prompt_message(request.prompt)
             direct = refusal or direct_tool_answer(request.prompt, request.tools)
             if direct is not None:
@@ -1637,6 +1648,66 @@ class ConfiguredModelBackend:
             await self.release_stream(state)
             raise
 
+    async def _select_stream_lora(
+        self, state: _BackendBatchStream, tenant_id: str | None
+    ) -> None:
+        """Snapshot and activate the adapter needed while admitting a stream.
+
+        A native LoRA adapter is applied by mutating the one shared model.  It
+        therefore cannot share a decode batch with another adapter. The
+        snapshot preserves a stream's adapter version even if an administrator
+        activates a replacement while that stream is active.
+        """
+        registry = getattr(self, "lora_registry", None)
+        generator = self.generator
+        if (
+            registry is None
+            or generator is None
+            or not hasattr(generator, "swap_lora_adapter")
+        ):
+            return
+        if not hasattr(self, "_lora_lock") or self._lora_lock is None:
+            self._lora_lock = asyncio.Lock()
+        async with self._lora_lock:
+            tenant = tenant_id or "default"
+            active_rec = registry.active(tenant)
+            target_state = active_rec.state if active_rec is not None else None
+            target_key = (
+                tenant,
+                getattr(active_rec, "adapter_id", None),
+                getattr(active_rec, "version", None),
+            )
+            state.lora_key = target_key
+            state.lora_state = target_state
+            if getattr(self, "_active_lora_tenant_record", None) != target_key:
+                generator.swap_lora_adapter(target_state)
+                self._active_lora_tenant_record = target_key
+
+    async def _decode_lora_group(
+        self, states: list[_BackendBatchStream]
+    ) -> list[tuple]:
+        """Decode one adapter-compatible cohort under the shared model lock."""
+        if not states:
+            return []
+        registry = getattr(self, "lora_registry", None)
+        generator = self.generator
+        if (
+            registry is None
+            or generator is None
+            or not hasattr(generator, "swap_lora_adapter")
+        ):
+            if generator is None:
+                raise BackendUnavailableError("generation backend is not loaded")
+            return generator.decode_batched_stream([state.generation for state in states])
+        if not hasattr(self, "_lora_lock") or self._lora_lock is None:
+            self._lora_lock = asyncio.Lock()
+        async with self._lora_lock:
+            first = states[0]
+            if getattr(self, "_active_lora_tenant_record", None) != first.lora_key:
+                generator.swap_lora_adapter(first.lora_state)
+                self._active_lora_tenant_record = first.lora_key
+            return generator.decode_batched_stream([state.generation for state in states])
+
     async def decode_stream_batch(
         self, states: list[_BackendBatchStream]
     ) -> list[tuple[BackendStreamEvent | None, bool]]:
@@ -1659,28 +1730,38 @@ class ConfiguredModelBackend:
             else:
                 results[index] = (None, True)
         if decode_states:
-            steps = self.generator.decode_batched_stream(decode_states)
-            for index, (step, done) in zip(decode_indexes, steps, strict=True):
+            cohorts: dict[
+                tuple[str, str | None, str | None], list[tuple[int, _BackendBatchStream]]
+            ] = {}
+            for index in decode_indexes:
                 state = states[index]
-                if step.token:
-                    state.pieces.append(step.token)
-                event = BackendStreamEvent(
-                    token=step.token,
-                    token_id=step.token_id,
-                    prompt_tokens=step.prompt_tokens,
-                    completion_tokens=step.completion_tokens,
-                    logprob=_serialize_token_logprob(getattr(step, "logprob", None)),
-                )
-                if done:
-                    self._finish_batched_stream(state, step)
-                    if not step.token and state.pending:
-                        event = state.pending.popleft()
-                    results[index] = (
-                        event,
-                        not state.pending and event.finish_reason is not None,
+                cohorts.setdefault(state.lora_key, []).append((index, state))
+            for cohort in cohorts.values():
+                cohort_indexes, cohort_states = zip(*cohort, strict=True)
+                steps = await self._decode_lora_group(list(cohort_states))
+                for index, (step, done) in zip(cohort_indexes, steps, strict=True):
+                    state = states[index]
+                    if step.token:
+                        state.pieces.append(step.token)
+                    event = BackendStreamEvent(
+                        token=step.token,
+                        token_id=step.token_id,
+                        prompt_tokens=step.prompt_tokens,
+                        completion_tokens=step.completion_tokens,
+                        logprob=_serialize_token_logprob(
+                            getattr(step, "logprob", None)
+                        ),
                     )
-                else:
-                    results[index] = (event, False)
+                    if done:
+                        self._finish_batched_stream(state, step)
+                        if not step.token and state.pending:
+                            event = state.pending.popleft()
+                        results[index] = (
+                            event,
+                            not state.pending and event.finish_reason is not None,
+                        )
+                    else:
+                        results[index] = (event, False)
         return [result for result in results if result is not None]
 
     def _finish_batched_stream(self, state: _BackendBatchStream, step) -> None:
@@ -2381,6 +2462,7 @@ def _configured_from_environment(
         prefix_cache_capacity=int(serving.get("prefix_cache_capacity", 0)),
         paged_kv_pages=int(serving.get("paged_kv_pages", 0)),
         paged_kv_page_size=int(serving.get("paged_kv_page_size", 16)),
+        paged_kv_quantization=str(serving.get("paged_kv_quantization", "none")),
         prefill_chunk_size=int(serving.get("prefill_chunk_size", 0)),
         tensor_parallel_size=int(serving.get("tensor_parallel_size", 1)),
         mcp=_load_mcp_config(),

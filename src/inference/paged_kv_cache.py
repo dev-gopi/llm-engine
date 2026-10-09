@@ -152,18 +152,13 @@ class PagedKVCache:
 
     @property
     def memory_bytes(self) -> int:
-        total = 0
-        for request_id, logits in self.entries.values():
-            total += int(logits.numel() * logits.element_size())
-            if request_id in self.allocator.tables:
-                total += sum(
-                    int(
-                        self.allocator.storage[page].numel()
-                        * self.allocator.storage.element_size()
-                    )
-                    for page in self.allocator.tables[request_id]
-                )
-        return total
+        """Total memory reserved by this fixed-size allocator.
+
+        This is intentionally the allocator-wide reservation, rather than the
+        pages currently assigned to requests: the backing tensor is allocated
+        eagerly and stays resident until the allocator is discarded.
+        """
+        return self.storage_nbytes
 
 
 class PagedLayerKVCache:

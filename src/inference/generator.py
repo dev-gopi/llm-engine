@@ -92,6 +92,7 @@ class Generator:
         prefix_cache_capacity: int = 0,
         paged_kv_pages: int = 0,
         paged_kv_page_size: int = 16,
+        paged_kv_quantization: str = "none",
         prefill_chunk_size: int = 0,
     ) -> None:
         if not isinstance(prefill_chunk_size, int) or isinstance(
@@ -143,6 +144,7 @@ class Generator:
                 head_dim=first_attention.head_dim,
                 device=self.device,
                 dtype=next(model.parameters()).dtype,
+                quantization=paged_kv_quantization,
             )
             self.paged_kv_allocator = allocator
             if prefix_cache_capacity:
@@ -565,14 +567,18 @@ class Generator:
             request_id = f"active-{next(self._paged_request_ids)}"
             capacity = min(self.max_positions, len(prompt_ids) + maximum)
             self.paged_kv_allocator.reserve(request_id, capacity)
-            keys = torch.stack([layer[0].squeeze(0) for layer in cache])
-            values = torch.stack([layer[1].squeeze(0) for layer in cache])
-            self.paged_kv_allocator.append(request_id, keys, values)
-            state.page_request_id = request_id
-            state.cache = tuple(
-                self.paged_kv_allocator.layer_cache([request_id], layer)
-                for layer in range(len(cache))
-            )
+            try:
+                keys = torch.stack([layer[0].squeeze(0) for layer in cache])
+                values = torch.stack([layer[1].squeeze(0) for layer in cache])
+                self.paged_kv_allocator.append(request_id, keys, values)
+                state.page_request_id = request_id
+                state.cache = tuple(
+                    self.paged_kv_allocator.layer_cache([request_id], layer)
+                    for layer in range(len(cache))
+                )
+            except BaseException:
+                self.paged_kv_allocator.release(request_id)
+                raise
         return state
 
     @torch.inference_mode()
