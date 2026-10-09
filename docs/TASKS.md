@@ -116,6 +116,17 @@ training-only objective: with their current horizon-2+ contract, treating them
 as an inference draft would require an additional target pass and offers no
 safe speedup.
 
+### IMAGE-DIFFUSION-001: Prepare a bounded 4 GB captioned-image workflow
+
+- **ID**: `IMAGE-DIFFUSION-001`
+- **Status**: In Progress
+- **Dependencies**: None
+
+The repository now has a bounded Hugging Face caption importer and an RTX 3050
+local latent-diffusion profile. A partial external-drive dataset import must be
+recreated before training. The latent trainer still needs mixed-precision,
+validation, and EMA-best-checkpoint support before this task can be completed.
+
 When adding a task, use a level-three heading with a stable identifier, a
 matching `ID` field, and a `Dependencies` field. The registry audit validates
 these fields and verifies that every listed dependency exists.

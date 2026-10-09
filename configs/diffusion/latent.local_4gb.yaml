@@ -1,0 +1,67 @@
+# Conservative from-scratch, caption-conditioned latent diffusion profile for
+# an RTX 3050 Laptop GPU (4 GiB). This is a correctness/learning profile, not
+# a claim of production image quality from a small local dataset.
+planning_only: false
+image_size: 128
+image_channels: 3
+latent_channels: 4
+latent_scale: 0.18215
+vae_base_channels: 64
+vae_downsample_factor: 8
+vae_batch_size: 2
+vae_epochs: 40
+vae_learning_rate: 0.0001
+vae_weight_decay: 0.01
+vae_output: checkpoints/diffusion/local-4gb/vae.pt
+
+latent_model_output: checkpoints/diffusion/local-4gb/latent-unet.pt
+latent_text_encoder_output: checkpoints/diffusion/local-4gb/latent-text-encoder.pt
+tokenizer: data/tokenizer-finetuning
+train_manifest: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/coco2017-captioned-10k/train/manifest.jsonl
+validation_manifest: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/coco2017-captioned-10k/validation/manifest.jsonl
+train_data: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/coco2017-captioned-10k/train/images
+validation_data: /media/user/c55a3051-add0-438c-95e3-28a4c4f7d44b/coco2017-captioned-10k/validation/images
+
+batch_size: 1
+epochs: 80
+learning_rate: 0.0001
+weight_decay: 0.01
+save_every_steps: 500
+log_every_steps: 20
+base_channels: 96
+condition_size: 256
+use_attention: true
+use_cross_attention: true
+attention_heads: 4
+dropout: 0.1
+text_hidden_size: 256
+text_layers: 4
+text_heads: 4
+text_max_length: 64
+text_dropout: 0.1
+text_padding_idx: 0
+timesteps: 1000
+noise_schedule: cosine
+beta_start: 0.0001
+beta_end: 0.02
+inference_steps: 50
+condition_dropout: 0.1
+guidance_scale: 5.0
+mixed_precision: fp16
+max_grad_norm: 1.0
+warmup_ratio: 0.03
+lr_schedule: cosine
+min_lr_ratio: 0.05
+num_workers: 2
+seed: 42
+experiment_tracking:
+  kind: tensorboard
+  log_dir: runs/diffusion/local-4gb
+runtime:
+  log_file: logs/diffusion/local-4gb.log
+train_resize_mode: random_crop
+eval_resize_mode: center_crop
+image_normalization: minus_one_one
+horizontal_flip: true
+horizontal_flip_probability: 0.5
+color_jitter: 0.0

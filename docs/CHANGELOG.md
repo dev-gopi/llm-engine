@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Added a bounded Hugging Face captioned-image importer and an RTX 3050 4 GB
+  latent-diffusion training profile for the native image-generation stack.
 - Fixed native token-step serving with tenant LoRA adapters: streams snapshot
   adapter state at admission, decode compatible snapshots in one batch, and
   isolate distinct adapters in separate lock-protected model calls.

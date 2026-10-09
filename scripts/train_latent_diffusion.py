@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import torch
@@ -20,6 +21,9 @@ from tokenizer.encoder import Tokenizer
 from training.checkpoint import load_checkpoint, save_checkpoint
 from training.experiment_tracking import create_tracker_from_config
 from utils.config import load_yaml
+from utils.logger import configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 
 def main():
@@ -31,6 +35,8 @@ def main():
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
     cfg = load_yaml(args.config)
+    runtime = cfg.get("runtime", {})
+    configure_logging(log_file=runtime.get("log_file") if isinstance(runtime, dict) else None)
     tracker = create_tracker_from_config(cfg)
     if cfg.get("planning_only"):
         raise SystemExit(
@@ -47,6 +53,8 @@ def main():
     if missing:
         raise ValueError(f"latent diffusion config missing: {', '.join(missing)}")
     device = torch.device(args.device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("--device cuda was requested but CUDA is unavailable")
     tok = Tokenizer.load(Path(cfg["tokenizer"]))
     dataset = CaptionedImageDataset(
         cfg["train_manifest"],
@@ -60,6 +68,13 @@ def main():
         shuffle=True,
         num_workers=int(cfg.get("num_workers", 4)),
         pin_memory=device.type == "cuda",
+    )
+    logger.info(
+        "latent diffusion start: device=%s images=%d batch_size=%d epochs=%d",
+        device,
+        len(dataset),
+        int(cfg.get("batch_size", 4)),
+        int(cfg.get("epochs", 20)),
     )
     vae = AutoencoderKL.from_config(cfg).to(device)
     load_checkpoint(
@@ -115,6 +130,7 @@ def main():
     text.train()
     for epoch in range(epochs):
         for images, captions in loader:
+            started = time.perf_counter()
             batch = tokenize_prompts(
                 list(captions), tok, max_length=max_len, device=device
             )
@@ -134,12 +150,32 @@ def main():
             torch.nn.utils.clip_grad_norm_(params, max_grad)
             opt.step()
             step += 1
-            tracker.log({"train/loss": float(loss.detach())}, step=step)
+            metrics = {
+                "train/loss": float(loss.detach()),
+                "train/learning_rate": float(opt.param_groups[0]["lr"]),
+                "train/step_seconds": time.perf_counter() - started,
+            }
+            if device.type == "cuda":
+                metrics["system/cuda_max_allocated_mib"] = (
+                    torch.cuda.max_memory_allocated(device) / (1024 * 1024)
+                )
+            tracker.log(metrics, step=step)
             if step % int(cfg.get("log_every_steps", 50)) == 0:
-                print(
-                    f"epoch={epoch + 1} step={step} loss={loss.item():.6f}", flush=True
+                logger.info(
+                    "epoch=%d step=%d loss=%.6f lr=%.3g step_seconds=%.3f%s",
+                    epoch + 1,
+                    step,
+                    metrics["train/loss"],
+                    metrics["train/learning_rate"],
+                    metrics["train/step_seconds"],
+                    (
+                        f" cuda_max_allocated_mib={metrics['system/cuda_max_allocated_mib']:.1f}"
+                        if "system/cuda_max_allocated_mib" in metrics
+                        else ""
+                    ),
                 )
             if save_every and step % save_every == 0:
+                logger.info("saving latent diffusion checkpoint at step=%d to %s", step, out)
                 save_checkpoint(
                     out,
                     model,
